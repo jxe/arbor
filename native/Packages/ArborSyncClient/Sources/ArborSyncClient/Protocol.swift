@@ -65,16 +65,8 @@ public struct NodeRef: Codable, Sendable, Equatable {
     }
 }
 
-public struct CanonicalTreeDescriptor: Codable, Sendable, Equatable {
-    public var path: String
-    public var endpoint: String
-    public var parentTree: String?
-
-    /// The public HTTP URL: the endpoint's origin followed by the encoded canonical path.
-    public var httpURL: String { canonicalHTTPURL(endpoint: endpoint, path: path) }
-    /// The `arbor://` locator: the endpoint's host followed by the encoded canonical path.
-    public var arborURL: String { canonicalArborLocator(endpoint: endpoint, path: path) }
-}
+/// A canonical tree location is the same value on the Wire and through Arbor Sync.
+public typealias CanonicalTreeDescriptor = WireCanonicalDescriptor
 
 public struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
     public var snapshot: Value
@@ -95,17 +87,21 @@ public struct TreeDescriptor: Codable, Sendable, Equatable {
     public var canonical: CanonicalTreeDescriptor?
 }
 
+/// A tree as Arbor Sync holds it: the Wire descriptor fields plus placement,
+/// display name, and synchronization state. `root` and `update` are the
+/// accepted Canopy base this placement derives from, absent until one exists.
 public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
     public var id: String
     public var configurationTree: String?
     public var kind: String
     public var access: String
     public var canonical: CanonicalTreeDescriptor?
+    public var root: String?
+    public var update: String?
     public var name: String
     public var osPath: String?
     public var placement: String
     public var sync: String?
-    public var acceptedUpdate: String?
     public var missing: Bool?
 }
 

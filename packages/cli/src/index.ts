@@ -1038,7 +1038,7 @@ async function cloudPlacementsReady(
     if (descriptor.sync !== "idle") return { ready: false, reason: `${target.relativePath} is ${descriptor.sync ?? "not synchronized"}` };
     const remote = (await wire.descriptor(target.treeID)).tree;
     if (remote.access !== "write") return { ready: false, reason: `${target.relativePath} lost write access` };
-    if (descriptor.acceptedUpdate !== remote.update) return { ready: false, reason: `${target.relativePath} has not accepted the current Canopy update` };
+    if (descriptor.update !== remote.update) return { ready: false, reason: `${target.relativePath} has not accepted the current Canopy update` };
     const localSnapshot = await snapshotDirectory(target.path);
     if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from Canopy` };
   }

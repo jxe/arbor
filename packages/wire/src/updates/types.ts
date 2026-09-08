@@ -34,12 +34,7 @@ export interface ServerDevice {
   revokedAt: number | null;
 }
 
-export interface PairingOffer {
-  id: string;
-  secret: string;
-  confirmationCode: string;
-  expiresAt: number;
-}
+export type { PairingOffer } from "@arbor/core";
 
 /**
  * One accepted tree state. `id` is the decimal observation ordinal that

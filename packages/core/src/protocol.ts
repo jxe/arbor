@@ -129,22 +129,63 @@ export function canonicalArborLocator(canonical: Pick<CanonicalTreeDescriptor, "
   return `arbor://${new URL(canonical.endpoint).host}${encodedCanonicalPath(canonical.path) || "/"}`;
 }
 
-export interface LocalTreeDescriptor extends TreeDescriptor {
-  /** Account routing identity for hosted and configuration trees. */
-  configurationTree?: TreeID;
-  name: string;
-  osPath?: string;
-  placement: "placed" | "replica" | "remote";
-  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
-  /** Accepted Canopy update from which local document candidates are derived. */
-  acceptedUpdate?: string;
-  missing?: boolean;
-}
-
+/**
+ * A Canopy tree as the authority currently holds it. `root` and `update`
+ * name one accepted state; the same two fields on a local descriptor name
+ * the accepted base a placement derives from.
+ */
 export interface RemoteTreeDescriptor extends TreeDescriptor {
   /** The bytes hash of the current accepted tree state: the wire root. */
   root: Hash;
   update: string;
+}
+
+/**
+ * A tree as Arbor Sync holds it: the Wire descriptor plus what only a local
+ * daemon knows (placement on disk, display name, synchronization state).
+ * `root` and `update` are the accepted Canopy base this placement derives
+ * from and are absent until the first accepted state is installed.
+ */
+export interface LocalTreeDescriptor extends TreeDescriptor {
+  /** Account routing identity for hosted and configuration trees. */
+  configurationTree?: TreeID;
+  root?: Hash;
+  update?: string;
+  name: string;
+  osPath?: string;
+  placement: "placed" | "replica" | "remote";
+  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  missing?: boolean;
+}
+
+/** A one-time device pairing offer; identical on the Wire and through Arbor Sync. */
+export interface PairingOffer {
+  id: string;
+  secret: string;
+  confirmationCode: string;
+  expiresAt: number;
+}
+
+/** One claimed Canopy account of a data home, safe to present: no credential material. */
+export interface LocalAccountSummary {
+  configurationTree: TreeID;
+  /** The Canopy origin from `account.yaml`; null when the configuration is unreadable. */
+  canopy: string | null;
+  handle: string | null;
+  profileTree: TreeID | null;
+  deviceID: string | null;
+  credentialAvailable: boolean;
+  diagnostics: Array<{ code: string; message: string; path: string; severity: string }>;
+}
+
+/** The local self-certifying person identity, as stored and as Arbor Sync reports it. */
+export interface ProfileIdentity {
+  version: 1;
+  profileTree: TreeID;
+  publicKey: string;
+  profilePath: string;
+  credential: string;
+  keyAvailable: boolean;
 }
 
 /** Deployment/placement context carried by local and Canopy node responses. */

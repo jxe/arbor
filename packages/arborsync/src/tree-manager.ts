@@ -1,6 +1,6 @@
 import { mkdir, realpath, rename, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import { canonicalNodePath, type Diagnostic, type LocalTreeDescriptor } from "@arbor/core";
+import { canonicalNodePath, type Diagnostic, type Hash, type LocalTreeDescriptor } from "@arbor/core";
 import {
   AmbiguousWorkspaceIdentityError,
   arborPrivateRoot,
@@ -31,6 +31,14 @@ function descriptorCanonical(placement: TreePlacement, parentTree: string | null
   if (!placement.canonical) return null;
   const path = placement.canonicalPath ?? new URL(placement.canonical).pathname;
   return { path, endpoint: placement.endpoint, parentTree };
+}
+
+/** The accepted Canopy base a placement derives from, in Wire vocabulary. */
+function acceptedBase(placement: { ref?: string | null; update?: string | null }): { root?: Hash; update?: string } {
+  return {
+    ...(placement.ref ? { root: placement.ref as Hash } : {}),
+    ...(placement.update ? { update: placement.update } : {}),
+  };
 }
 
 /**
@@ -251,7 +259,7 @@ export class TreeManager implements AsyncDisposable {
           canonical: descriptorCanonical(candidate.placement),
           access: candidate.placement.access,
           placement: candidate.placement.replica ? "replica" : "placed",
-          acceptedUpdate: candidate.placement.update,
+          ...acceptedBase(candidate.placement),
         });
       }
     }
@@ -427,7 +435,7 @@ export class TreeManager implements AsyncDisposable {
         canonical: descriptorCanonical(tracked.placement),
         access: tracked.placement.access,
         placement: tracked.placement.replica ? "replica" : "placed",
-        ...(tracked.placement.update ? { acceptedUpdate: tracked.placement.update } : {}),
+        ...acceptedBase(tracked.placement),
       } : undefined,
       excludedRoots: trackedID ? this.compositionFor(trackedID).excludedRoots : [],
     });
@@ -470,7 +478,7 @@ export class TreeManager implements AsyncDisposable {
         canonical: descriptorCanonical(root.placement),
         access: root.placement.access,
         placement: root.placement.replica ? "replica" : "placed",
-        ...(root.placement.update ? { acceptedUpdate: root.placement.update } : {}),
+        ...acceptedBase(root.placement),
       } : undefined,
       excludedRoots: this.compositionFor(tree).excludedRoots,
     });
@@ -511,7 +519,7 @@ export class TreeManager implements AsyncDisposable {
       placement: root.placement!.replica ? "replica" : "placed",
       // Persisted refs are a base, not proof that this process has reconciled it.
       sync: this.syncStates.get(id) ?? "syncing",
-      ...(root.placement!.update ? { acceptedUpdate: root.placement!.update } : {}),
+      ...acceptedBase(root.placement!),
       ...(root.missing ? { missing: true } : {}),
     }));
   }
@@ -725,7 +733,7 @@ export class TreeManager implements AsyncDisposable {
     root.placement = { ...root.placement, ref: placement.ref, update: placement.update, access: placement.access };
     this.workspaces.get(placement.tree)?.updateTreeDescriptor({
       access: placement.access,
-      acceptedUpdate: placement.update,
+      ...acceptedBase(placement),
     });
     await savePlacementSyncMetadata(
       placement.tree,

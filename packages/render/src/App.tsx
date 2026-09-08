@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
 import type { AccessEntry, RecoveryEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@arbor/core";
-import type { CommunityPairingOffer, LocalCanopyAccountDescriptor, LocalProfileIdentity, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/arborsync-client";
+import type { PairingOffer, LocalAccountSummary, ProfileIdentity, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/arborsync-client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
 import { api } from "@arbor/arborsync-client/api";
@@ -275,8 +275,8 @@ export function App() {
     profileURL?: string;
     communityURL?: string;
   }>({ configured: false, credentialAvailable: false });
-  const [accounts, setAccounts] = useState<LocalCanopyAccountDescriptor[]>([]);
-  const [identity, setIdentity] = useState<LocalProfileIdentity | null>(null);
+  const [accounts, setAccounts] = useState<LocalAccountSummary[]>([]);
+  const [identity, setIdentity] = useState<ProfileIdentity | null>(null);
   const [selectedAccountTree, setSelectedAccountTree] = useState<string | null>(null);
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
@@ -295,7 +295,7 @@ export function App() {
   const [accessDraftKind, setAccessDraftKind] = useState<ExistingAccessSubjectKind>("");
   const [accessDraftPermission, setAccessDraftPermission] = useState<AccessPermission>("read");
   const [devices, setDevices] = useState<CommunityDevice[]>([]);
-  const [pairing, setPairing] = useState<{ offer: CommunityPairingOffer; account: LocalCanopyAccountDescriptor } | null>(null);
+  const [pairing, setPairing] = useState<{ offer: PairingOffer; account: LocalAccountSummary } | null>(null);
   const [deviceBusy, setDeviceBusy] = useState(false);
   const [crumbsExpanded, setCrumbsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
@@ -986,7 +986,7 @@ export function App() {
     }
   }, [refreshSystem]);
 
-  const createDevicePairing = useCallback(async (account: LocalCanopyAccountDescriptor) => {
+  const createDevicePairing = useCallback(async (account: LocalAccountSummary) => {
     if (!account) return;
     try {
       setDeviceBusy(true);

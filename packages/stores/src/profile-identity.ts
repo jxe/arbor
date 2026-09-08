@@ -1,3 +1,4 @@
+import type { ProfileIdentity } from "@arbor/core";
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from "node:crypto";
 import { chmod, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -23,9 +24,8 @@ export interface ProfileIdentityMetadata {
   credential: string;
 }
 
-export interface ProfileIdentityStatus extends ProfileIdentityMetadata {
-  keyAvailable: boolean;
-}
+/** The stored identity plus key availability; the same shape Arbor Sync reports as `identity`. */
+export type ProfileIdentityStatus = ProfileIdentity;
 
 interface ProfileIdentityBackup {
   version: 1;

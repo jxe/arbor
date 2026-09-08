@@ -1,16 +1,8 @@
+import type { LocalAccountSummary } from "@arbor/core";
 import { loadCanopyAccountConfigurations } from "./account-config-v2.ts";
 import { CanopyAccountStore, CommunityConfigStore } from "./server-config.ts";
 
-/** One claimed Canopy account of this data home, safe to present: no credential material. */
-export interface LocalAccountSummary {
-  configurationTree: string;
-  canopy: string | null;
-  handle: string | null;
-  profileTree: string | null;
-  deviceID: string | null;
-  credentialAvailable: boolean;
-  diagnostics: Array<{ code: string; message: string; path: string; severity: string }>;
-}
+export type { LocalAccountSummary } from "@arbor/core";
 
 /**
  * The claimed Canopy accounts of the current data home, projected from

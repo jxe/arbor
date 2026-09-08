@@ -32,11 +32,14 @@ type Diagnostic = {
 };
 
 type LocalTreeDescriptor = TreeDescriptor & {
+  // The accepted Canopy base this placement derives from: the same `root`
+  // and `update` a Wire RemoteTreeDescriptor carries, absent until one exists.
+  root?: Hash;
+  update?: string;
   name: string;
   placement: "placed" | "replica" | "remote";
   osPath?: string;
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
-  acceptedUpdate?: string;
   missing?: boolean;
 };
 
@@ -48,6 +51,11 @@ type LocatorResolution = {
 };
 ```
 
+- Arbor Sync speaks the Wire vocabulary wherever the two overlap. `TreeDescriptor`,
+  `LocatorResolution`, `PairingOffer`, `LocalAccountSummary`, and
+  `ProfileIdentity` are single definitions in `@arbor/core` (Swift:
+  `ArborWire` and `ArborSyncClient` share `WireCanonicalDescriptor`); a
+  local descriptor adds only what a local daemon knows.
 - `local` and `system` are explicit local-only scopes, not pretend trees, and
   never cross Arbor Wire. Wherever a wire value says `TreeID`—`NodeRef.tree`,
   `ArborError.tree`, `ObservationEvent.tree`—REST v1 accepts a `TreeRef`.
@@ -118,7 +126,8 @@ It includes placed trees, pathless replicas, known remote placements, and the
 implicit authenticated account-configuration tree. It never invents a
 descriptor for `local` or `system`.
 
-`GET /v1/accounts` returns a safe list keyed by configuration TreeID. Each
+`GET /v1/accounts` returns `{ accounts: LocalAccountSummary[], identity }`, a
+safe list keyed by configuration TreeID. Each
 entry reports its Canopy origin, profile TreeID, current DeviceID, credential
 availability, diagnostics, and an optional Canopy-specific presentation
 handle. The handle and origin are never account identity or credential keys.

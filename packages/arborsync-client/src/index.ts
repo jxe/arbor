@@ -6,11 +6,14 @@ import type {
   ContentRevision,
   ContentWorkspaceOperation,
   LocalTreeDescriptor,
+  LocalAccountSummary,
   LocatorResolution,
   MutationReceipt,
   MutationRequest,
   NodeRef,
   NodeResponse,
+  PairingOffer,
+  ProfileIdentity,
   RecoveryPage,
   SearchPage,
   SnapshotEnvelope,
@@ -112,31 +115,9 @@ export interface ObservedNodeView {
   close(): void;
 }
 
-export interface CommunityPairingOffer {
-  id: string;
-  secret: string;
-  confirmationCode: string;
-  expiresAt: number;
-}
-
-export interface LocalCanopyAccountDescriptor {
-  configurationTree: string;
-  canopy: string | null;
-  handle: string | null;
-  profileTree: string | null;
-  deviceID: string | null;
-  credentialAvailable: boolean;
-  diagnostics: Array<{ code: string; message: string; path: string; severity: string }>;
-}
-
-export interface LocalProfileIdentity {
-  version: 1;
-  profileTree: string;
-  publicKey: string;
-  profilePath: string;
-  credential: string;
-  keyAvailable: boolean;
-}
+// Account, identity, and pairing values are the shared vocabulary in @arbor/core:
+// Arbor Sync reports exactly what Canopy's Wire and the data-home stores use.
+export type { LocalAccountSummary, PairingOffer, ProfileIdentity } from "@arbor/core";
 
 export interface LocalPlacementMoveResult {
   tree: string;
@@ -321,11 +302,11 @@ export class ArborSyncRESTClient {
   }
 
   /** The claimed Canopy accounts of this data home and the local person identity, if one exists. */
-  accounts(): Promise<{ accounts: LocalCanopyAccountDescriptor[]; identity: LocalProfileIdentity | null }> {
+  accounts(): Promise<{ accounts: LocalAccountSummary[]; identity: ProfileIdentity | null }> {
     return this.request("/v1/accounts");
   }
 
-  createProfileIdentity(path: string): Promise<{ identity: LocalProfileIdentity }> {
+  createProfileIdentity(path: string): Promise<{ identity: ProfileIdentity }> {
     return this.request("/v1/me", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -333,7 +314,7 @@ export class ArborSyncRESTClient {
     });
   }
 
-  createCommunityPairing(configurationTree?: string): Promise<CommunityPairingOffer> {
+  createCommunityPairing(configurationTree?: string): Promise<PairingOffer> {
     return this.request("/v1/bootstrap/pairings", {
       method: "POST",
       ...(configurationTree ? {

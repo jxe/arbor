@@ -52,14 +52,8 @@ public struct FileRead: Sendable, Equatable {
     public var revision: String
 }
 
+/// One claimed Canopy account of the data home, as `GET /v1/accounts` reports it (`LocalAccountSummary` in `@arbor/core`).
 public struct LocalCanopyAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
-    public struct Diagnostic: Codable, Sendable, Equatable {
-        public var code: String
-        public var message: String
-        public var path: String
-        public var severity: String
-    }
-
     public var configurationTree: String
     public var canopy: String?
     public var handle: String?
