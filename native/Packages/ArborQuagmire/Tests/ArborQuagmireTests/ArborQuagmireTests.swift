@@ -1041,7 +1041,7 @@ struct ArborQuagmireTests {
         let home = WorkspaceNode(
             reference: .init(tree: tree, path: "/"),
             title: "Home",
-            surface: .directoryDocument(source: "# Home\n", contentRevision: "r1", stored: true),
+            surface: .directoryDocument(source: "# Home\n\n[Destination](/destination)\n", contentRevision: "r1", stored: true),
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let destination = WorkspaceNode(
@@ -1064,6 +1064,7 @@ struct ArborQuagmireTests {
 
         let documents = await host.moveDocuments(matching: "")
         #expect(documents.map(\.title) == ["Destination"])
+        #expect(documents.map(\.backlinkCount) == [1])
 
         let targetID = BlockID()
         let target = InDocMoveTarget(id: targetID, title: "Section", kind: .heading(level: .h2), depth: 1)
@@ -1072,6 +1073,52 @@ struct ArborQuagmireTests {
         #expect(host.moveRequest?.inDocumentCandidates == [target])
         host.resolveMoveRequest(with: .block(targetID))
         #expect(await requestTask.value == .block(targetID))
+    }
+
+    @MainActor
+    @Test("Implicit child rows exclude children already linked in authored Markdown")
+    func implicitChildRowsExcludeAuthoredLinks() async throws {
+        let tree: TreeID = "tr_implicit_children"
+        let parent = WorkspaceNode(
+            reference: .init(tree: tree, path: "/parent", stableKey: markdownStableKey("pg_parent")),
+            title: "Parent",
+            surface: .directoryDocument(
+                source: "# Parent\n\n[Linked child](linked)\n",
+                contentRevision: "r1",
+                stored: true
+            ),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let linked = WorkspaceNode(
+            reference: .init(tree: tree, path: "/parent/linked", stableKey: markdownStableKey("pg_linked")),
+            title: "Linked child",
+            surface: .markdown(source: "# Linked child\n", contentRevision: "r1"),
+            provenance: parent.provenance
+        )
+        let implicit = WorkspaceNode(
+            reference: .init(tree: tree, path: "/parent/implicit", stableKey: markdownStableKey("pg_implicit")),
+            title: "Implicit child",
+            surface: .markdown(source: "# Implicit child\n", contentRevision: "r1"),
+            provenance: parent.provenance
+        )
+        let provider = InMemoryWorkspaceProvider(
+            nodes: [parent, linked, implicit],
+            children: [parent.id: [linked.id, implicit.id]]
+        )
+        let session = try await provider.openDocument(parent.reference)
+        let binding = try await ArborDocumentBinding.open(reference: parent.reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService(),
+            relativeReferenceBase: parent.reference
+        )
+
+        #expect(host.implicitChildren(
+            among: [linked, implicit],
+            in: binding.document
+        ).map(\.reference.identity) == [implicit.reference.identity])
+        await session.close()
     }
 
     @MainActor

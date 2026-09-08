@@ -184,6 +184,62 @@ enum ArborSidebarPages {
     }
 }
 
+struct ArborOrderedPageSections<Row: View>: View {
+    let results: [WorkspaceSearchResult]
+    let order: ArborSidebarPageOrder
+    var alphabeticalSectionTitle: String?
+    var topSpacing: CGFloat = 0
+    @ViewBuilder let row: (WorkspaceSearchResult, Bool) -> Row
+
+    var body: some View {
+        if order == .recent {
+            ForEach(Array(ArborSidebarPages.recentGroups(results).enumerated()), id: \.element.id) { index, group in
+                Section {
+                    ForEach(group.results) { row($0, false) }
+                } header: {
+                    Text(group.title)
+                        .padding(.top, index == 0 ? topSpacing : 0)
+                }
+            }
+        } else if order == .linkCount {
+            ForEach(Array(ArborSidebarPages.linkCountGroups(results).enumerated()), id: \.element.id) { index, group in
+                Section {
+                    ForEach(group.results) { row($0, group.showsBacklinkCounts) }
+                } header: {
+                    Text(group.title)
+                        .padding(.top, index == 0 ? topSpacing : 0)
+                }
+            }
+        } else if let alphabeticalSectionTitle {
+            Section {
+                ForEach(ArborSidebarPages.sorted(results, by: order)) { row($0, false) }
+            } header: {
+                Text(alphabeticalSectionTitle)
+                    .padding(.top, topSpacing)
+            }
+        } else {
+            ForEach(Array(ArborSidebarPages.sorted(results, by: order).enumerated()), id: \.element.id) { index, result in
+                row(result, false)
+                    .padding(.top, index == 0 ? topSpacing : 0)
+            }
+        }
+    }
+}
+
+enum ArborPagePickerSelection {
+    static func moved<ID: Hashable>(
+        _ selection: ID?,
+        by delta: Int,
+        in values: [ID]
+    ) -> ID? {
+        guard !values.isEmpty else { return nil }
+        let current = selection.flatMap(values.firstIndex)
+        let start = delta > 0 ? -1 : values.count
+        let next = min(max((current ?? start) + delta, 0), values.count - 1)
+        return values[next]
+    }
+}
+
 #if os(macOS)
 private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     let width: CGFloat
@@ -405,6 +461,93 @@ private final class PageOrderPopUpButton: NSPopUpButton {
 }
 #endif
 
+struct ArborPageSearchControls: View {
+    @Binding var query: String
+    @Binding var order: ArborSidebarPageOrder
+    var prompt = "Search pages"
+    var focused: FocusState<Bool>.Binding
+    var handleKeyPress: ((KeyPress) -> KeyPress.Result)?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField(prompt, text: $query)
+                    .textFieldStyle(.plain)
+                    .focused(focused)
+                    .onKeyPress(keys: [.upArrow, .downArrow, .return]) { press in
+                        handleKeyPress?(press) ?? .ignored
+                    }
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear Search")
+                    .accessibilityLabel("Clear Search")
+                }
+            }
+            .padding(.horizontal, 8)
+#if os(macOS)
+            .frame(height: 28)
+#else
+            .frame(height: 40)
+#endif
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.primary.opacity(focused.wrappedValue ? 0.065 : 0.035))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(
+                                Color.primary.opacity(focused.wrappedValue ? 0.18 : 0.075),
+                                lineWidth: 0.75
+                            )
+                    }
+            }
+
+#if os(macOS)
+            MacPageOrderPicker(selection: $order)
+                .frame(width: 32, height: 32)
+                .mutedMacToolbarHover()
+                .help("Page order: \(order.label)")
+#else
+            Menu {
+                ForEach(ArborSidebarPageOrder.allCases) { candidate in
+                    Button {
+                        order = candidate
+                    } label: {
+                        Label(candidate.label, systemImage: candidate.symbol)
+                    }
+                }
+            } label: {
+                Image(systemName: order.symbol)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .frame(width: 48, height: 48)
+            .contentShape(.circle)
+            .tint(.gray)
+            .accessibilityLabel("Page order")
+            .accessibilityValue(order.label)
+#endif
+        }
+    }
+
+    private var cornerRadius: CGFloat {
+#if os(macOS)
+        7
+#else
+        10
+#endif
+    }
+}
+
 struct ArborRootView: View {
     let workspace: ArborWorkspaceState
     let onDisconnect: @MainActor () -> Void
@@ -420,8 +563,9 @@ struct ArborRootView: View {
     @State private var arborsyncLogs = ""
     @State private var documentConflictExpanded = false
     @State private var voiceLaunchReady = false
-    @State private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
+    @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
     @State private var sidebarSearchText = ""
+    @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @FocusState private var sidebarSearchFocused: Bool
 #if os(macOS)
     @State private var sidebarTitlebarAccessoryInstalled = false
@@ -602,12 +746,20 @@ struct ArborRootView: View {
         .sheet(item: $presentedSheet, content: sheet)
         .sheet(item: moveRequestBinding) { request in
             if let host = model.editorHost {
-                ArborMoveDestinationSheet(host: host, request: request)
+                ArborMoveDestinationSheet(
+                    host: host,
+                    request: request,
+                    stalePageResults: model.searchResults
+                )
             }
         }
         .sheet(item: structuralMoveRequestBinding) { request in
             if let host = model.editorHost {
-                ArborStructuralMoveSheet(host: host, request: request)
+                ArborStructuralMoveSheet(
+                    host: host,
+                    request: request,
+                    stalePageResults: model.searchResults
+                )
             }
         }
         .confirmationDialog("Move this node to Trash?", isPresented: $trashConfirmationPresented) {
@@ -796,106 +948,41 @@ struct ArborRootView: View {
     }
 
     private var sidebarList: some View {
-        List {
-            if sidebarPageOrder == .recent {
-                recentSidebarRows
-            } else if sidebarPageOrder == .linkCount {
-                linkCountSidebarRows
-            } else {
-                Section {
-                    if !sidebarSearchText.isEmpty {
-                        searchSidebarRows
-                    } else {
-                        sidebarChildRows
-                    }
+        ScrollViewReader { proxy in
+            List {
+                ArborOrderedPageSections(
+                    results: model.searchResults,
+                    order: sidebarPageOrder,
+                    alphabeticalSectionTitle: nil,
+                    topSpacing: 4
+                ) { result, showsBacklinkCount in
+                    sidebarSearchRow(result, showsBacklinkCount: showsBacklinkCount)
                 }
             }
-        }
-        .listStyle(.sidebar)
+            .listStyle(.sidebar)
 #if os(iOS)
-        .contentMargins(.top, 0, for: .scrollContent)
+            .contentMargins(.top, 0, for: .scrollContent)
 #endif
-        .overlay {
-            if sidebarPageOrder == .alphabetical
-                && sidebarSearchText.isEmpty
-                && model.children.isEmpty {
-                ContentUnavailableView("No children", systemImage: "tree")
-                    .allowsHitTesting(false)
-            } else if (sidebarPageOrder != .alphabetical || !sidebarSearchText.isEmpty)
-                && model.searchResults.isEmpty {
-                ContentUnavailableView.search(text: sidebarSearchText)
-                    .allowsHitTesting(false)
+            .overlay {
+                if model.searchResults.isEmpty {
+                    ContentUnavailableView.search(text: sidebarSearchText)
+                        .allowsHitTesting(false)
+                }
+            }
+            .onChange(of: sidebarKeyboardSelection) { _, selection in
+                guard let selection else { return }
+                withAnimation { proxy.scrollTo(selection, anchor: .center) }
             }
         }
     }
 
     private var sidebarPagesHeader: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search pages", text: $sidebarSearchText)
-                    .textFieldStyle(.plain)
-                    .focused($sidebarSearchFocused)
-                if !sidebarSearchText.isEmpty {
-                    Button {
-                        sidebarSearchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear Search")
-                    .accessibilityLabel("Clear Search")
-                }
-            }
-            .padding(.horizontal, 8)
-#if os(macOS)
-            .frame(height: 28)
-#else
-            .frame(height: 40)
-#endif
-            .background {
-                RoundedRectangle(cornerRadius: sidebarSearchCornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(sidebarSearchFocused ? 0.065 : 0.035))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: sidebarSearchCornerRadius, style: .continuous)
-                            .stroke(
-                                Color.primary.opacity(sidebarSearchFocused ? 0.18 : 0.075),
-                                lineWidth: 0.75
-                            )
-                    }
-            }
-
-#if os(macOS)
-            MacPageOrderPicker(selection: $sidebarPageOrder)
-                .frame(width: 32, height: 32)
-                .mutedMacToolbarHover()
-                .help("Page order: \(sidebarPageOrder.label)")
-#else
-            Menu {
-                ForEach(ArborSidebarPageOrder.allCases) { order in
-                    Button {
-                        selectSidebarPageOrder(order)
-                    } label: {
-                        Label(order.label, systemImage: order.symbol)
-                    }
-                }
-            } label: {
-                Image(systemName: sidebarPageOrder.symbol)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .frame(width: 48, height: 48)
-            .contentShape(.circle)
-            .tint(.gray)
-            .accessibilityLabel("Page order")
-            .accessibilityValue(sidebarPageOrder.label)
-
-#endif
-        }
+        ArborPageSearchControls(
+            query: $sidebarSearchText,
+            order: $sidebarPageOrder,
+            focused: $sidebarSearchFocused,
+            handleKeyPress: handleSidebarSearchKeyPress
+        )
 #if os(macOS)
         .padding(.leading, 8)
         .padding(.trailing, 8)
@@ -905,60 +992,12 @@ struct ArborRootView: View {
         .padding(.vertical, 10)
 #endif
         .onChange(of: sidebarSearchText) { _, query in
+            sidebarKeyboardSelection = nil
             Task { await model.search(query) }
         }
         .task(id: sidebarPageOrder) {
-            guard sidebarPageOrder != .alphabetical || !sidebarSearchText.isEmpty else { return }
+            sidebarKeyboardSelection = nil
             await model.search(sidebarSearchText)
-        }
-    }
-
-    private var sidebarSearchCornerRadius: CGFloat {
-#if os(macOS)
-        7
-#else
-        10
-#endif
-    }
-
-    private func selectSidebarPageOrder(_ order: ArborSidebarPageOrder) {
-        sidebarPageOrder = order
-        guard order != .alphabetical || !sidebarSearchText.isEmpty else { return }
-        Task { await model.search(sidebarSearchText) }
-    }
-
-    @ViewBuilder
-    private var searchSidebarRows: some View {
-        ForEach(ArborSidebarPages.sorted(model.searchResults, by: .alphabetical)) { result in
-            sidebarSearchRow(result, showsBacklinkCount: false)
-        }
-    }
-
-    @ViewBuilder
-    private var recentSidebarRows: some View {
-        ForEach(ArborSidebarPages.recentGroups(model.searchResults)) { group in
-            Section {
-                ForEach(group.results) { result in
-                    sidebarSearchRow(result, showsBacklinkCount: false)
-                }
-            } header: {
-                Text(group.title)
-                    .padding(.top, group.title == "Today" ? 12 : 6)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var linkCountSidebarRows: some View {
-        ForEach(ArborSidebarPages.linkCountGroups(model.searchResults)) { group in
-            Section {
-                ForEach(group.results) { result in
-                    sidebarSearchRow(result, showsBacklinkCount: group.showsBacklinkCounts)
-                }
-            } header: {
-                Text(group.title)
-                    .padding(.top, group.title == "0 Links" ? 12 : 6)
-            }
         }
     }
 
@@ -966,22 +1005,48 @@ struct ArborRootView: View {
         _ result: WorkspaceSearchResult,
         showsBacklinkCount: Bool
     ) -> some View {
-        ArborSidebarSearchRow(result: result, showsBacklinkCount: showsBacklinkCount) {
+        ArborSidebarSearchRow(
+            result: result,
+            showsBacklinkCount: showsBacklinkCount,
+            isKeyboardSelected: sidebarKeyboardSelection == result.id,
+            acceptsBlockDrop: !isCurrent(.reference(result.reference)),
+            movePage: {
+                Task { _ = await model.editorHost?.moveDocument(result.reference) }
+            }
+        ) {
             openFromSidebar(.reference(result.reference))
         }
+        .id(result.id)
     }
 
-    @ViewBuilder
-    private var sidebarChildRows: some View {
-        ForEach(model.children) { node in
-            ArborSidebarRow(
-                node: node,
-                isCurrent: isCurrent(node.location),
-                open: { openFromSidebar(node.location) },
-                openInNewTab: { Task { await model.openInNewTab(node.location) } },
-                trash: { Task { await model.perform(.trash(reference: node.reference), navigateToResult: false) } }
-            )
+    private var keyboardNavigableSidebarResults: [WorkspaceSearchResult] {
+        return ArborSidebarPages.sorted(model.searchResults, by: sidebarPageOrder)
+    }
+
+    private func handleSidebarSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        guard press.phase == .down, sidebarSearchFocused else { return .ignored }
+        let results = keyboardNavigableSidebarResults
+        guard !results.isEmpty else { return .ignored }
+        switch press.key {
+        case .upArrow:
+            moveSidebarKeyboardSelection(by: -1, in: results)
+        case .downArrow:
+            moveSidebarKeyboardSelection(by: 1, in: results)
+        case .return:
+            let result = results.first { $0.id == sidebarKeyboardSelection } ?? results[0]
+            openFromSidebar(.reference(result.reference))
+        default:
+            return .ignored
         }
+        return .handled
+    }
+
+    private func moveSidebarKeyboardSelection(by delta: Int, in results: [WorkspaceSearchResult]) {
+        sidebarKeyboardSelection = ArborPagePickerSelection.moved(
+            sidebarKeyboardSelection,
+            by: delta,
+            in: results.map(\.id)
+        )
     }
 
 #if os(macOS)
@@ -1566,6 +1631,8 @@ struct ArborRootView: View {
                                 provider: workspace.providerDetail,
                                 sync: workspace.syncPresentation,
                                 binding: lease.binding,
+                                host: host,
+                                children: editorChildren(for: presentation),
                                 backlinks: presentation.backlinks,
                                 open: { destination in Task { await model.navigate(to: destination) } },
                                 showStatus: showStatusPanel
@@ -1583,6 +1650,13 @@ struct ArborRootView: View {
         } else {
             ProgressView()
         }
+    }
+
+    private func editorChildren(
+        for presentation: ArborAppModel.PagePresentation
+    ) -> [WorkspaceNode] {
+        guard case .directoryDocument = presentation.node.surface else { return [] }
+        return presentation.children
     }
 
     @ViewBuilder

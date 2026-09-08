@@ -80,6 +80,7 @@ struct ArborSidebarRow: View {
     let isCurrent: Bool
     let open: () -> Void
     let openInNewTab: () -> Void
+    let movePage: () -> Void
     let trash: () -> Void
 
     var body: some View {
@@ -115,11 +116,21 @@ struct ArborSidebarRow: View {
             Button("Open in New Tab", systemImage: "plus.square.on.square", action: openInNewTab)
             if node.isWritable {
                 Divider()
+                if node.surface.supportsDocumentSession,
+                   node.reference.path != "/",
+                   !node.reference.path.hasPrefix("/Trash/") {
+                    Button("Move Page…", systemImage: "folder", action: movePage)
+                }
                 Button("Move to Trash", systemImage: "trash", role: .destructive, action: trash)
             }
         }
         .accessibilityLabel(node.title)
         .accessibilityValue(isCurrent ? "Current page" : surfaceLabel)
+        .arborBlockDropDestination(
+            !isCurrent && node.isWritable && node.surface.supportsDocumentSession
+                ? ArborDocumentReferenceCodec.encode(node.reference)
+                : nil
+        )
     }
 
     private var symbol: String {
@@ -152,6 +163,9 @@ struct ArborSidebarRow: View {
 struct ArborSidebarSearchRow: View {
     let result: WorkspaceSearchResult
     let showsBacklinkCount: Bool
+    var isKeyboardSelected = false
+    var acceptsBlockDrop = true
+    var movePage: (() -> Void)?
     let open: () -> Void
 
     var body: some View {
@@ -191,11 +205,51 @@ struct ArborSidebarSearchRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .listRowBackground(isKeyboardSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        .arborBlockDropDestination(
+            acceptsBlockDrop ? ArborDocumentReferenceCodec.encode(result.reference) : nil
+        )
+        .contextMenu {
+            Button("Open", systemImage: "arrow.right", action: open)
+            if let movePage {
+                Divider()
+                Button("Move Page…", systemImage: "folder", action: movePage)
+            }
+        }
+    }
+}
+
+private struct ArborBlockDropDestinationModifier: ViewModifier {
+    let reference: DocumentReference?
+    @FocusedValue(\.editorCommands) private var editorCommands
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(isTargeted ? Color.accentColor.opacity(0.16) : Color.clear)
+            .dropDestination(for: BlockDragPayload.self) { payloads, _ in
+                guard let reference, let commands = editorCommands else { return false }
+                let ids = payloads.flatMap(\.ids)
+                guard !ids.isEmpty else { return false }
+                commands.moveDraggedBlocks(ids, reference)
+                return true
+            } isTargeted: { targeted in
+                isTargeted = reference != nil && targeted
+            }
+    }
+}
+
+private extension View {
+    func arborBlockDropDestination(_ reference: DocumentReference?) -> some View {
+        modifier(ArborBlockDropDestinationModifier(reference: reference))
     }
 }
 
 func arborSidebarContextPath(_ path: String) -> String? {
-    path.split(separator: "/", omittingEmptySubsequences: true).count > 1 ? path : nil
+    let components = path.split(separator: "/", omittingEmptySubsequences: true)
+    guard !components.isEmpty else { return nil }
+    guard components.count > 1 else { return nil }
+    return "/" + components.dropLast().joined(separator: "/")
 }
 
 private func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: String) {
@@ -324,9 +378,7 @@ struct ArborSearchPalette: View {
     }
 
     private func containingPath(for reference: WorkspaceReference) -> String? {
-        let components = reference.path.split(separator: "/")
-        guard components.count > 1 else { return nil }
-        return components.dropLast().joined(separator: "/")
+        arborSidebarContextPath(reference.path)
     }
 }
 
@@ -340,69 +392,86 @@ struct ArborMoveDestinationSheet: View {
     @State private var documents: [ArborMoveDocument] = []
     @State private var isLoading = false
     @State private var showAllInDocument = false
+    @AppStorage("pageOrder.moveTo") private var order = ArborSidebarPageOrder.alphabetical
+    @State private var keyboardSelection: MoveDestination?
 
     private static let collapsedLimit = 5
+
+    init(
+        host: ArborEditorHost,
+        request: ArborMoveRequest,
+        stalePageResults: [WorkspaceSearchResult] = []
+    ) {
+        self.host = host
+        self.request = request
+        let current = host.binding.reference.identity
+        let indexed = stalePageResults
+            .filter { $0.reference.identity != current }
+            .map {
+                ArborMoveDocument(
+                    reference: ArborDocumentReferenceCodec.encode($0.reference),
+                    title: $0.title,
+                    subtitle: $0.reference.path,
+                    isHome: $0.reference.path == "/",
+                    modifiedAt: $0.modifiedAt,
+                    backlinkCount: $0.backlinkCount
+                )
+            }
+        let cached = host.staleMoveDocuments(matching: "")
+        _documents = State(initialValue: cached.isEmpty ? indexed : cached)
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                TextField("Search destinations", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($searchFocused)
-                    .submitLabel(.go)
-                    .onSubmit(activateFirstResult)
+                ArborPageSearchControls(
+                    query: $query,
+                    order: $order,
+                    prompt: "Search destinations",
+                    focused: $searchFocused,
+                    handleKeyPress: handleSearchKeyPress
+                )
                     .padding(12)
                 Divider()
-                List {
-                    if !visibleInDocument.isEmpty {
-                        Section("On this page") {
-                            ForEach(collapsedInDocument) { target in
-                                Button { activate(.block(target.id)) } label: {
-                                    moveTargetLabel(target)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            if visibleInDocument.count > Self.collapsedLimit, query.isEmpty {
-                                Button(showAllInDocument ? "Show less" : "Show (visibleInDocument.count - Self.collapsedLimit) more") {
-                                    showAllInDocument.toggle()
-                                }
-                                .font(ArborStyle.shellFont(weight: .medium))
-                            }
-                        }
-                    }
-                    Section("Documents") {
-                        ForEach(documents) { document in
-                            Button { activate(.document(document.reference)) } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: document.isHome ? "house" : "doc.text")
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 18)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(document.title)
-                                            .font(ArborStyle.shellFont(size: 14, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                        Text(document.subtitle)
-                                            .font(ArborStyle.shellFont(size: 11))
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
+                ScrollViewReader { proxy in
+                    List {
+                        if !visibleInDocument.isEmpty {
+                            Section("On this page") {
+                                ForEach(collapsedInDocument) { target in
+                                    Button { activate(.block(target.id)) } label: {
+                                        moveTargetLabel(target)
                                     }
+                                    .buttonStyle(.plain)
+                                    .listRowBackground(
+                                        keyboardSelection == .block(target.id)
+                                            ? Color.accentColor.opacity(0.12)
+                                            : Color.clear
+                                    )
+                                    .id(MoveDestination.block(target.id))
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(.rect)
+                                if visibleInDocument.count > Self.collapsedLimit, query.isEmpty {
+                                    Button(showAllInDocument ? "Show less" : "Show \(visibleInDocument.count - Self.collapsedLimit) more") {
+                                        showAllInDocument.toggle()
+                                    }
+                                    .font(ArborStyle.shellFont(weight: .medium))
+                                }
                             }
-                            .buttonStyle(.plain)
+                        }
+                        documentSections
+                    }
+                    .overlay {
+                        if isLoading, documents.isEmpty {
+                            ProgressView("Finding destinations")
+                        } else if visibleInDocument.isEmpty, documents.isEmpty {
+                            ContentUnavailableView(
+                                "No matching destinations",
+                                systemImage: "arrow.turn.down.right"
+                            )
                         }
                     }
-                }
-                .overlay {
-                    if isLoading, documents.isEmpty {
-                        ProgressView("Finding destinations")
-                    } else if visibleInDocument.isEmpty, documents.isEmpty {
-                        ContentUnavailableView(
-                            "No matching destinations",
-                            systemImage: "arrow.turn.down.right"
-                        )
+                    .onChange(of: keyboardSelection) { _, selection in
+                        guard let selection else { return }
+                        withAnimation { proxy.scrollTo(selection, anchor: .center) }
                     }
                 }
             }
@@ -425,6 +494,9 @@ struct ArborMoveDestinationSheet: View {
             documents = await host.moveDocuments(matching: query)
             isLoading = false
         }
+        .onChange(of: query) { _, _ in keyboardSelection = nil }
+        .onChange(of: order) { _, _ in keyboardSelection = nil }
+        .onChange(of: documents) { _, _ in keyboardSelection = nil }
         .onDisappear {
             if host.moveRequest?.id == request.id { host.resolveMoveRequest(with: nil) }
         }
@@ -440,6 +512,49 @@ struct ArborMoveDestinationSheet: View {
         showAllInDocument || !query.isEmpty
             ? visibleInDocument
             : Array(visibleInDocument.prefix(Self.collapsedLimit))
+    }
+
+    private var documentResults: [WorkspaceSearchResult] {
+        documents.compactMap { document in
+            guard let reference = ArborDocumentReferenceCodec.decode(document.reference) else { return nil }
+            return WorkspaceSearchResult(
+                reference: reference,
+                title: document.title,
+                modifiedAt: document.modifiedAt,
+                backlinkCount: document.backlinkCount
+            )
+        }
+    }
+
+    private var orderedDocumentResults: [WorkspaceSearchResult] {
+        ArborSidebarPages.sorted(documentResults, by: order)
+    }
+
+    @ViewBuilder
+    private var documentSections: some View {
+        ArborOrderedPageSections(
+            results: documentResults,
+            order: order,
+            alphabeticalSectionTitle: "Documents"
+        ) { result, showsBacklinkCount in
+            documentRow(result, showsBacklinkCount: showsBacklinkCount)
+        }
+    }
+
+    private func documentRow(
+        _ result: WorkspaceSearchResult,
+        showsBacklinkCount: Bool
+    ) -> some View {
+        let reference = ArborDocumentReferenceCodec.encode(result.reference)
+        return ArborSidebarSearchRow(
+            result: result,
+            showsBacklinkCount: showsBacklinkCount,
+            isKeyboardSelected: keyboardSelection == .document(reference),
+            acceptsBlockDrop: false
+        ) {
+            activate(.document(reference))
+        }
+        .id(MoveDestination.document(reference))
     }
 
     private func moveTargetLabel(_ target: InDocMoveTarget) -> some View {
@@ -470,9 +585,34 @@ struct ArborMoveDestinationSheet: View {
         }
     }
 
-    private func activateFirstResult() {
-        if let target = visibleInDocument.first { activate(.block(target.id)) }
-        else if let document = documents.first { activate(.document(document.reference)) }
+    private var keyboardDestinations: [MoveDestination] {
+        collapsedInDocument.map { .block($0.id) }
+            + orderedDocumentResults.map { .document(ArborDocumentReferenceCodec.encode($0.reference)) }
+    }
+
+    private func handleSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        guard press.phase == .down, searchFocused else { return .ignored }
+        let destinations = keyboardDestinations
+        guard !destinations.isEmpty else { return .ignored }
+        switch press.key {
+        case .upArrow:
+            moveKeyboardSelection(by: -1, in: destinations)
+        case .downArrow:
+            moveKeyboardSelection(by: 1, in: destinations)
+        case .return:
+            activate(keyboardSelection ?? destinations[0])
+        default:
+            return .ignored
+        }
+        return .handled
+    }
+
+    private func moveKeyboardSelection(by delta: Int, in destinations: [MoveDestination]) {
+        keyboardSelection = ArborPagePickerSelection.moved(
+            keyboardSelection,
+            by: delta,
+            in: destinations
+        )
     }
 
     private func activate(_ destination: MoveDestination) {
@@ -495,68 +635,200 @@ struct ArborStructuralMoveSheet: View {
     @State private var query = ""
     @State private var destinations: [ArborStructuralDestination] = []
     @State private var isLoading = false
+    @AppStorage("pageOrder.movePage") private var order = ArborSidebarPageOrder.alphabetical
+    @State private var keyboardSelection: WorkspaceIdentity?
+
+    init(
+        host: ArborEditorHost,
+        request: ArborStructuralMoveRequest,
+        stalePageResults: [WorkspaceSearchResult] = []
+    ) {
+        self.host = host
+        self.request = request
+        let cached = host.staleStructuralDestinations(
+            for: request.reference,
+            matching: ""
+        )
+        let indexed = stalePageResults.compactMap { result -> ArborStructuralDestination? in
+            let path = result.reference.path
+            let containsTarget = path == request.reference.path
+                || path.hasPrefix(request.reference.path + "/")
+            let sameParent = request.reference.parent?.path == path
+            guard !containsTarget, !sameParent else { return nil }
+            return ArborStructuralDestination(
+                reference: result.reference,
+                title: result.title,
+                isDirectory: false,
+                modifiedAt: result.modifiedAt,
+                backlinkCount: result.backlinkCount
+            )
+        }
+        _destinations = State(initialValue: cached.isEmpty ? indexed : cached)
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                TextField("Search pages and folders", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($searchFocused)
+                ArborPageSearchControls(
+                    query: $query,
+                    order: $order,
+                    prompt: "Search pages and folders",
+                    focused: $searchFocused,
+                    handleKeyPress: handleSearchKeyPress
+                )
                     .padding(12)
                 Divider()
-                List(destinations) { destination in
-                    Button {
-                        host.resolveStructuralMoveRequest(with: destination.reference)
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: destination.reference.path == "/" ? "house" : destination.isDirectory ? "folder" : "doc.text")
-                                .foregroundStyle(.secondary)
-                                .frame(width: 18)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(destination.title)
-                                    .font(ArborStyle.shellFont(size: 14, weight: .medium))
-                                Text(destination.reference.path)
-                                    .font(ArborStyle.shellFont(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
+                ScrollViewReader { proxy in
+                    List {
+                        destinationSections
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Moves the page beneath this destination")
-                }
-                .overlay {
-                    if isLoading, destinations.isEmpty {
-                        ProgressView("Finding destinations")
-                    } else if destinations.isEmpty {
-                        ContentUnavailableView("No legal destinations", systemImage: "folder.badge.questionmark")
+                    .overlay {
+                        if isLoading, destinations.isEmpty {
+                            ProgressView("Finding destinations")
+                        } else if destinations.isEmpty {
+                            ContentUnavailableView("No legal destinations", systemImage: "folder.badge.questionmark")
+                        }
+                    }
+                    .onChange(of: keyboardSelection) { _, selection in
+                        guard let selection else { return }
+                        withAnimation { proxy.scrollTo(selection, anchor: .center) }
                     }
                 }
             }
             .navigationTitle("Move Page")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        host.resolveStructuralMoveRequest(with: nil)
-                        dismiss()
-                    }
+                    Button("Cancel") { cancel() }
                 }
             }
         }
         .frame(minWidth: 440, minHeight: 420)
+        .task { searchFocused = true }
         .task(id: query) {
+            if !query.isEmpty {
+                do { try await Task.sleep(for: .milliseconds(140)) }
+                catch { return }
+            }
+            guard !Task.isCancelled else { return }
             isLoading = true
             let loaded = await host.structuralDestinations(for: request.reference, matching: query)
             guard !Task.isCancelled else { return }
             destinations = loaded
             isLoading = false
-            searchFocused = true
         }
+        .onChange(of: query) { _, _ in keyboardSelection = nil }
+        .onChange(of: order) { _, _ in keyboardSelection = nil }
+        .onChange(of: destinations) { _, _ in keyboardSelection = nil }
         .interactiveDismissDisabled()
+    }
+
+    private var destinationResults: [WorkspaceSearchResult] {
+        destinations.map { destination in
+            WorkspaceSearchResult(
+                reference: destination.reference,
+                title: destination.title,
+                modifiedAt: destination.modifiedAt,
+                backlinkCount: destination.backlinkCount
+            )
+        }
+    }
+
+    private var orderedDestinations: [ArborStructuralDestination] {
+        let byIdentity = Dictionary(
+            destinations.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return ArborSidebarPages.sorted(destinationResults, by: order).compactMap { byIdentity[$0.id] }
+    }
+
+    @ViewBuilder
+    private var destinationSections: some View {
+        ArborOrderedPageSections(
+            results: destinationResults,
+            order: order,
+            alphabeticalSectionTitle: nil
+        ) { result, showsBacklinkCount in
+            if let destination = destination(with: result.id) {
+                destinationRow(destination, showsBacklinkCount: showsBacklinkCount)
+            }
+        }
+    }
+
+    private func destination(with identity: WorkspaceIdentity) -> ArborStructuralDestination? {
+        destinations.first { $0.id == identity }
+    }
+
+    private func destinationRow(
+        _ destination: ArborStructuralDestination,
+        showsBacklinkCount: Bool
+    ) -> some View {
+        Button { activate(destination) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: destination.reference.path == "/" ? "house" : destination.isDirectory ? "folder" : "doc.text")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(destination.title)
+                        .font(ArborStyle.shellFont(size: 14, weight: .medium))
+                    if let contextPath = arborSidebarContextPath(destination.reference.path) {
+                        Text(contextPath)
+                            .font(ArborStyle.shellFont(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                Spacer(minLength: 4)
+                if showsBacklinkCount {
+                    Text("\(destination.backlinkCount)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            keyboardSelection == destination.id ? Color.accentColor.opacity(0.12) : Color.clear
+        )
+        .id(destination.id)
+        .accessibilityHint("Moves the page beneath this destination")
+    }
+
+    private func handleSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        guard press.phase == .down, searchFocused, !orderedDestinations.isEmpty else { return .ignored }
+        switch press.key {
+        case .upArrow:
+            moveKeyboardSelection(by: -1)
+        case .downArrow:
+            moveKeyboardSelection(by: 1)
+        case .return:
+            let destination = orderedDestinations.first { $0.id == keyboardSelection }
+                ?? orderedDestinations[0]
+            activate(destination)
+        default:
+            return .ignored
+        }
+        return .handled
+    }
+
+    private func moveKeyboardSelection(by delta: Int) {
+        keyboardSelection = ArborPagePickerSelection.moved(
+            keyboardSelection,
+            by: delta,
+            in: orderedDestinations.map(\.id)
+        )
+    }
+
+    private func activate(_ destination: ArborStructuralDestination) {
+        host.resolveStructuralMoveRequest(with: destination.reference)
+        dismiss()
+    }
+
+    private func cancel() {
+        host.resolveStructuralMoveRequest(with: nil)
+        dismiss()
     }
 }
 
@@ -605,12 +877,34 @@ struct ArborDocumentFooter: View {
     let provider: String
     let sync: WorkspaceSyncPresentation
     let binding: ArborDocumentBinding?
+    let host: ArborEditorHost
+    let children: [WorkspaceNode]
     let backlinks: [WorkspaceSearchResult]
     let open: (WorkspaceReference) -> Void
     let showStatus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
+            if !implicitChildren.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(implicitChildren) { child in
+                        Button { open(child.reference) } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.text")
+                                    .frame(width: 16)
+                                    .foregroundStyle(.secondary)
+                                Text(child.title)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
             if !backlinks.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Linked from")
@@ -655,6 +949,11 @@ struct ArborDocumentFooter: View {
         }
         .padding(.top, 24)
         .padding(.bottom, 12)
+    }
+
+    private var implicitChildren: [WorkspaceNode] {
+        guard let binding else { return children }
+        return host.implicitChildren(among: children, in: binding.document)
     }
 
     private var statusTitle: String {

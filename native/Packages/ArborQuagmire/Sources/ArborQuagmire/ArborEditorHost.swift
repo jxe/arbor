@@ -20,7 +20,23 @@ public struct ArborStructuralDestination: Identifiable, Hashable, Sendable {
     public let reference: WorkspaceReference
     public let title: String
     public let isDirectory: Bool
+    public let modifiedAt: Date?
+    public let backlinkCount: Int
     public var id: WorkspaceIdentity { reference.identity }
+
+    public init(
+        reference: WorkspaceReference,
+        title: String,
+        isDirectory: Bool,
+        modifiedAt: Date? = nil,
+        backlinkCount: Int = 0
+    ) {
+        self.reference = reference
+        self.title = title
+        self.isDirectory = isDirectory
+        self.modifiedAt = modifiedAt
+        self.backlinkCount = backlinkCount
+    }
 }
 
 private extension WorkspaceSurface {
@@ -37,14 +53,25 @@ public struct ArborMoveDocument: Identifiable, Hashable, Sendable {
     public let title: String
     public let subtitle: String
     public let isHome: Bool
+    public let modifiedAt: Date?
+    public let backlinkCount: Int
 
     public var id: DocumentReference { reference }
 
-    public init(reference: DocumentReference, title: String, subtitle: String, isHome: Bool) {
+    public init(
+        reference: DocumentReference,
+        title: String,
+        subtitle: String,
+        isHome: Bool,
+        modifiedAt: Date? = nil,
+        backlinkCount: Int = 0
+    ) {
         self.reference = reference
         self.title = title
         self.subtitle = subtitle
         self.isHome = isHome
+        self.modifiedAt = modifiedAt
+        self.backlinkCount = backlinkCount
     }
 }
 
@@ -85,6 +112,8 @@ public final class ArborEditorHost: EditorHost {
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
+    private var cachedMoveDocuments: [ArborMoveDocument] = []
+    private var cachedStructuralDestinations: [WorkspaceIdentity: [ArborStructuralDestination]] = [:]
 
     public init(
         binding: ArborDocumentBinding,
@@ -137,14 +166,27 @@ public final class ArborEditorHost: EditorHost {
 
     public func moveDocuments(matching rawQuery: String) async -> [ArborMoveDocument] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nodes: [WorkspaceNode]
-        if query.isEmpty {
-            nodes = await enumerateDocumentNodes()
-        } else {
-            let results = (try? await provider.search(query, in: binding.reference.tree)) ?? []
-            nodes = await resolveDocumentNodes(results.map(\.reference))
+        if let results = try? await provider.search(query, in: binding.reference.tree) {
+            var documents: [ArborMoveDocument] = []
+            for result in results.prefix(200) {
+                guard let node = try? await provider.resolve(result.reference),
+                      node.isWritable,
+                      node.surface.supportsDocumentSession,
+                      node.reference.identity != binding.reference.identity else { continue }
+                documents.append(ArborMoveDocument(
+                    reference: ArborDocumentReferenceCodec.encode(node.reference),
+                    title: result.title,
+                    subtitle: node.reference.path,
+                    isHome: node.reference.path == "/",
+                    modifiedAt: result.modifiedAt,
+                    backlinkCount: result.backlinkCount
+                ))
+            }
+            if query.isEmpty { cachedMoveDocuments = documents }
+            return documents
         }
-        return nodes
+
+        let documents = await enumerateDocumentNodes()
             .filter { $0.reference.identity != binding.reference.identity }
             .map { node in
                 ArborMoveDocument(
@@ -154,10 +196,17 @@ public final class ArborEditorHost: EditorHost {
                     isHome: node.reference.path == "/"
                 )
             }
-            .sorted {
-                if $0.isHome != $1.isHome { return $0.isHome }
-                return $0.subtitle.localizedStandardCompare($1.subtitle) == .orderedAscending
-            }
+        if query.isEmpty { cachedMoveDocuments = documents }
+        return documents
+    }
+
+    public func staleMoveDocuments(matching rawQuery: String) -> [ArborMoveDocument] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return cachedMoveDocuments }
+        return cachedMoveDocuments.filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || $0.subtitle.localizedCaseInsensitiveContains(query)
+        }
     }
 
     public func suggestDocuments(_ query: String, in _: Document) async -> [MentionItem] {
@@ -267,6 +316,33 @@ public final class ArborEditorHost: EditorHost {
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
         guard let reference = workspaceReference(for: url) else { return nil }
         return ArborDocumentReferenceCodec.encode(reference)
+    }
+
+    public func implicitChildren(
+        among children: [WorkspaceNode],
+        in document: Document
+    ) -> [WorkspaceNode] {
+        var linked = Set<WorkspaceIdentity>()
+        var linkedPaths = Set<String>()
+        func pathKey(_ reference: WorkspaceReference) -> String {
+            "\(reference.tree.rawValue)\u{0}\(reference.path)"
+        }
+        func visit(_ blocks: [Block]) {
+            for block in blocks {
+                if case let .documentLink(_, reference) = block.kind,
+                   let url = URL(string: reference.rawValue),
+                   let target = workspaceReference(for: url) {
+                    linked.insert(target.identity)
+                    linkedPaths.insert(pathKey(target))
+                }
+                visit(block.children)
+            }
+        }
+        visit(document.children)
+        return children.filter {
+            !linked.contains($0.reference.identity)
+                && !linkedPaths.contains(pathKey($0.reference))
+        }
     }
 
     private func workspaceReference(for reference: DocumentReference) -> WorkspaceReference? {
@@ -502,11 +578,20 @@ public final class ArborEditorHost: EditorHost {
     }
 
     public func moveCurrentDocument() async -> Bool {
-        guard binding.reference.path != "/",
-              let node = try? await provider.resolve(binding.reference),
+        await moveDocument(binding.reference)
+    }
+
+    public func moveDocument(_ reference: WorkspaceReference) async -> Bool {
+        guard reference.path != "/",
+              !reference.path.hasPrefix("/Trash/"),
+              let node = try? await provider.resolve(reference),
               node.isWritable,
               node.surface.supportsDocumentSession else { return false }
-        return await relocate(node.reference, failureLabel: "page", navigateAfterMove: true)
+        return await relocate(
+            node.reference,
+            failureLabel: "page",
+            navigateAfterMove: node.reference.identity == binding.reference.identity
+        )
     }
 
     private func relocate(
@@ -563,6 +648,11 @@ public final class ArborEditorHost: EditorHost {
 
     public func structuralDestinations(for reference: WorkspaceReference, matching rawQuery: String) async -> [ArborStructuralDestination] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let searchResults = (try? await provider.search(query, in: reference.tree)) ?? []
+        let searchResultByIdentity = Dictionary(
+            searchResults.map { ($0.reference.identity, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let root = WorkspaceReference(tree: reference.tree, path: "/")
         var queue = [root]
         var visited = Set<WorkspaceIdentity>()
@@ -571,7 +661,8 @@ public final class ArborEditorHost: EditorHost {
             let candidate = queue.removeFirst()
             guard let node = try? await provider.resolve(candidate), visited.insert(node.id).inserted else { continue }
             guard node.reference.tree == reference.tree else { continue }
-            if node.surface.isDirectory, let children = try? await provider.children(of: node.reference) {
+            if node.surface.isDirectory || node.surface.supportsDocumentSession,
+               let children = try? await provider.children(of: node.reference) {
                 queue.append(contentsOf: children.map(\.reference))
             }
             guard node.surface.isDirectory || node.surface.supportsDocumentSession else { continue }
@@ -582,17 +673,48 @@ public final class ArborEditorHost: EditorHost {
                 || node.title.localizedCaseInsensitiveContains(query)
                 || path.localizedCaseInsensitiveContains(query)
             if node.isWritable, !containsTarget, !sameParent, matches {
+                let searchResult = searchResultByIdentity[node.reference.identity]
                 result.append(ArborStructuralDestination(
                     reference: node.reference,
                     title: node.title,
-                    isDirectory: node.surface.isDirectory
+                    isDirectory: node.surface.isDirectory,
+                    modifiedAt: searchResult?.modifiedAt,
+                    backlinkCount: searchResult?.backlinkCount ?? 0
                 ))
             }
         }
-        return result.sorted {
+        let ordered = result.sorted {
             if $0.reference.path == "/" { return true }
             if $1.reference.path == "/" { return false }
             return $0.reference.path.localizedStandardCompare($1.reference.path) == .orderedAscending
+        }
+        if query.isEmpty { cachedStructuralDestinations[reference.identity] = ordered }
+        return ordered
+    }
+
+    public func staleStructuralDestinations(
+        for reference: WorkspaceReference,
+        matching rawQuery: String
+    ) -> [ArborStructuralDestination] {
+        let candidates = cachedStructuralDestinations[reference.identity] ?? cachedMoveDocuments.compactMap { document in
+            guard let decoded = ArborDocumentReferenceCodec.decode(document.reference) else { return nil }
+            return ArborStructuralDestination(
+                reference: decoded,
+                title: document.title,
+                isDirectory: false,
+                modifiedAt: document.modifiedAt,
+                backlinkCount: document.backlinkCount
+            )
+        }
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidates.filter { destination in
+            let path = destination.reference.path
+            let containsTarget = path == reference.path || path.hasPrefix(reference.path + "/")
+            let sameParent = reference.parent?.path == path
+            let matches = query.isEmpty
+                || destination.title.localizedCaseInsensitiveContains(query)
+                || path.localizedCaseInsensitiveContains(query)
+            return !containsTarget && !sameParent && matches
         }
     }
 
@@ -723,17 +845,6 @@ public final class ArborEditorHost: EditorHost {
         reference.tree == binding.reference.tree
             && reference.parent?.path == binding.reference.path
             && reference.identity != binding.reference.identity
-    }
-
-    private func resolveDocumentNodes(_ references: [WorkspaceReference]) async -> [WorkspaceNode] {
-        var nodes: [WorkspaceNode] = []
-        for reference in references.prefix(200) {
-            guard let node = try? await provider.resolve(reference),
-                  node.isWritable,
-                  node.surface.supportsDocumentSession else { continue }
-            nodes.append(node)
-        }
-        return nodes
     }
 
     private func enumerateDocumentNodes() async -> [WorkspaceNode] {

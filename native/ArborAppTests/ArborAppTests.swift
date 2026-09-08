@@ -259,7 +259,7 @@ struct ArborAppTests {
         #expect(linkGroups.map(\.showsBacklinkCounts) == [false, false, true])
         #expect(arborSidebarContextPath("/arbor-demo") == nil)
         #expect(arborSidebarContextPath("/March-Out-My-Work/arbor-demo")
-            == "/March-Out-My-Work/arbor-demo")
+            == "/March-Out-My-Work")
     }
     @Test("Opening a page pushes a native page-frame path")
     func openingPushesPageFrame() async {
@@ -357,6 +357,41 @@ struct ArborAppTests {
         #expect(model.binding === binding)
         #expect(model.editorHost === host)
         #expect(model.children.contains { $0.reference.path == "/Receipt-Page" })
+    }
+
+    @Test("Moving the open page reconciles browser history before reopening it")
+    func movingOpenPageDoesNotLeaveAStaleBackEntry() async throws {
+        let workspace = ArborWorkspaceState(provider: .sample())
+        let model = ArborAppModel(workspace: workspace)
+        await model.load()
+        let original = try #require(try await workspace.perform(.createMarkdown(
+            parent: WorkspaceReference(tree: "tr_sample", path: "/"),
+            name: "movable-page",
+            source: "# Movable page\n"
+        ))).reference
+        await model.navigate(to: original)
+        await model.search("")
+        let host = try #require(model.editorHost)
+
+        let move = Task { await host.moveCurrentDocument() }
+        for _ in 0..<200 where host.structuralMoveRequest == nil {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        _ = try #require(host.structuralMoveRequest)
+        host.resolveStructuralMoveRequest(with: WorkspaceReference(tree: "tr_sample", path: "/files"))
+        #expect(await move.value)
+
+        #expect(model.currentReference.identity == original.identity)
+        #expect(model.currentReference.path == "/files/movable-page")
+        #expect(model.searchResults.contains {
+            $0.reference.identity == original.identity && $0.reference.path == "/files/movable-page"
+        })
+        #expect(!model.searchResults.contains { $0.reference == original })
+        #expect(!model.tabs.selectedTab.back.contains(.reference(original)))
+
+        await model.goBack()
+        #expect(model.errorMessage == nil)
+        #expect(model.currentReference.path != original.path)
     }
 
     @Test("Linked-page trash confirmation rechecks backlinks and preserves the editor lease")

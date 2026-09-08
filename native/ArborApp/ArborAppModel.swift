@@ -1338,6 +1338,7 @@ final class ArborAppModel {
     private var observedWorkspaceGeneration: Int
     private var loadRequestID = 0
     private var searchRequestID = 0
+    private var lastSearchQuery = ""
     private var dismissedTitleRenameProposals = Set<String>()
 
     init(workspace: ArborWorkspaceState) {
@@ -1400,6 +1401,8 @@ final class ArborAppModel {
         await releaseAllPagePresentations()
         tabs = BrowserTabController(launchLocation: workspace.launchLocation)
         sidebarLocation = workspace.launchLocation
+        searchResults = []
+        lastSearchQuery = ""
         tabVersion += 1
         await load()
     }
@@ -1431,6 +1434,11 @@ final class ArborAppModel {
             tabVersion += 1
             node = resolved
             children = loadedChildren
+            if searchResults.isEmpty {
+                searchResults = loadedChildren.map {
+                    WorkspaceSearchResult(reference: $0.reference, title: $0.title)
+                }
+            }
             sidebarLocation = sidebarBase
             if resolved.surface.supportsDocumentSession, resolved.isWritable {
                 let lease = try await workspace.editorWorkspace.lease(resolved.reference)
@@ -1454,8 +1462,12 @@ final class ArborAppModel {
                     open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
                     navigateBack: { [weak self] in Task { await self?.goBack() } },
                     reportError: { [weak self] message in self?.errorMessage = message },
-                    performStructuralAction: { [weak workspace] action in
-                        try await workspace?.perform(action)
+                    performStructuralAction: { [weak self, weak workspace] action in
+                        let result = try await workspace?.perform(action)
+                        if let receipt = workspace?.latestStructuralReceipt {
+                            await self?.reconcile(receipt)
+                        }
+                        return result
                     },
                     offerTrashAfterDeletingLink: { [weak self] target, source in
                         self?.offerToTrashLinkedPage(target, from: source)
@@ -1466,6 +1478,7 @@ final class ArborAppModel {
             titleRenameProposal = nil
             isLoading = false
             Task { await self.loadBacklinks() }
+            Task { await self.search(self.lastSearchQuery) }
         } catch {
             guard requestID == loadRequestID else { return }
             node = nil
@@ -1641,6 +1654,7 @@ final class ArborAppModel {
         searchRequestID += 1
         let requestID = searchRequestID
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        lastSearchQuery = trimmed
         do {
             let results = try await workspace.provider.search(trimmed, in: currentReference.tree)
             guard requestID == searchRequestID else { return }
@@ -1818,6 +1832,18 @@ final class ArborAppModel {
     /// that deliberately tears down and reacquires an editor surface.
     func reconcile(_ receipt: WorkspaceStructuralReceipt) async {
         guard observedWorkspaceGeneration == workspace.generation else { return }
+        if let result = receipt.result {
+            searchResults = searchResults.map { existing in
+                guard existing.reference.identity == result.reference.identity else { return existing }
+                return WorkspaceSearchResult(
+                    reference: result.reference,
+                    title: result.title,
+                    excerpt: existing.excerpt,
+                    modifiedAt: existing.modifiedAt,
+                    backlinkCount: existing.backlinkCount
+                )
+            }
+        }
         if let result = receipt.result, result.reference.identity == node?.reference.identity {
             node = result
             binding?.reconcileReference(result.reference)
@@ -1832,10 +1858,12 @@ final class ArborAppModel {
         }
         do {
             children = try await workspace.provider.children(of: sidebarLocation)
+            Task { await self.search(self.lastSearchQuery) }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
+
 
     func startVoiceRecording(
         _ session: VoiceRecordingSession<String>,
