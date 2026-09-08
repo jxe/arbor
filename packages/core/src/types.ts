@@ -49,6 +49,8 @@ export interface SearchResult {
   title: string;
   excerpt: string;
   score: number;
+  /** Source modification time in seconds since the Unix epoch. */
+  modifiedAt: number;
   /** Distinct pages currently linking to this result across known trees. */
   backlinkCount: number;
 }

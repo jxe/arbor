@@ -220,6 +220,39 @@ struct ArborAppTests {
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
     }
 
+#if os(macOS)
+    @Test("Sidebar page orders sort searches and group recent pages by calendar period")
+    func sidebarPageOrders() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        calendar.firstWeekday = 2
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-09-09T12:00:00Z"))
+        let tree = TreeID(rawValue: "tr_sample")
+        let result: (String, String, String) -> WorkspaceSearchResult = { title, path, timestamp in
+            WorkspaceSearchResult(
+                reference: WorkspaceReference(tree: tree, path: path),
+                title: title,
+                modifiedAt: ISO8601DateFormatter().date(from: timestamp)
+            )
+        }
+        let results = [
+            result("Beta", "/beta", "2026-09-09T11:00:00Z"),
+            result("🌲 Alpha", "/alpha", "2026-09-08T11:00:00Z"),
+            result("Monthly", "/monthly", "2026-09-02T11:00:00Z"),
+            result("Older", "/older", "2026-08-01T11:00:00Z"),
+        ]
+
+        #expect(ArborSidebarPages.sorted(results, by: .alphabetical).map(\.title)
+            == ["🌲 Alpha", "Beta", "Monthly", "Older"])
+        #expect(ArborSidebarPages.sorted(results, by: .recent).map(\.title)
+            == ["Beta", "🌲 Alpha", "Monthly", "Older"])
+        let groups = ArborSidebarPages.recentGroups(results, now: now, calendar: calendar)
+        #expect(groups.map(\.title) == ["Today", "This Week", "This Month", "Earlier"])
+        #expect(groups.map { $0.results.map(\.title) }
+            == [["Beta"], ["🌲 Alpha"], ["Monthly"], ["Older"]])
+    }
+#endif
+
     @Test("Opening a page pushes a native page-frame path")
     func openingPushesPageFrame() async {
         let model = ArborAppModel()

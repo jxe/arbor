@@ -81,6 +81,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                     ),
                     title: WorkspaceDisplayTitle.plainText(item.title),
                     excerpt: item.excerpt.isEmpty ? nil : item.excerpt,
+                    modifiedAt: item.modifiedAt.map(Date.init(timeIntervalSince1970:)),
                     backlinkCount: item.backlinkCount
                 )
             })

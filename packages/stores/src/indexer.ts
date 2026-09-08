@@ -8,6 +8,8 @@ export interface SearchIndexResult {
   title: string;
   excerpt: string;
   score: number;
+  /** Filesystem modification time in seconds since the Unix epoch. */
+  modifiedAt: number;
 }
 import {
   legacyPageIDCandidate,
@@ -155,15 +157,27 @@ export class WorkspaceIndex {
     const trimmed = query.trim();
     if (!trimmed) {
       return (this.database.query(
-        "SELECT path, title, '' AS excerpt, 0 AS rank FROM files ORDER BY mtime DESC, path LIMIT ? OFFSET ?",
-      ).all(limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number }>)
-        .map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: 0 }));
+        "SELECT path, title, '' AS excerpt, 0 AS rank, mtime FROM files ORDER BY mtime DESC, path LIMIT ? OFFSET ?",
+      ).all(limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number; mtime: number }>)
+        .map((row) => ({
+          path: row.path,
+          title: row.title,
+          excerpt: row.excerpt,
+          score: 0,
+          modifiedAt: row.mtime / 1_000,
+        }));
     }
     const escaped = trimmed.split(/\s+/).map((token) => `"${token.replaceAll('"', '""')}"*`).join(" ");
     const rows = this.database.query(
-      "SELECT path, title, snippet(docs, 2, '<mark>', '</mark>', '…', 24) AS excerpt, bm25(docs) AS rank FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
-    ).all(escaped, limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number }>;
-    return rows.map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
+      "SELECT docs.path, docs.title, snippet(docs, 2, '<mark>', '</mark>', '…', 24) AS excerpt, bm25(docs) AS rank, files.mtime FROM docs JOIN files ON files.rowid = docs.rowid WHERE docs MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
+    ).all(escaped, limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number; mtime: number }>;
+    return rows.map((row) => ({
+      path: row.path,
+      title: row.title,
+      excerpt: row.excerpt,
+      score: -row.rank,
+      modifiedAt: row.mtime / 1_000,
+    }));
   }
 
   backlinkCount(

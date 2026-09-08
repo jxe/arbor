@@ -288,8 +288,10 @@ describe("arborsync REST v1", () => {
   test("lists pages before search text and reports incoming-link counts", async () => {
     const initial = await client.search(scope, "");
     expect(initial.results.length).toBeGreaterThan(0);
+    expect(initial.results.every((result) => result.modifiedAt > 0)).toBe(true);
 
     const filtered = await client.search(scope, "Target");
+    expect(filtered.results.every((result) => result.modifiedAt > 0)).toBe(true);
     expect(filtered.results.find((result) => result.ref.path === "/target")?.backlinkCount).toBe(1);
     const unlinked = await client.search(scope, "duplicate");
     expect(unlinked.results.find((result) => result.ref.path === "/duplicate-a")?.backlinkCount).toBe(0);

@@ -108,6 +108,12 @@ private struct ArborNavigationCommands: Commands {
         }
 #endif
         CommandGroup(after: .sidebar) {
+#if os(macOS)
+            Button("Toggle Sidebar") { commands?.toggleSidebar() }
+                .keyboardShortcut("\\", modifiers: .command)
+                .disabled(commands == nil)
+            Divider()
+#endif
             Button("Back") { commands?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
                 .disabled(commands?.canGoBack != true)

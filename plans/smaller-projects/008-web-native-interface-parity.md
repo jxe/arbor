@@ -104,6 +104,10 @@ For the desktop sidebar:
   document glyph when present; otherwise retain one restrained document glyph;
 - show the authored title without repeating its emoji and increase row type
   slightly; and
+- place a compact alphabetical/recent page-order toggle beside search, keep
+  alphabetical as the default contextual child view, and group the recent view
+  under calendar-relative headings such as **Today**, **This Week**, **This
+  Month**, and **Earlier** using each result's source modification time; and
 - keep contextual child loading, selection, context menus, and local sidebar
   width/collapse persistence intact.
 
@@ -125,6 +129,9 @@ than forcing a permanently visible sidebar.
 The search view must:
 
 - issue the empty query on first presentation so pages appear before typing;
+- preserve the selected page order while searching: alphabetical mode sorts by
+  authored title with path as a stable tie-breaker, while recent mode sorts by
+  modification time and retains the same calendar-relative groups;
 - retain the current-tree/all-trees scope choice without disabling useful
   empty-state navigation;
 - cancel or disregard stale requests and preserve the current 120 ms debounce

@@ -82,6 +82,208 @@ private enum MacManagementTab: Hashable {
     case accounts
     case status
 }
+
+enum ArborSidebarPageOrder: String, CaseIterable, Identifiable {
+    case alphabetical
+    case recent
+
+    var id: Self { self }
+
+    var label: String {
+        switch self {
+        case .alphabetical: "Alphabetical"
+        case .recent: "Recent"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .alphabetical: "textformat"
+        case .recent: "clock"
+        }
+    }
+}
+
+struct ArborSidebarRecentGroup: Identifiable, Equatable {
+    var title: String
+    var results: [WorkspaceSearchResult]
+    var id: String { title }
+}
+
+enum ArborSidebarPages {
+    static func sorted(
+        _ results: [WorkspaceSearchResult],
+        by order: ArborSidebarPageOrder
+    ) -> [WorkspaceSearchResult] {
+        results.sorted { lhs, rhs in
+            if order == .recent, lhs.modifiedAt != rhs.modifiedAt {
+                return (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
+            }
+            let titleOrder = alphabeticalTitle(lhs.title).localizedStandardCompare(alphabeticalTitle(rhs.title))
+            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+            return lhs.reference.path.localizedStandardCompare(rhs.reference.path) == .orderedAscending
+        }
+    }
+
+    private static func alphabeticalTitle(_ title: String) -> String {
+        guard let first = title.first, WorkspaceDisplayTitle.isEmoji(first) else { return title }
+        let remainder = title.dropFirst().trimmingCharacters(in: .whitespaces)
+        return remainder.isEmpty ? title : remainder
+    }
+
+    static func recentGroups(
+        _ results: [WorkspaceSearchResult],
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> [ArborSidebarRecentGroup] {
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? startOfToday
+        let startOfMonth = calendar.dateInterval(of: .month, for: now)?.start ?? startOfWeek
+        let ordered = sorted(results, by: .recent)
+        let sections: [(String, (Date?) -> Bool)] = [
+            ("Today", { ($0 ?? .distantPast) >= startOfToday }),
+            ("This Week", { date in
+                guard let date else { return false }
+                return date >= startOfWeek && date < startOfToday
+            }),
+            ("This Month", { date in
+                guard let date else { return false }
+                return date >= startOfMonth && date < startOfWeek
+            }),
+            ("Earlier", { date in date == nil || date! < startOfMonth }),
+        ]
+        return sections.compactMap { title, includes in
+            let matches = ordered.filter { includes($0.modifiedAt) }
+            return matches.isEmpty ? nil : ArborSidebarRecentGroup(title: title, results: matches)
+        }
+    }
+}
+
+private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
+    let width: CGFloat
+    let isVisible: Bool
+    @Binding var installed: Bool
+    let content: AnyView
+
+    init<Content: View>(
+        width: CGFloat,
+        isVisible: Bool,
+        installed: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.width = width
+        self.isVisible = isVisible
+        _installed = installed
+        self.content = AnyView(content())
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(installed: $installed, isVisible: isVisible)
+    }
+
+    func makeNSView(context: Context) -> MacWindowReaderView {
+        let view = MacWindowReaderView()
+        view.windowChanged = { window in
+            context.coordinator.attach(to: window)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: MacWindowReaderView, context: Context) {
+        context.coordinator.update(content: content, width: width, isVisible: isVisible)
+        context.coordinator.attach(to: view.window)
+    }
+
+    static func dismantleNSView(_ view: MacWindowReaderView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    @MainActor
+    final class Coordinator {
+        private let installed: Binding<Bool>
+        private let controller = NSTitlebarAccessoryViewController()
+        private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
+        private weak var window: NSWindow?
+        private var sidebarWidth: CGFloat = 240
+        private var isVisible: Bool
+
+        init(installed: Binding<Bool>, isVisible: Bool) {
+            self.installed = installed
+            self.isVisible = isVisible
+            controller.layoutAttribute = .left
+            hostingView.wantsLayer = true
+            hostingView.layer?.masksToBounds = true
+            controller.view = hostingView
+        }
+
+        func update(content: AnyView, width: CGFloat, isVisible: Bool) {
+            hostingView.rootView = content
+            sidebarWidth = max(0, width)
+            self.isVisible = isVisible
+            guard isVisible else {
+                detach()
+                return
+            }
+            fitToSidebar()
+        }
+
+        func attach(to nextWindow: NSWindow?) {
+            guard isVisible else {
+                detach()
+                return
+            }
+            guard let nextWindow else { return }
+            guard window !== nextWindow else {
+                fitToSidebar()
+                return
+            }
+            detach()
+            window = nextWindow
+            controller.view.frame = NSRect(x: 0, y: 0, width: sidebarWidth, height: 52)
+            nextWindow.addTitlebarAccessoryViewController(controller)
+            fitToSidebar()
+            DispatchQueue.main.async { [weak self] in
+                self?.fitToSidebar()
+                self?.setInstalled(true)
+            }
+        }
+
+        func detach() {
+            if let window,
+               let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === controller }) {
+                window.removeTitlebarAccessoryViewController(at: index)
+            }
+            window = nil
+            setInstalled(false)
+        }
+
+        private func fitToSidebar() {
+            guard window != nil else {
+                controller.view.frame.size.width = sidebarWidth
+                return
+            }
+            let accessoryLeadingEdge = max(0, hostingView.convert(.zero, to: nil).x)
+            controller.view.frame.size.width = max(0, sidebarWidth - accessoryLeadingEdge)
+        }
+
+        private func setInstalled(_ value: Bool) {
+            guard installed.wrappedValue != value else { return }
+            DispatchQueue.main.async { [installed] in
+                installed.wrappedValue = value
+            }
+        }
+    }
+}
+
+@MainActor
+private final class MacWindowReaderView: NSView {
+    var windowChanged: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowChanged?(window)
+    }
+}
 #endif
 
 struct ArborRootView: View {
@@ -100,7 +302,10 @@ struct ArborRootView: View {
     @State private var documentConflictExpanded = false
     @State private var voiceLaunchReady = false
 #if os(macOS)
-    @State private var sidebarSearchPresented = false
+    @State private var sidebarSearchText = ""
+    @State private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
+    @State private var sidebarTitlebarAccessoryInstalled = false
+    @FocusState private var sidebarSearchFocused: Bool
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var managementPresented = false
     @State private var managementTab = MacManagementTab.status
@@ -311,6 +516,7 @@ struct ArborRootView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
                 .toolbar(removing: .sidebarToggle)
+                .navigationSplitViewColumnWidth(min: 0, ideal: 260, max: 500)
         } detail: {
             NavigationStack(path: navigationPathBinding) {
                 pageFrame(for: model.navigationRoot)
@@ -320,27 +526,36 @@ struct ArborRootView: View {
             }
             .id(model.selectedTabID)
         }
-        .searchable(
-            text: $searchText,
-            isPresented: $sidebarSearchPresented,
-            placement: .sidebar,
-            prompt: "Search pages"
-        )
-        .onChange(of: searchText) { _, query in
-            guard sidebarSearchPresented else { return }
-            Task { await model.search(query) }
-        }
-        .onChange(of: sidebarSearchPresented) { _, presented in
-            if presented {
-                Task { await model.search(searchText) }
-            } else {
-                searchText = ""
-            }
-        }
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
 #endif
     }
 
     private var sidebarContent: some View {
+#if os(macOS)
+        VStack(spacing: 0) {
+            if !sidebarTitlebarAccessoryInstalled {
+                sidebarPagesHeader
+            }
+            sidebarList
+        }
+        .background {
+            GeometryReader { geometry in
+                MacSidebarTitlebarAccessory(
+                    width: geometry.size.width,
+                    isVisible: columnVisibility != .detailOnly,
+                    installed: $sidebarTitlebarAccessoryInstalled
+                ) {
+                    sidebarPagesHeader
+                }
+                .frame(width: 0, height: 0)
+            }
+        }
+#else
+        sidebarList
+#endif
+    }
+
+    private var sidebarList: some View {
         List {
 #if os(iOS)
             localTreesSection
@@ -355,22 +570,23 @@ struct ArborRootView: View {
             .buttonStyle(.plain)
 #endif
 
-            Section {
 #if os(macOS)
-                if sidebarSearchPresented {
-                    ForEach(model.searchResults) { result in
-                        ArborSidebarSearchRow(result: result) {
-                            sidebarSearchPresented = false
-                            openFromSidebar(.reference(result.reference))
-                        }
+            if sidebarPageOrder == .recent {
+                recentSidebarRows
+            } else {
+                Section {
+                    if !sidebarSearchText.isEmpty {
+                        searchSidebarRows
+                    } else {
+                        sidebarChildRows
                     }
-                } else {
-                    sidebarChildRows
                 }
-#else
-                sidebarChildRows
-#endif
             }
+#else
+            Section {
+                sidebarChildRows
+            }
+#endif
 #if os(iOS)
             Section {
                 Button("Place Another Tree", systemImage: "folder.badge.plus") {
@@ -387,8 +603,14 @@ struct ArborRootView: View {
         .listStyle(.sidebar)
         .overlay {
 #if os(macOS)
-            if !sidebarSearchPresented && model.children.isEmpty {
+            if sidebarPageOrder == .alphabetical
+                && sidebarSearchText.isEmpty
+                && model.children.isEmpty {
                 ContentUnavailableView("No children", systemImage: "tree")
+                    .allowsHitTesting(false)
+            } else if (sidebarPageOrder == .recent || !sidebarSearchText.isEmpty)
+                && model.searchResults.isEmpty {
+                ContentUnavailableView.search(text: sidebarSearchText)
                     .allowsHitTesting(false)
             }
 #else
@@ -399,6 +621,82 @@ struct ArborRootView: View {
 #endif
         }
     }
+
+#if os(macOS)
+    private var sidebarPagesHeader: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search pages", text: $sidebarSearchText)
+                    .textFieldStyle(.plain)
+                    .focused($sidebarSearchFocused)
+                if !sidebarSearchText.isEmpty {
+                    Button {
+                        sidebarSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear Search")
+                    .accessibilityLabel("Clear Search")
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(.quaternary.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+
+            Button {
+                sidebarPageOrder = sidebarPageOrder == .alphabetical ? .recent : .alphabetical
+            } label: {
+                Image(systemName: sidebarPageOrder.symbol)
+                    .foregroundStyle(mutedMacToolbarForeground)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .help("Show pages by \(sidebarPageOrder == .alphabetical ? "recent activity" : "title")")
+            .accessibilityLabel("Page order")
+            .accessibilityValue(sidebarPageOrder.label)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 52)
+        .onChange(of: sidebarSearchText) { _, query in
+            Task { await model.search(query) }
+        }
+        .onChange(of: sidebarPageOrder) { _, order in
+            guard order == .recent || !sidebarSearchText.isEmpty else { return }
+            Task { await model.search(sidebarSearchText) }
+        }
+    }
+
+    @ViewBuilder
+    private var searchSidebarRows: some View {
+        ForEach(ArborSidebarPages.sorted(model.searchResults, by: .alphabetical)) { result in
+            sidebarSearchRow(result)
+        }
+    }
+
+    @ViewBuilder
+    private var recentSidebarRows: some View {
+        ForEach(ArborSidebarPages.recentGroups(model.searchResults)) { group in
+            Section {
+                ForEach(group.results) { result in
+                    sidebarSearchRow(result)
+                }
+            } header: {
+                Text(group.title)
+                    .padding(.top, group.title == "Today" ? 12 : 6)
+            }
+        }
+    }
+
+    private func sidebarSearchRow(_ result: WorkspaceSearchResult) -> some View {
+        ArborSidebarSearchRow(result: result) {
+            openFromSidebar(.reference(result.reference))
+        }
+    }
+#endif
 
     @ViewBuilder
     private var sidebarChildRows: some View {
@@ -541,6 +839,13 @@ struct ArborRootView: View {
 
     private var windowCommands: ArborWindowCommands {
         ArborWindowCommands(
+            toggleSidebar: {
+#if os(macOS)
+                withAnimation {
+                    columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                }
+#endif
+            },
             goHome: { Task { await model.goHome() } },
             goBack: { Task { await model.goBack() } },
             goForward: { Task { await model.goForward() } },
@@ -799,7 +1104,7 @@ struct ArborRootView: View {
                         ? "chevron.right.2"
                         : "chevron.left.2")
                         .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(Color.secondary.opacity(0.72))
+                        .foregroundStyle(mutedMacToolbarForeground)
                 }
                 .buttonStyle(.plain)
                 .frame(width: 32, height: 32)
@@ -821,7 +1126,6 @@ struct ArborRootView: View {
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
                 ArborEditorUndoButtons()
-#endif
                 if location == model.currentLocation,
                    model.node?.isWritable == true,
                    model.binding != nil {
@@ -831,25 +1135,66 @@ struct ArborRootView: View {
                         workspace: workspace
                     )
                 }
-#if os(macOS)
                 Button("Share", systemImage: "square.and.arrow.up") {
                     sharePresented = true
-                }
-                .popover(isPresented: $sharePresented, arrowEdge: .top) {
-                    ArborSharePanel(workspace: workspace, currentNode: model.node)
-                        .onExitCommand { sharePresented = false }
-                }
-                Button("Account", systemImage: "person.crop.circle") {
-                    showAccountsPanel()
                 }
 #else
-                Button("Share", systemImage: "square.and.arrow.up") {
-                    sharePresented = true
+                HStack(spacing: 4) {
+                    if location == model.currentLocation,
+                       model.node?.isWritable == true,
+                       model.binding != nil {
+                        ArborVoiceRecordingToolbarButton(
+                            session: recordingSession,
+                            model: model,
+                            workspace: workspace
+                        )
+                        .frame(width: 32, height: 32)
+                    }
+                    Button {
+                        sharePresented = true
+                    } label: {
+                        mutedMacToolbarIcon("square.and.arrow.up")
+                    }
+                    .help("Share")
+                    .accessibilityLabel("Share")
+                    .frame(width: 32, height: 32)
+                    .popover(isPresented: $sharePresented, arrowEdge: .top) {
+                        ArborSharePanel(workspace: workspace, currentNode: model.node)
+                            .onExitCommand { sharePresented = false }
+                    }
+                    Button {
+                        showAccountsPanel()
+                    } label: {
+                        mutedMacToolbarIcon("person.crop.circle")
+                    }
+                    .help("Accounts")
+                    .accessibilityLabel("Accounts")
+                    .frame(width: 32, height: 32)
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(mutedMacToolbarForeground)
+                .fixedSize(horizontal: true, vertical: true)
 #endif
             }
+#if os(macOS)
+            .sharedBackgroundVisibility(.hidden)
+#endif
         }
     }
+
+#if os(macOS)
+    private var mutedMacToolbarForeground: Color {
+        Color.secondary.opacity(0.78)
+    }
+
+    private func mutedMacToolbarIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(mutedMacToolbarForeground)
+            .frame(width: 32, height: 32)
+            .contentShape(.rect)
+    }
+#endif
 
     @ViewBuilder
     private func pageFrameContent(for location: WorkspaceLocation) -> some View {

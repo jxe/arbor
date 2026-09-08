@@ -73,6 +73,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(children.items.first?.ref.path, "/notes/today")
         XCTAssertEqual(search.results.first?.ref.stableKey, pageIDStableKey("abc123"))
         XCTAssertEqual(search.results.first?.backlinkCount, 2)
+        XCTAssertEqual(search.results.first?.modifiedAt, 1_725_192_000)
         XCTAssertEqual(backlinks.entries.first?.ref.stableKey, pageIDStableKey("week01"))
         XCTAssertEqual(recovery.entries.first?.status, "lost")
         XCTAssertEqual(recovery.entries.last?.kind, "trash")

@@ -1595,7 +1595,9 @@ final class ArborAppModel {
                 return WorkspaceSearchResult(
                     reference: renamed.reference,
                     title: renamed.title,
-                    excerpt: result.excerpt
+                    excerpt: result.excerpt,
+                    modifiedAt: result.modifiedAt,
+                    backlinkCount: result.backlinkCount
                 )
             }
             await loadBacklinks()

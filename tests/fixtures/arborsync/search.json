@@ -1,6 +1,6 @@
 {
   "results": [
-    { "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" }, "title": "Today", "excerpt": "Hello", "score": 1.25, "backlinkCount": 2 }
+    { "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" }, "title": "Today", "excerpt": "Hello", "score": 1.25, "modifiedAt": 1725192000, "backlinkCount": 2 }
   ],
   "nextCursor": null,
   "observedThrough": "11111111-1111-1111-1111-111111111111:4"

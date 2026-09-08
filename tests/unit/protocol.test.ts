@@ -105,7 +105,9 @@ describe("REST v1 protocol fixtures", () => {
     expect(systemTree.capabilities.content?.writable).toBe(false);
     expect(nodeDocument(systemTree)?.frontmatter.credentialAvailable).toBe(true);
     expect(backlinks.entries[0]?.ref.stableKey).toBe('[["id","week01"]]');
-    expect((await json<SearchPage>("search.json")).results[0]?.backlinkCount).toBe(2);
+    const search = await json<SearchPage>("search.json");
+    expect(search.results[0]?.backlinkCount).toBe(2);
+    expect(search.results[0]?.modifiedAt).toBe(1725192000);
     expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
   });
 

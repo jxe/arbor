@@ -18,6 +18,7 @@ enum ArborPresentedSheet: String, Identifiable {
 }
 
 struct ArborWindowCommands {
+    var toggleSidebar: () -> Void
     var goHome: () -> Void
     var goBack: () -> Void
     var goForward: () -> Void

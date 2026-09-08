@@ -273,12 +273,20 @@ public struct WorkspaceSearchResult: Hashable, Codable, Sendable, Identifiable {
     public var reference: WorkspaceReference
     public var title: String
     public var excerpt: String?
+    public var modifiedAt: Date?
     public var backlinkCount: Int
 
-    public init(reference: WorkspaceReference, title: String, excerpt: String? = nil, backlinkCount: Int = 0) {
+    public init(
+        reference: WorkspaceReference,
+        title: String,
+        excerpt: String? = nil,
+        modifiedAt: Date? = nil,
+        backlinkCount: Int = 0
+    ) {
         self.reference = reference
         self.title = title
         self.excerpt = excerpt
+        self.modifiedAt = modifiedAt
         self.backlinkCount = backlinkCount
     }
 
