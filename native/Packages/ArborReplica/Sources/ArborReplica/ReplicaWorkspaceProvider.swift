@@ -261,12 +261,12 @@ public actor ReplicaDocumentSession: WorkspaceDocumentSession {
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
         try requireOpen()
-        return try await replica.history(for: initialReference)
+        throw WorkspaceProviderError.invalidAction("Canopy history is not available yet")
     }
 
     public func recover(revision: String) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        return try await replica.recover(initialReference, revision: revision)
+        throw WorkspaceProviderError.invalidAction("Canopy history is not available yet")
     }
 
     public func close() async {

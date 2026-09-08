@@ -8,6 +8,13 @@ import Testing
 
 @MainActor
 struct ArborAppTests {
+    @Test("History names Canopy as its unavailable authority")
+    func canopyHistoryUnavailableCopy() {
+        #expect(ArborHistoryView.title == "History")
+        #expect(ArborHistoryView.unavailableTitle == "Canopy history is not available yet")
+        #expect(ArborHistoryView.unavailableExplanation.contains("accepted Canopy versions"))
+    }
+
     @Test("Share invites accept comma-separated handles and profile URLs")
     func shareInviteLocators() {
         #expect(ArborShareInvite.locators(

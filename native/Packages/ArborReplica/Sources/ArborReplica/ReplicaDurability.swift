@@ -6,7 +6,6 @@ struct DurableReplicaFiles: Sendable {
     let materializedDirectory: URL
     let objectsDirectory: URL
     let journalsDirectory: URL
-    let historyDirectory: URL
     let indexesDirectory: URL
     let controlDirectory: URL
 
@@ -19,10 +18,9 @@ struct DurableReplicaFiles: Sendable {
         materializedDirectory = root.appending(path: "materialized", directoryHint: .isDirectory)
         objectsDirectory = root.appending(path: "objects", directoryHint: .isDirectory)
         journalsDirectory = root.appending(path: "journals/pages", directoryHint: .isDirectory)
-        historyDirectory = root.appending(path: "history", directoryHint: .isDirectory)
         indexesDirectory = root.appending(path: "indexes", directoryHint: .isDirectory)
         controlDirectory = root.appending(path: "control", directoryHint: .isDirectory)
-        for directory in [root, materializedDirectory, objectsDirectory, journalsDirectory, historyDirectory, indexesDirectory, controlDirectory] {
+        for directory in [root, materializedDirectory, objectsDirectory, journalsDirectory, indexesDirectory, controlDirectory] {
             try createPrivateDirectory(directory)
         }
     }
@@ -74,10 +72,6 @@ struct DurableReplicaFiles: Sendable {
         return directory.appending(path: "\(safeKey(id)).json")
     }
 
-    func historyURL(generation: Int) -> URL {
-        historyDirectory.appending(path: String(format: "%012d.json", generation))
-    }
-
     func journalURLs() throws -> [URL] {
         guard FileManager.default.fileExists(atPath: journalsDirectory.path) else { return [] }
         let keys = try FileManager.default.contentsOfDirectory(at: journalsDirectory, includingPropertiesForKeys: nil)
@@ -87,10 +81,49 @@ struct DurableReplicaFiles: Sendable {
         }.sorted { $0.path < $1.path }
     }
 
-    func historyURLs() throws -> [URL] {
-        try FileManager.default.contentsOfDirectory(at: historyDirectory, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "json" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    /// Moves the obsolete full-snapshot archive out of the production namespace.
+    /// Recursive deletion is deliberately separated so opening a replica never waits on it.
+    func prepareLegacyHistoryCleanup() throws -> [URL] {
+        let manager = FileManager.default
+        let history = root.appending(path: "history", directoryHint: .isDirectory)
+        var tombstones = try manager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ).filter { Self.isLegacyHistoryTombstoneName($0.lastPathComponent) }
+
+        if manager.fileExists(atPath: history.path) {
+            let values = try history.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values.isDirectory == true, values.isSymbolicLink != true else {
+                throw ReplicaError.corruptState("Legacy replica history is not a directory")
+            }
+            let tombstone = root.appending(
+                path: ".obsolete-history-\(UUID().uuidString.lowercased())",
+                directoryHint: .isDirectory
+            )
+            if Darwin.rename(history.path, tombstone.path) != 0 {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            try syncDirectory(root)
+            tombstones.append(tombstone)
+        }
+        return tombstones
+    }
+
+    static func removeLegacyHistoryTombstones(_ tombstones: [URL], from root: URL) {
+        let manager = FileManager.default
+        let standardizedRoot = root.standardizedFileURL
+        for tombstone in tombstones {
+            let standardized = tombstone.standardizedFileURL
+            guard standardized.deletingLastPathComponent() == standardizedRoot,
+                  isLegacyHistoryTombstoneName(standardized.lastPathComponent) else { continue }
+            try? manager.removeItem(at: standardized)
+        }
+    }
+
+    private static func isLegacyHistoryTombstoneName(_ name: String) -> Bool {
+        let prefix = ".obsolete-history-"
+        guard name.hasPrefix(prefix) else { return false }
+        return UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
     }
 
     func remove(_ url: URL) throws {

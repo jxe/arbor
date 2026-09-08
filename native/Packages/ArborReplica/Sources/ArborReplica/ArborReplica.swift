@@ -52,19 +52,6 @@ public actor ArborReplica {
                     generation: 0
                 )
                 try files.store(objects: snapshot.objects)
-                if !FileManager.default.fileExists(atPath: files.historyURL(generation: 0).path) {
-                    try files.writeDated(
-                        ReplicaHistoryRecord(
-                            id: "local-0",
-                            generation: 0,
-                            mutation: "initialize-recovery",
-                            changedAt: clock(),
-                            root: snapshot.root,
-                            state: state
-                        ),
-                        to: files.historyURL(generation: 0)
-                    )
-                }
                 try files.write(control, to: files.controlURL)
             }
             loaded = (state, control)
@@ -82,17 +69,6 @@ public actor ArborReplica {
             )
             try files.store(objects: snapshot.objects)
             try files.write(state, to: files.stateURL)
-            try files.writeDated(
-                ReplicaHistoryRecord(
-                    id: "local-0",
-                    generation: 0,
-                    mutation: "initialize",
-                    changedAt: clock(),
-                    root: snapshot.root,
-                    state: state
-                ),
-                to: files.historyURL(generation: 0)
-            )
             try files.write(control, to: files.controlURL)
             loaded = (state, control)
         }
@@ -109,6 +85,13 @@ public actor ArborReplica {
         try await replica.recoverPendingIntents()
         try await replica.validateLoadedState()
         try await replica.loadOrRebuildIndex()
+        let cleanup = (try? files.prepareLegacyHistoryCleanup()) ?? []
+        if !cleanup.isEmpty {
+            let cleanupRoot = files.root
+            Task.detached(priority: .utility) {
+                DurableReplicaFiles.removeLegacyHistoryTombstones(cleanup, from: cleanupRoot)
+            }
+        }
         return replica
     }
 
@@ -614,44 +597,6 @@ public actor ArborReplica {
         )
     }
 
-    func history(for reference: WorkspaceReference) throws -> [WorkspaceHistoryEntry] {
-        let current = try resolve(reference)
-        let records = try files.historyURLs().map { try files.readDated(ReplicaHistoryRecord.self, from: $0) }
-        var previousSource: String?
-        var entries: [WorkspaceHistoryEntry] = []
-        for record in records {
-            let node = current.pageID.flatMap { id in record.state.nodes.first(where: { $0.pageID == id }) }
-                ?? record.state.nodes.first(where: { $0.path == current.path })
-            guard let source = node?.source else { continue }
-            guard source != previousSource else { continue }
-            previousSource = source
-            entries.append(WorkspaceHistoryEntry(
-                id: record.id,
-                revision: record.id,
-                title: record.mutation,
-                timestamp: record.changedAt
-            ))
-        }
-        return Array(entries.reversed())
-    }
-
-    func recover(_ reference: WorkspaceReference, revision: String) throws -> WorkspaceDocumentSnapshot {
-        let current = try resolve(reference)
-        var selected: ReplicaHistoryRecord?
-        for url in try files.historyURLs() {
-            let candidate = try files.readDated(ReplicaHistoryRecord.self, from: url)
-            if candidate.id == revision {
-                selected = candidate
-                break
-            }
-        }
-        guard let record = selected else { throw ReplicaError.corruptState("Unknown history revision") }
-        let historical = current.pageID.flatMap { id in record.state.nodes.first(where: { $0.pageID == id }) }
-            ?? record.state.nodes.first(where: { $0.path == current.path })
-        guard let source = historical?.source else { throw ReplicaError.notDocument(reference) }
-        return try writeDocument(reference, source: source, baseRevision: self.revision(for: current), mutation: "recover-history")
-    }
-
     func workspaceReference(_ node: ReplicaNodeRecord) -> WorkspaceReference {
         WorkspaceReference(
             tree: TreeID(rawValue: state.tree),
@@ -714,16 +659,6 @@ public actor ArborReplica {
         if injectFaults { try faultInjector.reached(.afterObjects) }
         try files.write(intent.state, to: files.stateURL)
         if injectFaults { try faultInjector.reached(.afterMaterialization) }
-        let history = ReplicaHistoryRecord(
-            id: "local-\(intent.generation)",
-            generation: intent.generation,
-            mutation: intent.mutation,
-            changedAt: intent.changedAt,
-            root: snapshot.root,
-            state: intent.state
-        )
-        try files.writeDated(history, to: files.historyURL(generation: intent.generation))
-        if injectFaults { try faultInjector.reached(.afterHistory) }
         let nextControl: ReplicaControl
         if let acceptedRoot = intent.acceptedRoot {
             guard acceptedRoot == snapshot.root, let acceptedUpdate = intent.acceptedUpdate else {

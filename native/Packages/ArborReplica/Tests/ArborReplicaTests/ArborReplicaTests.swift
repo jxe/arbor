@@ -43,7 +43,7 @@ struct ReplicaFixtureTests {
 
 @Suite("Offline provider")
 struct ReplicaProviderTests {
-    @Test("Browsing, exact editing, structure, assets, collections, history, and indexes remain offline")
+    @Test("Browsing, exact editing, structure, assets, collections, and indexes remain offline")
     func completeProvider() async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_offline"
@@ -168,11 +168,12 @@ struct ReplicaProviderTests {
             #expect(linkedSearch.first { $0.reference.stableKey == pageID }?.backlinkCount == 1)
             #expect(try await provider.backlinks(to: restored.reference).contains { $0.reference == linker.reference })
 
-            let history = try await session.history()
-            let createdHistory = try #require(history.first { $0.title == "create-markdown" })
-            let recovered = try await session.recover(revision: createdHistory.revision)
-            #expect(recovered.source.contains("Offline first."))
-            #expect(!recovered.source.contains("A durable edit."))
+            await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+                _ = try await session.history()
+            }
+            await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+                _ = try await session.recover(revision: "local-0")
+            }
 
             let beforeRebuild = try await provider.search("Offline first", in: tree)
             try await replica.deleteRebuildableIndexes()
@@ -189,7 +190,8 @@ struct ReplicaProviderTests {
                 #expect(!text.contains("heads.json"))
             }
             let privateEntries = try FileManager.default.contentsOfDirectory(atPath: root.path)
-            #expect(Set(privateEntries).isSuperset(of: ["control", "history", "indexes", "journals", "materialized", "objects"]))
+            #expect(Set(privateEntries).isSuperset(of: ["control", "indexes", "journals", "materialized", "objects"]))
+            #expect(!privateEntries.contains("history"))
 
             try await replica.recordAccepted(root: snapshot.root, update: "up_local")
             #expect(try await replica.heads().pendingRoot == nil)
@@ -372,6 +374,95 @@ struct ReplicaProviderTests {
     }
 }
 
+@Suite("Legacy replica history cleanup", .serialized)
+struct ReplicaHistoryCleanupTests {
+    @Test("Legacy history is reclaimed after journal recovery without changing heads")
+    func reclaimsHistoryAfterRecovery() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_historycleanup"
+            let initial = try await ArborReplica.open(at: root, tree: tree)
+            let accepted = try await initial.currentSnapshot()
+            try await initial.recordAccepted(root: accepted.root, update: "up_initial")
+            await initial.close()
+
+            let crashing = try await ArborReplica.open(
+                at: root,
+                tree: tree,
+                faultInjector: OneShotFault(.afterMaterialization)
+            )
+            let provider = ReplicaWorkspaceProvider(replica: crashing)
+            await #expect(throws: ReplicaError.self) {
+                _ = try await provider.perform(.createMarkdown(
+                    parent: WorkspaceReference(tree: tree, path: "/"),
+                    name: "pending",
+                    source: "# Pending\n"
+                ))
+            }
+
+            let history = root.appending(path: "history", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: history, withIntermediateDirectories: false)
+            try Data("legacy snapshot".utf8).write(to: history.appending(path: "000000000001.json"))
+
+            let reopened = try await ArborReplica.open(at: root, tree: tree)
+            let heads = try await reopened.heads()
+            #expect(heads.pendingRoot == heads.materializedRoot)
+            #expect(heads.acceptedRoot == accepted.root)
+            #expect(try await reopened.documentSnapshot(.init(tree: tree, path: "/pending")).source.contains("Pending"))
+            #expect(try journalFiles(root).isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: history.path))
+            try await expectNoHistoryTombstones(in: root)
+
+            let children = Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
+            #expect(children.isSuperset(of: ["control", "indexes", "journals", "materialized", "objects"]))
+        }
+    }
+
+    @Test("Cleanup retries tombstones and ignores similarly named children")
+    func retriesOnlyHistoryTombstones() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_historyretry"
+            let replica = try await ArborReplica.open(at: root, tree: tree)
+            await replica.close()
+
+            let tombstone = root.appending(
+                path: ".obsolete-history-9a1f760e-b55f-4cd7-9e49-462fb4020505",
+                directoryHint: .isDirectory
+            )
+            try FileManager.default.createDirectory(at: tombstone, withIntermediateDirectories: false)
+            try Data("old".utf8).write(to: tombstone.appending(path: "record.json"))
+            let similar = root.appending(path: ".obsolete-history-leftover", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: similar, withIntermediateDirectories: false)
+
+            _ = try await ArborReplica.open(at: root, tree: tree)
+            try await expectNoHistoryTombstones(in: root)
+            #expect(FileManager.default.fileExists(atPath: similar.path))
+        }
+    }
+
+    @Test("Malformed legacy history is nonterminal and can be retried later")
+    func cleanupFailureIsNonterminal() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_historyfailure"
+            let initial = try await ArborReplica.open(at: root, tree: tree)
+            await initial.close()
+
+            let history = root.appending(path: "history")
+            try Data("not a directory".utf8).write(to: history)
+            let stillUsable = try await ArborReplica.open(at: root, tree: tree)
+            #expect(try await stillUsable.heads().generation == 0)
+            #expect(FileManager.default.fileExists(atPath: history.path))
+            await stillUsable.close()
+
+            try FileManager.default.removeItem(at: history)
+            try FileManager.default.createDirectory(at: history, withIntermediateDirectories: false)
+            try Data("old".utf8).write(to: history.appending(path: "record.json"))
+            _ = try await ArborReplica.open(at: root, tree: tree)
+            #expect(!FileManager.default.fileExists(atPath: history.path))
+            try await expectNoHistoryTombstones(in: root)
+        }
+    }
+}
+
 @Suite("Crash recovery", .serialized)
 struct ReplicaCrashTests {
     @Test("Every durable transaction boundary replays idempotently")
@@ -431,7 +522,7 @@ struct ReplicaCrashTests {
             #expect(movedNode.reference.path == "/destination/note")
             await moved.close()
 
-            let trashing = try await ArborReplica.open(at: root, tree: tree, faultInjector: OneShotFault(.afterHistory))
+            let trashing = try await ArborReplica.open(at: root, tree: tree, faultInjector: OneShotFault(.afterControl))
             let trashingProvider = ReplicaWorkspaceProvider(replica: trashing)
             await #expect(throws: ReplicaError.self) {
                 _ = try await trashingProvider.perform(.trash(reference: movedNode.reference))
@@ -469,6 +560,20 @@ private func withTemporaryReplica(_ operation: (URL) async throws -> Void) async
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
     try await operation(root)
+}
+
+private func expectNoHistoryTombstones(in root: URL) async throws {
+    let deadline = ContinuousClock.now + .seconds(2)
+    while ContinuousClock.now < deadline {
+        let children = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        if !children.contains(where: {
+            let prefix = ".obsolete-history-"
+            guard $0.hasPrefix(prefix) else { return false }
+            return UUID(uuidString: String($0.dropFirst(prefix.count))) != nil
+        }) { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    Issue.record("Legacy history tombstones were not removed before the deadline")
 }
 
 private func fixtureDirectory() -> URL {

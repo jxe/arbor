@@ -949,6 +949,10 @@ struct ArborSourceInspector: View {
 }
 
 struct ArborHistoryView: View {
+    static let title = "History"
+    static let unavailableTitle = "Canopy history is not available yet"
+    static let unavailableExplanation = "History will show accepted Canopy versions and restore one as a new change."
+
     let entries: [WorkspaceHistoryEntry]
     let recover: (String) -> Void
     @State private var pendingRecovery: WorkspaceHistoryEntry?
@@ -971,12 +975,12 @@ struct ArborHistoryView: View {
             }
             .overlay {
                 if entries.isEmpty {
-                    ContentUnavailableView("No local recovery history", systemImage: "clock")
+                    ContentUnavailableView(Self.unavailableTitle, systemImage: "clock")
                 }
             }
-            .navigationTitle("Recover")
+            .navigationTitle(Self.title)
             .safeAreaInset(edge: .bottom) {
-                Text("Recovery creates a new local change. It does not rewind shared server history.")
+                Text(Self.unavailableExplanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

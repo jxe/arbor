@@ -218,6 +218,29 @@ struct ProviderContractTests {
         #expect(await ProviderURLProtocolStub.state.paths() == ["/v1/children"])
     }
 
+    @Test("arborsync filesystem recovery is not exposed as product history")
+    func arborsyncHistoryUnavailableWithoutRecoveryRequests() async throws {
+        await ProviderURLProtocolStub.state.install { _ in (500, Data()) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProviderURLProtocolStub.self]
+        let client = ArborSyncRESTClient(
+            baseURL: URL(string: "https://arborsync.test")!,
+            session: URLSession(configuration: configuration)
+        )
+        let session = ArborSyncDocumentSession(
+            client: client,
+            reference: WorkspaceReference(tree: "tr_notes", path: "/note", stableKey: markdownStableKey("pg_note"))
+        )
+
+        await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+            _ = try await session.history()
+        }
+        await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {
+            _ = try await session.recover(revision: "sha256:lost-block")
+        }
+        #expect(await ProviderURLProtocolStub.state.paths().isEmpty)
+    }
+
     @Test("Ordinary implicit directories are editable without managed identity")
     func ordinaryImplicitDirectorySurface() throws {
         let node = try ArborSyncWorkspaceProvider.workspaceNode(
@@ -484,8 +507,6 @@ struct ProviderContractTests {
         #expect(!restored.reference.path.hasPrefix("/Trash"))
         #expect(try await provider.children(of: archive.reference).contains { $0.reference.path == restored.reference.path })
 
-        let history = try await session.history()
-        #expect(!history.isEmpty)
         await session.close()
 
         await #expect(throws: Error.self) {

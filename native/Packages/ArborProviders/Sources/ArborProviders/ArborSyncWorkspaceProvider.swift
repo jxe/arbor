@@ -662,35 +662,12 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
         try requireOpen()
-        var cursor: String?
-        var result: [WorkspaceHistoryEntry] = []
-        repeat {
-            let page = try await client.recovery(initialReference.nodeRef, cursor: cursor)
-            result.append(contentsOf: page.entries.compactMap { entry in
-                guard entry.kind == "block", let hash = entry.hash else { return nil }
-                let seconds = entry.changedAt > 10_000_000_000 ? entry.changedAt / 1_000 : entry.changedAt
-                return WorkspaceHistoryEntry(
-                    id: hash,
-                    revision: hash,
-                    title: entry.status == "purged" ? "Recover removed content" : "Recover prior content",
-                    timestamp: Date(timeIntervalSince1970: seconds)
-                )
-            })
-            cursor = page.nextCursor
-        } while cursor != nil
-        return result.sorted { $0.timestamp > $1.timestamp }
+        throw WorkspaceProviderError.invalidAction("Canopy history is not available yet")
     }
 
     public func recover(revision: String) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        let current = try await snapshot()
-        _ = try await client.mutateContent(WorkspaceOperation(
-            op: "restoreRecovery",
-            ref: initialReference.nodeRef,
-            baseContentRevision: current.contentRevision,
-            hash: revision
-        ))
-        return try await snapshot()
+        throw WorkspaceProviderError.invalidAction("Canopy history is not available yet")
     }
 
     public func close() async { terminal = true }

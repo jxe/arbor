@@ -22,7 +22,6 @@ public enum ReplicaFailurePoint: String, Codable, CaseIterable, Sendable {
     case afterJournal
     case afterObjects
     case afterMaterialization
-    case afterHistory
     case afterControl
 }
 
@@ -256,15 +255,6 @@ struct ReplicaControl: Codable, Equatable, Sendable {
             generation: generation
         )
     }
-}
-
-struct ReplicaHistoryRecord: Codable, Equatable, Sendable {
-    var id: String
-    var generation: Int
-    var mutation: String
-    var changedAt: Date
-    var root: String
-    var state: ReplicaState
 }
 
 struct ReplicaMutationIntent: Codable, Equatable, Sendable {
