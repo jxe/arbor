@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { resolveUserPath, serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
+import { resolveUserPath } from "@arbor/arborsync";
 import { runArborSyncDaemon } from "@arbor/arborsync/cli";
 import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import { canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256 } from "@arbor/core";
@@ -258,37 +258,31 @@ async function withArborSync<T>(
     service: { synchronizeNow(configurationTree?: string): Promise<void> },
   ) => Promise<T>,
 ): Promise<T> {
-  if (!process.env.ARBOR_DATA_HOME) {
-    const cloud = !process.env.ARBOR_SYNC_URL ? await cloudSessionForPath(path) : null;
-    const baseURL = process.env.ARBOR_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
-    let client = new ArborSyncRESTClient({ baseURL });
-    let compatible = await client.status().then(
-      (status) => status.service === "arborsync" && status.protocolVersion === "v1",
-      () => false,
-    );
-    if (!compatible && !process.env.ARBOR_SYNC_URL && !cloud && process.platform === "darwin") {
-      const supervisor = arborDaemonSupervisor();
-      const status = await supervisor.status();
-      if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
-      await supervisor.start();
-      client = new ArborSyncRESTClient({ baseURL });
-      compatible = true;
-    }
-    if (!compatible) {
-      throw new Error(`A compatible Arbor Sync is not reachable at ${baseURL}; start \`arborsync --control\` with your user service manager`);
-    }
-    await client.openSession(path);
-    return run(client, {
-      async synchronizeNow(configurationTree?: string) { await client.synchronizeNow(configurationTree); },
-    });
+  // The CLI never starts a private daemon: it attaches to the Arbor Sync that
+  // owns this data home (explicit URL, cloud session, or the well-known
+  // loopback port) and fails clearly when none answers.
+  const cloud = !process.env.ARBOR_SYNC_URL ? await cloudSessionForPath(path) : null;
+  const baseURL = process.env.ARBOR_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
+  let client = new ArborSyncRESTClient({ baseURL });
+  let compatible = await client.status().then(
+    (status) => status.service === "arborsync" && status.protocolVersion === "v1",
+    () => false,
+  );
+  if (!compatible && !process.env.ARBOR_SYNC_URL && !cloud && !process.env.ARBOR_DATA_HOME && process.platform === "darwin") {
+    const supervisor = arborDaemonSupervisor();
+    const status = await supervisor.status();
+    if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
+    await supervisor.start();
+    client = new ArborSyncRESTClient({ baseURL });
+    compatible = true;
   }
-  const running = await serveArborSync(path, { port: 0 });
-  try {
-    return await run(new ArborSyncRESTClient({ baseURL: running.url }), running.service);
-  } finally {
-    running.server.stop(true);
-    await running.service[Symbol.asyncDispose]();
+  if (!compatible) {
+    throw new Error(`A compatible Arbor Sync is not reachable at ${baseURL}; start one with \`arbor daemon start\` or \`arborsync --control\`, or point ARBOR_SYNC_URL at it`);
   }
+  await client.openSession(path);
+  return run(client, {
+    async synchronizeNow(configurationTree?: string) { await client.synchronizeNow(configurationTree); },
+  });
 }
 
 async function editAccountConfigurationYAML(
@@ -1515,43 +1509,7 @@ async function main(): Promise<void> {
       await openBrowser(attached.toString());
       return;
     }
-    if (!process.env.ARBOR_DATA_HOME) {
-      throw new Error(`A compatible Arbor Sync is not reachable on port ${ARBOR_SYNC_PORT}; run \`arbor daemon status\` for details`);
-    }
-    const running = target.remoteURL
-      ? await serveArborSyncControl({ port: ARBOR_SYNC_PORT })
-      : await serveArborSync(target.path!, { port: ARBOR_SYNC_PORT });
-    const { service, server, url } = running;
-    let start = "";
-    if (running.mode === "workspace") {
-      start = running.start;
-      const descriptor = running.workspace.descriptor();
-      const scope = descriptor.canonical
-        ? `shared tree "${descriptor.name}"`
-        : "ordinary local files";
-      console.log(`Arbor Sync is serving ${start} (${scope})`);
-    } else {
-      console.log(`Arbor Sync is opening ${target.remoteURL}`);
-    }
-    console.log(url);
-    const claimable = target.remoteURL ? await isReservedProfile(target) : false;
-    const placedPath = target.remoteURL && !claimable
-      ? await placedRemotePath(target, new ArborSyncRESTClient({ baseURL: url }))
-      : null;
-    const browserURL = new URL(`${url}/render${placedPath ?? start}`);
-    if (target.remoteURL) {
-      if (!placedPath) browserURL.searchParams.set("browse", target.remoteURL);
-      if (claimable) browserURL.searchParams.set("claimable", "true");
-    }
-    await openBrowser(browserURL.toString());
-    const shutdown = async () => {
-      server.stop(true);
-      await service[Symbol.asyncDispose]();
-      process.exit(0);
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-    return;
+    throw new Error(`A compatible Arbor Sync is not reachable at ${selectedOrigin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`}; run \`arbor daemon status\` for details`);
   }
   if (command === "place") {
     await placeCommand(args);

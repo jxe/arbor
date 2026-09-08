@@ -149,3 +149,12 @@ a reconnecting editor recovers its fence.
 Choose this machine when a local daemon owns authored persistence. Choose the
 direct machine when the client owns a durable replica. Do not combine them or
 skip local durability.
+
+When a plural Wire update string stops at a conflict, the direct machine does
+not turn the complete final local root into one replacement request. The
+successful prefix is already authority history, the element at `failedIndex`
+is the only element under review, and the suffix has not yet been attempted.
+The thick client retains those boundaries across restart, submits the reviewed
+failed element first, and then replays the exact later local changes in order.
+Most conflicts therefore produce one content review; another review appears
+only if a later guarded replay or Canopy submission independently conflicts.

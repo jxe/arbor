@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon, EventBus, TreeManager } from "@arbor/arborsync";
+import { serveArborSyncControl } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
 import { generateArborID } from "@arbor/core";
@@ -16,9 +17,10 @@ let secondCanopy: Awaited<ReturnType<typeof serveCanopy>>;
 let previousCloudHome: string | undefined;
 
 async function arborOutput(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  const daemon = await serveArborSyncControl({ port: 0 });
   const process = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
-    env: { ...Bun.env, ARBOR_DATA_HOME: state },
+    env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -27,6 +29,8 @@ async function arborOutput(args: string[]): Promise<{ stdout: string; stderr: st
     new Response(process.stdout).text(),
     new Response(process.stderr).text(),
   ]);
+  daemon.server.stop(true);
+  await daemon.service[Symbol.asyncDispose]();
   if (exit !== 0) throw new Error(stderr);
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
@@ -55,9 +59,10 @@ async function cloudStatus(path: string): Promise<Record<string, unknown>> {
 }
 
 async function arborFailure(args: string[]): Promise<string> {
+  const daemon = await serveArborSyncControl({ port: 0 });
   const process = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
-    env: { ...Bun.env, ARBOR_DATA_HOME: state },
+    env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -65,6 +70,8 @@ async function arborFailure(args: string[]): Promise<string> {
     process.exited,
     new Response(process.stderr).text(),
   ]);
+  daemon.server.stop(true);
+  await daemon.service[Symbol.asyncDispose]();
   expect(exit).not.toBe(0);
   return stderr;
 }

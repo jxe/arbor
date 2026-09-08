@@ -44,8 +44,9 @@ one.
 
 `arbor open` accepts a local path, a canonical HTTPS or `arbor://` URL, or no
 locator for the current directory. Linux and Windows daemon supervision are
-not implemented yet; the [CLI reference](docs/cli.md) documents the isolated
-foreground mode available with `ARBOR_DATA_HOME`.
+not implemented yet; the [CLI reference](docs/cli.md) documents how commands
+select a running Arbor Sync and the isolated data home `arborsync` serves
+under `ARBOR_DATA_HOME`.
 
 See the [CLI reference](docs/cli.md) for persistent daemon setup, placing synchronized trees, moves, identity backup and restore, and command safety rules.
 

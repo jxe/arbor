@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon } from "@arbor/arborsync";
+import { serveArborSyncControl } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { generateArborID } from "@arbor/core";
 import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
@@ -16,9 +17,10 @@ let sourceCanopy: Awaited<ReturnType<typeof serveCanopy>>;
 let destinationCanopy: Awaited<ReturnType<typeof serveCanopy>>;
 
 async function arbor(args: string[]): Promise<string> {
+  const daemon = await serveArborSyncControl({ port: 0 });
   const child = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
-    env: { ...Bun.env, ARBOR_DATA_HOME: state },
+    env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -27,6 +29,8 @@ async function arbor(args: string[]): Promise<string> {
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
+  daemon.server.stop(true);
+  await daemon.service[Symbol.asyncDispose]();
   if (exit !== 0) throw new Error(stderr);
   return stdout.trim();
 }

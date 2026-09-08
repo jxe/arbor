@@ -44,11 +44,14 @@ identity already exists; it refuses to replace one.
 - `--dry-run` may perform ordinary synchronization needed to establish a clean
   preflight, but does not apply the requested move or edit placement or
   canonical configuration.
-- Commands select Arbor Sync in this order: `ARBOR_SYNC_URL`, an explicit
-  `ARBOR_DATA_HOME`, the active cloud session containing the command's local
-  path, then the persistent daemon. An explicit data home runs a temporary
-  foreground Arbor Sync for commands that need one; `arbor status` remains
-  observational and never starts one.
+- Commands select Arbor Sync in this order: `ARBOR_SYNC_URL`, the active
+  cloud session containing the command's local path, then the persistent
+  daemon on the well-known loopback port. The CLI never starts a private
+  Arbor Sync for a command: when none answers it fails and names the command
+  that starts one (`arbor daemon start`, or `arborsync --control` under an
+  explicit `ARBOR_DATA_HOME`). Reads that depend only on durable
+  configuration (`arbor me`, the account list in `arbor status`) work without
+  a daemon.
 - Successful commands exit `0`. Operational failures exit `1`; malformed usage
   exits `2` after printing the command synopsis.
 
@@ -61,9 +64,10 @@ arbor open [<locator>]
 ```
 
 Open a local path, canonical remote URL, or `arbor://` locator in Arbor web. The
-locator defaults to the current directory. If a compatible persistent daemon is
-available, the command attaches to it; an explicit `ARBOR_DATA_HOME` may instead
-start a foreground server that runs until interrupted.
+locator defaults to the current directory. The command attaches to the
+compatible Arbor Sync that owns the data home (starting the installed macOS
+service if it is stopped) and fails when none is reachable; run `arborsync
+<root> --port 4317` yourself for an isolated foreground data home.
 
 ```sh
 arbor open ~/Documents/notes
