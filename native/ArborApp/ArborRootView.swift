@@ -1603,11 +1603,13 @@ struct ArborRootView: View {
             }
             .frame(minWidth: 560, minHeight: 420)
         case .syncConflict:
-            if let conflict = workspace.syncConflict {
-                ArborSyncConflictView(conflict: conflict) {
-                    presentedSheet = nil
-                    Task { await workspace.resolveSyncConflictKeepingLocal() }
-                }
+            if workspace.syncConflict != nil {
+                ArborSyncConflictView(
+                    workspace: workspace.syncConflictWorkspace,
+                    load: { await workspace.prepareSyncConflictReview() },
+                    resolve: { await workspace.resolveSyncConflict($0) },
+                    close: { presentedSheet = nil }
+                )
             }
         case .syncStatus:
             syncStatusPanel

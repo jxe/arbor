@@ -170,6 +170,150 @@ public actor ReplicaSyncCoordinator {
         )
     }
 
+    /// Reconstruct the four complete, authoritative graphs needed by the
+    /// conflict sheet and expose the actual value at each reported path.
+    /// Material is cached with the durable conflict so review remains possible
+    /// after a restart or a later loss of connectivity.
+    public func conflictWorkspace() async throws -> ReplicaConflictWorkspace? {
+        try requireOpen()
+        guard var stored = control.conflict else { return nil }
+        let material: DurableConflictMaterial
+        if let retained = stored.material {
+            material = retained
+        } else {
+            guard let attempt = stored.attempt else { throw ReplicaSyncError.conflictSnapshotMissing }
+            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
+            let index = stored.response.details.failedIndex
+            guard request.updates.indices.contains(index) else { throw ReplicaSyncError.conflictSnapshotMissing }
+            let failed = request.updates[index]
+            guard failed.candidate == stored.response.candidate else { throw ReplicaSyncError.conflictSnapshotMissing }
+            let tree = attempt.tree
+            let baseRoot = stored.response.base
+            let currentRoot = stored.response.current.root
+            async let baseValue = transport.snapshot(tree: tree, root: baseRoot)
+            async let currentValue = transport.snapshot(tree: tree, root: currentRoot)
+            let (base, current) = try await (baseValue, currentValue)
+            guard base.root == baseRoot, current.root == currentRoot else {
+                throw ReplicaSyncError.conflictSnapshotMissing
+            }
+            let mine = try WireTransitionReplay.applying(
+                WireTransitionPayload(objects: failed.objects, deltas: failed.deltas),
+                to: base,
+                root: failed.candidate
+            )
+            let draft = try WireTransitionReplay.applying(
+                stored.response.draft.payload,
+                to: mine,
+                root: stored.response.draft.root
+            )
+            material = DurableConflictMaterial(base: base, current: current, mine: mine, draft: draft)
+            stored.material = material
+            control.conflict = stored
+            try files.write(control)
+        }
+        let grouped = Dictionary(grouping: stored.response.conflicts, by: \.path)
+        let items = try grouped.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { path in
+            let base = try ConflictWorkspaceGraph.content(at: path, in: material.base)
+            let current = try ConflictWorkspaceGraph.content(at: path, in: material.current)
+            let mine = try ConflictWorkspaceGraph.content(at: path, in: material.mine)
+            let draft = try ConflictWorkspaceGraph.content(at: path, in: material.draft)
+            return ReplicaConflictItem(
+                path: path,
+                reasons: grouped[path, default: []].map(\.reason),
+                base: base,
+                current: current,
+                mine: mine,
+                draft: draft,
+                offersBoth: draft != current && draft != mine
+            )
+        }
+        let request = try stored.attempt.map { try JSONDecoder().decode(WireUpdateRequest.self, from: $0.body) }
+        let suffix = max(0, (request?.updates.count ?? 1) - stored.response.details.failedIndex - 1)
+        return ReplicaConflictWorkspace(
+            identity: stored.attempt?.digest ?? stored.response.candidate,
+            items: items,
+            unattemptedCount: suffix
+        )
+    }
+
+    /// Assemble one reviewed failed-element candidate from the server draft,
+    /// replacing only the explicitly chosen conflict paths. This deliberately
+    /// does not infer a new merge: `both` selects Canopy's own draft value.
+    public func resolveConflict(_ resolutions: [String: ReplicaConflictResolution]) async throws {
+        try requireOpen()
+        guard let stored = control.conflict, let attempt = stored.attempt else { throw ReplicaSyncError.noConflict }
+        guard let workspace = try await conflictWorkspace(),
+              workspace.identity == attempt.digest,
+              let retained = control.conflict,
+              retained.attempt?.digest == attempt.digest,
+              let material = retained.material else { throw ReplicaSyncError.noConflict }
+        guard workspace.unattemptedCount == 0 else { throw ReplicaSyncError.conflictSequenceRequiresReview }
+        let paths = workspace.items.map(\.path)
+        guard Set(resolutions.keys) == Set(paths) else { throw ReplicaSyncError.conflictResolutionIncomplete }
+        for lhs in paths {
+            for rhs in paths where lhs != rhs {
+                let prefix = lhs == "/" ? "/" : lhs + "/"
+                if rhs.hasPrefix(prefix) { throw ReplicaSyncError.conflictPathOverlap }
+            }
+        }
+        var candidate = material.draft
+        for item in workspace.items {
+            guard let resolution = resolutions[item.path] else { throw ReplicaSyncError.conflictResolutionIncomplete }
+            switch resolution {
+            case .current:
+                candidate = try ConflictWorkspaceGraph.replacing(path: item.path, in: candidate, with: material.current)
+            case .mine:
+                candidate = try ConflictWorkspaceGraph.replacing(path: item.path, in: candidate, with: material.mine)
+            case .both:
+                guard item.offersBoth else { throw ReplicaSyncError.conflictResolutionIncomplete }
+                // The draft is already the destination and therefore already
+                // carries Canopy's explicit combined value for this path.
+                break
+            case let .edit(source):
+                guard item.draft.editableText != nil || item.mine.editableText != nil || item.current.editableText != nil else {
+                    throw ReplicaSyncError.conflictContentIsNotEditable
+                }
+                candidate = try ConflictWorkspaceGraph.replacingText(path: item.path, in: candidate, with: source)
+            }
+        }
+        _ = try WireObjectGraph.validate(candidate)
+        let descriptor = try await transport.descriptor(tree: attempt.tree).validated(expectedTree: attempt.tree)
+        guard descriptor.tree.root == retained.response.current.root,
+              descriptor.tree.update == retained.response.current.id else { throw ReplicaSyncError.localWorkAdvanced }
+        let heads = try await replica.heads()
+        guard heads.materializedRoot == retained.localRootAtConflict else { throw ReplicaSyncError.localWorkAdvanced }
+
+        dispatch(.resolveConflict(.draft))
+        do {
+            let replacement = try SnapshotBridge.replacement(
+                snapshot: candidate,
+                tree: await replica.treeID(),
+                update: descriptor.tree.update,
+                cursor: descriptor.observedThrough
+            )
+            try await replica.replacePendingFromSystem(
+                replacement,
+                acceptedRoot: descriptor.tree.root,
+                acceptedUpdate: descriptor.tree.update,
+                acceptedCursor: descriptor.observedThrough
+            )
+            control.nextBase = WireUpdateBase(root: descriptor.tree.root, update: descriptor.tree.update)
+            control.conflict = nil
+            control.presentation = WorkspaceSyncPresentation(
+                state: .locallyPending,
+                detail: "Reviewed conflict choices are durable as a new root intent",
+                acceptedRoot: descriptor.tree.root,
+                localRoot: candidate.root,
+                localAdditions: candidate.root != descriptor.tree.root,
+                remoteAdditions: true
+            )
+            try files.write(control)
+        } catch {
+            dispatch(.conflictResolutionFailed)
+            throw error
+        }
+    }
+
     public func watchCursor() async throws -> String? {
         try requireOpen()
         return try await replica.heads().acceptedCursor
@@ -435,6 +579,10 @@ public actor ReplicaSyncCoordinator {
             )
             try files.write(control)
             noteConflict(validated, attempt: attempt)
+            // The conflict response arrived over a live transport, so retain
+            // its review material now when possible. Failure leaves the exact
+            // durable conflict intact and the sheet can retry later.
+            _ = try? await conflictWorkspace()
             return control.presentation
         } catch let error as WireHTTPError where error.status == 401 || error.status == 403 {
             control.presentation.state = error.code == "device-revoked" ? .revoked : .authenticationFailure
@@ -499,6 +647,7 @@ public actor ReplicaSyncCoordinator {
             )
             try files.write(control)
             noteConflict(validated, attempt: attempt)
+            _ = try? await conflictWorkspace()
             return control.presentation
         } catch {
             if control.attempt?.digest != attempt.digest { return try await presentation() }

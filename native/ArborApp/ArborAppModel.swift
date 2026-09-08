@@ -115,6 +115,7 @@ final class ArborWorkspaceState {
         detail: "Open a local tree to start arborsync"
     )
     private(set) var syncConflict: ReplicaConflictPresentation?
+    private(set) var syncConflictWorkspace: ReplicaConflictWorkspace?
     private(set) var arborsyncProcessKind: ArborSyncProcessKind?
     private(set) var latestStructuralReceipt: WorkspaceStructuralReceipt?
     let linkPreviewService: LinkPreviewService
@@ -250,6 +251,7 @@ final class ArborWorkspaceState {
         syncCoordinator = coordinator
         syncPresentation = try await coordinator.presentation()
         syncConflict = try await coordinator.conflict()
+        syncConflictWorkspace = nil
         startServerWatch(client: client, tree: tree, coordinator: coordinator)
     }
 
@@ -299,6 +301,7 @@ final class ArborWorkspaceState {
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
         syncConflict = nil
+        syncConflictWorkspace = nil
         await editorWorkspace.closeAll()
     }
 #endif
@@ -698,6 +701,7 @@ final class ArborWorkspaceState {
             arborsyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
             syncCoordinator = nil
             syncConflict = nil
+            syncConflictWorkspace = nil
             if remember { try await bookmarks.save(url) }
             await switchProvider(
                 runtime.provider,
@@ -1074,6 +1078,7 @@ final class ArborWorkspaceState {
             // on an indefinitely open watch connection.
             syncPresentation = try await syncCoordinator.recoverWatchGap()
             syncConflict = try await syncCoordinator.conflict()
+            syncConflictWorkspace = nil
         }
         catch {
             syncPresentation = (try? await syncCoordinator.presentation())
@@ -1126,6 +1131,35 @@ final class ArborWorkspaceState {
         syncPresentation = (try? await coordinator.presentation())
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
         syncConflict = try? await coordinator.conflict()
+        if syncConflict == nil { syncConflictWorkspace = nil }
+    }
+
+    func prepareSyncConflictReview() async {
+        guard let syncCoordinator else { return }
+        do {
+            syncConflictWorkspace = try await syncCoordinator.conflictWorkspace()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func resolveSyncConflict(_ resolutions: [String: ReplicaConflictResolution]) async -> Bool {
+        guard let syncCoordinator else { return false }
+        do {
+            try await syncCoordinator.resolveConflict(resolutions)
+            syncConflict = nil
+            syncConflictWorkspace = nil
+            syncPresentation = try await syncCoordinator.syncOnce()
+            syncConflict = try await syncCoordinator.conflict()
+            return syncConflict == nil
+        } catch {
+            errorMessage = error.localizedDescription
+            syncConflict = try? await syncCoordinator.conflict()
+            syncConflictWorkspace = try? await syncCoordinator.conflictWorkspace()
+            syncPresentation = (try? await syncCoordinator.presentation())
+                ?? WorkspaceSyncPresentation(state: .offline, detail: error.localizedDescription)
+            return false
+        }
     }
 
     func resolveSyncConflictKeepingLocal() async {
@@ -1133,6 +1167,7 @@ final class ArborWorkspaceState {
         do {
             try await syncCoordinator.resolveConflictKeepingLocal()
             syncConflict = nil
+            syncConflictWorkspace = nil
             syncPresentation = try await syncCoordinator.syncOnce()
             syncConflict = try await syncCoordinator.conflict()
         } catch {

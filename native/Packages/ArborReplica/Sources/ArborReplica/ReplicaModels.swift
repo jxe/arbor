@@ -295,6 +295,9 @@ struct ReplicaMutationIntent: Codable, Equatable, Sendable {
     var acceptedRoot: String?
     var acceptedUpdate: String?
     var acceptedCursor: String?
+    /// A conflict resolution may install a reviewed materialized root while
+    /// advancing its accepted base to a different authoritative root.
+    var retainsPendingAgainstAcceptedBase: Bool? = nil
 }
 
 struct ReplicaSearchIndex: Codable, Equatable, Sendable {

@@ -172,7 +172,44 @@ public actor ArborReplica {
         try replaceWithAccepted(replacement, mutation: "system-replacement")
     }
 
+    /// Atomically install a reviewed conflict candidate while retaining it as
+    /// pending work against the separately verified accepted authority root.
+    public func replacePendingFromSystem(
+        _ replacement: ReplicaSystemReplacement,
+        acceptedRoot: String,
+        acceptedUpdate: String,
+        acceptedCursor: String? = nil
+    ) throws {
+        try requireOpen()
+        guard control.pendingRoot != nil, !acceptedUpdate.isEmpty else { throw ReplicaError.pendingLocalChanges }
+        let replacementState = try state(from: replacement)
+        let computed = try ReplicaWireCodec.snapshot(for: replacementState)
+        guard computed.root == replacement.root else { throw ReplicaError.corruptState("System replacement root mismatch") }
+        try transact(
+            mutation: "resolve-sync-conflict",
+            pageKey: "_system",
+            accepted: (acceptedRoot, acceptedUpdate, acceptedCursor),
+            retainsPendingAgainstAcceptedBase: true
+        ) { next in
+            next = replacementState
+        }
+    }
+
     private func replaceWithAccepted(_ replacement: ReplicaSystemReplacement, mutation: String) throws {
+        let replacementState = try state(from: replacement)
+        let computed = try ReplicaWireCodec.snapshot(for: replacementState)
+        guard computed.root == replacement.root else { throw ReplicaError.corruptState("System replacement root mismatch") }
+        try transact(
+            mutation: mutation,
+            pageKey: "_system",
+            accepted: (replacement.root, replacement.update, replacement.cursor),
+            recordsModificationDates: mutation != "initialize-from-system"
+        ) { next in
+            next = replacementState
+        }
+    }
+
+    private func state(from replacement: ReplicaSystemReplacement) throws -> ReplicaState {
         guard !replacement.update.isEmpty else { throw ReplicaError.corruptState("System update ID is empty") }
         let nodes = replacement.nodes.map { node -> ReplicaNodeRecord in
             switch node.content {
@@ -194,17 +231,7 @@ public actor ArborReplica {
                 return ReplicaNodeRecord(path: node.path, kind: .boundary, boundaryTree: tree.rawValue)
             }
         }
-        let replacementState = ReplicaState(tree: state.tree, nodes: nodes)
-        let computed = try ReplicaWireCodec.snapshot(for: replacementState)
-        guard computed.root == replacement.root else { throw ReplicaError.corruptState("System replacement root mismatch") }
-        try transact(
-            mutation: mutation,
-            pageKey: "_system",
-            accepted: (replacement.root, replacement.update, replacement.cursor),
-            recordsModificationDates: mutation != "initialize-from-system"
-        ) { next in
-            next = replacementState
-        }
+        return ReplicaState(tree: state.tree, nodes: nodes)
     }
 
     public func deleteRebuildableIndexes() throws {
@@ -632,6 +659,7 @@ public actor ArborReplica {
         mutation: String,
         pageKey: String,
         accepted: (root: String, update: String, cursor: String?)? = nil,
+        retainsPendingAgainstAcceptedBase: Bool = false,
         recordsModificationDates: Bool = true,
         change: (inout ReplicaState) throws -> Void
     ) throws {
@@ -652,7 +680,8 @@ public actor ArborReplica {
             state: next,
             acceptedRoot: accepted?.root,
             acceptedUpdate: accepted?.update,
-            acceptedCursor: accepted?.cursor
+            acceptedCursor: accepted?.cursor,
+            retainsPendingAgainstAcceptedBase: retainsPendingAgainstAcceptedBase ? true : nil
         )
         let journalURL = try files.journalURL(pageKey: pageKey, id: intent.id)
         do {
@@ -702,7 +731,20 @@ public actor ArborReplica {
         try files.write(intent.state, to: files.stateURL)
         if injectFaults { try faultInjector.reached(.afterMaterialization) }
         let nextControl: ReplicaControl
-        if let acceptedRoot = intent.acceptedRoot {
+        if intent.retainsPendingAgainstAcceptedBase == true {
+            guard let acceptedRoot = intent.acceptedRoot, let acceptedUpdate = intent.acceptedUpdate else {
+                throw ReplicaError.corruptState("Pending system replacement has no accepted base")
+            }
+            nextControl = ReplicaControl(
+                tree: state.tree,
+                materializedRoot: snapshot.root,
+                pendingRoot: snapshot.root == acceptedRoot ? nil : snapshot.root,
+                acceptedRoot: acceptedRoot,
+                acceptedUpdate: acceptedUpdate,
+                acceptedCursor: intent.acceptedCursor,
+                generation: intent.generation
+            )
+        } else if let acceptedRoot = intent.acceptedRoot {
             guard acceptedRoot == snapshot.root, let acceptedUpdate = intent.acceptedUpdate else {
                 throw ReplicaError.corruptState("System replacement acceptance mismatch")
             }

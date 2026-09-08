@@ -15,6 +15,15 @@
 > verify behavior from source and tests rather than assuming a commit contains
 > every foundation listed here.
 
+> **Incremental status, 2026-09-08:** native Arbor now reconstructs and durably
+> caches the four complete graphs, presents actual content with per-path
+> Current/Mine/Both/Edit choices, assembles the reviewed failed element, and
+> shares its sheet-level review controls with ordinary document conflicts. The
+> iOS sheet uses the large native detent with no desktop minimum-width leak.
+> Ordered suffix replay remains guarded rather than implemented. Steps 2-4's
+> inline hunk placement and the Quagmire accessory seam are intentionally
+> deferred; keep this plan active for that work and Step 6 crash hardening.
+
 ## Status
 
 - **Priority**: P1
@@ -59,12 +68,14 @@ Inspect these before changing anything:
 - `native/Packages/ArborWire/Sources/ArborWire/WireModels.swift` —
   `WireUpdateConflict`, `WireConflictDetails`, and `WireConflictDraft` retain
   the complete structured Canopy response, including draft transition objects.
-- `native/Packages/CanopyClient/Sources/CanopyClient/SyncModels.swift` —
-  `DurableSyncConflict` persists the response and local root, while
-  `ReplicaConflictPresentation` currently exposes only root hashes and reasons.
+- `native/Packages/CanopyClient/Sources/CanopyClient/SyncModels.swift` and
+  `ConflictWorkspace.swift` — `DurableSyncConflict` persists the response,
+  failed request, and materialized graphs; `ReplicaConflictWorkspace` exposes
+  typed per-path content while graph rewriting stays inside CanopyClient.
 - `native/Packages/CanopyClient/Sources/CanopyClient/ReplicaSyncCoordinator.swift` —
-  conflict capture is durable; `resolveConflictKeepingLocal()` rebases the
-  complete local candidate as new intent but is the only implemented choice.
+  conflict capture and materialized review graphs are durable; per-path review
+  assembles a new candidate and rebases it as new intent after an authoritative
+  identity check. Ordered suffix replay remains guarded.
 - `native/Packages/ArborQuagmire/Sources/ArborQuagmire/MarkdownCodec.swift` —
   `ArborSourceLedger` relates exact Markdown source to stable Quagmire block
   identities and is the appropriate owner for mapping source ranges to blocks.
@@ -74,10 +85,11 @@ Inspect these before changing anything:
 - `native/Packages/ArborQuagmire/Sources/ArborQuagmire/ArborDocumentConflictAnalysis.swift`
   — provides a conservative whole-document suggestion for one disjoint edit
   per side; it is an interim presentation helper, not the tree conflict engine.
-- `native/ArborApp/ArborDailyDriverViews.swift` and
-  `native/ArborApp/ArborRootView.swift` — the native document conflict is shown
-  within its page, while the tree conflict sheet only explains reasons and can
-  keep the local tree.
+- `native/ArborApp/ArborAppModel.swift`,
+  `native/ArborApp/ArborDailyDriverViews.swift`, and
+  `native/ArborApp/ArborRootView.swift` — the native document and tree conflict
+  surfaces share sheet-level comparison/choice controls; the tree sheet shows
+  verified content and submits per-path choices through CanopyClient.
 - `/Users/joe/src/quagmire/Sources/Quagmire/EditorView.swift` — Quagmire owns
   row and gap placement but currently exposes only a page footer to host UI; it
   has no generic host-supplied row/gap accessory seam.

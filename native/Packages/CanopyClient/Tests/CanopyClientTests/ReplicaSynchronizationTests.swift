@@ -8,6 +8,8 @@ import Testing
 private actor ClosureTransport: ReplicaWireTransport {
     typealias Submit = @Sendable (PreparedWireUpdate, Int) async throws -> WireUpdateResponse
     let initial: WireSnapshot
+    let current: WireSnapshot
+    let snapshots: [String: WireSnapshot]
     let currentUpdate: String
     let currentObservedThrough: String
     let submitter: Submit
@@ -18,11 +20,18 @@ private actor ClosureTransport: ReplicaWireTransport {
 
     init(
         initial: WireSnapshot,
+        current: WireSnapshot? = nil,
+        additionalSnapshots: [WireSnapshot] = [],
         currentUpdate: String = "up_initial",
         currentObservedThrough: String? = nil,
         submitter: @escaping Submit
     ) {
         self.initial = initial
+        self.current = current ?? initial
+        self.snapshots = Dictionary(
+            ([initial, current].compactMap { $0 } + additionalSnapshots).map { ($0.root, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         self.currentUpdate = currentUpdate
         self.currentObservedThrough = currentObservedThrough ?? currentUpdate
         self.submitter = submitter
@@ -39,7 +48,7 @@ private actor ClosureTransport: ReplicaWireTransport {
             tree: WireTreeDescriptor(
                 id: tree,
                 kind: "ordinary",
-                root: initial.root,
+                root: current.root,
                 access: "write",
                 canonical: WireCanonicalDescriptor(path: "/~owner/\(tree)", endpoint: "https://arbor.example"),
                 update: currentUpdate
@@ -51,8 +60,8 @@ private actor ClosureTransport: ReplicaWireTransport {
     func snapshot(tree _: String, root: String) async throws -> WireSnapshot {
         snapshotRequests += 1
         requestedRoots.append(root)
-        guard root == initial.root else { throw ReplicaSyncError.returnedSnapshotMismatch }
-        return initial
+        guard let snapshot = snapshots[root] else { throw ReplicaSyncError.returnedSnapshotMismatch }
+        return snapshot
     }
 }
 
@@ -878,6 +887,112 @@ struct ReplicaSynchronizationTests {
         }
     }
 
+    @Test("Conflict workspace exposes content and submits per-path draft and edited choices")
+    func conflictWorkspaceResolution() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_conflict_workspace"
+            let initial = try snapshot(files: [
+                "current.md": "---\nid: pg_current\n---\n\n# Current choice\n\nBase current\n",
+                "mine.md": "---\nid: pg_mine\n---\n\n# Mine choice\n\nBase mine\n",
+                "note.md": "---\nid: pg_note\n---\n\n# Note\n\nBase\n",
+                "other.md": "---\nid: pg_other\n---\n\n# Other\n\nBase other\n",
+            ])
+            let remote = try snapshot(files: [
+                "current.md": "---\nid: pg_current\n---\n\n# Current choice\n\nRemote current\n",
+                "mine.md": "---\nid: pg_mine\n---\n\n# Mine choice\n\nRemote mine\n",
+                "note.md": "---\nid: pg_note\n---\n\n# Note\n\nRemote\n",
+                "other.md": "---\nid: pg_other\n---\n\n# Other\n\nRemote other\n",
+            ])
+            let draft = try snapshot(files: [
+                "current.md": "---\nid: pg_current\n---\n\n# Current choice\n\nMine current\nRemote current\n",
+                "mine.md": "---\nid: pg_mine\n---\n\n# Mine choice\n\nMine mine\nRemote mine\n",
+                "note.md": "---\nid: pg_note\n---\n\n# Note\n\nMine\nRemote\n",
+                "other.md": "---\nid: pg_other\n---\n\n# Other\n\nMine other\nRemote other\n",
+            ])
+            let bootstrap = ClosureTransport(initial: initial) { _, _ in throw InjectedSyncCrash() }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: bootstrap
+            )
+            let provider = ReplicaWorkspaceProvider(replica: replica)
+            let currentChoice = try await provider.openDocument(.init(tree: .init(rawValue: tree), path: "/current", stableKey: markdownStableKey("pg_current")))
+            let mineChoice = try await provider.openDocument(.init(tree: .init(rawValue: tree), path: "/mine", stableKey: markdownStableKey("pg_mine")))
+            let note = try await provider.openDocument(.init(tree: .init(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
+            let other = try await provider.openDocument(.init(tree: .init(rawValue: tree), path: "/other", stableKey: markdownStableKey("pg_other")))
+            let currentChoiceBase = try await currentChoice.snapshot()
+            let mineChoiceBase = try await mineChoice.snapshot()
+            let noteBase = try await note.snapshot()
+            let otherBase = try await other.snapshot()
+            _ = try await currentChoice.admit(source: currentChoiceBase.source.replacingOccurrences(of: "Base current", with: "Mine current"), baseContentRevision: currentChoiceBase.contentRevision)
+            _ = try await mineChoice.admit(source: mineChoiceBase.source.replacingOccurrences(of: "Base mine", with: "Mine mine"), baseContentRevision: mineChoiceBase.contentRevision)
+            _ = try await note.admit(source: noteBase.source.replacingOccurrences(of: "Base", with: "Mine"), baseContentRevision: noteBase.contentRevision)
+            _ = try await other.admit(source: otherBase.source.replacingOccurrences(of: "Base other", with: "Mine other"), baseContentRevision: otherBase.contentRevision)
+            let localRoot = try await replica.currentSnapshot().root
+            let current = accepted(id: "up_remote", tree: tree, root: remote.root, base: initial.root, candidate: remote.root)
+            let conflict = WireUpdateConflict(
+                message: "unsafe",
+                current: current,
+                base: initial.root,
+                candidate: localRoot,
+                draft: WireConflictDraft(root: draft.root, objects: draft.objects),
+                conflicts: [
+                    .init(path: "/current.md", reason: "frontmatter-conflict"),
+                    .init(path: "/mine.md", reason: "frontmatter-conflict"),
+                    .init(path: "/note.md", reason: "frontmatter-conflict"),
+                    .init(path: "/other.md", reason: "frontmatter-conflict"),
+                ]
+            )
+            let transport = ClosureTransport(
+                initial: initial,
+                current: remote,
+                additionalSnapshots: [draft],
+                currentUpdate: "up_remote",
+                currentObservedThrough: "cursor_remote"
+            ) { prepared, call in
+                if call == 1 { throw WireUpdateConflictError(conflict: conflict) }
+                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+                #expect(request.base == "up_remote")
+                let candidate = try completeCandidate(request, retained: remote)
+                return WireUpdateResponse(
+                    result: .accepted(accepted(id: "up_resolved", tree: tree, root: candidate.root, base: remote.root, candidate: candidate.root)),
+                    requestDigest: prepared.requestDigest,
+                    observedThrough: "up_resolved"
+                )
+            }
+            let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
+            #expect(try await coordinator.syncOnce().state == .conflict)
+            let workspace = try #require(try await coordinator.conflictWorkspace())
+            #expect(workspace.items.count == 4)
+            let noteItem = try #require(workspace.items.first { $0.path == "/note.md" })
+            #expect(noteItem.base.editableText?.contains("Base") == true)
+            #expect(noteItem.current.editableText?.contains("Remote") == true)
+            #expect(noteItem.mine.editableText?.contains("Mine") == true)
+            #expect(noteItem.draft.editableText?.contains("Mine\nRemote") == true)
+            #expect(noteItem.offersBoth)
+            #expect(await transport.snapshotRequests == 2)
+
+            let restarted = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
+            #expect(try await restarted.conflictWorkspace()?.items == workspace.items)
+            #expect(await transport.snapshotRequests == 2)
+
+            try await restarted.resolveConflict([
+                "/current.md": .current,
+                "/mine.md": .mine,
+                "/note.md": .both,
+                "/other.md": .edit("---\nid: pg_other\n---\n\n# Other\n\nReviewed\n"),
+            ])
+            #expect(try await restarted.syncOnce().state == .current)
+            #expect((try await currentChoice.snapshot()).source.contains("Remote current"))
+            #expect(!(try await currentChoice.snapshot()).source.contains("Mine current"))
+            #expect((try await mineChoice.snapshot()).source.contains("Mine mine"))
+            #expect(!(try await mineChoice.snapshot()).source.contains("Remote mine"))
+            #expect((try await note.snapshot()).source.contains("Mine\nRemote"))
+            #expect((try await other.snapshot()).source.hasSuffix("Reviewed\n"))
+            #expect(try DurableSyncFiles(root: root).load().conflict == nil)
+        }
+    }
+
     @Test("Every coordinator crash point replays one semantic intent")
     func crashRecovery() async throws {
         for point in ReplicaSyncFailurePoint.allCases where point != .duringMaterialization && point != .afterMaterialization {
@@ -1029,6 +1144,18 @@ private func snapshot(markdown: String) throws -> WireSnapshot {
     let file = try WireObjectCodec.object(.file(Data(markdown.utf8)))
     let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
     return WireSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
+}
+
+private func snapshot(files: [String: String]) throws -> WireSnapshot {
+    var objects: [WireObjectEnvelope] = []
+    let entries = try files.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { name in
+        let file = try WireObjectCodec.object(.file(Data(files[name, default: ""].utf8)))
+        objects.append(file)
+        return WireDirectoryEntry(name: name, hash: file.hash)
+    }
+    let root = try WireObjectCodec.object(.directory(entries))
+    objects.append(root)
+    return WireSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
 }
 
 private func directoryBodySnapshot(

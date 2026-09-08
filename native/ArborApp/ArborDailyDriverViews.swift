@@ -1023,41 +1023,122 @@ struct ArborHistoryView: View {
 }
 
 struct ArborSyncConflictView: View {
-    let conflict: ReplicaConflictPresentation
-    let keepLocal: () -> Void
+    let workspace: ReplicaConflictWorkspace?
+    let load: () async -> Void
+    let resolve: ([String: ReplicaConflictResolution]) async -> Bool
+    let close: () -> Void
+    @State private var choices: [String: ArborConflictReviewChoice] = [:]
+    @State private var edits: [String: String] = [:]
+    @State private var submitting = false
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("What happened") {
-                    Text("Canopy could not safely apply every local change to the current tree. It preserved the local candidate and a server-generated draft.")
-                        .foregroundStyle(.secondary)
-                }
-                Section("Conflicts") {
-                    ForEach(Array(conflict.reasons.enumerated()), id: \.offset) { _, reason in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(reason.path).font(.headline)
-                            Text(reason.reason).foregroundStyle(.secondary)
-                            Text(guidance(for: reason.reason)).font(.caption)
+            Group {
+                if let workspace {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Canopy stopped at the first change it could not merge safely. Review each affected path using the actual content, then submit the result as a new edit.")
+                                    .foregroundStyle(.secondary)
+                                if workspace.unattemptedCount > 0 {
+                                    Label("\(workspace.unattemptedCount) later change\(workspace.unattemptedCount == 1 ? "" : "s") remain untouched and will not be discarded.", systemImage: "clock.arrow.circlepath")
+                                        .font(.callout)
+                                }
+                            }
+                            ForEach(workspace.items) { item in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(item.path).font(.headline)
+                                    ForEach(item.reasons, id: \.self) { reason in
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(reason).foregroundStyle(.secondary)
+                                            Text(guidance(for: reason)).font(.caption)
+                                        }
+                                    }
+                                    ArborConflictReviewControl(
+                                        content: .init(
+                                            base: item.base.summary,
+                                            current: item.current.summary,
+                                            mine: item.mine.summary,
+                                            both: item.offersBoth ? item.draft.summary : nil,
+                                            editable: item.draft.editableText != nil || item.mine.editableText != nil || item.current.editableText != nil
+                                        ),
+                                        choice: choiceBinding(for: item),
+                                        editedSource: editBinding(for: item)
+                                    )
+                                }
+                                .padding(16)
+                                .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                            }
                         }
+                        .padding()
                     }
-                }
-                Section("Conflict evidence") {
-                    LabeledContent("Base", value: conflict.base)
-                    LabeledContent("Local", value: conflict.local)
-                    LabeledContent("Remote", value: conflict.remote)
-                    LabeledContent("Server draft", value: conflict.draft)
-                }
-                Section {
-                    Text("This keeps the complete local candidate and submits it again as a new edit based on the current remote tree. Nothing is discarded before that new intent is durable.")
-                        .foregroundStyle(.secondary)
-                    Button("Keep Local as New Edit", action: keepLocal)
-                        .buttonStyle(.borderedProminent)
+                } else {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Loading conflict content…").foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .navigationTitle("Synchronization Conflict")
+            .navigationTitle("Resolve Sync Conflict")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close", action: close) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Submit Resolution") { submit() }
+                        .disabled(!isComplete || submitting || (workspace?.unattemptedCount ?? 0) > 0)
+                }
+            }
         }
+#if os(macOS)
         .frame(minWidth: 620, minHeight: 480)
+#else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+#endif
+        .task { if workspace == nil { await load() } }
+        .onChange(of: workspace?.identity) { _, _ in seedEdits() }
+    }
+
+    private var isComplete: Bool {
+        guard let workspace else { return false }
+        return workspace.items.allSatisfy { choices[$0.path] != nil }
+    }
+
+    private func choiceBinding(for item: ReplicaConflictItem) -> Binding<ArborConflictReviewChoice?> {
+        Binding(get: { choices[item.path] }, set: { choices[item.path] = $0 })
+    }
+
+    private func editBinding(for item: ReplicaConflictItem) -> Binding<String> {
+        Binding(
+            get: { edits[item.path] ?? item.draft.editableText ?? item.mine.editableText ?? item.current.editableText ?? "" },
+            set: { edits[item.path] = $0 }
+        )
+    }
+
+    private func seedEdits() {
+        guard let workspace else { return }
+        for item in workspace.items where edits[item.path] == nil {
+            edits[item.path] = item.draft.editableText ?? item.mine.editableText ?? item.current.editableText ?? ""
+        }
+    }
+
+    private func submit() {
+        guard let workspace, isComplete else { return }
+        var resolutions: [String: ReplicaConflictResolution] = [:]
+        for item in workspace.items {
+            switch choices[item.path] {
+            case .current: resolutions[item.path] = .current
+            case .mine: resolutions[item.path] = .mine
+            case .both: resolutions[item.path] = .both
+            case .edit: resolutions[item.path] = .edit(edits[item.path] ?? "")
+            case nil: return
+            }
+        }
+        submitting = true
+        Task {
+            if await resolve(resolutions) { close() }
+            submitting = false
+        }
     }
 
     private func guidance(for reason: String) -> String {
@@ -1080,11 +1161,103 @@ struct ArborSyncConflictView: View {
     }
 }
 
+private enum ArborConflictReviewChoice: String, CaseIterable, Identifiable {
+    case current = "Current"
+    case mine = "Mine"
+    case both = "Both"
+    case edit = "Edit"
+    var id: Self { self }
+}
+
+private struct ArborConflictReviewContent {
+    var base: String?
+    var current: String
+    var mine: String
+    var both: String?
+    var editable: Bool
+}
+
+private struct ArborConflictReviewControl: View {
+    let content: ArborConflictReviewContent
+    @Binding var choice: ArborConflictReviewChoice?
+    @Binding var editedSource: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
+                choiceButton(.current)
+                choiceButton(.mine)
+                if content.both != nil { choiceButton(.both) }
+                if content.editable { choiceButton(.edit) }
+            }
+            if choice == .edit {
+                TextEditor(text: $editedSource)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 180)
+                    .padding(6)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+            } else if let selected = selectedSource {
+                source(selected)
+            }
+            DisclosureGroup("Compare versions") {
+                VStack(alignment: .leading, spacing: 12) {
+                    version("Current", content.current)
+                    version("Mine", content.mine)
+                    if let both = content.both { version("Both (server draft)", both) }
+                    if let base = content.base { version("Common base", base) }
+                }
+                .padding(.top, 8)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func choiceButton(_ value: ArborConflictReviewChoice) -> some View {
+        if choice == value {
+            Button(value.rawValue) { choice = value }
+                .buttonStyle(.borderedProminent)
+        } else {
+            Button(value.rawValue) { choice = value }
+                .buttonStyle(.bordered)
+        }
+    }
+
+    private var selectedSource: String? {
+        switch choice {
+        case .current: content.current
+        case .mine: content.mine
+        case .both: content.both
+        case .edit, nil: nil
+        }
+    }
+
+    private func version(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            source(value)
+        }
+    }
+
+    private func source(_ value: String) -> some View {
+        ScrollView([.horizontal, .vertical]) {
+            Text(value)
+                .font(.body.monospaced())
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 180)
+        .padding(8)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 struct ArborDocumentConflictView: View {
     let conflict: WorkspaceDocumentConflict
     let resolve: (String) -> Void
     let close: () -> Void
     @State private var mergedSource: String
+    @State private var choice: ArborConflictReviewChoice?
 
     init(
         conflict: WorkspaceDocumentConflict,
@@ -1096,6 +1269,7 @@ struct ArborDocumentConflictView: View {
         self.close = close
         let analysis = ArborDocumentConflictAnalysis(conflict)
         _mergedSource = State(initialValue: analysis.automaticMergeSource ?? conflict.submittedSource)
+        _choice = State(initialValue: analysis.automaticMergeSource == nil ? .mine : .both)
     }
 
     var body: some View {
@@ -1129,30 +1303,20 @@ struct ArborDocumentConflictView: View {
                         }
                     }
                 }
-                Section(analysis.automaticMergeSource == nil ? "Edit a resolution" : "Suggested merge") {
-                    TextEditor(text: $mergedSource)
-                        .font(.body.monospaced())
-                        .frame(minHeight: 220)
-                    Text(analysis.automaticMergeSource == nil
-                         ? "The changes overlap, so Arbor started with your version. Edit it if needed before saving it as a new change."
-                         : "The base, current, and edited sources changed disjoint ranges, so Arbor can combine them without choosing between overlapping text.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Section("Compare") {
-                    DisclosureGroup("Current version") { source(conflict.current.source) }
-                    DisclosureGroup("My unsaved edit") { source(conflict.submittedSource) }
-                    if let base = conflict.base {
-                        DisclosureGroup("Common base") { source(base.source) }
-                    }
-                }
                 Section("Resolution choices") {
-                    Button(analysis.automaticMergeSource == nil ? "Save Reviewed Version" : "Save Suggested Merge") {
-                        submit(mergedSource)
-                    }
+                    ArborConflictReviewControl(
+                        content: .init(
+                            base: conflict.base?.source,
+                            current: conflict.current.source,
+                            mine: conflict.submittedSource,
+                            both: analysis.automaticMergeSource,
+                            editable: true
+                        ),
+                        choice: $choice,
+                        editedSource: $mergedSource
+                    )
+                    Button("Apply Choice") { submitChoice() }
                     .buttonStyle(.borderedProminent)
-                    Button("Keep My Edit") { submit(conflict.submittedSource) }
-                    Button("Use Current") { submit(conflict.current.source) }
                 }
             }
         }
@@ -1164,18 +1328,14 @@ struct ArborDocumentConflictView: View {
         .background(.background)
     }
 
-    private func source(_ value: String) -> some View {
-        ScrollView(.horizontal) {
-            Text(value)
-                .font(.body.monospaced())
-                .textSelection(.enabled)
-                .fixedSize(horizontal: true, vertical: false)
+    private func submitChoice() {
+        switch choice {
+        case .current: resolve(conflict.current.source)
+        case .mine: resolve(conflict.submittedSource)
+        case .both: resolve(ArborDocumentConflictAnalysis(conflict).automaticMergeSource ?? conflict.submittedSource)
+        case .edit: resolve(mergedSource)
+        case nil: break
         }
-        .frame(maxHeight: 220)
-    }
-
-    private func submit(_ source: String) {
-        resolve(source)
     }
 }
 

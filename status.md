@@ -19,6 +19,7 @@ This page reports what the reference implementation does today. The [specificati
 
 ## Partial or in progress
 
+- **Native conflict review.** The tree synchronization sheet materializes verified base/current/mine/server-draft content and offers per-path Current/Mine/Both/Edit choices in a full-height iOS layout shared with ordinary document-conflict controls. Ordered replay of an unattempted update suffix and Quagmire's future inline hunk accessories remain in [Reliability 004](plans/reliability/004-contextual-canopy-conflict-resolution.md).
 - **Executable documents.** The data/query/mutation core exists, but MDX/TSX compilation, generated typing, editor integration, React presentation, automatic activation, native presentation, and Canopy hosting are not complete. [Apps 001 and 003](plans/README.md#product-completion) own that work.
 - **Client parity.** Arbor web and native Arbor share the core model and synchronization contracts, but their interaction surfaces are not identical.
 - **Group management.** Arbor web can add and remove structured members on an existing `type: group` tree. It does not provide one coherent Create Group flow, and native Arbor has no equivalent membership editor. This remains a separately tracked product-design item.
