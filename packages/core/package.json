@@ -11,7 +11,8 @@
     "./node-model": "./src/node-model.ts",
     "./sse": "./src/sse.ts",
     "./utf8": "./src/utf8.ts",
-    "./path": "./src/path.ts"
+    "./path": "./src/path.ts",
+    "./document-admission": "./src/document-admission.ts"
   },
   "dependencies": {
     "@noble/hashes": "^2.2.0"

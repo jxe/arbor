@@ -34,7 +34,9 @@ does not become the package.
   `ReplicaDocumentSession`. The admission reducer is therefore
   provider-agnostic on Swift and lives next to that protocol. `ArborSyncClient`
   supplies only the session adapter. In TypeScript the web editor only ever
-  talks to Arbor Sync, so the reducer lives in `@arbor/arborsync-client`.
+  talks to Arbor Sync, so the reducer first lived in `@arbor/arborsync-client`;
+  after the macOS run it moved to `@arbor/core` so both languages keep
+  machine A in the provider-agnostic kit.
 - **Account and credential code rides inside the Canopy client packages.**
   `account-bootstrap.ts`, `Credentials.swift`, and
   `AccountConfigurationYAML.swift` talk to Canopy and are not synchronization,

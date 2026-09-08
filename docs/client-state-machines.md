@@ -9,7 +9,7 @@ durable replica run against Arbor Wire is specified separately in
 only says where the two meet.
 
 The reference implementations are `DocumentAdmissionMachine` in `ArborKit`
-(Swift) and `reduceAdmission` in `@arbor/arborsync-client` (TypeScript). Both
+(Swift) and `reduceAdmission` in `@arbor/core` (TypeScript, re-exported by `@arbor/arborsync-client`). Both
 are pure reducers that execute every scenario in
 [`conformance/client-state-machines.json`](../conformance/client-state-machines.json);
 the editor hosts (`ArborDocumentBinding`, `EditorCoordinator`) run the

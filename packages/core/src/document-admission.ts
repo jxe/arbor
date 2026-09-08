@@ -9,7 +9,7 @@
  * editor can use exact Markdown strings while executing the same fixtures.
  */
 
-export type Hash = `sha256:${string}`;
+import type { Hash } from "./identifiers.ts";
 
 /** Reference debounce for the current web and native editors. */
 export const ADMISSION_DEBOUNCE_MS = 250;

@@ -653,4 +653,5 @@ export class ArborSyncRESTClient {
   }
 }
 
-export * from "./document-admission.ts";
+// The admission reducer lives in @arbor/core (the counterpart of ArborKit on Swift); re-exported for editor hosts.
+export * from "@arbor/core/document-admission";

@@ -13,3 +13,4 @@ export * from "./protocol.ts";
 export * from "./sse.ts";
 export * from "./utf8.ts";
 export * from "./protocol-error.ts";
+export * from "./document-admission.ts";
