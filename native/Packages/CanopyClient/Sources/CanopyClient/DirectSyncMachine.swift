@@ -229,7 +229,7 @@ public enum DirectSyncMachine {
         public var publicationDelay: Duration
         public var publicationMaxDelay: Duration
 
-        public init(publicationDelay: Duration = publicationDelay, publicationMaxDelay: Duration = publicationMaxDelay) {
+        public init(publicationDelay: Duration = DirectSyncMachine.publicationDelay, publicationMaxDelay: Duration = DirectSyncMachine.publicationMaxDelay) {
             self.publicationDelay = publicationDelay
             self.publicationMaxDelay = publicationMaxDelay
         }
