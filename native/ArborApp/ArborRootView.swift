@@ -284,6 +284,30 @@ private final class MacWindowReaderView: NSView {
         windowChanged?(window)
     }
 }
+
+private struct MutedMacToolbarHoverModifier: ViewModifier {
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(.rect)
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
+            }
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.1)) {
+                    isHovered = hovering
+                }
+            }
+    }
+}
+
+private extension View {
+    func mutedMacToolbarHover() -> some View {
+        modifier(MutedMacToolbarHoverModifier())
+    }
+}
 #endif
 
 struct ArborRootView: View {
@@ -654,7 +678,9 @@ struct ArborRootView: View {
                     .foregroundStyle(mutedMacToolbarForeground)
                     .frame(width: 20, height: 20)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .frame(width: 32, height: 32)
+            .mutedMacToolbarHover()
             .help("Show pages by \(sidebarPageOrder == .alphabetical ? "recent activity" : "title")")
             .accessibilityLabel("Page order")
             .accessibilityValue(sidebarPageOrder.label)
@@ -1108,7 +1134,7 @@ struct ArborRootView: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 32, height: 32)
-                .contentShape(.rect)
+                .mutedMacToolbarHover()
                 .help(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
                 .accessibilityLabel(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
             }
@@ -1149,15 +1175,18 @@ struct ArborRootView: View {
                             workspace: workspace
                         )
                         .frame(width: 32, height: 32)
+                        .mutedMacToolbarHover()
                     }
                     Button {
                         sharePresented = true
                     } label: {
                         mutedMacToolbarIcon("square.and.arrow.up")
+                            .offset(y: -0.5)
                     }
                     .help("Share")
                     .accessibilityLabel("Share")
                     .frame(width: 32, height: 32)
+                    .mutedMacToolbarHover()
                     .popover(isPresented: $sharePresented, arrowEdge: .top) {
                         ArborSharePanel(workspace: workspace, currentNode: model.node)
                             .onExitCommand { sharePresented = false }
@@ -1170,6 +1199,7 @@ struct ArborRootView: View {
                     .help("Accounts")
                     .accessibilityLabel("Accounts")
                     .frame(width: 32, height: 32)
+                    .mutedMacToolbarHover()
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(mutedMacToolbarForeground)
