@@ -24,9 +24,10 @@ import {
   CommunityConfigStore,
   ProfileIdentityStore,
   VisitedTreeStore,
-  loadCanopyAccountConfigurations,
+  listLocalAccounts,
   loadLocalPlacements,
   replaceLocalPlacement,
+  type LocalAccountSummary,
   type LocalPlacement,
   type SharedTreePlacement,
 } from "@arbor/stores";
@@ -953,32 +954,9 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return result;
   }
 
-  async accountList() {
-    const configurations = await loadCanopyAccountConfigurations();
-    if (configurations.length) {
-      return Promise.all(configurations.map(async (configuration) => {
-        const stored = await new CanopyAccountStore(configuration.configurationTree).safe();
-        return {
-          configurationTree: configuration.configurationTree,
-          canopy: configuration.account?.canopy ?? stored?.origin ?? null,
-          handle: stored?.handle ?? null,
-          profileTree: configuration.account?.profile ?? stored?.profileTree ?? null,
-          deviceID: configuration.currentDevice?.id ?? stored?.deviceID ?? null,
-          credentialAvailable: Boolean(await new CanopyAccountStore(configuration.configurationTree).get()),
-          diagnostics: configuration.diagnostics,
-        };
-      }));
-    }
-    const legacy = await this.communityConfig.status();
-    return legacy ? [{
-      configurationTree: legacy.record.configurationTree,
-      canopy: legacy.record.origin,
-      handle: legacy.record.handle,
-      profileTree: legacy.record.profileTree,
-      deviceID: null,
-      credentialAvailable: legacy.credentialAvailable,
-      diagnostics: [],
-    }] : [];
+  /** The claimed accounts of this data home; the projection lives in `@arbor/stores` so the CLI can read it directly. */
+  async accountList(): Promise<LocalAccountSummary[]> {
+    return listLocalAccounts(this.communityConfig);
   }
 
   async createPairingBootstrap(configurationTree?: string) {

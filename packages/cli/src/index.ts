@@ -12,6 +12,7 @@ import {
   CanopyAccountStore,
   arborDataRoot,
   clearRehomeTransaction,
+  listLocalAccounts,
   loadCanopyAccountConfigurations,
   loadLocalPlacements,
   parseAccountDevicesConfiguration,
@@ -1292,6 +1293,9 @@ async function statusCommand(args: string[]): Promise<void> {
     }
   } catch (error) {
     diagnostics.push({ code: "unreachable-runtime", message: error instanceof Error ? error.message : String(error) });
+    // Accounts are durable configuration, not daemon state: report them from
+    // this data home even while its Arbor Sync is down.
+    if (contextKind === "persistent" || contextKind === "foreground") accounts = await listLocalAccounts();
     if (contextKind === "persistent") {
       supervision = await arborDaemonSupervisor().status();
       runtimeState = supervision.state === "not-installed"
