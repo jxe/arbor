@@ -3,7 +3,7 @@ import Foundation
 /// Provider-neutral filename proposals derived from an admitted page title.
 public enum WorkspaceTitleSlug {
     public static func name(for title: String) -> String {
-        let textOnly = String(title.filter { !isEmojiCluster($0) })
+        let textOnly = String(title.filter { !WorkspaceDisplayTitle.isEmoji($0) })
         let textSlug = slugCharacters(in: textOnly)
         if !textSlug.isEmpty { return textSlug }
         let emojiSlug = slugCharacters(in: expandingEmoji(in: title))
@@ -36,7 +36,7 @@ public enum WorkspaceTitleSlug {
     }
 
     private static func emojiName(_ cluster: Character) -> String? {
-        guard isEmojiCluster(cluster),
+        guard WorkspaceDisplayTitle.isEmoji(cluster),
               let named = String(cluster).applyingTransform(.toUnicodeName, reverse: false) else { return nil }
         var words: [String] = []
         var rest = Substring(named)
@@ -54,12 +54,4 @@ public enum WorkspaceTitleSlug {
         return words.isEmpty ? nil : words.joined(separator: " ")
     }
 
-    private static func isEmojiCluster(_ cluster: Character) -> Bool {
-        let scalars = cluster.unicodeScalars
-        if scalars.contains(where: {
-            $0.properties.isEmojiPresentation || ($0.properties.isEmoji && !$0.isASCII)
-        }) { return true }
-        return scalars.contains { $0.value == 0xFE0F || $0.value == 0x20E3 }
-            && scalars.contains { $0.properties.isEmoji }
-    }
 }

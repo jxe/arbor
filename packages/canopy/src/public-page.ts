@@ -1,6 +1,6 @@
 import { buildNetworkLocator, resolveLogicalURL } from "@arbor/core/logical-url";
 import type { ArborBlock, JSONValue } from "@arbor/core";
-import { parseMarkdown } from "@arbor/editor";
+import { markdownDisplayTitle, parseMarkdown } from "@arbor/editor";
 
 export interface PublicPageChild {
   name: string;
@@ -247,14 +247,6 @@ function collectFootnotes(blocks: ArborBlock[]): Map<string, number> {
   return new Map(labels.map((label, index) => [label, index + 1]));
 }
 
-function plainTitle(source: string): string {
-  return source
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_~`$]/g, "")
-    .trim();
-}
-
 function referencedChildren(blocks: ArborBlock[], context: RenderContext): Set<string> {
   const result = new Set<string>();
   const visit = (items: ArborBlock[]) => items.forEach((block) => {
@@ -285,8 +277,7 @@ export function renderPublicMarkdownPage(options: PublicMarkdownPageOptions): st
     documentPath: options.documentPath,
     footnotes: collectFootnotes(document.blocks),
   };
-  const firstHeading = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1);
-  const title = plainTitle(firstHeading?.content ?? "") || options.fallbackTitle;
+  const title = markdownDisplayTitle(document, options.fallbackTitle);
   const beginsWithTitle = document.blocks.find((block) => block.type !== "rawMarkdown" || !block.props?.blank)?.type === "heading"
     && Number(document.blocks.find((block) => block.type !== "rawMarkdown" || !block.props?.blank)?.props?.level ?? 1) === 1;
   const referenced = referencedChildren(document.blocks, context);

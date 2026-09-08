@@ -80,7 +80,8 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                         stableKey: item.ref.stableKey
                     ),
                     title: WorkspaceDisplayTitle.plainText(item.title),
-                    excerpt: item.excerpt.isEmpty ? nil : item.excerpt
+                    excerpt: item.excerpt.isEmpty ? nil : item.excerpt,
+                    backlinkCount: item.backlinkCount
                 )
             })
             cursor = page.nextCursor

@@ -8,6 +8,7 @@ import type {
   MutationRequest,
   NodeSnapshot,
   RecoveryPage,
+  SearchPage,
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
@@ -104,6 +105,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(systemTree.capabilities.content?.writable).toBe(false);
     expect(nodeDocument(systemTree)?.frontmatter.credentialAvailable).toBe(true);
     expect(backlinks.entries[0]?.ref.stableKey).toBe('[["id","week01"]]');
+    expect((await json<SearchPage>("search.json")).results[0]?.backlinkCount).toBe(2);
     expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
   });
 

@@ -49,6 +49,8 @@ export interface SearchResult {
   title: string;
   excerpt: string;
   score: number;
+  /** Distinct pages currently linking to this result across known trees. */
+  backlinkCount: number;
 }
 
 export interface NodeWriteRequest {

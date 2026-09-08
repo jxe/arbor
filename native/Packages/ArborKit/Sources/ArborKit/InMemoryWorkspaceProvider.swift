@@ -97,7 +97,14 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         return nodesByIdentity.values
             .filter { $0.reference.tree == tree && ($0.title.localizedLowercase.contains(needle) || source(of: $0).localizedLowercase.contains(needle)) }
             .sorted { $0.title < $1.title }
-            .map { WorkspaceSearchResult(reference: $0.reference, title: $0.title, excerpt: source(of: $0).isEmpty ? nil : source(of: $0)) }
+            .map { node in
+                WorkspaceSearchResult(
+                    reference: node.reference,
+                    title: node.title,
+                    excerpt: source(of: node).isEmpty ? nil : source(of: node),
+                    backlinkCount: backlinkResults(to: node.reference).count
+                )
+            }
     }
 
     /// The `(?<!!)` guard keeps `![alt](/Page)` from counting as a link to `/Page`.
@@ -109,6 +116,10 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
     }
 
     public func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] {
+        backlinkResults(to: reference)
+    }
+
+    private func backlinkResults(to reference: WorkspaceReference) -> [WorkspaceSearchResult] {
         let target = reference.path
         let targetKey = reference.stableKey
         return nodesByIdentity.values.compactMap { node in

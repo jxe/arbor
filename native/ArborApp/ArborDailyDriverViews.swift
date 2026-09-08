@@ -10,7 +10,6 @@ enum ArborPresentedSheet: String, Identifiable {
     case openLocation
     case source
     case history
-    case backlinks
     case arborsyncLogs
     case syncConflict
     case syncStatus
@@ -28,17 +27,16 @@ struct ArborWindowCommands {
     var newDocument: () -> Void
     var newFolder: () -> Void
     var openLocation: () -> Void
-    var openLocalWorkspace: () -> Void
+    var showSearch: () -> Void
+    var localTrees: [ArborLocalTreeMenuItem]
+    var jumpToLocalTree: (String) -> Void
     var showHistory: () -> Void
-    var showBacklinks: () -> Void
     var showSource: () -> Void
     var showSyncStatus: () -> Void
-    var showPairing: () -> Void
+    var showAccounts: () -> Void
     var movePage: () -> Void
     var movePageToTrash: () -> Void
     var restorePage: () -> Void
-    var reconnectArborSync: () -> Void
-    var showArborSyncLogs: () -> Void
     var canGoBack: Bool
     var canGoForward: Bool
     var canGoParent: Bool
@@ -49,6 +47,13 @@ struct ArborWindowCommands {
     var canMovePage: Bool
     var canMovePageToTrash: Bool
     var canRestorePage: Bool
+}
+
+struct ArborLocalTreeMenuItem: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let path: String
+    let isCurrent: Bool
 }
 
 private struct ArborWindowCommandsKey: FocusedValueKey {
@@ -72,10 +77,18 @@ struct ArborSidebarRow: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .frame(width: 16)
-                    .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
-                Text(node.title)
+                if let emoji = arborSidebarTitleParts(node.title).emoji {
+                    Text(emoji)
+                        .frame(width: 16)
+                } else {
+                    Image(systemName: symbol)
+                        .frame(width: 16)
+                        .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+                }
+                Text(arborSidebarTitleParts(node.title).text)
+#if os(macOS)
+                    .font(.system(size: 14))
+#endif
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 if case .placeholder = node.surface {
@@ -126,6 +139,57 @@ struct ArborSidebarRow: View {
         case .historical: "History"
         }
     }
+}
+
+#if os(macOS)
+struct ArborSidebarSearchRow: View {
+    let result: WorkspaceSearchResult
+    let open: () -> Void
+
+    var body: some View {
+        let titleParts = arborSidebarTitleParts(result.title)
+
+        Button(action: open) {
+            HStack(spacing: 8) {
+                if let emoji = titleParts.emoji {
+                    Text(emoji)
+                        .frame(width: 16)
+                } else {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .frame(width: 16)
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(titleParts.text)
+                        .font(.system(size: 14))
+                        .lineLimit(1)
+                    if result.reference.path != "/" {
+                        Text(result.reference.path)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                }
+                Spacer(minLength: 4)
+                Text("\(result.backlinkCount)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+}
+#endif
+
+private func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: String) {
+    guard let first = title.first, WorkspaceDisplayTitle.isEmoji(first) else {
+        return (nil, title)
+    }
+    let text = title.dropFirst().trimmingCharacters(in: .whitespaces)
+    guard !text.isEmpty else { return (nil, title) }
+    return (String(first), text)
 }
 
 struct ArborSearchPalette: View {
@@ -190,16 +254,33 @@ struct ArborSearchPalette: View {
                 open(result.reference)
                 dismiss()
             } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(result.title)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.primary)
-                    if let excerpt = result.excerpt {
-                        Text(excerpt)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Text(result.title)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            if let path = containingPath(for: result.reference) {
+                                Text(path)
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.head)
+                            }
+                        }
+                        if let excerpt = result.excerpt {
+                            Text(excerpt)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
                     }
+                    Spacer(minLength: 0)
+                    Label("\(result.backlinkCount)", systemImage: "link")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(result.backlinkCount == 0 ? .tertiary : .secondary)
+                        .accessibilityLabel(backlinkCountLabel(result.backlinkCount))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
@@ -207,7 +288,7 @@ struct ArborSearchPalette: View {
             .buttonStyle(.plain)
         }
         .overlay {
-            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && results.isEmpty {
                 ContentUnavailableView(
                     "Search this tree",
                     systemImage: "magnifyingglass",
@@ -217,6 +298,20 @@ struct ArborSearchPalette: View {
                 ContentUnavailableView.search(text: query)
             }
         }
+    }
+
+    private func backlinkCountLabel(_ count: Int) -> String {
+        switch count {
+        case 0: "No backlinks"
+        case 1: "1 backlink"
+        default: "\(count) backlinks"
+        }
+    }
+
+    private func containingPath(for reference: WorkspaceReference) -> String? {
+        let components = reference.path.split(separator: "/")
+        guard components.count > 1 else { return nil }
+        return components.dropLast().joined(separator: "/")
     }
 }
 
@@ -568,67 +663,140 @@ struct ArborDocumentFooter: View {
     }
 }
 
+struct ArborTreeSyncStatus: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let condition: String
+}
+
 struct ArborSyncStatusView: View {
     let provider: String
     let sync: WorkspaceSyncPresentation
     let binding: ArborDocumentBinding?
     let arborsyncProcessKind: ArborSyncProcessKind?
+    let treeStatuses: [ArborTreeSyncStatus]
     let retrySave: () -> Void
     let syncNow: () -> Void
+    let reconnectArborSync: () -> Void
+    let showArborSyncLogs: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Current document") {
-                    LabeledContent("Save status", value: saveStatus)
-                    if let diagnostic {
-                        Text("The latest edit remains in this session but has not reached durable provider storage. Retry before closing or navigating away.")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                        LabeledContent("Cause", value: diagnostic.conditionLabel)
-                        Text(diagnostic.explanation)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(diagnostic.recovery)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(diagnostic.technicalDetail)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-                }
-                Section("Workspace") {
-                    LabeledContent("Provider", value: provider)
-                    LabeledContent("Synchronization", value: synchronizationLabel)
-                    if diagnostic?.synchronizationOverride != nil {
-                        Text("Last reported: \(sync.state.label). Arbor cannot verify that state while the provider connection is unavailable.")
-                            .foregroundStyle(.secondary)
-                    } else if let detail = sync.detail {
-                        Text(detail).foregroundStyle(.secondary)
-                    }
-                    if sync.localAdditions { Label("Local changes are waiting to synchronize", systemImage: "arrow.up") }
-                    if sync.remoteAdditions { Label("Remote changes are waiting to download", systemImage: "arrow.down") }
-                    if sync.approximatePlacements > 0 {
-                        Label("\(sync.approximatePlacements) change placements need review", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                }
                 Section {
-                    if diagnostic != nil {
-                        Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
-                    } else {
-                        Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
-                            .disabled(sync.state == .offline)
+                    HStack(alignment: .center, spacing: 14) {
+                        Image(systemName: overallStatusSymbol)
+                            .font(.title2)
+                            .foregroundStyle(overallStatusTint)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(overallStatusTitle).font(.headline)
+                            Text(overallStatusDetail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 16)
+                        if diagnostic != nil {
+                            Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
+                        } else {
+                            Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
+                                .disabled(sync.state == .offline)
+                        }
+#if os(macOS)
+                        Menu {
+                            Button("Reconnect to arborsync", systemImage: "arrow.clockwise", action: reconnectArborSync)
+                            Button("View arborsync Logs…", systemImage: "doc.text.magnifyingglass", action: showArborSyncLogs)
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Arbor Sync options")
+#endif
                     }
-                } footer: {
-                    Text("Arbor reports accepted state and pending work here; it does not imply that an interrupted save or unresolved conflict is safe.")
+                    .padding(.vertical, 4)
                 }
+                if binding?.isSaving == true || binding?.conflict != nil || diagnostic != nil {
+                    Section("Current document") {
+                        LabeledContent("Save status", value: saveStatus)
+                        if let diagnostic {
+                            Text("The latest edit remains in this session but has not reached durable provider storage. Retry before closing or navigating away.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                            LabeledContent("Cause", value: diagnostic.conditionLabel)
+                            Text(diagnostic.explanation)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(diagnostic.recovery)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(diagnostic.technicalDetail)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                if !treeStatuses.isEmpty {
+                    Section("Trees") {
+                        ForEach(treeStatuses) { tree in
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(tree.title)
+                                    Text(tree.detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer()
+                                Text(tree.condition)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(
+                                        (tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
+                                            .opacity(0.1),
+                                        in: Capsule()
+                                    )
+                            }
+                        }
+                    }
+                }
+#if os(macOS)
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(provider)
+                        if diagnostic?.synchronizationOverride != nil {
+                            Text("Last reported: \(sync.state.label). Arbor cannot verify that state while the provider connection is unavailable.")
+                        } else if let detail = sync.detail {
+                            Text(detail)
+                        }
+                        if sync.localAdditions {
+                            Text("Local changes are waiting to synchronize.")
+                        }
+                        if sync.remoteAdditions {
+                            Text("Remote changes are waiting to download.")
+                        }
+                        if sync.approximatePlacements > 0 {
+                            Text("\(sync.approximatePlacements) change placements need review.")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+#endif
             }
             .formStyle(.grouped)
-            .navigationTitle("Save and Sync")
+#if os(iOS)
+            .navigationTitle("Sync Status")
+#endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
@@ -647,6 +815,58 @@ struct ArborSyncStatusView: View {
 
     private var diagnostic: ArborSaveDiagnostic? {
         ArborSaveDiagnostic.describe(binding?.lastError, processKind: arborsyncProcessKind)
+    }
+
+    private var treesNeedingAttention: Int {
+        treeStatuses.filter { $0.condition != "Up to date" }.count
+    }
+
+    private var overallStatusTitle: String {
+        if diagnostic != nil || binding?.conflict != nil { return "A document needs attention" }
+        if sync.state != .current { return synchronizationLabel }
+        if treesNeedingAttention == 1 { return "One tree needs attention" }
+        if treesNeedingAttention > 1 { return "\(treesNeedingAttention) trees need attention" }
+        if binding?.isSaving == true { return "Saving changes" }
+        return "Everything is up to date"
+    }
+
+    private var overallStatusDetail: String {
+        if diagnostic != nil { return "The latest edit has not reached durable storage." }
+        if binding?.conflict != nil { return "Resolve the current document conflict to continue." }
+        if sync.state != .current { return sync.detail ?? synchronizationDetail }
+        if treesNeedingAttention > 0 { return "Review the highlighted tree statuses below." }
+        if treeStatuses.isEmpty { return "No synchronized trees were reported." }
+        return "\(treeStatuses.count) \(treeStatuses.count == 1 ? "tree is" : "trees are") synchronized."
+    }
+
+    private var synchronizationDetail: String {
+        switch sync.state {
+        case .offline: "Arbor Sync is not currently reachable."
+        case .locallyPending: "Local changes are waiting to synchronize."
+        case .requestPending: "A synchronization request is queued."
+        case .uploading: "Local changes are being uploaded."
+        case .downloading: "Remote changes are being downloaded."
+        case .current: "All synchronized trees are current."
+        case .autoMerged: "Recent changes were merged automatically."
+        case .approximatePlacement: "Some merged changes need placement review."
+        case .conflict: "A synchronization conflict needs a choice."
+        case .authenticationFailure: "Reconnect the account to resume synchronization."
+        case .revoked: "This device no longer has access."
+        }
+    }
+
+    private var overallStatusSymbol: String {
+        if diagnostic != nil || binding?.conflict != nil || treesNeedingAttention > 0 {
+            return "exclamationmark.triangle"
+        }
+        if binding?.isSaving == true { return "arrow.trianglehead.2.clockwise.rotate.90" }
+        return sync.state == .current ? "checkmark.circle.fill" : sync.state.symbol
+    }
+
+    private var overallStatusTint: Color {
+        if diagnostic != nil { return .red }
+        if binding?.conflict != nil || treesNeedingAttention > 0 { return .orange }
+        return sync.state == .current ? .green : .secondary
     }
 
     private var synchronizationLabel: String {
@@ -780,33 +1000,6 @@ struct ArborHistoryView: View {
             }
         }
         .frame(minWidth: 500, minHeight: 420)
-    }
-}
-
-struct ArborBacklinksView: View {
-    let entries: [WorkspaceSearchResult]
-    let open: (WorkspaceReference) -> Void
-
-    var body: some View {
-        NavigationStack {
-            List(entries) { entry in
-                Button {
-                    open(entry.reference)
-                } label: {
-                    VStack(alignment: .leading) {
-                        Text(entry.title)
-                        if let excerpt = entry.excerpt {
-                            Text(excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        }
-                    }
-                }
-            }
-            .overlay {
-                if entries.isEmpty { ContentUnavailableView("No backlinks", systemImage: "link") }
-            }
-            .navigationTitle("Linked From")
-        }
-        .frame(minWidth: 460, minHeight: 400)
     }
 }
 

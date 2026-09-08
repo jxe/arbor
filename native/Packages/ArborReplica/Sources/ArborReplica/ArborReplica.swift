@@ -318,6 +318,33 @@ public actor ArborReplica {
         }
     }
 
+    func backlinkCountsByPath() throws -> [String: Int] {
+        try requireOpen()
+        if index.generation != control.generation { try rebuildIndex() }
+        var inboundByPath: [String: Set<String>] = [:]
+        var inboundByStableKey: [String: Set<String>] = [:]
+        var inboundByLegacyPageID: [String: Set<String>] = [:]
+        for source in index.entries {
+            for link in source.links where link.tree == nil || link.tree == state.tree {
+                inboundByPath[link.path, default: []].insert(source.path)
+                if let stableKey = link.stableKey {
+                    inboundByStableKey[stableKey, default: []].insert(source.path)
+                }
+                if let pageID = link.legacyPageID {
+                    inboundByLegacyPageID[pageID, default: []].insert(source.path)
+                }
+            }
+        }
+        return Dictionary(uniqueKeysWithValues: index.entries.map { target in
+            var sources = inboundByPath[target.path, default: []]
+            if let pageID = target.pageID {
+                sources.formUnion(inboundByStableKey[markdownStableKey(pageID), default: []])
+                sources.formUnion(inboundByLegacyPageID[pageID, default: []])
+            }
+            return (target.path, sources.count)
+        })
+    }
+
     func backlinks(to reference: WorkspaceReference) throws -> [ReplicaSearchIndex.Entry] {
         let target = try resolve(reference)
         let targetKey = target.pageID.map(markdownStableKey)

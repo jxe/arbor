@@ -111,9 +111,9 @@ struct ArborAppTests {
         let model = ArborAppModel(workspace: workspace)
         await model.load()
 
-        #expect(model.node?.title == "No workspace open")
+        #expect(model.node?.title == "No tree open")
         #expect(model.children.isEmpty)
-        #expect(workspace.providerDetail == "No workspace open")
+        #expect(workspace.providerDetail == "No tree open")
     }
 
     @Test("The iPhone placements survive a native app relaunch")
@@ -349,6 +349,16 @@ struct ArborAppTests {
 
         #expect(try await workspace.provider.resolve(retained.reference).reference.path == "/Retained")
         #expect(model.editorLease?.id == lease.id)
+    }
+
+    @Test("Empty search starts as a page browser")
+    func emptySearchListsPages() async throws {
+        let workspace = ArborWorkspaceState(provider: .sample())
+        let model = ArborAppModel(workspace: workspace)
+
+        await model.search("")
+
+        #expect(model.searchResults.contains { $0.reference.path == "/welcome" })
     }
 
     @Test("A final editor commit is durable before navigation completes")

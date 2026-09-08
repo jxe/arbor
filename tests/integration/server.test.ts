@@ -26,6 +26,7 @@ beforeAll(async () => {
   await writeFile(join(root, "page.md"), "Hello API\n");
   await writeFile(join(root, "target.md"), "---\nid: target\n---\nTarget\n");
   await writeFile(join(root, "source.md"), "---\nid: source\n---\nSee [Target](/target#target).\n");
+  await writeFile(join(root, "titled.md"), "# 🌲 **Authored Page**\n");
   await writeFile(join(root, "duplicate-a.md"), "---\nid: duplicate-id\n---\nA\n");
   await writeFile(join(root, "duplicate-b.md"), "---\nid: duplicate-id\n---\nB\n");
   await mkdir(join(root, "data"));
@@ -145,6 +146,12 @@ describe("arborsync REST v1", () => {
     expect(nodeDocument(saved)?.bodySource).toContain("Changed through REST v1");
     durableWriteRequest = request;
     durableWriteReceipt = first;
+  });
+
+  test("summarizes Markdown children with their authored H1 display title", async () => {
+    const children = await client.children({ tree: scope, path: "/", stableKey: null });
+    const titled = children.items.find((item) => item.ref.path === "/titled");
+    expect(titled?.properties.title).toBe("🌲 Authored Page");
   });
 
   test("writes node properties without changing Markdown content and writes stable SQLite rows", async () => {
@@ -276,6 +283,18 @@ describe("arborsync REST v1", () => {
     ]);
     const byID = await client.backlinks({ tree: scope, path: "/stale", stableKey: pageIDStableKey("target") });
     expect(byID.entries).toEqual(byPath.entries);
+  });
+
+  test("lists pages before search text and reports incoming-link counts", async () => {
+    const initial = await client.search(scope, "");
+    expect(initial.results.length).toBeGreaterThan(0);
+
+    const filtered = await client.search(scope, "Target");
+    expect(filtered.results.find((result) => result.ref.path === "/target")?.backlinkCount).toBe(1);
+    const unlinked = await client.search(scope, "duplicate");
+    expect(unlinked.results.find((result) => result.ref.path === "/duplicate-a")?.backlinkCount).toBe(0);
+    const titled = await client.search(scope, "Authored");
+    expect(titled.results.find((result) => result.ref.path === "/titled")?.title).toBe("🌲 Authored Page");
   });
 
   test("commits structural batches atomically and rejects obsolete ordering fields", async () => {

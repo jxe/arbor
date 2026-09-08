@@ -251,6 +251,7 @@ export class Workspace implements AsyncDisposable {
       const pageID = this.pathPageIDs.get(result.path);
       return {
         ...result,
+        backlinkCount: this.index.backlinkCount(result.path, pageID, this.tree, true),
         ref: {
           tree: this.tree,
           path: result.path,
@@ -308,6 +309,10 @@ export class Workspace implements AsyncDisposable {
         context: entry.context,
       };
     });
+  }
+
+  backlinkCountTo(target: { tree: string; path: string; pageID?: string }): number {
+    return this.index.backlinkCount(target.path, target.pageID, target.tree, false);
   }
 
   async recoveryPage(

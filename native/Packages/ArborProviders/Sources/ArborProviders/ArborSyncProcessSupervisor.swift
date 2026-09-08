@@ -39,7 +39,7 @@ public enum ArborSyncSupervisorError: Error, LocalizedError, Sendable {
         case .executableUnavailable:
             "Arbor could not find its bundled arborsync helper. Rebuild the macOS app with the helper phase enabled."
         case .serviceUnavailable:
-            "Arbor is not connected to arborsync. Reopen the saved workspace or try again."
+            "Arbor is not connected to arborsync. Reopen the saved tree or try again."
         case let .incompatibleService(detail): "The loopback service is not a compatible arborsync: \(detail)"
         case let .launchFailed(detail): "arborsync could not start: \(detail)"
         case let .readinessTimedOut(detail): "arborsync did not become ready: \(detail)"
@@ -75,7 +75,7 @@ public actor ArborSyncProcessSupervisor {
         if let runtime { return runtime }
         let normalized = workspace.standardizedFileURL
         guard normalized.isFileURL else {
-            throw ArborSyncSupervisorError.launchFailed("Workspace access requires a local folder URL")
+            throw ArborSyncSupervisorError.launchFailed("Tree access requires a local folder URL")
         }
         self.workspace = normalized
 
@@ -173,7 +173,7 @@ public actor ArborSyncProcessSupervisor {
 
     public func restart() async throws -> ArborSyncRuntime {
         guard let workspace else {
-            throw ArborSyncSupervisorError.launchFailed("No workspace has been opened")
+            throw ArborSyncSupervisorError.launchFailed("No tree has been opened")
         }
         let executable = process?.executableURL
         await stop()
@@ -190,7 +190,7 @@ public actor ArborSyncProcessSupervisor {
         }
         let suffix = data.suffix(32_768)
         var value = String(decoding: suffix, as: UTF8.self)
-        if let workspace { value = value.replacingOccurrences(of: workspace.path, with: "<workspace>") }
+        if let workspace { value = value.replacingOccurrences(of: workspace.path, with: "<tree>") }
         return value
     }
 

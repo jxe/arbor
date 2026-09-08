@@ -174,6 +174,14 @@ row properties and schema capability without a collection-specific endpoint.
 Children, search, backlinks, recovery entries, mounted boundaries, events, and
 effects all retain explicit tree scope.
 
+An empty search query returns the tree's indexed pages in most-recently-modified
+order, so clients can use Search as a page browser before the user types.
+Each search result includes `backlinkCount`, the number of distinct known pages
+that currently link to it; the count includes links from other locally known
+trees while every result reference retains its owning tree.
+Markdown search-result titles use the authored first H1 (including its leading
+emoji) and fall back to the logical filename only when the page has no H1.
+
 For collection-file backings, `_store.csv`, `_store.json`, and `_store.jsonl` rows
 receive durable references only when `schema.ts` declares a valid primary key.
 Their child pages use a cursor bound to the exact source/schema revision and

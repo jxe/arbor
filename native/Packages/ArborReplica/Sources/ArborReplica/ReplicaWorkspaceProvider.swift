@@ -31,17 +31,23 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
         let replicaTree = await replica.treeID()
         guard tree == replicaTree else { return [] }
         guard try await replica.heads().generation >= 0 else { return [] }
-        return try await replica.search(query).map { entry in
-            WorkspaceSearchResult(
-                reference: WorkspaceReference(
-                    tree: tree,
-                    path: entry.path,
-                    stableKey: entry.pageID.map(markdownStableKey)
-                ),
-                title: entry.title,
-                excerpt: entry.source.isEmpty ? nil : entry.source
+        let entries = try await replica.search(query)
+        let backlinkCounts = try await replica.backlinkCountsByPath()
+        var results: [WorkspaceSearchResult] = []
+        for entry in entries {
+            let reference = WorkspaceReference(
+                tree: tree,
+                path: entry.path,
+                stableKey: entry.pageID.map(markdownStableKey)
             )
+            results.append(WorkspaceSearchResult(
+                reference: reference,
+                title: entry.title,
+                excerpt: entry.source.isEmpty ? nil : entry.source,
+                backlinkCount: backlinkCounts[entry.path, default: 0]
+            ))
         }
+        return results
     }
 
     public func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] {

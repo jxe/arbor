@@ -164,7 +164,8 @@ struct ReplicaProviderTests {
                 name: "linker",
                 source: "# Linker\n\n[Today](\(restoredLink))\n"
             )))
-            #expect(try await provider.search("durable edit", in: tree).contains { $0.reference.stableKey == pageID })
+            let linkedSearch = try await provider.search("durable edit", in: tree)
+            #expect(linkedSearch.first { $0.reference.stableKey == pageID }?.backlinkCount == 1)
             #expect(try await provider.backlinks(to: restored.reference).contains { $0.reference == linker.reference })
 
             let history = try await session.history()

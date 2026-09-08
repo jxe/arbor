@@ -451,6 +451,8 @@ struct ProviderContractTests {
         #expect(widened.contains { $0.reference.path.hasSuffix("/row-linker") })
         #expect(widened.contains { $0.reference.path.hasSuffix("/sibling-linker") })
         #expect(!widened.contains { $0.reference.path.hasSuffix("/image-only") })
+        let linkedSearch = try await provider.search("Durable contract", in: root.tree)
+        #expect(linkedSearch.first { $0.reference.path == note.reference.path }?.backlinkCount == 3)
 
         let renamed = try #require(try await provider.perform(.rename(reference: note.reference, name: "renamed")))
         #expect(renamed.reference.path.hasSuffix("/renamed"))

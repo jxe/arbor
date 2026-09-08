@@ -10,6 +10,7 @@ import type {
   TreeRef,
 } from "@arbor/core";
 import { isPageID, mediaTypeForPath, pageIDStableKey, toJSONValue } from "@arbor/core";
+import { markdownDisplayTitle } from "@arbor/editor";
 
 /** Adapter-private expanded-filesystem record. Never crosses a node protocol boundary. */
 export interface ExpandedChild {
@@ -113,6 +114,12 @@ export function summarizeExpandedNode(node: ExpandedNode, tree: TreeRef, writabl
     observedThrough: "summary",
     writable,
   });
+  if (node.document) {
+    summary.properties = {
+      ...summary.properties,
+      title: markdownDisplayTitle(node.document, node.name),
+    };
+  }
   return summary;
 }
 

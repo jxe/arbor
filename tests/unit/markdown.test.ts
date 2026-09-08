@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   blockFingerprint,
   documentIcon,
+  markdownDisplayTitle,
   parseMarkdown,
   replaceFrontmatter,
   serializeMarkdown,
@@ -9,6 +10,12 @@ import {
 } from "@arbor/editor";
 
 describe("Markdown source preservation", () => {
+  test("display titles use the authored H1 and preserve its emoji", () => {
+    const document = parseMarkdown("---\ntitle: Filename-like metadata\n---\n# 🌲 **Authored Page**\n");
+    expect(markdownDisplayTitle(document, "authored-page.md")).toBe("🌲 Authored Page");
+    expect(markdownDisplayTitle(parseMarkdown("Body only.\n"), "fallback")).toBe("fallback");
+  });
+
   test("a no-op round trip is byte-identical", () => {
     const source = "---\r\ntitle: 'Kept' # comment\r\n---\r\n# Hello\r\n\r\nA  paragraph.\r\n";
     const document = parseMarkdown(source);

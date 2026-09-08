@@ -17,7 +17,7 @@ import {
   resolveLogicalURL,
   resolveNodeTarget,
 } from "@arbor/core";
-import { parseMarkdown } from "@arbor/editor";
+import { markdownDisplayTitle, parseMarkdown } from "@arbor/editor";
 import { discoverWorkspace, type WorkspaceDiscovery } from "@arbor/fs";
 const INDEXED_EXTENSIONS = new Set(["md", "csv", "jsonl", "json", "ts", "tsx", "txt"]);
 
@@ -78,10 +78,14 @@ export class WorkspaceIndex {
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     const oldFiles = this.database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'files'").get() as { sql: string } | null;
     const oldLinks = this.database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'links'").get() as { sql: string } | null;
-    if (oldFiles && (!oldFiles.sql.includes("title TEXT") || !oldLinks?.sql.includes("target_tree_id"))) {
+    if (oldFiles && (
+      !oldFiles.sql.includes("title TEXT")
+      || !oldFiles.sql.includes("display_title_version")
+      || !oldLinks?.sql.includes("target_tree_id")
+    )) {
       this.database.exec("DROP TABLE IF EXISTS docs; DROP TABLE IF EXISTS links; DROP TABLE files;");
     }
-    this.database.exec("CREATE TABLE IF NOT EXISTS files(path TEXT UNIQUE NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL);");
+    this.database.exec("CREATE TABLE IF NOT EXISTS files(path TEXT UNIQUE NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, display_title_version INTEGER NOT NULL);");
     this.database.exec("CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(path UNINDEXED, title, body, content='files', content_rowid='rowid', tokenize='unicode61');");
     this.database.exec("CREATE TABLE IF NOT EXISTS links(source_path TEXT NOT NULL, target_path TEXT, target_page_id TEXT, target_tree_id TEXT, context TEXT NOT NULL);");
     this.database.exec("CREATE INDEX IF NOT EXISTS links_target_path ON links(target_path);");
@@ -116,7 +120,7 @@ export class WorkspaceIndex {
     const seen = new Set(prepared.map((item) => item.path));
     const removeFile = this.database.prepare("DELETE FROM files WHERE path = ?");
     const removeLinks = this.database.prepare("DELETE FROM links WHERE source_path = ?");
-    const upsertFile = this.database.prepare("INSERT INTO files(path, mtime, size, title, body) VALUES (?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime,size=excluded.size,title=excluded.title,body=excluded.body");
+    const upsertFile = this.database.prepare("INSERT INTO files(path, mtime, size, title, body, display_title_version) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime,size=excluded.size,title=excluded.title,body=excluded.body,display_title_version=excluded.display_title_version");
     let changed = false;
     this.database.transaction(() => {
       for (const item of existing) {
@@ -148,12 +152,42 @@ export class WorkspaceIndex {
   }
 
   search(query: string, limit = 30, offset = 0): SearchIndexResult[] {
-    const escaped = query.trim().split(/\s+/).map((token) => `"${token.replaceAll('"', '""')}"*`).join(" ");
-    if (!escaped) return [];
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return (this.database.query(
+        "SELECT path, title, '' AS excerpt, 0 AS rank FROM files ORDER BY mtime DESC, path LIMIT ? OFFSET ?",
+      ).all(limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number }>)
+        .map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: 0 }));
+    }
+    const escaped = trimmed.split(/\s+/).map((token) => `"${token.replaceAll('"', '""')}"*`).join(" ");
     const rows = this.database.query(
       "SELECT path, title, snippet(docs, 2, '<mark>', '</mark>', '…', 24) AS excerpt, bm25(docs) AS rank FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
     ).all(escaped, limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number }>;
     return rows.map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
+  }
+
+  backlinkCount(
+    targetPath: string,
+    targetPageID: string | undefined,
+    targetTreeID: string,
+    includeLocal: boolean,
+  ): number {
+    const row = this.database.query(
+      `SELECT COUNT(DISTINCT l.source_path) AS count
+       FROM links l
+       WHERE ((? = 1 AND l.target_tree_id IS NULL AND l.target_path = ?)
+         OR (l.target_tree_id = ? AND l.target_path = ?)
+         OR (? IS NOT NULL AND l.target_tree_id = ? AND l.target_page_id = ?))`,
+    ).get(
+      includeLocal ? 1 : 0,
+      targetPath,
+      targetTreeID,
+      targetPath,
+      targetPageID ?? null,
+      targetTreeID,
+      targetPageID ?? null,
+    ) as { count: number };
+    return row.count;
   }
 
   backlinks(
@@ -204,7 +238,7 @@ export class WorkspaceIndex {
     const transaction = this.database.transaction(() => {
       const previous = this.database.query("SELECT rowid, path, title, body FROM files WHERE path = ?").get(treePath) as { rowid: number; path: string; title: string; body: string } | null;
       if (previous) this.database.prepare("INSERT INTO docs(docs, rowid, path, title, body) VALUES ('delete', ?, ?, ?, ?)").run(previous.rowid, previous.path, previous.title, previous.body);
-      this.database.prepare("INSERT INTO files(path, mtime, size, title, body) VALUES (?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime,size=excluded.size,title=excluded.title,body=excluded.body").run(treePath, mtime, size, record.title, record.body);
+      this.database.prepare("INSERT INTO files(path, mtime, size, title, body, display_title_version) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime,size=excluded.size,title=excluded.title,body=excluded.body,display_title_version=excluded.display_title_version").run(treePath, mtime, size, record.title, record.body);
       this.replaceLinks(treePath, record.links);
       const current = this.database.query("SELECT rowid FROM files WHERE path = ?").get(treePath) as { rowid: number };
       this.database.prepare("INSERT INTO docs(rowid, path, title, body) VALUES (?, ?, ?, ?)").run(current.rowid, treePath, record.title, record.body);
@@ -238,7 +272,7 @@ export class WorkspaceIndex {
       try {
         const document = parseMarkdown(source);
         body = `${JSON.stringify(document.frontmatter)}\n${document.bodySource}`;
-        title = String(document.frontmatter.title ?? title);
+        title = markdownDisplayTitle(document, title);
       } catch {}
     }
     return {

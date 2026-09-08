@@ -10,6 +10,8 @@ func markdownDisplayTitle() {
     ) == "🗓️ Calendar")
     #expect(WorkspaceDisplayTitle.plainText("A [linked](elsewhere.md) title") == "A linked title")
     #expect(WorkspaceDisplayTitle.derived(from: nil, fallback: "literal-**-filename") == "literal-**-filename")
+    #expect(WorkspaceDisplayTitle.isEmoji("🌲"))
+    #expect(!WorkspaceDisplayTitle.isEmoji("A"))
 }
 
 @Suite("Workspace coordination")

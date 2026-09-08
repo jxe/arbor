@@ -31,17 +31,68 @@ private struct ArborNavigationCommands: Commands {
     @FocusedValue(\.editorCommands) private var editorCommands
 
     var body: some Commands {
+#if os(macOS)
+        CommandGroup(after: .appSettings) {
+            Button("Accounts…") { commands?.showAccounts() }
+                .disabled(commands == nil)
+        }
+        CommandGroup(replacing: .newItem) {
+            Menu("Jump to Local Tree") {
+                if let commands, !commands.localTrees.isEmpty {
+                    ForEach(commands.localTrees) { tree in
+                        Button {
+                            commands.jumpToLocalTree(tree.path)
+                        } label: {
+                            if tree.isCurrent {
+                                Label(tree.title, systemImage: "checkmark")
+                            } else {
+                                Text(tree.title)
+                            }
+                        }
+                    }
+                } else {
+                    Text("No Local Trees")
+                }
+            }
+            .disabled(commands?.localTrees.isEmpty != false)
+            Button("Open Location…") { commands?.openLocation() }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(commands == nil)
+            Button("Search…") { commands?.showSearch() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(commands == nil)
+            Divider()
+            Button("Go to Parent") { commands?.goParent() }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+                .disabled(commands?.canGoParent != true)
+            Button("Home") { commands?.goHome() }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .disabled(commands?.canGoHome != true)
+            Divider()
+            Button("Restore Page") { commands?.restorePage() }
+                .disabled(commands?.canRestorePage != true)
+            Button("Move Page…") { commands?.movePage() }
+                .disabled(commands?.canMovePage != true)
+            Button("Trash Page…") { commands?.movePageToTrash() }
+                .disabled(commands?.canMovePageToTrash != true)
+            Divider()
+            Button("Recover…") { commands?.showHistory() }
+                .keyboardShortcut("\\", modifiers: [.command, .shift])
+                .disabled(commands?.hasDocument != true)
+            Button("Sync Status…") { commands?.showSyncStatus() }
+                .disabled(commands == nil)
+            Divider()
+            Button("Close Tab") { commands?.closeTab() }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(commands?.canCloseTab != true)
+        }
+#else
         CommandGroup(after: .newItem) {
             Button("New Document…") { commands?.newDocument() }
                 .disabled(commands == nil)
             Button("New Folder…") { commands?.newFolder() }
                 .disabled(commands == nil)
             Divider()
-#if os(macOS)
-            Button("Open Local Workspace…") { commands?.openLocalWorkspace() }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-                .disabled(commands == nil)
-#endif
             Button("Open Location…") { commands?.openLocation() }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(commands == nil)
@@ -55,6 +106,7 @@ private struct ArborNavigationCommands: Commands {
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
                 .disabled(commands?.hasDocument != true)
         }
+#endif
         CommandGroup(after: .sidebar) {
             Button("Back") { commands?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
@@ -62,15 +114,14 @@ private struct ArborNavigationCommands: Commands {
             Button("Forward") { commands?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(commands?.canGoForward != true)
+#if os(iOS)
             Button("Go to Parent") { commands?.goParent() }
                 .keyboardShortcut(.upArrow, modifiers: .command)
                 .disabled(commands?.canGoParent != true)
             Button("Home") { commands?.goHome() }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
                 .disabled(commands?.canGoHome != true)
-            Divider()
-            Button("Linked From…") { commands?.showBacklinks() }
-                .disabled(commands?.hasNode != true)
+#endif
             Button("Source and Properties…") { commands?.showSource() }
                 .keyboardShortcut("i", modifiers: .command)
                 .disabled(commands?.hasNode != true)
@@ -98,25 +149,6 @@ private struct ArborNavigationCommands: Commands {
                 .disabled(editorCommands == nil)
         }
 #if os(macOS)
-        CommandMenu("Page") {
-            Button("Restore Page") { commands?.restorePage() }
-                .disabled(commands?.canRestorePage != true)
-            Button("Move Page…") { commands?.movePage() }
-                .disabled(commands?.canMovePage != true)
-            Button("Move Page to Trash…") { commands?.movePageToTrash() }
-                .disabled(commands?.canMovePageToTrash != true)
-        }
-        CommandMenu("Workspace") {
-            Button("Save and Sync…") { commands?.showSyncStatus() }
-                .disabled(commands == nil)
-            Button("Pair iPhone…") { commands?.showPairing() }
-                .disabled(commands == nil)
-            Divider()
-            Button("Reconnect to arborsync") { commands?.reconnectArborSync() }
-                .disabled(commands == nil)
-            Button("arborsync Logs…") { commands?.showArborSyncLogs() }
-                .disabled(commands == nil)
-        }
         CommandGroup(replacing: .undoRedo) {
             ArborUndoRedoMenuItems()
         }

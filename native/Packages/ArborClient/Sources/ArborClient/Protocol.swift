@@ -294,6 +294,7 @@ public struct SearchResult: Codable, Sendable, Equatable {
     public var title: String
     public var excerpt: String
     public var score: Double
+    public var backlinkCount: Int
 }
 
 public struct SearchPage: Codable, Sendable, Equatable {

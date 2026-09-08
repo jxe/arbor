@@ -116,6 +116,61 @@ struct NativeAccountPairingTests {
         }
     }
 
+    @Test("Device removal requires an administrator and preserves another administrator")
+    func deviceRemovalValidation() throws {
+        let devices = [
+            "dv_mac": ArborAccountDeviceDeclaration(label: "Joe's Mac", administrator: true),
+            "dv_phone": ArborAccountDeviceDeclaration(label: "Joe’s iPhone", administrator: nil),
+            "dv_tablet": ArborAccountDeviceDeclaration(label: "Joe’s iPad", administrator: nil),
+        ]
+
+        #expect(throws: Never.self) {
+            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+                devices: devices,
+                currentDeviceID: "dv_mac",
+                targetDeviceID: "dv_phone"
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+                devices: devices,
+                currentDeviceID: "dv_phone",
+                targetDeviceID: "dv_phone"
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+                devices: devices,
+                currentDeviceID: "dv_phone",
+                targetDeviceID: "dv_tablet"
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try ArborAccountConfigurationYAML.validateDeviceRemoval(
+                devices: devices,
+                currentDeviceID: "dv_mac",
+                targetDeviceID: "dv_mac"
+            )
+        }
+
+        let source = """
+        # Keep this administrator note.
+        dv_mac:
+          label: Joe's Mac
+          administrator: true
+
+        # Remove this whole device block.
+        dv_phone:
+          label: 'Joe’s iPhone'
+        """
+        let changed = try ArborAccountConfigurationYAML.replacingDevices(in: source) {
+            $0["dv_phone"] = nil
+        }
+        #expect(Set(try ArborAccountConfigurationYAML.devices(from: changed).keys) == Set(["dv_mac"]))
+        #expect(changed.contains("# Keep this administrator note."))
+        #expect(changed.contains("# Remove this whole device block."))
+    }
+
     @Test("Local placement YAML adds a tree without replacing another placement")
     func localPlacementYAML() throws {
         let source = """

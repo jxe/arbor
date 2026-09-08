@@ -207,6 +207,24 @@ public enum ArborAccountConfigurationYAML {
         }
     }
 
+    public static func validateDeviceRemoval(
+        devices: [String: ArborAccountDeviceDeclaration],
+        currentDeviceID: String?,
+        targetDeviceID: String
+    ) throws {
+        guard let currentDeviceID,
+              devices[currentDeviceID]?.administrator == true else {
+            throw ArborWireValidationError.invalidValue("Only an administrator can deauthorize a device")
+        }
+        guard let target = devices[targetDeviceID] else {
+            throw ArborWireValidationError.invalidValue("The device is no longer active")
+        }
+        if target.administrator == true,
+           devices.values.filter({ $0.administrator == true }).count == 1 {
+            throw ArborWireValidationError.invalidValue("The last administrator cannot be deauthorized")
+        }
+    }
+
     public static func profileDisplayName(locator: String?, handle: String? = nil) -> String? {
         if let handle, !handle.isEmpty { return handle.hasPrefix("~") ? handle : "~\(handle)" }
         guard let locator,

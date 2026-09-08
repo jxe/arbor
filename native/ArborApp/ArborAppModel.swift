@@ -38,11 +38,14 @@ enum ArborShareInvite {
 struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let id: String
     let configurationTree: String?
+    let kind: String
     let name: String
     let canonicalPath: String?
     let path: String?
+    let placement: String
     let access: String?
     let sync: String?
+    let missing: Bool
 }
 
 struct LocalArborSyncVisitPresentation: Identifiable, Sendable, Equatable {
@@ -107,10 +110,10 @@ final class ArborWorkspaceState {
     private(set) var launchLocation: WorkspaceLocation
     private(set) var generation = 0
     private(set) var capabilities: WorkspaceProviderCapabilities = .readOnly
-    private(set) var providerDetail = "No workspace open"
+    private(set) var providerDetail = "No tree open"
     private(set) var syncPresentation = WorkspaceSyncPresentation(
         state: .offline,
-        detail: "Open a local workspace to start arborsync"
+        detail: "Open a local tree to start arborsync"
     )
     private(set) var syncConflict: ReplicaConflictPresentation?
     private(set) var arborsyncProcessKind: ArborSyncProcessKind?
@@ -130,6 +133,7 @@ final class ArborWorkspaceState {
     private(set) var localArborSyncOverview: LocalArborSyncOverview?
     private(set) var localArborSyncOverviewIsRefreshing = false
     private(set) var localArborSyncOverviewError: String?
+    private(set) var localCanopyDevicesByConfigurationTree: [String: [LocalArborSyncDevicePresentation]] = [:]
 #endif
 #if os(iOS)
     private let nativePlacementStore = NativePlacementStore()
@@ -147,8 +151,8 @@ final class ArborWorkspaceState {
         let provider = suppliedProvider ?? InMemoryWorkspaceProvider(nodes: [
             WorkspaceNode(
                 reference: disconnectedHome,
-                title: "No workspace open",
-                surface: .directory(summary: "Open a local workspace to begin."),
+                title: "No tree open",
+                surface: .directory(summary: "Open a local tree to begin."),
                 provenance: .init(authority: .diagnostic, sourceDescription: "No provider connected"),
                 isWritable: false
             )
@@ -265,7 +269,7 @@ final class ArborWorkspaceState {
             try await place(tree: record.tree, from: record.origin, configurationTree: record.configurationTree, remember: false)
             return true
         } catch {
-            errorMessage = "The saved iPhone workspace could not be reopened: \(error.localizedDescription)"
+            errorMessage = "The saved iPhone tree could not be reopened: \(error.localizedDescription)"
             return false
         }
     }
@@ -461,7 +465,7 @@ final class ArborWorkspaceState {
         guard let source = String(data: file.bytes, encoding: .utf8) else {
             throw ArborWireValidationError.invalidValue("devices.yaml is not UTF-8")
         }
-        return try ArborAccountConfigurationYAML.devices(from: source)
+        let devices = try ArborAccountConfigurationYAML.devices(from: source)
             .map { id, device in
                 LocalArborSyncDevicePresentation(
                     id: id,
@@ -474,6 +478,15 @@ final class ArborWorkspaceState {
                 if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
                 return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
             }
+        localCanopyDevicesByConfigurationTree[configurationTree] = devices
+        return devices
+    }
+
+    func preloadLocalCanopyDevices() async {
+        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
+        for account in localArborSyncOverview?.accounts ?? [] {
+            _ = try? await localCanopyDevices(configurationTree: account.configurationTree)
+        }
     }
 
     func setLocalCanopyDeviceAdministrator(
@@ -505,6 +518,34 @@ final class ArborWorkspaceState {
             }
             device.administrator = administrator ? true : nil
             devices[deviceID] = device
+        }
+        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
+        return try await localCanopyDevices(configurationTree: configurationTree)
+    }
+
+    func deauthorizeLocalCanopyDevice(
+        configurationTree: String,
+        deviceID: String
+    ) async throws -> [LocalArborSyncDevicePresentation] {
+        guard let client = arborsyncClient,
+              let account = localArborSyncOverview?.accounts.first(where: {
+                  $0.configurationTree == configurationTree
+              }) else {
+            throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+        }
+        let ref = NodeRef(tree: configurationTree, path: "/devices.yaml", stableKey: nil)
+        let file = try await client.file(ref)
+        guard let source = String(data: file.bytes, encoding: .utf8) else {
+            throw ArborWireValidationError.invalidValue("devices.yaml is not UTF-8")
+        }
+        let devices = try ArborAccountConfigurationYAML.devices(from: source)
+        try ArborAccountConfigurationYAML.validateDeviceRemoval(
+            devices: devices,
+            currentDeviceID: account.deviceID,
+            targetDeviceID: deviceID
+        )
+        let next = try ArborAccountConfigurationYAML.replacingDevices(in: source) { devices in
+            devices[deviceID] = nil
         }
         _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
         return try await localCanopyDevices(configurationTree: configurationTree)
@@ -692,7 +733,7 @@ final class ArborWorkspaceState {
             let restoreError = error
             do {
                 try await openLocalWorkspace(FileManager.default.homeDirectoryForCurrentUser, remember: false)
-                errorMessage = "The saved workspace could not be reopened, so Arbor opened your home folder instead: \(restoreError.localizedDescription)"
+                errorMessage = "The saved tree could not be reopened, so Arbor opened your home folder instead: \(restoreError.localizedDescription)"
             } catch {
                 errorMessage = "Arbor could not start its filesystem provider: \(error.localizedDescription)"
             }
@@ -784,11 +825,14 @@ final class ArborWorkspaceState {
             LocalArborSyncTreePresentation(
                 id: $0.id,
                 configurationTree: $0.configurationTree,
+                kind: $0.kind,
                 name: $0.name,
                 canonicalPath: $0.canonical?.path,
                 path: $0.osPath,
+                placement: $0.placement,
                 access: $0.access,
-                sync: $0.sync
+                sync: $0.sync,
+                missing: $0.missing == true
             )
         }
         async let visitsRequest = loadLocalArborSyncVisits(
@@ -1428,10 +1472,6 @@ final class ArborAppModel {
         searchRequestID += 1
         let requestID = searchRequestID
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            searchResults = []
-            return
-        }
         do {
             let results = try await workspace.provider.search(trimmed, in: currentReference.tree)
             guard requestID == searchRequestID else { return }

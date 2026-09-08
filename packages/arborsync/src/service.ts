@@ -557,7 +557,26 @@ export class ArborSyncDaemon implements AsyncDisposable {
 
   async searchPage(tree: TreeRef, query: string, cursor?: string | null): Promise<SearchPage> {
     const workspace = await this.trees.workspaceByTree(tree);
-    if (workspace) return workspace.searchPage(query, cursor);
+    if (workspace) {
+      const page = await workspace.searchPage(query, cursor);
+      const otherWorkspaces = (await this.trees.openAll()).filter((candidate) => candidate.tree !== workspace.tree);
+      return {
+        ...page,
+        results: page.results.map((result) => ({
+          ...result,
+          backlinkCount: result.backlinkCount + otherWorkspaces.reduce(
+            (count, candidate) => count + candidate.backlinkCountTo({
+              tree: result.ref.tree,
+              path: result.ref.path,
+              ...(pageIDFromStableKey(result.ref.stableKey)
+                ? { pageID: pageIDFromStableKey(result.ref.stableKey)! }
+                : {}),
+            }),
+            0,
+          ),
+        })),
+      };
+    }
     if (tree === LOCAL_TREE || tree === SYSTEM_TREE) {
       throw new ProtocolError(
         "unsupported-operation",
