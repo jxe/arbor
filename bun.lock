@@ -40,6 +40,7 @@
         "arborsync": "./src/cli.ts",
       },
       "dependencies": {
+        "@arbor/canopy-client": "workspace:*",
         "@arbor/core": "workspace:*",
         "@arbor/data": "workspace:*",
         "@arbor/editor": "workspace:*",
@@ -72,6 +73,16 @@
         "@arbor/wire": "workspace:*",
         "@arbor/wire-projection": "workspace:*",
         "yaml": "2.8.2",
+      },
+    },
+    "packages/canopy-client": {
+      "name": "@arbor/canopy-client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+        "@arbor/fs": "workspace:*",
+        "@arbor/stores": "workspace:*",
+        "@arbor/wire": "workspace:*",
       },
     },
     "packages/cli": {
@@ -180,6 +191,8 @@
     "@arbor/arborsync-client": ["@arbor/arborsync-client@workspace:packages/arborsync-client"],
 
     "@arbor/canopy": ["@arbor/canopy@workspace:packages/canopy"],
+
+    "@arbor/canopy-client": ["@arbor/canopy-client@workspace:packages/canopy-client"],
 
     "@arbor/cli": ["@arbor/cli@workspace:packages/cli"],
 

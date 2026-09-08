@@ -16,7 +16,7 @@ import {
   pendingEditorAdmissions,
   pendingTreeUpdate,
   savePendingTreeUpdate,
-} from "../../packages/arborsync/src/sync-state.ts";
+} from "@arbor/canopy-client";
 import { snapshotDirectory } from "@arbor/fs";
 
 const token = "self-sync-owner";

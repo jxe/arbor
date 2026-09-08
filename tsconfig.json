@@ -16,6 +16,7 @@
     "paths": {
       "@arbor/arborsync": ["packages/arborsync/src/index.ts"],
       "@arbor/canopy": ["packages/canopy/src/index.ts"],
+      "@arbor/canopy-client": ["packages/canopy-client/src/index.ts"],
       "@arbor/arborsync-client": ["packages/arborsync-client/src/index.ts"],
       "@arbor/arborsync-client/api": ["packages/arborsync-client/src/api.ts"],
       "@arbor/arborsync-client/configuration": ["packages/arborsync-client/src/configuration.ts"],

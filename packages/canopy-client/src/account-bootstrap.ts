@@ -12,18 +12,10 @@ import {
   loadCanopyAccountConfigurations,
   loadLocalPlacements,
   saveCurrentAccountDeviceID,
-  type CommunityConfigStore,
 } from "@arbor/stores";
 import { WireClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON } from "@arbor/wire";
-import type { EventBus } from "./events.ts";
-import type { TreeManager } from "./tree-manager.ts";
-import { ProtocolError } from "./workspace.ts";
-
-export interface AccountBootstrapDeps {
-  trees: TreeManager;
-  events: EventBus;
-  communityConfig: CommunityConfigStore;
-}
+import { ProtocolError } from "@arbor/core";
+import type { AccountBootstrapDeps } from "./ports.ts";
 
 interface PendingAccountClaimBootstrap {
   version: 2;

@@ -11,10 +11,8 @@ import {
   type TreeSnapshot,
   type WatchEvent,
 } from "@arbor/wire";
-import type { EventBus } from "./events.ts";
-import type { Hash } from "@arbor/core";
-import type { TreeManager } from "./tree-manager.ts";
-import { ProtocolError, type Workspace } from "./workspace.ts";
+import { ProtocolError, type Hash } from "@arbor/core";
+import type { PlacementRegistry, SyncEventSink, SyncWorkspace } from "./ports.ts";
 import {
   acceptedTreeObjects,
   clearPendingTreeUpdate,
@@ -35,13 +33,13 @@ import {
 } from "./sync-state.ts";
 import { materializeTree } from "@arbor/fs";
 
-export interface TreeSyncDeps {
-  trees: TreeManager;
-  events: EventBus;
+export interface TreeSyncDeps<W extends SyncWorkspace = SyncWorkspace> {
+  trees: PlacementRegistry;
+  events: SyncEventSink;
   accountToken(placement: SharedTreePlacement): Promise<string | undefined>;
   /** Serialize only local filesystem reads/writes for one tree; never hold this across Wire I/O. */
-  withWorkspaceIO<T>(workspace: Workspace, run: () => Promise<T>): Promise<T>;
-  snapshotWorkspace(workspace: Workspace, client: WireClient, remoteTrees?: readonly RemoteTreeDescriptor[]): Promise<TreeSnapshot>;
+  withWorkspaceIO<T>(workspace: W, run: () => Promise<T>): Promise<T>;
+  snapshotWorkspace(workspace: W, client: WireClient, remoteTrees?: readonly RemoteTreeDescriptor[]): Promise<TreeSnapshot>;
   /** Schedule one coalesced synchronization pass; resolves when a pass covering the request completes. */
   requestSync(): Promise<void>;
 }
@@ -72,7 +70,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * queued and applied by the daemon's serialized synchronization pass, so watch
  * events only ever hint or supply payload and never mutate state themselves.
  */
-export class TreeSynchronizer {
+export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
   readonly conflicts = new Set<string>();
   private readonly queued = new Map<string, TreeRefWatchEvent[]>();
   private readonly watches = new Map<string, { abort: AbortController; done: Promise<void> }>();
@@ -82,7 +80,7 @@ export class TreeSynchronizer {
   private readonly lastMaterializedRoots = new Map<string, ObjectHash>();
   private closed = false;
 
-  constructor(private readonly deps: TreeSyncDeps) {}
+  constructor(private readonly deps: TreeSyncDeps<W>) {}
 
   /** During an editor epoch disk is a materialized mirror, not local intent. */
   noteEditorActivity(tree: string): void {
@@ -97,7 +95,7 @@ export class TreeSynchronizer {
   }
 
   private snapshotWorkspace(
-    workspace: Workspace,
+    workspace: W,
     client: WireClient,
     remoteTrees?: readonly RemoteTreeDescriptor[],
   ): Promise<TreeSnapshot> {
@@ -170,7 +168,7 @@ export class TreeSynchronizer {
   }
 
   private async materialize(
-    workspace: Workspace,
+    workspace: W,
     snapshot: TreeSnapshot,
     acceptedRequestDigests: readonly Hash[] = [],
   ): Promise<void> {
@@ -235,7 +233,7 @@ export class TreeSynchronizer {
 
   /** Verify the on-disk tree matches the accepted root, then record it as the accepted base. */
   private async confirmMaterialized(
-    workspace: Workspace,
+    workspace: W,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
     root: ObjectHash,
@@ -252,7 +250,7 @@ export class TreeSynchronizer {
 
   /** Bring a clean placement to the authority's current state in one snapshot read. */
   private async pullCurrent(
-    workspace: Workspace,
+    workspace: W,
     placement: SharedTreePlacement,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
@@ -284,7 +282,7 @@ export class TreeSynchronizer {
    * the queue does not chain exactly from the local accepted base.
    */
   private async applyQueuedTransitions(
-    workspace: Workspace,
+    workspace: W,
     placement: SharedTreePlacement,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
@@ -345,7 +343,7 @@ export class TreeSynchronizer {
    * filesystem path.
    */
   private async submitEditorAdmissions(
-    workspace: Workspace,
+    workspace: W,
     placement: SharedTreePlacement,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
@@ -463,7 +461,7 @@ export class TreeSynchronizer {
   }
 
   async updateWorkspace(
-    workspace: Workspace,
+    workspace: W,
     initialPlacement: SharedTreePlacement,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],

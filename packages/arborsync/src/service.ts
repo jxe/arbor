@@ -32,7 +32,7 @@ import {
 } from "@arbor/stores";
 import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
-import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "./account-bootstrap.ts";
+import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "@arbor/canopy-client";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
@@ -52,14 +52,14 @@ import {
   snapshotFromConflictDraft,
   treeConflict,
   withDelta,
-} from "./sync-state.ts";
+} from "@arbor/canopy-client";
 import { SystemTreeProjection } from "./system-tree.ts";
 import { TreeManager } from "./tree-manager.ts";
-import { TreeSynchronizer } from "./tree-sync.ts";
+import { TreeSynchronizer } from "@arbor/canopy-client";
 import { ProtocolError, RevisionConflictError, Workspace, type ConfirmedSourcePatch, type WorkspaceOptions } from "./workspace.ts";
-import { documentAdmissionBasis, EditorAdmissionReconciliationError, freezeEditorAdmission } from "./editor-admission.ts";
+import { documentAdmissionBasis, EditorAdmissionReconciliationError, freezeEditorAdmission } from "@arbor/canopy-client";
 
-export { resolveUserPath } from "./account-bootstrap.ts";
+export { resolveUserPath } from "@arbor/canopy-client";
 
 type ResolvedScope =
   | { kind: "root"; workspace: Workspace; ref: NodeRef }
@@ -99,7 +99,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   private syncRequested = false;
   private syncWaiters: Array<() => void> = [];
   private workspaceIOTails = new Map<string, Promise<void>>();
-  private readonly treeSync: TreeSynchronizer;
+  private readonly treeSync: TreeSynchronizer<Workspace>;
   private remoteAuthorities = new Map<string, { locator: string; endpoint: string }>();
   private readonly systemTree: SystemTreeProjection;
 
@@ -113,7 +113,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       communityConfig: this.communityConfig,
       visitedTrees: this.visitedTrees,
     });
-    this.treeSync = new TreeSynchronizer({
+    this.treeSync = new TreeSynchronizer<Workspace>({
       trees,
       events,
       accountToken: (placement) => this.accountToken(placement),
