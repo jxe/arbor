@@ -1,6 +1,6 @@
 # Cleanup 004 — Carve the four thick client packages
 
-- **State:** IN PROGRESS
+- **State:** CARVED; awaiting macOS verification
 - **Priority:** P1; precedes Reliability 005
 - **Depends on:** nothing; Reliability 005 and 006 depend on the resulting
   package layout
@@ -72,6 +72,29 @@ does not become the package.
    (Reliability 004, 005, 006; Cleanups 001, 002; Security 002, 004; Smaller
    projects 002, 006, 007, 008; Testing 001). Historical `_done` plans keep
    their original paths.
+
+## What the carve showed
+
+- **The daemon coupling was shallow.** `TreeSynchronizer` read two fields of
+  `Workspace`, four methods of `TreeManager`, and `EventBus.emit`. Three port
+  interfaces in `packages/canopy-client/src/ports.ts` cover it, and the class is
+  generic over the workspace shape so the daemon passes its own `Workspace`
+  without a cast.
+- **`@arbor/fs` and `@arbor/stores` are direct dependencies of
+  `@arbor/canopy-client`**, not ports. `sync-state.ts` owns its per-tree files
+  and `account-bootstrap.ts` snapshots a directory during a claim. "Store as a
+  dependency" holds at the package level; it is not an abstraction the
+  synchronizer needs today.
+- **The Swift cycle-breaker was locator logic.** `ArborKit`, `ArborReplica`,
+  and `ArborQuagmire` depended on the REST client only for `LogicalURL.swift`
+  and `JSONValue`, which had lived there since before `ArborKit` existed.
+- **The provider contract test spans both providers.** It now lives in
+  `ArborSyncClientTests` with a test-only dependency on `ArborReplica`. If it
+  grows, a dedicated contract test package is the cleaner home.
+- **`Package.resolved` hashes will move.** Renaming a package changes its
+  manifest hash, so the first `swift package resolve` after this change
+  rewrites `originHash` in `CanopyClient` and `ArborQuagmire`; the pinned
+  Yams and Quagmire revisions do not change.
 
 ## Verification
 

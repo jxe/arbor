@@ -324,8 +324,8 @@ Primary ownership:
 - [`packages/editor/src/directory-document.ts`](../../packages/editor/src/directory-document.ts)
 - [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
 - [`packages/arborsync`](../../packages/arborsync)
-- [`packages/client`](../../packages/client)
-- [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
+- [`packages/client`](../../packages/arborsync-client)
+- [`native/Packages/ArborClient`](../../native/Packages/ArborSyncClient)
 - [`packages/render`](../../packages/render)
 
 Verification recorded with this delivery:
@@ -483,8 +483,8 @@ Implemented in:
 - [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 - [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
 - [`packages/arborsync`](../../packages/arborsync)
-- [`packages/client`](../../packages/client)
-- [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
+- [`packages/client`](../../packages/arborsync-client)
+- [`native/Packages/ArborClient`](../../native/Packages/ArborSyncClient)
 - [`conformance`](../../conformance)
 
 Intentional limits:
@@ -527,8 +527,8 @@ Implemented in:
 
 - `packages/core/src/projection.ts` (historical; removed by the provider-owned complete-directory foundation)
 - [`packages/core/src/logical-url.ts`](../../packages/core/src/logical-url.ts)
-- [`packages/client/src/index.ts`](../../packages/client/src/index.ts)
-- [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
+- [`packages/client/src/index.ts`](../../packages/arborsync-client/src/index.ts)
+- [`native/Packages/ArborClient`](../../native/Packages/ArborSyncClient)
 - [`packages/stores/src/indexer.ts`](../../packages/stores/src/indexer.ts)
 - [`packages/fs/src/materialization.ts`](../../packages/fs/src/materialization.ts)
 - [`packages/arborsync/src/workspace.ts`](../../packages/arborsync/src/workspace.ts)
