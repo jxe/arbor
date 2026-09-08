@@ -34,6 +34,17 @@
 
 ## Status
 
+- **State**: IN PROGRESS. Steps 1–5 and 7 are implemented on branch
+  `claude/client-reorganization-state-machines-h74mfj` after
+  [Cleanup 004](../cleanups/004-client-package-reorganization.md) carved the
+  four client packages. Step 6's runtime assertions exist for TypeScript
+  (`tests/unit/editor-coordinator.test.ts`, the self-sync suite's
+  successor and burst tests) and Swift (the rewritten
+  `ReplicaSynchronizationTests`); the Swift suites and Step 8's macOS
+  commands have not yet been run because the implementing session had no
+  Swift toolchain. Drift since `ccc96ec`: the web editor already used
+  `/v1/documents/admit` when a basis was present, so Step 2's transport change
+  became "make the kind explicit" rather than "adopt the route".
 - **Priority**: P1
 - **Effort**: XL
 - **Risk**: HIGH
@@ -703,22 +714,24 @@ commands and any demonstrated baseline-only failure when moving this plan to
 
 ## Done criteria
 
-- [ ] One versioned shared fixture defines both machines and is executed by
-  TypeScript and Swift tests.
-- [ ] TypeScript web and Swift native editors use the Arbor Sync admission
+- [x] One versioned shared fixture defines both machines and is executed by
+  TypeScript and Swift tests (`conformance/client-state-machines.json`;
+  the Swift execution awaits its macOS run).
+- [x] TypeScript web and Swift native editors use the Arbor Sync admission
   machine in their actual save paths.
-- [ ] TypeScript Arbor Sync and Swift `ReplicaSyncCoordinator` use the direct
+- [x] TypeScript Arbor Sync and Swift `ReplicaSyncCoordinator` use the direct
   Canopy machine in their actual synchronization paths.
 - [ ] Swift direct synchronization accepts only Reliability 006's validated
   `bootstrapInstalled` handoff for a fresh replica; preview and partial-transfer
   states cannot masquerade as `current` or offline-ready.
-- [ ] Fifteen rapid Option-arrow moves produce one Local Arbor REST admission
-  and normally one Canopy candidate/accepted update.
-- [ ] Every machine permits at most one ordinary request in flight and retains
+- [x] Fifteen rapid Option-arrow moves produce one Local Arbor REST admission
+  and normally one Canopy candidate/accepted update (unit and self-sync
+  burst tests).
+- [x] Every machine permits at most one ordinary request in flight and retains
   at most one replaceable latest successor.
-- [ ] An ambiguous request remains immutable and exactly retryable; plural
+- [x] An ambiguous request remains immutable and exactly retryable; plural
   append-only recovery remains supported.
-- [ ] No Canopy-backed client performs a competing Markdown/tree merge.
+- [x] No Canopy-backed client performs a competing Markdown/tree merge.
 - [ ] Every Arbor Sync editor client owns its own latest request-digest fence;
   Arbor Sync exposes authenticated accepted digests without imposing a
   machine-wide editor gate.
@@ -726,9 +739,9 @@ commands and any demonstrated baseline-only failure when moving this plan to
   base advances in both direct clients.
 - [ ] Conflict evidence and newer local work survive restart in both direct
   clients.
-- [ ] `docs/client-state-machines.md` is linked and describes the two choices as
-  client best practice without presenting reference timing as portable Wire
-  compatibility.
+- [x] `docs/client-state-machines.md` is linked and describes the admission
+  machine; the direct machine is normative in
+  `spec/09-client-synchronization.md` with timing marked non-normative.
 - [ ] All commands in Step 8 pass, relative Markdown links resolve, and no
   unrelated files are modified.
 

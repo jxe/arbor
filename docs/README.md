@@ -21,6 +21,7 @@ Arbor separates portable contracts, current implementation status, usage, produc
 - [Local system](local-system.md) — local data home, private state, watchers, visits, credentials, and migration.
 - [Local Arbor REST API](arborsync-api.md) — the implemented loopback client/daemon boundary.
 - [Client design](client.md) — non-normative web/native interaction design; use `status.md` for implementation truth.
+- [Client state machines](client-state-machines.md) — the document admission machine every Arbor Sync editor runs, and where it meets the direct Canopy machine in the specification.
 
 ## Planning and history
 

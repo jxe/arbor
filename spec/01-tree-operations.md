@@ -432,9 +432,15 @@ authored on the root at `base`; every later element is authored on the preceding
 element's submitted `candidate`, whether or not that candidate has received an
 authority response.
 
-A client may submit progressively longer strings without waiting for an
-earlier POST or the watch stream. For example, these requests may be in flight
-at the same time:
+Each element is a client-chosen accepted-history boundary. Nothing requires
+one element per editor transaction: a client normally coalesces an interaction
+burst into one element before preparing its request, and the
+[client synchronization](09-client-synchronization.md) machine keeps one
+ordinary request in flight. A client may nevertheless submit progressively
+longer strings without waiting for an earlier POST or the watch stream; the
+authority must accept them because they are the recovery path once a request
+has become ambiguous. For example, these requests may be in flight at the
+same time:
 
 ```json
 {
@@ -703,38 +709,44 @@ out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
 
 ### 3.1 One complete round trip
 
-This non-normative example shows how the preceding operations compose:
+This non-normative example shows how the preceding operations compose. The
+normative client behavior is the direct machine in
+[client synchronization](09-client-synchronization.md).
 
-1. The client records a confirmed `{ root, update }` watchpoint plus an ordered
-   speculative string of locally durable authored generations.
-2. It builds a complete candidate graph for every generation, omitting
-   unchanged objects and using an `ObjectDelta` when that is smaller than the
-   complete changed object. Every POST uses the epoch's confirmed update id as
-   `base` and repeats the complete speculative string accumulated so far.
-3. Once each generation is durable, the client may immediately submit the
-   longer string without waiting for an earlier POST or watch event. The
-   authority trims its accepted prefix, validates each remaining element,
-   performs any merge, and atomically records at most one accepted update per
-   element.
-4. The responses and corresponding `tree.update` events may arrive in either
-   order. The submitting client handles them idempotently; a matching private
-   per-element `requestDigest` is a causal acknowledgement of one frozen
-   generation and advances the confirmed prefix when all earlier generations
-   are also known.
-5. A clean replica applies a contiguous transition batch in memory and durably
+1. The client records a confirmed `{ root, update, cursor }` watchpoint. Each
+   authored generation becomes locally durable at once; unsent generations
+   are compacted so that one candidate represents one intentional
+   accepted-history boundary.
+2. After a short trailing delay it persists one exact request from the
+   confirmed update to its latest durable head: a complete candidate graph
+   omitting unchanged objects, using an `ObjectDelta` where that is smaller
+   than the complete changed object. The request is durable before its first
+   network attempt and is never rewritten afterwards.
+3. It transmits that one request. Local work that arrives while it is in
+   flight is retained as a single successor head; the client does not post a
+   longer string merely because another edit arrived.
+4. The response and the corresponding `tree.update` event may arrive in either
+   order. The client correlates them by the private per-element
+   `requestDigest` and by the accepted update, applies whichever arrives
+   first, and ignores the other.
+5. After validating and durably materializing the accepted result it advances
+   the watchpoint and, if a successor head exists, publishes it as a new
+   request against the new watchpoint without waiting.
+6. If the request's outcome is unknown when transport returns, the client
+   retries it exactly. If newer durable heads exist behind an ambiguous
+   request, it issues one longer string that repeats the transmitted prefix
+   exactly and appends the latest head once; the authority trims the accepted
+   prefix. This is the only use of a longer overlapping request.
+7. A clean replica applies a contiguous transition batch in memory and durably
    materializes only its final state. A replica with local changes submits its
    own candidate. Missing history or any failed check falls back to a coherent
    snapshot.
 
-The client removes generations only from the acknowledged front of its durable
-string. Once the string is empty, it starts a new epoch at the newest watchpoint
-it has durably applied. An older in-flight POST is harmless because it contains
-only already-acknowledged element identities. A watch event acknowledges
-candidate intent, not submitted delta bytes: a merge may produce a different
-accepted representation. If an element is rejected, later elements were
-authored on an unaccepted graph; the client keeps that suffix for explicit
-conflict handling or rebuilds it from the returned draft. Rejected conflicts
-never appear on watch.
+A watch event acknowledges candidate intent, not submitted delta bytes: a
+merge may produce a different accepted representation. If an element is
+rejected, the client retains the complete conflict durably, allows further
+local work, and exits only through explicit resolution as a new request at the
+verified current base. Rejected conflicts never appear on watch.
 
 ## 4. Encoding details
 
