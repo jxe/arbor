@@ -6,16 +6,15 @@ let package = Package(
     platforms: [.iOS("27.0"), .macOS("27.0")],
     products: [.library(name: "ArborQuagmire", targets: ["ArborQuagmire"])],
     dependencies: [
-        .package(path: "../ArborClient"),
+        .package(path: "../ArborSyncClient"),
         .package(path: "../ArborKit"),
-        .package(path: "../ArborProviders"),
         .package(url: "https://github.com/jxe/quagmire.git", exact: "0.6.0")
     ],
     targets: [
         .target(
             name: "ArborQuagmire",
             dependencies: [
-                "ArborClient",
+                "ArborSyncClient",
                 "ArborKit",
                 .product(name: "Quagmire", package: "quagmire"),
                 .product(name: "QuagmireExtras", package: "quagmire")
@@ -25,9 +24,8 @@ let package = Package(
             name: "ArborQuagmireTests",
             dependencies: [
                 "ArborQuagmire",
-                "ArborClient",
+                "ArborSyncClient",
                 "ArborKit",
-                "ArborProviders",
                 .product(name: "Quagmire", package: "quagmire"),
                 .product(name: "QuagmireExtras", package: "quagmire")
             ]

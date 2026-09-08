@@ -1,6 +1,5 @@
-import ArborClient
+import ArborSyncClient
 import ArborKit
-import ArborProviders
 @testable import ArborQuagmire
 import Foundation
 import Quagmire

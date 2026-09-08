@@ -163,8 +163,8 @@ include:
 - `packages/arborsync/src/workspace.ts`, `service.ts`, `node-sampling.ts`, and
   `filesystem-node-surface.ts`;
 - `packages/fs/src/discovery.ts` and `workspace-fs.ts`;
-- `packages/client/src/index.ts`;
-- `native/Packages/ArborClient/Sources/ArborClient/LogicalURL.swift`;
+- `packages/arborsync-client/src/index.ts`;
+- `native/Packages/ArborKit/Sources/ArborKit/LogicalURL.swift`;
 - `native/Packages/ArborReplica/Sources/ArborReplica/ReplicaSemantics.swift`;
 - shared conformance fixtures and focused TypeScript/Swift tests.
 
@@ -192,7 +192,7 @@ Run focused suites first, then the complete matrix:
 bun test tests/unit/logical-url.test.ts tests/unit/directory-document.test.ts tests/unit/discovery.test.ts tests/integration/workspace.test.ts tests/integration/server.test.ts tests/integration/canopy/update-host.test.ts
 bun run typecheck
 bun run test:protocol
-swift test --package-path native/Packages/ArborClient
+swift test --package-path native/Packages/ArborSyncClient
 swift test --package-path native/Packages/ArborReplica
 bun test
 bun run build

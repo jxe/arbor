@@ -1,9 +1,8 @@
-import ArborClient
 import ArborKit
 import ArborReplica
 import Foundation
 import Testing
-@testable import ArborProviders
+@testable import ArborSyncClient
 
 @Suite("Workspace provider contract", .serialized)
 struct ProviderContractTests {

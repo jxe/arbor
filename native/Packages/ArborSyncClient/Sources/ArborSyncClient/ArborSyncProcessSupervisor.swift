@@ -1,5 +1,4 @@
 #if os(macOS)
-import ArborClient
 import ArborKit
 import Darwin
 import Foundation

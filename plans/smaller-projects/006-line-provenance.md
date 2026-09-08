@@ -12,11 +12,11 @@
 > ```sh
 > git diff --stat 0ea0f31..HEAD -- \
 >   packages/canopy packages/wire packages/arborsync \
->   native/Packages/ArborWire native/Packages/ArborSync native/Packages/ArborKit \
+>   native/Packages/ArborWire native/Packages/CanopyClient native/Packages/ArborKit \
 >   native/ArborApp spec conformance tests migrations plans/canopy-storage
 > git status --short -- \
 >   packages/canopy packages/wire packages/arborsync \
->   native/Packages/ArborWire native/Packages/ArborSync native/Packages/ArborKit \
+>   native/Packages/ArborWire native/Packages/CanopyClient native/Packages/ArborKit \
 >   native/ArborApp spec conformance tests migrations plans/canopy-storage
 > ```
 >
@@ -301,7 +301,7 @@ Expected implementation scope:
 - `packages/canopy/src/model.ts`, `schema.ts`, `accounts.ts`, `canopy.ts`,
   `host.ts`, `updates/store.ts`, and one focused new provenance module;
 - `packages/wire/src/` models, strict JSON decoding, exports, and client;
-- `packages/arborsync/src/service.ts` and `server.ts`, plus `packages/client`;
+- `packages/arborsync/src/service.ts` and `server.ts`, plus `packages/arborsync-client`;
 - `native/Packages/ArborWire`, `ArborSync`, and `ArborKit` models, clients, and
   focused tests;
 - `native/ArborApp/ArborAppModel.swift`, `ArborRootView.swift`, and
@@ -385,7 +385,7 @@ fail with typed errors rather than high memory growth or partial results.
 2. Add the authenticated current-only Canopy route in
    `packages/canopy/src/host.ts` and a focused daemon method in `canopy.ts`.
 3. Add `WireClient` support, then route the complete `NodeRef` through
-   `packages/arborsync/src/service.ts`, `server.ts`, and `@arbor/client`.
+   `packages/arborsync/src/service.ts`, `server.ts`, and `@arbor/arborsync-client`.
 4. Add matching Swift models and methods in `ArborWire`, `ArborSync`, and
    `ArborKit`; do not make local recovery history pretend to be server blame.
 5. Update TypeScript/Swift language-neutral fixtures, reference API docs, and
@@ -398,7 +398,7 @@ fail with typed errors rather than high memory growth or partial results.
 bun run typecheck
 bun test tests/integration/canopy/update-host.test.ts tests/integration/self-sync.test.ts
 bun run test:protocol
-swift test --package-path native/Packages/ArborClient
+swift test --package-path native/Packages/ArborSyncClient
 ```
 
 Expected: TypeScript and Swift decode identical fixtures; current authorized
@@ -425,7 +425,7 @@ history or returns non-current source.
 
 ```sh
 swift test --package-path native/Packages/ArborWire
-swift test --package-path native/Packages/ArborSync
+swift test --package-path native/Packages/CanopyClient
 swift test --package-path native/Packages/ArborKit
 xcodebuild build -project native/Arbor.xcodeproj -scheme Arbor \
   -destination 'platform=macOS' \
@@ -491,7 +491,7 @@ bun run test:protocol
 bun run build
 bun run test:e2e
 bun run test:performance
-swift test --package-path native/Packages/ArborClient
+swift test --package-path native/Packages/ArborSyncClient
 git diff --check
 ```
 

@@ -2,27 +2,35 @@
 import PackageDescription
 
 let package = Package(
-    name: "ArborClient",
+    name: "ArborSyncClient",
     platforms: [
         .iOS("27.0"),
         .macOS("27.0")
     ],
     products: [
-        .library(name: "ArborClient", targets: ["ArborClient"])
+        .library(name: "ArborSyncClient", targets: ["ArborSyncClient"])
     ],
     dependencies: [
         .package(path: "../ArborKit"),
+        .package(path: "../ArborReplica"),
         .package(path: "../ArborWire")
     ],
     targets: [
         .target(
-            name: "ArborClient",
+            name: "ArborSyncClient",
             dependencies: [
                 .product(name: "ArborKit", package: "ArborKit"),
                 .product(name: "ArborWire", package: "ArborWire")
             ]
         ),
-        .testTarget(name: "ArborClientTests", dependencies: ["ArborClient"])
+        .testTarget(
+            name: "ArborSyncClientTests",
+            dependencies: [
+                "ArborSyncClient",
+                .product(name: "ArborKit", package: "ArborKit"),
+                .product(name: "ArborReplica", package: "ArborReplica")
+            ]
+        )
     ],
     swiftLanguageModes: [.v6]
 )

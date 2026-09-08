@@ -126,7 +126,7 @@ two clients converge live and every source/runtime error stays diagnosable.
 
 ## Remaining milestone 3 — signed native presentation
 
-1. Decode executable-document fixtures in `ArborClient` and add the matching
+1. Decode executable-document fixtures in `ArborSyncClient` and add the matching
    `WorkspaceSurface` case without erasing source-only or unavailable states.
 2. In signed macOS Arbor, present the local arborsync execution URL in a
    constrained `WKWebView` while the native tab retains location, TreeID,

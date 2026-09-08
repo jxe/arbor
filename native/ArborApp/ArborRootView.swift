@@ -1,7 +1,7 @@
-import ArborClient
+import ArborSyncClient
 import ArborKit
 import ArborQuagmire
-import ArborSync
+import CanopyClient
 import ArborWire
 import Quagmire
 import QuagmireExtras

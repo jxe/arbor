@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ArborClient
+@testable import ArborSyncClient
 
 private struct AnyKey: CodingKey {
     var stringValue: String

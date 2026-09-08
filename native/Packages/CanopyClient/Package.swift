@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "ArborSync",
+    name: "CanopyClient",
     platforms: [.iOS("27.0"), .macOS("27.0")],
-    products: [.library(name: "ArborSync", targets: ["ArborSync"])],
+    products: [.library(name: "CanopyClient", targets: ["CanopyClient"])],
     dependencies: [
         .package(path: "../ArborKit"),
         .package(path: "../ArborReplica"),
@@ -13,13 +13,13 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "ArborSync",
+            name: "CanopyClient",
             dependencies: ["ArborKit", "ArborReplica", "ArborWire", "Yams"],
             linkerSettings: [.linkedFramework("Security")]
         ),
         .testTarget(
-            name: "ArborSyncTests",
-            dependencies: ["ArborSync", "ArborKit", "ArborReplica", "ArborWire"]
+            name: "CanopyClientTests",
+            dependencies: ["CanopyClient", "ArborKit", "ArborReplica", "ArborWire"]
         )
     ],
     swiftLanguageModes: [.v6]

@@ -1,8 +1,8 @@
 import Foundation
 import XCTest
-@testable import ArborClient
+@testable import ArborSyncClient
 
-final class ArborClientTests: XCTestCase {
+final class ArborSyncClientTests: XCTestCase {
     private var referenceFixtures: URL {
         if let path = ProcessInfo.processInfo.environment["ARBOR_REFERENCE_FIXTURES"] {
             return URL(fileURLWithPath: path, isDirectory: true)

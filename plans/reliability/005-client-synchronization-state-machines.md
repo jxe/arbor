@@ -20,9 +20,9 @@
 >
 > ```sh
 > git diff --stat ccc96ec..HEAD -- \
->   packages/client packages/render packages/arborsync packages/wire \
->   native/Packages/ArborKit native/Packages/ArborProviders \
->   native/Packages/ArborQuagmire native/Packages/ArborSync \
+>   packages/arborsync-client packages/render packages/arborsync packages/wire \
+>   native/Packages/ArborKit native/Packages/ArborSyncClient \
+>   native/Packages/ArborQuagmire native/Packages/CanopyClient \
 >   native/Packages/ArborWire conformance tests docs spec/01-tree-operations.md
 > git status --short
 > ```
@@ -126,7 +126,7 @@ compaction.
   generation/revision anchors reject stale external reads. This is the closest
   existing TypeScript exemplar for debounce and one-in-flight/one-latest
   behavior.
-- `packages/render/src/api.ts:69-84` currently implements web Markdown saves
+- `packages/arborsync-client/src/api.ts:69-84` currently implements web Markdown saves
   through ordinary `writeMarkdown` mutation followed by another node read. It
   does not request an `admissionBasis` or use `/v1/documents/admit`, so its
   guarded shared-tree behavior differs from Swift native.
@@ -134,7 +134,7 @@ compaction.
   `mergeBlocks` after a 409. That behavior must not compete with Canopy for a
   Canopy-backed document. Retain an explicit local-only conflict policy for
   untracked/non-Canopy content rather than deleting it indiscriminately.
-- `packages/client/src/index.ts:300-313` already exposes the stateless
+- `packages/arborsync-client/src/index.ts:300-313` already exposes the stateless
   `admitDocumentCandidate` transport with exact source, optional guarded
   `sourceEdits`, `admissionBasis`, base revision, and stable `editorID`.
 - `native/Packages/ArborQuagmire/Sources/ArborQuagmire/ArborDocumentBinding.swift`
@@ -142,7 +142,7 @@ compaction.
   conflict evidence, accepted-prefix refresh fences, and flush. Commit
   `ccc96ec` holds the newest source for 250 ms, cancels/replaces that pending
   admission on another commit, and forces it from `flush()`.
-- `native/Packages/ArborProviders/Sources/ArborProviders/ArborSyncWorkspaceProvider.swift:414-630`
+- `native/Packages/ArborSyncClient/Sources/ArborSyncClient/ArborSyncWorkspaceProvider.swift:414-630`
   implements `ArborSyncDocumentSession`: it translates a guarded Swift patch
   into `/v1/documents/admit`, retains admitted snapshots for read-your-writes,
   and gates watch echoes. It should remain a transport/session adapter rather
@@ -154,22 +154,22 @@ compaction.
 
 ### Direct Canopy clients
 
-- `packages/arborsync/src/tree-sync.ts:71-590` and
+- `packages/canopy-client/src/tree-sync.ts:71-590` and
   `packages/arborsync/src/service.ts:1096-1160` together form the TypeScript
   direct-client state machine. Durable state is split among placement metadata,
   pending editor admissions, pending tree update, accepted-object retention,
   conflict storage, `syncing/syncRequested`, and in-flight editor-push maps.
-- `packages/arborsync/src/tree-sync.ts:372-424` currently posts the entire
+- `packages/canopy-client/src/tree-sync.ts:372-424` currently posts the entire
   durable editor prefix immediately. A later admission creates a different
   in-flight key and may post a longer overlapping prefix before the earlier
   request returns. Exact duplicate pushes share a promise, but unsent trivial
   interaction steps are not compacted.
-- `packages/arborsync/src/sync-state.ts:117-218` serializes durable editor
+- `packages/canopy-client/src/sync-state.ts:117-218` serializes durable editor
   admission append/acknowledge/retirement per TreeID. Its crash-safe journal is
   valuable evidence; the new machine must change which unsent heads become Wire
   elements without erasing recoverable local intent before the appropriate
   durability boundary.
-- `native/Packages/ArborSync/Sources/ArborSync/ReplicaSyncCoordinator.swift`
+- `native/Packages/CanopyClient/Sources/CanopyClient/ReplicaSyncCoordinator.swift`
   is the Swift direct-client implementation. `DurableSyncControl` retains an
   attempt, conflict, next base, and presentation; `syncActive/syncAgain` coalesce
   scheduling; `inFlight` prevents duplicate local submissions; response/watch
@@ -184,7 +184,7 @@ compaction.
   many durable replica generations behind one latest head and extends an
   ambiguous prefix once on reconnection. Preserve that good compaction rule and
   apply it consistently while online.
-- `native/Packages/ArborSync/Tests/ArborSyncTests/ArborSyncTests.swift:293-370`
+- `native/Packages/CanopyClient/Tests/CanopyClientTests/ReplicaSynchronizationTests.swift:293-370`
   proves offline heads compact behind an ambiguous prefix, while the preceding
   full-duplex test currently expects two overlapping online requests. The
   latter expectation must be replaced by the standard scheduling contract.
@@ -369,8 +369,8 @@ and history reduction happen before request preparation in the direct client.
 | TS direct sync | `bun run test:sync-merge` | all Wire, Canopy, and Arbor Sync synchronization tests pass |
 | Protocol/conformance | `bun run test:protocol` | TypeScript/Swift protocol fixture gate passes |
 | Swift ArborQuagmire | `tools/test-arbor-quagmire-local.sh` | all ArborQuagmire tests pass and tracked lockfile is restored |
-| Swift ArborSync | `swift test --package-path native/Packages/ArborSync` | all direct replica synchronization tests pass |
-| Swift client/provider | `swift test --package-path native/Packages/ArborClient && swift test --package-path native/Packages/ArborProviders` | all pass |
+| Swift ArborSync | `swift test --package-path native/Packages/CanopyClient` | all direct replica synchronization tests pass |
+| Swift client/provider | `swift test --package-path native/Packages/ArborKit && swift test --package-path native/Packages/ArborSyncClient` | all pass |
 | Product suite | `bun run test` | maintained unit/integration suite passes |
 | Build | `bun run build` | web and CLI builds exit 0 |
 | Documentation links | use the repository-wide relative-link checker required by `AGENTS.md`; if no maintained command exists, run a read-only script that resolves every relative Markdown link under the repository | zero missing relative targets |
@@ -382,16 +382,16 @@ and history reduction happen before request preparation in the direct client.
 
 - `conformance/client-state-machines.json` (create) and fixture validation
 - `packages/render/src/editor-coordinator.ts`, `PageEditor.tsx`, `api.ts`
-- `packages/client/src/index.ts` only for stateless transport shape needed by
+- `packages/arborsync-client/src/index.ts` only for stateless transport shape needed by
   the integrated first machine
 - focused TypeScript editor/client tests
 - `native/Packages/ArborQuagmire/Sources/ArborQuagmire/ArborDocumentBinding.swift`
   and focused tests
-- `native/Packages/ArborProviders/.../ArborSyncWorkspaceProvider.swift` only
+- `native/Packages/ArborSyncClient/.../ArborSyncWorkspaceProvider.swift` only
   for session transport/read-your-writes integration
-- a TypeScript direct-state reducer/module under `packages/arborsync/src/`, plus
+- a TypeScript direct-state reducer/module under `packages/canopy-client/src/`, plus
   `tree-sync.ts`, `service.ts`, `sync-state.ts`, and focused tests
-- a Swift direct-state reducer under `native/Packages/ArborSync/Sources/`, plus
+- a Swift direct-state reducer under `native/Packages/CanopyClient/Sources/`, plus
   `ReplicaSyncCoordinator.swift`, `SyncModels.swift`, `SyncDurability.swift`,
   and focused tests
 - `docs/client-state-machines.md` (create), `docs/README.md`, `docs/client.md`,
@@ -480,7 +480,7 @@ fixture sequences validate.
 Extract the scheduling/durability transition logic from `EditorCoordinator`
 into a pure reducer with a small effect runner. Keep BlockNote capture,
 serialization, history, and presentation in `EditorCoordinator`; keep HTTP in
-`@arbor/client`. The reducer must be the only owner of timer, in-flight,
+`@arbor/arborsync-client`. The reducer must be the only owner of timer, in-flight,
 successor, flush, observation, failure, and conflict transitions.
 
 Open shared-tree editor nodes with `admissionBasis=true`, retain one stable
@@ -531,7 +531,7 @@ shared fixture scenarios and lifecycle drains, with no tracked lockfile change.
 
 ### Step 4: Implement the direct Canopy machine in TypeScript Arbor Sync
 
-Create a pure TypeScript transition reducer under `packages/arborsync/src/` and
+Create a pure TypeScript transition reducer under `packages/canopy-client/src/` and
 make `TreeSynchronizer` its effect runner. Consolidate `syncing`,
 `syncRequested`, editor-push promise keys, pending update/admission inspection,
 and conflict branching behind typed machine states and events. Durable
@@ -592,7 +592,7 @@ the bootstrap pins root A: installation enters `current(A, updateA, cursorA)`,
 then the ordinary direct machine catches up to B without discarding or
 redownloading A.
 
-**Verify**: `swift test --package-path native/Packages/ArborSync` -> all shared
+**Verify**: `swift test --package-path native/Packages/CanopyClient` -> all shared
 fixtures, restart/fault injection, two-peer convergence, offline compaction,
 and response/watch races pass.
 
@@ -619,7 +619,7 @@ transport-only and need not own machine state.
 bun run test:protocol
 bun run test:sync-merge
 tools/test-arbor-quagmire-local.sh
-swift test --package-path native/Packages/ArborSync
+swift test --package-path native/Packages/CanopyClient
 ```
 
 Expected: both languages consume the same fixture scenarios and every current
@@ -660,9 +660,9 @@ bun run typecheck
 bun run test
 bun run test:protocol
 bun run build
-swift test --package-path native/Packages/ArborClient
-swift test --package-path native/Packages/ArborProviders
-swift test --package-path native/Packages/ArborSync
+swift test --package-path native/Packages/ArborKit
+swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path native/Packages/CanopyClient
 tools/test-arbor-quagmire-local.sh
 git diff --check
 ```

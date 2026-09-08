@@ -1,4 +1,4 @@
-@testable import ArborSync
+@testable import CanopyClient
 import ArborWire
 import Foundation
 import Testing

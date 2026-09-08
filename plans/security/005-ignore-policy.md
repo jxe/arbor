@@ -129,11 +129,11 @@ Relevant files and responsibilities:
   resulting files. It should consume the filtered discovery result rather than
   implementing pattern matching.
 - `packages/arborsync/src/service.ts:snapshotWorkspace()` and
-  `packages/arborsync/src/tree-sync.ts` repeatedly compare physical snapshots
+  `packages/canopy-client/src/tree-sync.ts` repeatedly compare physical snapshots
   with accepted Wire roots, freeze pending candidates, and materialize accepted
   snapshots. Ignore policy and tracked membership must be part of these same
   comparisons or clean placements will appear permanently dirty.
-- `packages/arborsync/src/sync-state.ts` currently retains an accepted root and
+- `packages/canopy-client/src/sync-state.ts` currently retains an accepted root and
   object hashes, but no accepted path-membership view. Extend private sync
   state only as much as needed to recover the tracked-membership invariant
   offline; do not put ignore metadata in Wire objects or Canopy APIs.

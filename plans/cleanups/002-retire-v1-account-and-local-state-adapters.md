@@ -37,7 +37,7 @@ Runtime code still accepts and creates the former model alongside v2:
   adapter and its private community record;
 - `packages/stores/src/server-config.ts` retains `CommunityConfigStore` and an
   opportunistic legacy credential-reference migration;
-- `packages/arborsync/src/account-bootstrap.ts` still depends on the singleton
+- `packages/canopy-client/src/account-bootstrap.ts` still depends on the singleton
   community record for compatibility paths, although public claiming now uses
   the plural-account bootstrap and the old Swift claim convenience is gone;
 - `packages/canopy/src/account-policy.ts` and branches in `canopy.ts` continue
@@ -190,7 +190,7 @@ bun run test:protocol
 bun test
 bun run build
 bun run test:e2e
-swift test --package-path native/Packages/ArborClient
+swift test --package-path native/Packages/ArborSyncClient
 swift test --package-path native/Packages/ArborWire
 xcodebuild build -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
 xcodebuild build-for-testing -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=iOS Simulator,id=C76DE979-27D7-4BE5-AD11-3FC223402AB9' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO

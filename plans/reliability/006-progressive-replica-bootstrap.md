@@ -19,7 +19,7 @@
 > ```sh
 > git diff --stat 9b7da49..HEAD -- \
 >   native/ArborApp \
->   native/Packages/ArborSync native/Packages/ArborWire \
+>   native/Packages/CanopyClient native/Packages/ArborWire \
 >   packages/canopy packages/wire tests docs spec/01-tree-operations.md
 > git status --short
 > ```
@@ -175,7 +175,7 @@ Required invariants:
 **In scope**:
 
 - a bootstrap reducer, durable checkpoint types, and placement effect runner
-  under `native/Packages/ArborSync/Sources/ArborSync/`
+  under `native/Packages/CanopyClient/Sources/CanopyClient/`
 - `ReplicaPlacementService` migration to that runner and a typed progress/
   preview/result API
 - `ArborWireClient` object fetch reuse plus streamed/resumable snapshot download
@@ -288,7 +288,7 @@ Change `ArborWorkspaceState.place` so a wire-format mismatch or replacement
 never deletes the current replica/sync state before the new staging replica is
 ready. Emit a typed installed handoff containing the pinned root/update/cursor.
 
-**Verify**: `swift test --package-path native/Packages/ArborSync` passes with
+**Verify**: `swift test --package-path native/Packages/CanopyClient` passes with
 restart/fault injection at every durable boundary, exact partial reuse, corrupt
 partial recovery, no mutation of an existing replica on failure, exact snapshot
 round-trip, and one handoff only after successful promotion.
@@ -343,7 +343,7 @@ bun run test
 bun run build
 swift test --package-path native/Packages/ArborWire
 swift test --package-path native/Packages/ArborReplica
-swift test --package-path native/Packages/ArborSync
+swift test --package-path native/Packages/CanopyClient
 tools/test-arbor-quagmire-local.sh
 git diff --check
 ```

@@ -15,7 +15,7 @@ This document records replaceable architecture and operating choices in the curr
 
 The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arborsync HTTP service, stores and private state, shared wire objects/protocol/client code, Canopy server behavior, CLI, server rendering, and the Arbor web React application. `@arbor/wire` has no server or database dependency; the single-process `@arbor/canopy` package depends on it and owns hosting, accepted-update storage, access, claims, and merging. Inside the arborsync daemon, the read-only `system:` tree projection (`system-tree.ts`), account claim and pairing bootstrap (`account-bootstrap.ts`), and generated tree type declarations (`generated-types.ts`) are separate modules behind the daemon's public methods.
 
-The Apple reference client is a Foundation-only Swift 6 package under `native/Packages/ArborClient`. Native Arbor and Hunch integrate that package without making SwiftUI, Clamshell, actor structure, `URLSession`, or package paths part of REST v1.
+The Apple reference client is a Foundation-only Swift 6 package under `native/Packages/ArborSyncClient`. Native Arbor and Hunch integrate that package without making SwiftUI, Clamshell, actor structure, `URLSession`, or package paths part of REST v1.
 
 Arbor web uses React and BlockNote. Markdown remains canonical: arborsync returns complete operational directory source, BlockNote edits a server-derived block view, and the browser serializes exact/block-granular source for every content write. Child-link reorder is a source write; physical moves remain structural.
 

@@ -58,10 +58,10 @@ Inspect these before changing anything:
 - `native/Packages/ArborWire/Sources/ArborWire/WireModels.swift` —
   `WireUpdateConflict`, `WireConflictDetails`, and `WireConflictDraft` retain
   the complete structured Canopy response, including draft transition objects.
-- `native/Packages/ArborSync/Sources/ArborSync/SyncModels.swift` —
+- `native/Packages/CanopyClient/Sources/CanopyClient/SyncModels.swift` —
   `DurableSyncConflict` persists the response and local root, while
   `ReplicaConflictPresentation` currently exposes only root hashes and reasons.
-- `native/Packages/ArborSync/Sources/ArborSync/ReplicaSyncCoordinator.swift` —
+- `native/Packages/CanopyClient/Sources/CanopyClient/ReplicaSyncCoordinator.swift` —
   conflict capture is durable; `resolveConflictKeepingLocal()` rebases the
   complete local candidate as new intent but is the only implemented choice.
 - `native/Packages/ArborQuagmire/Sources/ArborQuagmire/MarkdownCodec.swift` —
@@ -269,7 +269,7 @@ Run the narrow tests while implementing, then all relevant gates:
 
 ```sh
 swift test --package-path native/Packages/ArborWire
-swift test --package-path native/Packages/ArborSync
+swift test --package-path native/Packages/CanopyClient
 swift test --package-path native/Packages/ArborQuagmire
 bun run test:protocol
 bun test tests/integration/self-sync.test.ts

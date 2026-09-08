@@ -56,7 +56,7 @@ and the `~row-` segment rule.
 ## Work once decided
 
 - Parsers: `packages/core/src/logical-url.ts` and
-  `native/Packages/ArborClient/Sources/ArborClient/LogicalURL.swift` change together;
+  `native/Packages/ArborKit/Sources/ArborKit/LogicalURL.swift` change together;
   `conformance/url-resolution.json` is the shared contract and gains a case per surface.
 - Renderers: the Markdown alias translation in `arbor/react`'s `Markdown`, the HTTP
   projection redirect rule (locators §6), and link healing in arborsync all read the table.

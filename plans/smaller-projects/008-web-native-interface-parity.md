@@ -42,7 +42,7 @@ The completed web interface has:
 The browser shell is currently concentrated in
 `packages/render/src/App.tsx`, with presentation in
 `packages/render/src/styles.css` and the local REST adapter in
-`packages/render/src/api.ts`.
+`packages/arborsync-client/src/api.ts`.
 
 Useful foundations already exist:
 
@@ -205,7 +205,7 @@ the last administrator cannot be removed or deauthorized.
 The current browser helper reads individual `devices/*.yaml` files and cannot
 represent administrator state safely. Add one account-scoped Arbor Sync REST
 presentation/mutation boundary rather than teaching React to infer or rewrite
-authorization policy. Update `@arbor/client`, the REST documentation, shared
+authorization policy. Update `@arbor/arborsync-client`, the REST documentation, shared
 fixtures if the protocol shape changes, and focused daemon tests together.
 Server-side mutation must re-read current account state, authorize the acting
 device, preserve unrelated YAML/comments, enforce the last-administrator rule,

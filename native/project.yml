@@ -21,15 +21,15 @@ packages:
     path: Packages/ArborReplica
   ArborWire:
     path: Packages/ArborWire
-  ArborSync:
-    path: Packages/ArborSync
+  CanopyClient:
+    path: Packages/CanopyClient
   ArborQuagmire:
     path: Packages/ArborQuagmire
   Quagmire:
     url: https://github.com/jxe/quagmire.git
     exactVersion: 0.6.0
-  ArborProviders:
-    path: Packages/ArborProviders
+  ArborSyncClient:
+    path: Packages/ArborSyncClient
 
 targets:
   Arbor:
@@ -44,9 +44,9 @@ targets:
       - package: ArborKit
       - package: ArborReplica
       - package: ArborWire
-      - package: ArborSync
+      - package: CanopyClient
       - package: ArborQuagmire
-      - package: ArborProviders
+      - package: ArborSyncClient
       - package: Quagmire
         product: QuagmireExtras
     info:

@@ -178,7 +178,7 @@ The normative target is already recorded in:
   `useCanInvoke` metadata.
 - TypeScript and Swift Wire/client models that encode or decode access entries
   and tree descriptors.
-- `packages/cli/src/index.ts` and `packages/render/src/configuration.ts` for
+- `packages/cli/src/index.ts` and `packages/arborsync-client/src/configuration.ts` for
   explicit named-permission administration and **Can contribute** presentation.
 - Shared conformance fixtures, focused unit/integration/protocol/browser tests,
   the Supplies acceptance corpus, current implementation status, and

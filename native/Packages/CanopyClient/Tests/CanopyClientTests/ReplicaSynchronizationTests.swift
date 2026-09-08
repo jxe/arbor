@@ -1,6 +1,6 @@
 import ArborKit
 import ArborReplica
-@testable import ArborSync
+@testable import CanopyClient
 import ArborWire
 import Foundation
 import Testing
@@ -82,7 +82,7 @@ private struct OnePointFault: ReplicaSyncFaultInjector {
 }
 
 @Suite("Native replica synchronization")
-struct ArborSyncTests {
+struct ReplicaSynchronizationTests {
     @Test("Pairing payload is versioned and server scoped")
     func pairingPayload() throws {
         let payload = PairingPayload(
