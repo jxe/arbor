@@ -182,7 +182,9 @@ public actor ArborReplica {
                     pageID: node.pageID ?? source.flatMap(ReplicaSemantics.pageID(in:)),
                     kind: .directory,
                     source: source,
-                    childrenSource: node.childrenSource
+                    childrenSource: node.childrenSource,
+                    directoryBodyPlacement: node.directoryBodyPlacement,
+                    shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource
                 )
             case let .markdown(source):
                 return ReplicaNodeRecord(path: node.path, pageID: node.pageID ?? ReplicaSemantics.pageID(in: source), kind: .markdown, source: source)
@@ -347,7 +349,7 @@ public actor ArborReplica {
         try ReplicaSemantics.validateName(name)
         guard name != "_index" else { throw ReplicaError.invalidName(name) }
         let parentNode = try resolve(parent)
-        guard parentNode.kind == .directory else { throw ReplicaError.notDirectory(parent) }
+        guard parentNode.kind == .directory || parentNode.kind == .markdown else { throw ReplicaError.notDirectory(parent) }
         let path = ReplicaSemantics.child(name, of: parentNode.path)
         let suppliedIDs = ReplicaSemantics.pageIDValues(in: source)
         guard suppliedIDs.count <= 1 else { throw ReplicaError.corruptState("Markdown contains duplicate PageIDs") }
@@ -355,6 +357,7 @@ public actor ArborReplica {
         let acceptedSource = ReplicaSemantics.ensuringPageID(in: source, id: pageID)
         var created: ReplicaNodeRecord!
         try transact(mutation: "create-markdown", pageKey: pageID) { next in
+            try prepareParentForChildren(parentNode, in: &next)
             try refuseCollision(path, in: next)
             guard !next.nodes.contains(where: { $0.pageID == pageID }) else { throw ReplicaError.collision("PageID \(pageID)") }
             created = ReplicaNodeRecord(path: path, pageID: pageID, kind: .markdown, source: acceptedSource)
@@ -367,10 +370,11 @@ public actor ArborReplica {
     func createDirectory(parent: WorkspaceReference, name: String) throws -> ReplicaNodeRecord {
         try ReplicaSemantics.validateName(name)
         let parentNode = try resolve(parent)
-        guard parentNode.kind == .directory else { throw ReplicaError.notDirectory(parent) }
+        guard parentNode.kind == .directory || parentNode.kind == .markdown else { throw ReplicaError.notDirectory(parent) }
         let path = ReplicaSemantics.child(name, of: parentNode.path)
         var created: ReplicaNodeRecord!
         try transact(mutation: "create-directory", pageKey: "_tree") { next in
+            try prepareParentForChildren(parentNode, in: &next)
             try refuseCollision(path, in: next)
             created = ReplicaNodeRecord(path: path, kind: .directory)
             next.nodes.append(created)
@@ -383,10 +387,11 @@ public actor ArborReplica {
         try ReplicaSemantics.validateName(name)
         guard name != "_index.md", !name.hasSuffix(".md") else { throw ReplicaError.invalidName(name) }
         let parentNode = try resolve(parent)
-        guard parentNode.kind == .directory else { throw ReplicaError.notDirectory(parent) }
+        guard parentNode.kind == .directory || parentNode.kind == .markdown else { throw ReplicaError.notDirectory(parent) }
         let path = ReplicaSemantics.child(name, of: parentNode.path)
         var created: ReplicaNodeRecord!
         try transact(mutation: "import-file", pageKey: "_tree") { next in
+            try prepareParentForChildren(parentNode, in: &next)
             try refuseCollision(path, in: next)
             created = ReplicaNodeRecord(path: path, kind: .file, bytes: bytes, mediaType: mediaType)
             next.nodes.append(created)
@@ -398,7 +403,7 @@ public actor ArborReplica {
     func storeAsset(_ asset: WorkspaceAsset, in parent: WorkspaceReference) throws -> ReplicaNodeRecord {
         try ReplicaSemantics.validateName(asset.name)
         let parentNode = try resolve(parent)
-        guard parentNode.kind == .directory else { throw ReplicaError.notDirectory(parent) }
+        guard parentNode.kind == .directory || parentNode.kind == .markdown else { throw ReplicaError.notDirectory(parent) }
         let digest = String(ReplicaSemantics.sha256(asset.bytes).dropFirst("sha256:".count))
         let uniqueName = "\(digest.prefix(16))-\(asset.name)"
         let path = ReplicaSemantics.child(uniqueName, of: parentNode.path)
@@ -786,6 +791,21 @@ public actor ArborReplica {
             if node.childrenSource != nil && node.kind != .directory {
                 throw ReplicaError.corruptState("Collection-file descriptor is attached to a non-directory node")
             }
+            if node.kind != .directory,
+               node.directoryBodyPlacement != nil || node.shadowedSiblingMarkdownSource != nil {
+                throw ReplicaError.corruptState("Directory body placement is attached to a non-directory node")
+            }
+            if node.path == "/",
+               node.directoryBodyPlacement != nil || node.shadowedSiblingMarkdownSource != nil {
+                throw ReplicaError.corruptState("Replica root body must use _index.md")
+            }
+            if node.directoryBodyPlacement == .siblingMarkdown,
+               node.source == nil || node.shadowedSiblingMarkdownSource != nil {
+                throw ReplicaError.corruptState("Malformed sibling Markdown directory body")
+            }
+            if node.shadowedSiblingMarkdownSource != nil, node.source == nil {
+                throw ReplicaError.corruptState("Shadowed sibling Markdown has no _index.md body")
+            }
             if (node.kind == .file || node.kind == .boundary), node.pageID != nil {
                 throw ReplicaError.corruptState("Non-document node has a PageID")
             }
@@ -811,6 +831,15 @@ public actor ArborReplica {
 
     private func refuseCollision(_ path: String, in state: ReplicaState) throws {
         if state.nodes.contains(where: { $0.path == path }) { throw ReplicaError.collision(path) }
+    }
+
+    private func prepareParentForChildren(_ parent: ReplicaNodeRecord, in state: inout ReplicaState) throws {
+        guard parent.kind == .markdown else { return }
+        guard let position = state.nodes.firstIndex(where: { $0.path == parent.path && $0.kind == .markdown }) else {
+            throw ReplicaError.corruptState("Markdown parent disappeared before child creation")
+        }
+        state.nodes[position].kind = .directory
+        state.nodes[position].directoryBodyPlacement = .siblingMarkdown
     }
 
     private func pruneEmptyTrashDirectories(_ state: inout ReplicaState) {

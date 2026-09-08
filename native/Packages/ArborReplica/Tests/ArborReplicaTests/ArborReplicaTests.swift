@@ -304,6 +304,84 @@ struct ReplicaProviderTests {
         }
     }
 
+    @Test("Creating a child beneath Markdown preserves a sibling body")
+    func markdownLeafBecomesSiblingBodyDirectory() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_promoteleaf"
+            let replica = try await ArborReplica.open(at: root, tree: tree)
+            let leaf = try await replica.createMarkdown(
+                parent: .init(tree: tree, path: "/"),
+                name: "x",
+                source: "# X\n"
+            )
+            let leafReference = WorkspaceReference(
+                tree: tree,
+                path: leaf.path,
+                stableKey: leaf.pageID.map(markdownStableKey)
+            )
+            let child = try await replica.createMarkdown(
+                parent: leafReference,
+                name: "child",
+                source: "# Child\n"
+            )
+
+            let promoted = try await replica.resolve(leafReference)
+            #expect(promoted.kind == .directory)
+            #expect(promoted.directoryBodyPlacement == .siblingMarkdown)
+            #expect(promoted.source == leaf.source)
+            let expected = try ReplicaWireCodec.snapshot(for: ReplicaState(
+                tree: tree.rawValue,
+                nodes: [
+                    ReplicaNodeRecord(path: "/", kind: .directory),
+                    promoted,
+                    child,
+                ]
+            ))
+            #expect(try await replica.currentSnapshot().root == expected.root)
+
+            await replica.close()
+            let reopened = try await ArborReplica.open(at: root, tree: tree)
+            #expect(try await reopened.currentSnapshot().root == expected.root)
+            #expect(try await reopened.resolve(leafReference).directoryBodyPlacement == .siblingMarkdown)
+        }
+    }
+
+    @Test("Old directory records decode as _index Markdown placement")
+    func legacyDirectoryBodyDecoding() throws {
+        let source = "---\nid: pg_legacy\n---\n\n# Legacy\n"
+        let data = try JSONSerialization.data(withJSONObject: [
+            "path": "/legacy",
+            "pageID": "pg_legacy",
+            "kind": "directory",
+            "source": source,
+        ])
+        let record = try JSONDecoder().decode(ReplicaNodeRecord.self, from: data)
+
+        #expect(record.directoryBodyPlacement == nil)
+        #expect(record.shadowedSiblingMarkdownSource == nil)
+        let snapshot = try ReplicaWireCodec.snapshot(for: ReplicaState(
+            tree: "tr_legacy",
+            nodes: [ReplicaNodeRecord(path: "/", kind: .directory), record]
+        ))
+        #expect(!snapshot.root.isEmpty)
+    }
+
+    @Test("Duplicate logical paths throw instead of trapping")
+    func duplicateLogicalPaths() {
+        let state = ReplicaState(
+            tree: "tr_duplicatepaths",
+            nodes: [
+                ReplicaNodeRecord(path: "/", kind: .directory),
+                ReplicaNodeRecord(path: "/same", kind: .directory),
+                ReplicaNodeRecord(path: "/same", kind: .markdown, source: "# Same\n"),
+            ]
+        )
+
+        #expect(throws: ReplicaError.self) {
+            _ = try ReplicaWireCodec.snapshot(for: state)
+        }
+    }
+
     @Test("Repeated mutations and restarts preserve exact roots and unique identities")
     func restartProperty() async throws {
         try await withTemporaryReplica { root in

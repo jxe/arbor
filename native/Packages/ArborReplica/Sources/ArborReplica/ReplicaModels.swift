@@ -142,17 +142,32 @@ public enum ReplicaSystemNodeContent: Sendable, Equatable {
     case boundary(tree: TreeID)
 }
 
+public enum ReplicaDirectoryBodyPlacement: String, Codable, Sendable {
+    case siblingMarkdown
+}
+
 public struct ReplicaSystemNode: Sendable, Equatable {
     public var path: String
     public var pageID: String?
     public var content: ReplicaSystemNodeContent
     public var childrenSource: ReplicaCollectionFileDescriptor?
+    public var directoryBodyPlacement: ReplicaDirectoryBodyPlacement?
+    public var shadowedSiblingMarkdownSource: String?
 
-    public init(path: String, pageID: String? = nil, content: ReplicaSystemNodeContent, childrenSource: ReplicaCollectionFileDescriptor? = nil) {
+    public init(
+        path: String,
+        pageID: String? = nil,
+        content: ReplicaSystemNodeContent,
+        childrenSource: ReplicaCollectionFileDescriptor? = nil,
+        directoryBodyPlacement: ReplicaDirectoryBodyPlacement? = nil,
+        shadowedSiblingMarkdownSource: String? = nil
+    ) {
         self.path = path
         self.pageID = pageID
         self.content = content
         self.childrenSource = childrenSource
+        self.directoryBodyPlacement = directoryBodyPlacement
+        self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
     }
 }
 
@@ -187,6 +202,11 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
     var trashedFrom: String?
     var boundaryTree: String?
     var childrenSource: ReplicaCollectionFileDescriptor?
+    // `nil` preserves the original encoding: a directory source is `_index.md`.
+    // Contentless legacy directory records also decode unchanged.
+    var directoryBodyPlacement: ReplicaDirectoryBodyPlacement?
+    // Not logical content; retained only so a shadowed sibling round-trips exactly.
+    var shadowedSiblingMarkdownSource: String?
 
     init(
         path: String,
@@ -197,7 +217,9 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         mediaType: String? = nil,
         trashedFrom: String? = nil,
         boundaryTree: String? = nil,
-        childrenSource: ReplicaCollectionFileDescriptor? = nil
+        childrenSource: ReplicaCollectionFileDescriptor? = nil,
+        directoryBodyPlacement: ReplicaDirectoryBodyPlacement? = nil,
+        shadowedSiblingMarkdownSource: String? = nil
     ) {
         self.path = path
         self.pageID = pageID
@@ -208,6 +230,8 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         self.trashedFrom = trashedFrom
         self.boundaryTree = boundaryTree
         self.childrenSource = childrenSource
+        self.directoryBodyPlacement = directoryBodyPlacement
+        self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
     }
 }
 

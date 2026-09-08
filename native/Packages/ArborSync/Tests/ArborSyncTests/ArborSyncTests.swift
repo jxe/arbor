@@ -122,6 +122,128 @@ struct ArborSyncTests {
         }
     }
 
+    @Test("March-Out-My-Work sibling Markdown and directory place as one exact logical node")
+    func siblingMarkdownDirectoryRoundTrip() async throws {
+        try await withTemporaryRoot { root in
+            let tree: TreeID = "tr_siblingbody"
+            let source = "---\nid: pg_march\n---\n\n# March Out My Work\n"
+            let original = try directoryBodySnapshot(stem: "March-Out-My-Work", siblingSource: source)
+            let replacement = try SnapshotBridge.replacement(snapshot: original, tree: tree, update: "up_initial")
+
+            #expect(replacement.nodes.filter { $0.path == "/March-Out-My-Work" }.count == 1)
+            let logical = try #require(replacement.nodes.first { $0.path == "/March-Out-My-Work" })
+            #expect(logical.content == .directory(source: source))
+            #expect(logical.directoryBodyPlacement == .siblingMarkdown)
+            #expect(replacement.nodes.contains { $0.path == "/March-Out-My-Work/child" })
+
+            var replica = try await ArborReplica.open(at: root.appending(path: "replica"), tree: tree)
+            try await replica.initializeFromSystem(replacement)
+            #expect(try await replica.currentSnapshot().root == original.root)
+            await replica.close()
+
+            replica = try await ArborReplica.open(at: root.appending(path: "replica"), tree: tree)
+            #expect(try await replica.currentSnapshot().root == original.root)
+            let session = try await ReplicaWorkspaceProvider(replica: replica).openDocument(
+                .init(tree: tree, path: "/March-Out-My-Work", stableKey: markdownStableKey("pg_march"))
+            )
+            let before = try await session.snapshot()
+            let editedSource = before.source + "\nEdited without moving the body.\n"
+            _ = try await session.admit(source: editedSource, baseContentRevision: before.contentRevision)
+            let expected = try directoryBodySnapshot(stem: "March-Out-My-Work", siblingSource: editedSource)
+            #expect(try await replica.currentSnapshot().root == expected.root)
+        }
+    }
+
+    @Test("Sibling Markdown placement survives structural operations")
+    func siblingMarkdownStructuralOperations() async throws {
+        try await withTemporaryRoot { root in
+            let tree: TreeID = "tr_siblingstructure"
+            let source = "---\nid: pg_pair\n---\n\n# Pair\n"
+            let original = try directoryBodySnapshot(stem: "pair", siblingSource: source)
+            let replacement = try SnapshotBridge.replacement(snapshot: original, tree: tree, update: "up_initial")
+            let replica = try await ArborReplica.open(at: root.appending(path: "replica"), tree: tree)
+            try await replica.initializeFromSystem(replacement)
+            let provider = ReplicaWorkspaceProvider(replica: replica)
+            let rootReference = WorkspaceReference(tree: tree, path: "/")
+
+            let renamed = try #require(try await provider.perform(.rename(
+                reference: .init(tree: tree, path: "/pair", stableKey: markdownStableKey("pg_pair")),
+                name: "renamed"
+            )))
+            var snapshot = try await replica.currentSnapshot()
+            #expect(try wireEntryNames(snapshot: snapshot, directory: snapshot.root).isSuperset(of: ["renamed", "renamed.md"]))
+
+            let archive = try #require(try await provider.perform(.createDirectory(parent: rootReference, name: "archive")))
+            let moved = try #require(try await provider.perform(.move(reference: renamed.reference, destination: archive.reference)))
+            snapshot = try await replica.currentSnapshot()
+            let rootEntries = try wireDirectoryEntries(snapshot: snapshot, directory: snapshot.root)
+            let archiveHash = try #require(rootEntries.first { $0.name == "archive" }?.hash)
+            #expect(try wireEntryNames(snapshot: snapshot, directory: archiveHash).isSuperset(of: ["renamed", "renamed.md"]))
+
+            _ = try #require(try await provider.perform(.copy(reference: moved.reference, destination: rootReference)))
+            snapshot = try await replica.currentSnapshot()
+            #expect(try wireEntryNames(snapshot: snapshot, directory: snapshot.root).isSuperset(of: ["renamed", "renamed.md"]))
+
+            let beforeTrash = snapshot.root
+            let trashed = try #require(try await provider.perform(.trash(reference: moved.reference)))
+            _ = try #require(try await provider.perform(.restore(reference: trashed.reference)))
+            #expect(try await replica.currentSnapshot().root == beforeTrash)
+        }
+    }
+
+    @Test("_index Markdown shadows a sibling body without losing its bytes")
+    func shadowedSiblingBodyRoundTrip() async throws {
+        try await withTemporaryRoot { root in
+            let tree: TreeID = "tr_shadowedbody"
+            let indexSource = "---\nid: pg_index\n---\n\n# Index wins\n"
+            let siblingSource = "# Shadowed sibling stays exact\n"
+            let original = try directoryBodySnapshot(
+                stem: "x",
+                siblingSource: siblingSource,
+                indexSource: indexSource
+            )
+            let replacement = try SnapshotBridge.replacement(snapshot: original, tree: tree, update: "up_initial")
+            let logical = try #require(replacement.nodes.first { $0.path == "/x" })
+            #expect(logical.content == .directory(source: indexSource))
+            #expect(logical.directoryBodyPlacement == nil)
+            #expect(logical.shadowedSiblingMarkdownSource == siblingSource)
+
+            var replica = try await ArborReplica.open(at: root.appending(path: "replica"), tree: tree)
+            try await replica.initializeFromSystem(replacement)
+            #expect(try await replica.currentSnapshot().root == original.root)
+            await replica.close()
+            replica = try await ArborReplica.open(at: root.appending(path: "replica"), tree: tree)
+            #expect(try await replica.currentSnapshot().root == original.root)
+        }
+    }
+
+    @Test("Multiple sibling bodies fail before logical materialization")
+    func ambiguousSiblingBodies() throws {
+        let markdown = try WireObjectCodec.object(.file(Data("# Markdown\n".utf8)))
+        let mdx = try WireObjectCodec.object(.file(Data("# MDX\n".utf8)))
+        let directory = try WireObjectCodec.object(.directory([]))
+        let root = try WireObjectCodec.object(.directory([
+            .init(name: "x", hash: directory.hash),
+            .init(name: "x.md", hash: markdown.hash),
+            .init(name: "x.mdx", hash: mdx.hash),
+        ]))
+        let snapshot = WireSnapshot(root: root.hash, objects: [root, directory, markdown, mdx])
+
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try SnapshotBridge.replacement(snapshot: snapshot, tree: "tr_ambiguous", update: "up_initial")
+        }
+
+        let plain = try WireObjectCodec.object(.file(Data("plain".utf8)))
+        let duplicateRoot = try WireObjectCodec.object(.directory([
+            .init(name: "same", hash: plain.hash),
+            .init(name: "same.md", hash: markdown.hash),
+        ]))
+        let duplicate = WireSnapshot(root: duplicateRoot.hash, objects: [duplicateRoot, plain, markdown])
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try SnapshotBridge.replacement(snapshot: duplicate, tree: "tr_duplicate", update: "up_initial")
+        }
+    }
+
     @Test("One-sided synchronization accepts its candidate without a returned snapshot")
     func placementAndSync() async throws {
         try await withTemporaryRoot { root in
@@ -836,6 +958,54 @@ private func snapshot(markdown: String) throws -> WireSnapshot {
     let file = try WireObjectCodec.object(.file(Data(markdown.utf8)))
     let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
     return WireSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
+}
+
+private func directoryBodySnapshot(
+    stem: String,
+    siblingSource: String,
+    indexSource: String? = nil
+) throws -> WireSnapshot {
+    let child = try WireObjectCodec.object(.file(Data("# Child\n".utf8)))
+    var directoryEntries = [WireDirectoryEntry(name: "child.md", hash: child.hash)]
+    var objects = [child]
+    if let indexSource {
+        let index = try WireObjectCodec.object(.file(Data(indexSource.utf8)))
+        directoryEntries.append(.init(name: "_index.md", hash: index.hash))
+        objects.append(index)
+    }
+    directoryEntries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+    let directory = try WireObjectCodec.object(.directory(directoryEntries))
+    let sibling = try WireObjectCodec.object(.file(Data(siblingSource.utf8)))
+    let root = try WireObjectCodec.object(.directory([
+        .init(name: stem, hash: directory.hash),
+        .init(name: stem + ".md", hash: sibling.hash),
+    ]))
+    objects.append(contentsOf: [directory, sibling, root])
+    return WireSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
+}
+
+private func wireDirectoryEntries(snapshot: WireSnapshot, directory hash: String) throws -> [WireDirectoryEntry] {
+    let envelope = try #require(snapshot.objects.first { $0.hash == hash })
+    guard case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes) else {
+        throw ArborWireValidationError.invalidValue("Expected directory object")
+    }
+    return entries
+}
+
+private func wireEntryNames(snapshot: WireSnapshot, directory hash: String) throws -> Set<String> {
+    Set(try wireDirectoryEntries(snapshot: snapshot, directory: hash).map(\.name))
+}
+
+private func wireDirectoryEntries(snapshot: ReplicaSnapshot, directory hash: String) throws -> [WireDirectoryEntry] {
+    let object = try #require(snapshot.objects.first { $0.hash == hash })
+    guard case let .directory(entries, _) = try WireObjectCodec.decode(object.bytes) else {
+        throw ArborWireValidationError.invalidValue("Expected directory object")
+    }
+    return entries
+}
+
+private func wireEntryNames(snapshot: ReplicaSnapshot, directory hash: String) throws -> Set<String> {
+    Set(try wireDirectoryEntries(snapshot: snapshot, directory: hash).map(\.name))
 }
 
 private func completeCandidate(_ request: WireUpdateRequest, retained: WireSnapshot) throws -> WireSnapshot {

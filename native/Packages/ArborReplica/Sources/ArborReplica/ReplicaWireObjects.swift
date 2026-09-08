@@ -67,6 +67,10 @@ enum ReplicaWireCodec {
         guard active.contains(where: { $0.path == "/" && $0.kind == .directory }) else {
             throw ReplicaError.corruptState("Replica root directory is missing")
         }
+        let paths = active.map(\.path)
+        guard Set(paths).count == paths.count else {
+            throw ReplicaError.corruptState("Duplicate logical path")
+        }
         let byPath = Dictionary(uniqueKeysWithValues: active.map { ($0.path, $0) })
         var objects: [String: Data] = [:]
 
@@ -80,8 +84,20 @@ enum ReplicaWireCodec {
             guard let node = byPath[path], node.kind == .directory else {
                 throw ReplicaError.corruptState("Missing directory at \(path)")
             }
+            if path == "/", node.directoryBodyPlacement != nil || node.shadowedSiblingMarkdownSource != nil {
+                throw ReplicaError.corruptState("Replica root body must use _index.md")
+            }
+            if node.directoryBodyPlacement == .siblingMarkdown {
+                guard node.source != nil, node.shadowedSiblingMarkdownSource == nil else {
+                    throw ReplicaError.corruptState("Malformed sibling Markdown directory body")
+                }
+            } else if node.shadowedSiblingMarkdownSource != nil, node.source == nil {
+                throw ReplicaError.corruptState("Shadowed sibling Markdown has no _index.md body")
+            }
             var entries: [(name: String, hash: String?, tree: String?)] = []
-            if let source = node.source { entries.append(("_index.md", store(file(Data(source.utf8))), nil)) }
+            if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
+                entries.append(("_index.md", store(file(Data(source.utf8))), nil))
+            }
             let children = active.filter { ReplicaSemantics.parent(of: $0.path) == path }
                 .sorted { ReplicaSemantics.compareUTF8(ReplicaSemantics.name(of: $0.path), ReplicaSemantics.name(of: $1.path)) }
             for child in children {
@@ -89,6 +105,11 @@ enum ReplicaWireCodec {
                 switch child.kind {
                 case .directory:
                     entries.append((name, try buildDirectory(at: child.path), nil))
+                    if child.directoryBodyPlacement == .siblingMarkdown, let source = child.source {
+                        entries.append((name + ".md", store(file(Data(source.utf8))), nil))
+                    } else if let shadowed = child.shadowedSiblingMarkdownSource {
+                        entries.append((name + ".md", store(file(Data(shadowed.utf8))), nil))
+                    }
                 case .markdown:
                     entries.append((name + ".md", store(file(Data((child.source ?? "").utf8))), nil))
                 case .file:
