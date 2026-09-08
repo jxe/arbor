@@ -33,6 +33,7 @@ import {
 } from "@arbor/stores";
 import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
+import { accountWireClient, type AccountSelector, type AccountWireClient } from "@arbor/canopy-client";
 import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "@arbor/canopy-client";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
@@ -140,16 +141,23 @@ export class ArborSyncDaemon implements AsyncDisposable {
     }, 0);
   }
 
+  /**
+   * The multiplexer: every Canopy pass-through picks the claimed account
+   * whose address contains the target and forwards with that credential.
+   */
+  private wireFor(selector: AccountSelector, options: { required?: boolean } = {}): Promise<AccountWireClient> {
+    return accountWireClient(selector, { communityConfig: this.communityConfig, timeoutMs: WIRE_SYNC_TIMEOUT_MS, ...options });
+  }
+
   private async accountToken(placement: SharedTreePlacement): Promise<string | undefined> {
-    if (placement.configurationTree) {
-      return (await new CanopyAccountStore(placement.configurationTree).get())?.accountToken;
-    }
-    const configured = await this.communityConfig.get();
-    return configured?.record.origin === placement.endpoint ? configured.accountToken : undefined;
+    const selected = await this.wireFor({ configurationTree: placement.configurationTree, origin: placement.endpoint });
+    if (!selected.authenticated) return undefined;
+    if (selected.configurationTree) return (await new CanopyAccountStore(selected.configurationTree).get())?.accountToken;
+    return (await this.communityConfig.get())?.accountToken;
   }
 
   private async accountClient(placement: SharedTreePlacement): Promise<WireClient> {
-    return new WireClient(placement.endpoint, await this.accountToken(placement), { timeoutMs: WIRE_SYNC_TIMEOUT_MS });
+    return (await this.wireFor({ configurationTree: placement.configurationTree, origin: placement.endpoint })).client;
   }
 
   static async open(
@@ -362,8 +370,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       ? `${parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "http" : "https"}://${parsed.host}`
       : parsed.origin;
     const path = `/${parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
-    const configured = await this.communityConfig.get();
-    const resolution = await new WireClient(origin, configured?.record.origin === origin ? configured.accountToken : undefined).resolve(path || "/");
+    const resolution = await (await this.wireFor({ origin })).client.resolve(path || "/");
     if (resolution.enclosingTree?.canonical) {
       this.remoteAuthorities.set(resolution.enclosingTree.id, { locator: canonicalArborLocator(resolution.enclosingTree.canonical), endpoint: origin });
     }
@@ -416,8 +423,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       ? `${locator.hostname === "localhost" || locator.hostname === "127.0.0.1" ? "http" : "https"}://${locator.host}`
       : locator.origin;
     const canonicalPath = `/${locator.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
-    const configured = await this.communityConfig.get();
-    const client = new WireClient(origin, configured?.record.origin === origin ? configured.accountToken : undefined);
+    const { client } = await this.wireFor({ origin });
     let remote: RemoteTreeDescriptor;
     let remotePath: string;
     try {

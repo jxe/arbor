@@ -1,7 +1,7 @@
 import { homedir, hostname } from "node:os";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { MutationReceipt } from "@arbor/core";
+import type { MutationReceipt, PairingOffer } from "@arbor/core";
 import { SYSTEM_TREE, generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge } from "@arbor/core";
 import { snapshotDirectory } from "@arbor/fs";
 import {
@@ -13,6 +13,7 @@ import {
   loadLocalPlacements,
   saveCurrentAccountDeviceID,
 } from "@arbor/stores";
+import { accountWireClient } from "./account-wire.ts";
 import { WireClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON } from "@arbor/wire";
 import { ProtocolError } from "@arbor/core";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -296,27 +297,23 @@ export async function claimCanopyAccountBootstrap(
   return claimAccountProfileBootstrap(deps, accountLocator, inputPath, displayName);
 }
 
+/** Disconnect this data home from every claimed account without revoking server devices or deleting user files. */
 export async function forgetLocalAccount(deps: AccountBootstrapDeps): Promise<void> {
+  for (const record of await CanopyAccountStore.list()) await new CanopyAccountStore(record.configurationTree).remove();
   await deps.communityConfig.remove();
   deps.trees.invalidateDescriptors();
   deps.events.emit({ tree: SYSTEM_TREE, kind: "updated", ref: { tree: SYSTEM_TREE, path: "/credentials", stableKey: null }, origin: "api" });
 }
 
-export async function createPairingBootstrap(deps: AccountBootstrapDeps, configurationTree?: string) {
-  if (configurationTree) {
-    const configured = await new CanopyAccountStore(configurationTree).get();
-    if (!configured) throw new ProtocolError("credential-unavailable", `Credential unavailable for account ${configurationTree}`, 409);
-    return new WireClient(configured.record.origin, configured.accountToken).createPairing();
+export async function createPairingBootstrap(deps: AccountBootstrapDeps, configurationTree?: string): Promise<PairingOffer> {
+  if (!configurationTree) {
+    const plural = await CanopyAccountStore.list();
+    if (plural.length > 1) {
+      throw new ProtocolError("invalid-request", "Pairing requires an explicit configuration TreeID when several accounts are connected", 400);
+    }
+    if (plural.length === 0) return (await configuredWire(deps)).client.createPairing();
+    configurationTree = plural[0]!.configurationTree;
   }
-  const plural = await CanopyAccountStore.list();
-  if (plural.length > 1) {
-    throw new ProtocolError("invalid-request", "Pairing requires an explicit configuration TreeID when several accounts are connected", 400);
-  }
-  if (plural.length === 1) {
-    const configured = await new CanopyAccountStore(plural[0]!.configurationTree).get();
-    if (!configured) throw new ProtocolError("credential-unavailable", `Credential unavailable for account ${plural[0]!.configurationTree}`, 409);
-    return new WireClient(configured.record.origin, configured.accountToken).createPairing();
-  }
-  const { client } = await configuredWire(deps);
-  return client.createPairing();
+  const selected = await accountWireClient({ configurationTree }, { communityConfig: deps.communityConfig, required: true });
+  return selected.client.createPairing();
 }
