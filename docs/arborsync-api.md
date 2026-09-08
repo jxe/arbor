@@ -363,11 +363,17 @@ carried `admissionBasis`. Its body contains `{ ref, admissionBasis,
 editorID?, baseContentRevision, source, sourceEdits? }`. Arbor Sync verifies the guarded
 edits against the basis, builds and durably freezes one element of an ordinary
 Wire `UpdateRequest`, and acknowledges the private candidate with its
-`admissionRequestDigest` without changing
-the materialized shared file. Each further durable generation extends the same
-epoch string and is posted immediately even while shorter-prefix requests and
-watch events remain in flight. Authority submission may also resume after a
-restart and offline interval. Only Canopy's accepted result is materialized.
+`admissionRequestDigest` without changing the materialized shared file. A
+later generation from the same editor replaces that element while no request
+has carried it; once an element has been transmitted it is immutable and later
+generations extend the epoch string behind it. Arbor Sync publishes through
+the [direct synchronization machine](../spec/09-client-synchronization.md):
+one request per tree after a trailing delay, one retained successor, exact
+retry after a restart or offline interval. Only Canopy's accepted result is
+materialized, and the `updated` event and later node snapshots carry the
+incorporated request digests an editor waits for. Editors run the
+[document admission machine](client-state-machines.md) on their side of this
+route.
 Each editor session retains its own latest digest and does not replace its live
 document from sync observations until `acceptedRequestDigests` includes that
 digest. Other editors on the same machine wait on their own digests and may

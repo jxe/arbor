@@ -15,7 +15,7 @@ import type {
 import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
 import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
 import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigests } from "@arbor/wire";
-import type { ArborSyncStatus } from "@arbor/client";
+import type { ArborSyncStatus } from "@arbor/arborsync-client";
 import { nodeDocument } from "../helpers/node-snapshot.ts";
 
 // Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and

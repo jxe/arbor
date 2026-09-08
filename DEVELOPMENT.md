@@ -80,7 +80,7 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
 
 ## Repository map
 
-- `packages/` — the TypeScript logical model, providers, stores, Wire implementation, Canopy, Arbor Sync, CLI, editor, renderer, and data runtime.
+- `packages/` — the TypeScript logical model, providers, stores, Wire implementation, Canopy, the Canopy client library, Arbor Sync, the Arbor Sync client, CLI, editor, renderer, and data runtime.
 - `native/` — the Swift clients, synchronization packages, and native Arbor application.
 - `spec.md` and `spec/` — portable normative contracts and conformance vocabulary.
 - `conformance/` — language-neutral protocol fixtures.
@@ -103,7 +103,7 @@ bun run test:protocol
 bun run build
 bun run test:e2e
 bun run test:performance
-swift test --package-path native/Packages/ArborClient
+swift test --package-path native/Packages/ArborSyncClient
 git diff --check
 ```
 

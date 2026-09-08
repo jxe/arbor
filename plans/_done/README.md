@@ -12,6 +12,8 @@ leaving them among active projects and themes.
   handoffs under their historical taxonomy and identifiers.
 - [`reliability/`](reliability/README.md) preserves completed correctness and
   durability plans under their historical identifiers.
+- [`cleanups/`](cleanups/README.md) preserves completed cleanup and package
+  reorganization plans under their historical identifiers.
 - [`applications/`](applications/README.md) points from completed application
   phases to their durable outcome records.
 - [`interfaces/`](interfaces/README.md) preserves completed and explicitly

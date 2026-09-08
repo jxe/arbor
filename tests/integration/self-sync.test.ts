@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon, serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import { serveCanopy } from "@arbor/canopy";
 import { canonicalArborLocator, generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
@@ -16,7 +16,7 @@ import {
   pendingEditorAdmissions,
   pendingTreeUpdate,
   savePendingTreeUpdate,
-} from "../../packages/arborsync/src/sync-state.ts";
+} from "@arbor/canopy-client";
 import { snapshotDirectory } from "@arbor/fs";
 
 const token = "self-sync-owner";
@@ -390,7 +390,7 @@ describe("private self-sync", () => {
     await author.close();
   });
 
-  test("posts a longer editor update string while its prior prefix is in flight", async () => {
+  test("retains a generation admitted during an in-flight request as one successor, never a concurrent longer prefix", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -401,6 +401,8 @@ describe("private self-sync", () => {
 
     const historyBefore = host.canopy.acceptedUpdates(tree).length;
     const updateBodies: any[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
     const systemFetch = globalThis.fetch;
     let releaseFirst!: () => void;
     const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
@@ -411,10 +413,17 @@ describe("private self-sync", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
         updateBodies.push(JSON.parse(init.body));
-        if (blockNextUpdate) {
-          blockNextUpdate = false;
-          observeFirst();
-          await firstReleased;
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        try {
+          if (blockNextUpdate) {
+            blockNextUpdate = false;
+            observeFirst();
+            await firstReleased;
+          }
+          return await systemFetch(input, init);
+        } finally {
+          inFlight -= 1;
         }
       }
       return systemFetch(input, init);
@@ -430,6 +439,9 @@ describe("private self-sync", () => {
         firstSource,
         [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nFirst admitted generation.\n" }],
       );
+      expect(first.admissionRequestDigest).toStartWith("sha256:");
+      // The admission is durable before any network request; publication follows the trailing delay.
+      expect(updateBodies).toHaveLength(0);
       await firstObserved;
       if (!first.admissionBasis) throw new Error("Admitted document omitted its next admission basis");
       const second = await author.client.admitDocumentCandidate(
@@ -439,7 +451,11 @@ describe("private self-sync", () => {
         secondSource,
         [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second admitted generation.\n" }],
       );
-      await waitFor(async () => updateBodies.length >= 2);
+      expect(second.admissionRequestDigest).toStartWith("sha256:");
+      await Bun.sleep(400);
+      // While the first request is in flight the second generation is a retained successor.
+      expect(updateBodies).toHaveLength(1);
+      expect(author.running.service.treeSyncStateFor(tree).kind).toBe("submitting-pending");
       releaseFirst();
       await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
         && (await author.running.service.trees.descriptors())
@@ -447,15 +463,15 @@ describe("private self-sync", () => {
 
       const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
       expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
+      expect(maxInFlight).toBe(1);
       expect(updateBodies).toHaveLength(2);
       expect(updateBodies[0].updates).toHaveLength(1);
-      expect(updateBodies[1].updates).toHaveLength(2);
+      // The successor extends the immutable transmitted prefix exactly; Canopy trims it.
       expect(updateBodies[1].base).toBe(updateBodies[0].base);
       expect(updateBodies[1].updates.slice(0, 1)).toEqual(updateBodies[0].updates);
+      expect(updateBodies[1].updates).toHaveLength(2);
       expect(accepted[1]!.previousRoot).toBe(accepted[0]!.root);
       expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
-      expect(first.admissionRequestDigest).toStartWith("sha256:");
-      expect(second.admissionRequestDigest).toStartWith("sha256:");
       const materialized = await author.client.node(ref);
       expect(materialized.acceptedRequestDigests).toContain(first.admissionRequestDigest!);
       expect(materialized.acceptedRequestDigests).toContain(second.admissionRequestDigest!);
@@ -481,7 +497,78 @@ describe("private self-sync", () => {
       globalThis.fetch = systemFetch;
       await author.close();
     }
-  });
+  }, 10_000);
+
+  test("a burst of admissions before the publication delay becomes one request with one element", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const opened = await author.client.editorNode(ref);
+    const openedSource = nodeDocument(opened)!.source;
+    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const updateBodies: any[] = [];
+    const systemFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        updateBodies.push(JSON.parse(init.body));
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      let current = opened;
+      let source = openedSource;
+      const digests: `sha256:${string}`[] = [];
+      for (let index = 1; index <= 5; index++) {
+        const next = `${source}Burst ${index}.\n`;
+        current = await author.client.admitDocumentCandidate(
+          ref,
+          current.admissionBasis!,
+          current.capabilities.content!.revision,
+          next,
+          [{ offset: Buffer.byteLength(source), length: 0, replacement: `Burst ${index}.\n` }],
+        );
+        digests.push(current.admissionRequestDigest!);
+        source = next;
+      }
+      expect(updateBodies).toHaveLength(0);
+      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
+        && (await author.running.service.trees.descriptors())
+          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      // Unsent intermediate generations were compacted before request preparation.
+      expect(updateBodies).toHaveLength(1);
+      expect(updateBodies[0].updates).toHaveLength(1);
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(source);
+      // Only the final generation's digest is a request identity; the editor waits for its latest.
+      const materialized = await author.client.node(ref);
+      expect(materialized.acceptedRequestDigests).toContain(digests.at(-1)!);
+
+      const after = await author.client.node(ref);
+      const restoredSource = "# Complete-object fallback\n";
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: after.capabilities.content!.revision,
+        source: restoredSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(nodeDocument(after)!.source),
+          replacement: restoredSource,
+          expected: nodeDocument(after)!.source,
+        }],
+      });
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      globalThis.fetch = systemFetch;
+      await author.close();
+    }
+  }, 10_000);
 
   test("keeps interleaved editor sessions as sibling Canopy candidates", async () => {
     const author = await launch(stateA, treeA);
@@ -867,6 +954,160 @@ describe("private self-sync", () => {
     }
     expect(requests.some((url) => url.includes(`/.arbor/trees/${tree}/snapshots/`))).toBe(false);
     expect(await pendingEditorAdmissions(tree)).toEqual([]);
+  });
+
+  test("keeps publishing after an offline admission is merged on reconnection", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const admit = async (suffix: string) => {
+      const opened = await author.client.editorNode(ref);
+      const source = nodeDocument(opened)!.source;
+      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+      return author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        `${source}${suffix}`,
+        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
+      );
+    };
+    try {
+      await admit("First online admission.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("First online admission."));
+
+      host.server.stop(true);
+      await host.canopy[Symbol.asyncDispose]();
+      await admit("Offline admission.\n");
+      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toInclude("Offline admission.");
+
+      host = await serveCanopy({
+        dataRoot: hostState,
+        accounts: [{ handle: "owner", token, communityWriter: true }],
+        publicOrigin: `http://127.0.0.1:${hostPort}`,
+        hostname: "127.0.0.1",
+        port: hostPort,
+      });
+      // A remote edit lands before the daemon resubmits, so the offline
+      // admission returns as a merged result rather than an exact acceptance.
+      const owner = new WireClient(host.url, token);
+      const accepted = await readAccepted(owner, tree);
+      const remoteRoot = await mkdtemp(join(sandbox, "remote-"));
+      await writeFile(join(remoteRoot, "_index.md"), await readFile(join(treeA, "_index.md"), "utf8"));
+      await writeFile(join(remoteRoot, "note.md"), `${await readFile(join(treeA, "note.md"), "utf8")}Remote addition.\n`);
+      await owner.submitUpdate(tree, accepted.descriptor.tree.update, await snapshotDirectory(remoteRoot));
+
+      await author.running.service.synchronizeNow();
+      await waitFor(async () => {
+        const note = await readFile(join(treeA, "note.md"), "utf8");
+        return note.includes("Offline admission.") && note.includes("Remote addition.");
+      });
+
+      await admit("Admission after the merge.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Admission after the merge."), 10_000);
+      expect((await author.running.service.trees.descriptors()).find((descriptor) => descriptor.id === tree)?.sync).toBe("idle");
+    } finally {
+      await author.close();
+    }
+  });
+
+  test("keeps publishing after an offline admission is merged by the watch-driven reconnection", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const admit = async (suffix: string) => {
+      const opened = await author.client.editorNode(ref);
+      const source = nodeDocument(opened)!.source;
+      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+      return author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        `${source}${suffix}`,
+        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
+      );
+    };
+    try {
+      await admit("First watch-run admission.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("First watch-run admission."));
+
+      host.server.stop(true);
+      await host.canopy[Symbol.asyncDispose]();
+      await admit("Watch-run offline admission.\n");
+      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toInclude("Watch-run offline admission.");
+
+      host = await serveCanopy({
+        dataRoot: hostState,
+        accounts: [{ handle: "owner", token, communityWriter: true }],
+        publicOrigin: `http://127.0.0.1:${hostPort}`,
+        hostname: "127.0.0.1",
+        port: hostPort,
+      });
+      // A remote edit lands before the daemon resubmits, so the offline
+      // admission returns as a merged result rather than an exact acceptance.
+      const owner = new WireClient(host.url, token);
+      const accepted = await readAccepted(owner, tree);
+      const remoteRoot = await mkdtemp(join(sandbox, "watch-remote-"));
+      await writeFile(join(remoteRoot, "_index.md"), await readFile(join(treeA, "_index.md"), "utf8"));
+      await writeFile(join(remoteRoot, "note.md"), `${await readFile(join(treeA, "note.md"), "utf8")}Watch-run remote addition.\n`);
+      await owner.submitUpdate(tree, accepted.descriptor.tree.update, await snapshotDirectory(remoteRoot));
+
+      // No explicit synchronization: the daemon reconnects on its own.
+      await waitFor(async () => {
+        const note = await readFile(join(treeA, "note.md"), "utf8");
+        return note.includes("Watch-run offline admission.") && note.includes("Watch-run remote addition.");
+      }, 30_000);
+
+      await admit("Watch-run admission after the merge.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Watch-run admission after the merge."), 10_000);
+      expect((await author.running.service.trees.descriptors()).find((descriptor) => descriptor.id === tree)?.sync).toBe("idle");
+    } finally {
+      await author.close();
+    }
+  });
+
+  test("acknowledges an admission that returns to the accepted bytes and publishes the epoch behind it", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    try {
+      const historyBefore = host.canopy.acceptedUpdates(tree).length;
+      const opened = await author.client.editorNode(ref);
+      const source = nodeDocument(opened)!.source;
+      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+      // A whole-source admission of the accepted bytes is durable but needs no request.
+      const unchanged = await author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        source,
+        undefined,
+        "no-op-editor",
+      );
+      expect(nodeDocument(unchanged)!.source).toBe(source);
+
+      const later = await author.client.editorNode(ref);
+      if (!later.admissionBasis) throw new Error("Document omitted its admission basis after a no-op admission");
+      const suffix = "Published behind a no-op epoch.\n";
+      await author.client.admitDocumentCandidate(
+        ref,
+        later.admissionBasis,
+        later.capabilities.content!.revision,
+        `${source}${suffix}`,
+        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
+        "later-editor",
+      );
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Published behind a no-op epoch."), 10_000);
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      expect(await pendingEditorAdmissions(tree)).toEqual([]);
+    } finally {
+      await author.close();
+    }
   });
 
   test("keeps an admitted Native candidate durable while Canopy is offline", async () => {

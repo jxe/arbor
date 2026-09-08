@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
-import type { NodeSnapshot } from "@arbor/client";
+import type { NodeSnapshot } from "@arbor/arborsync-client";
 import type { NodeSummary } from "@arbor/core";
 import { resolveLogicalURL } from "@arbor/core/logical-url";
 import {

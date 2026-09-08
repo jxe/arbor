@@ -105,7 +105,7 @@ Expected files include:
 
 - `packages/cli/src/index.ts`;
 - `packages/render/src/App.tsx`;
-- `packages/client/src/index.ts`;
+- `packages/arborsync-client/src/index.ts`;
 - `packages/arborsync/src/server.ts` and `service.ts`;
 - `packages/wire/src/client.ts` if its request helper needs a link header;
 - `packages/stores/src/visits.ts`;
@@ -146,7 +146,7 @@ Run:
 bun test tests/integration/canopy/update-host.test.ts tests/integration/system-trees.test.ts
 bun run typecheck
 bun run test:e2e
-swift test --package-path native/Packages/ArborSync
+swift test --package-path native/Packages/CanopyClient
 xcodebuild -project native/Arbor.xcodeproj -scheme Arbor -destination 'generic/platform=iOS Simulator' build
 xcodebuild -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=macOS' build
 git diff --check

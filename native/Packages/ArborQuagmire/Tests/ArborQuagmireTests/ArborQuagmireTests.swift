@@ -1,6 +1,5 @@
-import ArborClient
+import ArborSyncClient
 import ArborKit
-import ArborProviders
 @testable import ArborQuagmire
 import Foundation
 import Quagmire
@@ -1539,6 +1538,7 @@ private struct ResolutionFailure: Error {}
 private actor ResolutionFailureSession: WorkspaceDocumentSession {
     nonisolated let identity: WorkspaceIdentity
     private var current: WorkspaceDocumentSnapshot
+    private var conflicted = false
 
     init(snapshot: WorkspaceDocumentSnapshot) {
         identity = snapshot.reference.identity
@@ -1552,6 +1552,10 @@ private actor ResolutionFailureSession: WorkspaceDocumentSession {
     }
 
     func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        // The first admission conflicts; the resolution retry, which the
+        // binding submits through the same admission path, fails outright.
+        guard !conflicted else { throw ResolutionFailure() }
+        conflicted = true
         let base = current
         let submitted = try patch.applying(to: base.source)
         current = WorkspaceDocumentSnapshot(

@@ -14,12 +14,12 @@ import type {
   NodeSnapshot,
   ObservedNodeUpdate,
   StructuralWorkspaceOperation,
-} from "@arbor/client";
+} from "@arbor/arborsync-client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { legacyPageIDCandidate, resolveLogicalURL } from "@arbor/core/logical-url";
 import { pageIDFromStableKey, pageIDStableKey } from "@arbor/core/node-key";
 import { placeDirectoryChildren, reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@arbor/editor";
-import { api, type BrowserMutationResult } from "./api.ts";
+import { api, type BrowserMutationResult } from "@arbor/arborsync-client/api";
 import {
   EditorCoordinator,
   frontmatterPatch,
@@ -592,6 +592,8 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     baseBlocks: authored,
     baseFrontmatter: markdownDocument?.frontmatter ?? {},
     initialSnapshot: { blocks: initial, frontmatter: markdownDocument?.frontmatter ?? {} },
+    admissionBasis: (node as NodeResponse).admissionBasis,
+    transport: (node as NodeResponse).admissionBasis ? "canopy" : "local",
     capture: () => snapshotRef.current(),
     write: (_path, baseRevision, value, base) => writeEditorSnapshot(baseRevision, value, base),
     applySnapshot: replaceEditorSnapshot,
@@ -623,7 +625,7 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     });
   }, [childrenRevision, coordinator, node.capabilities.content?.revision]);
 
-  useEffect(() => () => coordinator.dispose(), [coordinator]);
+  useEffect(() => () => { void coordinator.dispose(); }, [coordinator]);
 
   useLayoutEffect(() => {
     const surface = bodySurface.current;

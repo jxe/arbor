@@ -1,6 +1,6 @@
 import ArborKit
 import ArborQuagmire
-import ArborSync
+import CanopyClient
 import Quagmire
 import SwiftUI
 

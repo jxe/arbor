@@ -31,7 +31,7 @@ try {
   const running = await serveArborSync(root, { port: 0 });
   try {
     await run(
-      ["swift", "test", "--package-path", "native/Packages/ArborClient"],
+      ["swift", "test", "--package-path", "native/Packages/ArborSyncClient"],
       {
         ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
         ARBOR_REFERENCE_FIXTURES: join(import.meta.dir, "../fixtures"),
@@ -40,8 +40,11 @@ try {
       },
     );
     await run(
-      ["swift", "test", "--package-path", "native/Packages/ArborProviders"],
-      { ARBOR_TEST_URL: running.url, ARBOR_TEST_TREE: running.workspace.tree },
+      ["swift", "test", "--package-path", "native/Packages/ArborKit"],
+      {
+        ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
+        ARBOR_REFERENCE_FIXTURES: join(import.meta.dir, "../fixtures"),
+      },
     );
   } finally {
     running.server.stop(true);
@@ -95,7 +98,7 @@ try {
         },
       );
       await run(
-        ["swift", "test", "--package-path", "native/Packages/ArborSync"],
+        ["swift", "test", "--package-path", "native/Packages/CanopyClient"],
         {
           ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
           ARBOR_WIRE_TEST_URL: canopy.url,

@@ -1,0 +1,469 @@
+import ArborKit
+import ArborWire
+import Foundation
+
+public struct ArborSyncStatus: Codable, Sendable, Equatable {
+    public var service: String
+    public var version: String
+    public var protocolVersion: String
+    public var instanceID: String
+    public var runtimeKind: String
+    public var deviceID: String?
+
+    public init(service: String, version: String, protocolVersion: String, instanceID: String, runtimeKind: String, deviceID: String? = nil) {
+        self.service = service
+        self.version = version
+        self.protocolVersion = protocolVersion
+        self.instanceID = instanceID
+        self.runtimeKind = runtimeKind
+        self.deviceID = deviceID
+    }
+}
+
+/// One node location with optional schema-derived stable identity.
+public struct NodeRef: Codable, Sendable, Equatable {
+    public var tree: String
+    public var path: String
+    public var stableKey: String?
+
+    public init(tree: String, path: String, stableKey: String? = nil) {
+        self.tree = tree
+        self.path = path
+        self.stableKey = stableKey
+    }
+
+    public static func path(_ path: String, tree: String) -> NodeRef {
+        NodeRef(tree: tree, path: path)
+    }
+
+    private enum CodingKeys: String, CodingKey { case tree, path, stableKey, pageID, pathHint }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.stableKey), !container.contains(.pageID), !container.contains(.pathHint) else {
+            throw DecodingError.dataCorruptedError(forKey: .stableKey, in: container, debugDescription: "node refs require explicit stableKey and reject PageID references")
+        }
+        tree = try container.decode(String.self, forKey: .tree)
+        path = try container.decode(String.self, forKey: .path)
+        stableKey = try container.decodeIfPresent(String.self, forKey: .stableKey)
+        guard !tree.isEmpty, !path.isEmpty, stableKey.map({ encodeStableKey($0) != nil }) ?? true else {
+            throw DecodingError.dataCorruptedError(forKey: .stableKey, in: container, debugDescription: "node refs require nonempty location fields and a canonical stable key")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(tree, forKey: .tree)
+        try container.encode(path, forKey: .path)
+        if let stableKey {
+            guard encodeStableKey(stableKey) != nil else {
+                throw EncodingError.invalidValue(stableKey, .init(codingPath: encoder.codingPath, debugDescription: "stableKey is not canonical identity JSON"))
+            }
+            try container.encode(stableKey, forKey: .stableKey)
+        }
+        else { try container.encodeNil(forKey: .stableKey) }
+    }
+}
+
+public struct CanonicalTreeDescriptor: Codable, Sendable, Equatable {
+    public var path: String
+    public var endpoint: String
+    public var parentTree: String?
+
+    /// The public HTTP URL: the endpoint's origin followed by the encoded canonical path.
+    public var httpURL: String { canonicalHTTPURL(endpoint: endpoint, path: path) }
+    /// The `arbor://` locator: the endpoint's host followed by the encoded canonical path.
+    public var arborURL: String { canonicalArborLocator(endpoint: endpoint, path: path) }
+}
+
+public struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
+    public var snapshot: Value
+    public var observedThrough: String
+}
+
+public struct LocatorResolution: Codable, Sendable, Equatable {
+    public var ref: NodeRef
+    public var enclosingTree: TreeDescriptor?
+    public var historical: Bool
+    public var observedThrough: String
+}
+
+public struct TreeDescriptor: Codable, Sendable, Equatable {
+    public var id: String
+    public var kind: String
+    public var access: String
+    public var canonical: CanonicalTreeDescriptor?
+}
+
+public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
+    public var id: String
+    public var configurationTree: String?
+    public var kind: String
+    public var access: String
+    public var canonical: CanonicalTreeDescriptor?
+    public var name: String
+    public var osPath: String?
+    public var placement: String
+    public var sync: String?
+    public var acceptedUpdate: String?
+    public var missing: Bool?
+}
+
+public struct Diagnostic: Codable, Sendable, Equatable {
+    public var code: String
+    public var message: String
+    public var path: String?
+    public var severity: String
+    public var row: Int?
+    public var field: String?
+}
+
+public struct PropertiesCapability: Codable, Sendable, Equatable {
+    public var revision: String
+    public var schema: String?
+    public var writable: Bool
+}
+
+public struct ContentCapability: Codable, Sendable, Equatable {
+    public var revision: String
+    public var mediaType: String
+    public var format: String?
+    public var writable: Bool
+}
+
+public struct ChildBackingSummary: Codable, Sendable, Equatable {
+    public var type: String
+    public var format: String?
+    public var childSetHash: String?
+    public var scope: String?
+    public var driver: String?
+}
+
+public struct ChildrenCapability: Codable, Sendable, Equatable {
+    public var revision: String
+    public var schema: String?
+    public var backing: ChildBackingSummary?
+    public var total: Int?
+    public var writable: Bool
+}
+
+public struct ExecutableCapability: Codable, Sendable, Equatable {
+    public var version: String
+    public var state: String
+}
+
+public struct NodeCapabilities: Codable, Sendable, Equatable {
+    public var properties: PropertiesCapability?
+    public var content: ContentCapability?
+    public var children: ChildrenCapability?
+    public var executable: ExecutableCapability?
+}
+
+public struct NodeContentRepresentation: Codable, Sendable, Equatable {
+    public var state: String
+    public var origin: String?
+}
+
+public struct NodeContent: Codable, Sendable, Equatable {
+    public var source: String
+    public var representation: NodeContentRepresentation?
+}
+
+private enum LegacyNodeCodingKeys: String, CodingKey, CaseIterable {
+    case tree, path, kind, pageID, collection, document, children
+}
+
+private func rejectLegacyNodeFields(_ decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: LegacyNodeCodingKeys.self)
+    if let key = LegacyNodeCodingKeys.allCases.first(where: { container.contains($0) }) {
+        throw DecodingError.dataCorruptedError(
+            forKey: key,
+            in: container,
+            debugDescription: "\(key.stringValue) duplicates or violates the canonical node model"
+        )
+    }
+}
+
+public struct NodeSummary: Codable, Sendable, Equatable {
+    public var ref: NodeRef
+    public var name: String
+    public var revision: String
+    public var properties: [String: JSONValue]
+    public var capabilities: NodeCapabilities
+    public var materialization: String
+    public var diagnostics: [Diagnostic]
+
+    private enum CodingKeys: String, CodingKey {
+        case ref, name, revision, properties, capabilities, materialization, diagnostics
+    }
+
+    public init(from decoder: Decoder) throws {
+        try rejectLegacyNodeFields(decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ref = try container.decode(NodeRef.self, forKey: .ref)
+        name = try container.decode(String.self, forKey: .name)
+        revision = try container.decode(String.self, forKey: .revision)
+        properties = try container.decode([String: JSONValue].self, forKey: .properties)
+        capabilities = try container.decode(NodeCapabilities.self, forKey: .capabilities)
+        materialization = try container.decode(String.self, forKey: .materialization)
+        diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
+    }
+}
+
+public struct NodeSnapshot: Codable, Sendable, Equatable {
+    public var ref: NodeRef
+    /// Placement context supplied by local/Canopy response adapters.
+    public var enclosingTree: LocalTreeDescriptor?
+    public var name: String
+    public var revision: String
+    public var properties: [String: JSONValue]
+    public var capabilities: NodeCapabilities
+    public var content: NodeContent?
+    public var materialization: String
+    public var diagnostics: [Diagnostic]
+    public var observedThrough: String
+    /// Opaque arborsync context returned unchanged when admitting an editor patch.
+    public var admissionBasis: String?
+    /// Credential-scoped Wire request digest for a locally durable editor admission.
+    public var admissionRequestDigest: String?
+    /// Authenticated Wire requests known to be incorporated by this observation.
+    public var acceptedRequestDigests: [String]?
+
+    private enum CodingKeys: String, CodingKey {
+        case ref, enclosingTree, name, revision, properties, capabilities, content, materialization, diagnostics, observedThrough, admissionBasis, admissionRequestDigest, acceptedRequestDigests
+    }
+
+    public init(from decoder: Decoder) throws {
+        try rejectLegacyNodeFields(decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ref = try container.decode(NodeRef.self, forKey: .ref)
+        enclosingTree = try container.decodeIfPresent(LocalTreeDescriptor.self, forKey: .enclosingTree)
+        name = try container.decode(String.self, forKey: .name)
+        revision = try container.decode(String.self, forKey: .revision)
+        properties = try container.decode([String: JSONValue].self, forKey: .properties)
+        capabilities = try container.decode(NodeCapabilities.self, forKey: .capabilities)
+        content = try container.decodeIfPresent(NodeContent.self, forKey: .content)
+        materialization = try container.decode(String.self, forKey: .materialization)
+        diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
+        observedThrough = try container.decode(String.self, forKey: .observedThrough)
+        admissionBasis = try container.decodeIfPresent(String.self, forKey: .admissionBasis)
+        admissionRequestDigest = try container.decodeIfPresent(String.self, forKey: .admissionRequestDigest)
+        acceptedRequestDigests = try container.decodeIfPresent([String].self, forKey: .acceptedRequestDigests)
+    }
+}
+
+public struct ChildrenPage: Codable, Sendable, Equatable {
+    public var parent: NodeRef
+    public var items: [NodeSummary]
+    public var nextCursor: String?
+    public var observedThrough: String
+}
+
+public struct SearchResult: Codable, Sendable, Equatable {
+    public var ref: NodeRef
+    public var title: String
+    public var excerpt: String
+    public var score: Double
+    public var modifiedAt: Double?
+    public var backlinkCount: Int
+}
+
+public struct SearchPage: Codable, Sendable, Equatable {
+    public var results: [SearchResult]
+    public var nextCursor: String?
+    public var observedThrough: String
+}
+
+public struct BacklinkEntry: Codable, Sendable, Equatable {
+    public var ref: NodeRef
+    public var title: String
+    public var context: String
+}
+
+public struct BacklinksPage: Codable, Sendable, Equatable {
+    public var target: NodeRef
+    public var entries: [BacklinkEntry]
+    public var nextCursor: String?
+    public var observedThrough: String
+}
+
+public struct RecoveryEntry: Codable, Sendable, Equatable {
+    /// "block" or "trash".
+    public var kind: String
+    public var ref: NodeRef
+    public var hash: String?
+    public var markdown: String?
+    public var parent: String?
+    public var status: String?
+    public var originalPath: String?
+    public var nodeKind: String?
+    public var changedAt: Double
+}
+
+public struct RecoveryPage: Codable, Sendable, Equatable {
+    public var ref: NodeRef
+    public var entries: [RecoveryEntry]
+    public var nextCursor: String?
+    public var observedThrough: String
+}
+
+public struct WorkspaceOperation: Codable, Sendable, Equatable {
+    public var op: String
+    public var ref: NodeRef?
+    public var refs: [NodeRef]?
+    /// Scope for path-literal operations (createMarkdown/createDirectory).
+    public var tree: String?
+    public var path: String?
+    public var name: String?
+    public var destination: NodeRef?
+    public var basePropertiesRevision: String?
+    public var properties: [String: JSONValue]?
+    public var baseContentRevision: String?
+    public var source: String?
+    public var sourceEdits: [ProtocolSourceEdit]?
+    public var hash: String?
+
+    public init(
+        op: String,
+        ref: NodeRef? = nil,
+        refs: [NodeRef]? = nil,
+        tree: String? = nil,
+        path: String? = nil,
+        name: String? = nil,
+        destination: NodeRef? = nil,
+        basePropertiesRevision: String? = nil,
+        properties: [String: JSONValue]? = nil,
+        baseContentRevision: String? = nil,
+        source: String? = nil,
+        sourceEdits: [ProtocolSourceEdit]? = nil,
+        hash: String? = nil
+    ) {
+        self.op = op
+        self.ref = ref
+        self.refs = refs
+        self.tree = tree
+        self.path = path
+        self.name = name
+        self.destination = destination
+        self.basePropertiesRevision = basePropertiesRevision
+        self.properties = properties
+        self.baseContentRevision = baseContentRevision
+        self.source = source
+        self.sourceEdits = sourceEdits
+        self.hash = hash
+    }
+
+    public var isContentOperation: Bool {
+        op == "writeProperties" || op == "writeText" || op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
+    }
+}
+
+public struct ProtocolSourceEdit: Codable, Sendable, Equatable {
+    public var offset: Int
+    public var length: Int
+    public var replacement: String
+    public var expected: String?
+
+    public init(offset: Int, length: Int, replacement: String, expected: String? = nil) {
+        self.offset = offset
+        self.length = length
+        self.replacement = replacement
+        self.expected = expected
+    }
+}
+
+public struct MutationRequest: Codable, Sendable, Equatable {
+    public var mutationID: String
+    public var operations: [WorkspaceOperation]
+
+    public init(mutationID: String, operations: [WorkspaceOperation]) {
+        self.mutationID = mutationID
+        self.operations = operations
+    }
+}
+
+public struct MutationEffect: Codable, Sendable, Equatable {
+    public var kind: String
+    public var ref: NodeRef
+    public var previousPath: String?
+    public var contentRevision: String?
+    public var propertiesRevision: String?
+    /// Exact top-level property names when the provider can prove them.
+    public var changedProperties: [String]?
+    public var directoryRevision: String?
+}
+
+public struct MutationReceipt: Codable, Sendable, Equatable {
+    public var mutationID: String
+    public var observedThrough: String
+    public var effects: [MutationEffect]
+}
+
+public struct WorkspaceChange: Codable, Sendable, Equatable {
+    public var ref: NodeRef
+    public var previousPath: String?
+    public var contentRevision: String?
+    public var propertiesRevision: String?
+    /// Exact top-level property names when the provider can prove them.
+    public var changedProperties: [String]?
+    public var directoryRevision: String?
+    public var origin: String
+    public var mutationID: String?
+    /// Authenticated Wire requests incorporated by this materialized sync transition.
+    public var acceptedRequestDigests: [String]?
+}
+
+public struct WorkspaceEvent: Codable, Sendable, Equatable {
+    public var cursor: String
+    /// Scope the event belongs to; one process-wide stream orders all scopes.
+    public var tree: String
+    public var kind: String
+    public var change: WorkspaceChange
+}
+
+public enum ObservedNodeUpdate: Sendable, Equatable {
+    case event(WorkspaceEvent)
+    case resync(NodeSnapshot)
+}
+
+public struct ObservedNodeView: Sendable {
+    public var snapshot: NodeSnapshot
+    public var updates: AsyncThrowingStream<ObservedNodeUpdate, Error>
+
+    public init(
+        snapshot: NodeSnapshot,
+        updates: AsyncThrowingStream<ObservedNodeUpdate, Error>
+    ) {
+        self.snapshot = snapshot
+        self.updates = updates
+    }
+}
+
+public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
+    public var code: String
+    public var message: String
+    public var retryable: Bool
+    public var tree: String?
+    public var path: String?
+    public var details: JSONValue?
+}
+
+public struct ArborSyncErrorEnvelope: Codable, Sendable, Equatable {
+    public var error: String
+    public var message: String
+    public var retryable: Bool
+    public var tree: String? = nil
+    public var path: String? = nil
+    public var details: JSONValue? = nil
+
+    public var value: ArborSyncErrorValue {
+        ArborSyncErrorValue(
+            code: error,
+            message: message,
+            retryable: retryable,
+            tree: tree,
+            path: path,
+            details: details
+        )
+    }
+}

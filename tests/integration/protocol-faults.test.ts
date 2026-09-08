@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Workspace, serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import type { MutationRequest } from "@arbor/core";
 import { canonicalStableKey } from "@arbor/core";
 

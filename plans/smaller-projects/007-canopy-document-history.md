@@ -14,13 +14,13 @@
 > git diff --stat 670a240..HEAD -- \
 >   packages/canopy packages/wire packages/arborsync packages/fs \
 >   native/Packages/ArborWire native/Packages/ArborKit \
->   native/Packages/ArborReplica native/Packages/ArborProviders \
+>   native/Packages/ArborReplica native/Packages/ArborSyncClient \
 >   native/Packages/ArborQuagmire native/ArborApp native/ArborAppTests \
 >   spec docs conformance tests migrations plans/smaller-projects
 > git status --short -- \
 >   packages/canopy packages/wire packages/arborsync packages/fs \
 >   native/Packages/ArborWire native/Packages/ArborKit \
->   native/Packages/ArborReplica native/Packages/ArborProviders \
+>   native/Packages/ArborReplica native/Packages/ArborSyncClient \
 >   native/Packages/ArborQuagmire native/ArborApp native/ArborAppTests \
 >   spec docs conformance tests migrations plans/smaller-projects
 > ```
@@ -241,7 +241,7 @@ Expected implementation scope:
   disposable `migrations/NNN-document-history/`;
 - `packages/arborsync/src/` and `packages/fs/src/` only to preserve and relabel
   filesystem recovery and, if required, add the thin authenticated proxy;
-- `native/Packages/ArborWire`, `ArborKit`, `ArborProviders`, and `ArborQuagmire`
+- `native/Packages/ArborWire`, `ArborKit`, `ArborSyncClient`, and `ArborQuagmire`
   session/binding code and tests; and
 - `native/ArborApp`, `native/ArborAppTests`, `docs/arborsync-api.md`,
   `docs/reference-implementation.md`, and the two coordinated plan files.
@@ -322,11 +322,11 @@ shows unchanged accepted rows, observations, roots, and object hashes.
 **Verify:**
 
 ```sh
-swift test --package-path native/Packages/ArborProviders
+swift test --package-path native/Packages/ArborSyncClient
 tools/test-arbor-quagmire-local.sh
 bun test tests/integration/server.test.ts
 rg -n 'client\.recovery|restoreRecovery|No local recovery history' \
-  native/Packages/ArborProviders native/ArborApp
+  native/Packages/ArborSyncClient native/ArborApp
 ```
 
 Expected: tests exit zero; the final `rg` has no production History mapping
@@ -342,7 +342,7 @@ bun run typecheck
 bun run test:protocol
 bun test
 swift test --package-path native/Packages/ArborWire
-swift test --package-path native/Packages/ArborProviders
+swift test --package-path native/Packages/ArborSyncClient
 tools/test-arbor-quagmire-local.sh
 xcodebuild -workspace native/Arbor.local.xcworkspace -scheme Arbor -sdk macosx \
   -derivedDataPath /tmp/arbor-canopy-history-macos CODE_SIGNING_ALLOWED=NO build

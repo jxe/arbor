@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
 import type { AccessEntry, RecoveryEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@arbor/core";
-import type { CommunityPairingOffer, LocalCanopyAccountDescriptor, LocalProfileIdentity, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
+import type { CommunityPairingOffer, LocalCanopyAccountDescriptor, LocalProfileIdentity, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/arborsync-client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
-import { api } from "./api.ts";
+import { api } from "@arbor/arborsync-client/api";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
 import { ReadOnlyPage } from "./ReadOnlyPage.tsx";
 import { hasChildren, hasMarkdownContent } from "./node-presentation.ts";
-import type { ActiveDevice as CommunityDevice } from "./configuration.ts";
+import type { ActiveDevice as CommunityDevice } from "@arbor/arborsync-client/configuration";
 
 type PublicAccess = "none" | "read" | "write";
 type TreeDescriptor = LocalTreeDescriptor & { accessEntries?: AccessEntry[] };

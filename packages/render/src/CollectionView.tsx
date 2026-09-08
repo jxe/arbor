@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { JSONValue, NodeRef, NodeSummary } from "@arbor/core";
-import type { NodeSnapshot } from "@arbor/client";
-import { api } from "./api.ts";
+import type { NodeSnapshot } from "@arbor/arborsync-client";
+import { api } from "@arbor/arborsync-client/api";
 
 type PropertyWriter = (
   ref: NodeRef,

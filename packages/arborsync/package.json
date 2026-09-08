@@ -10,6 +10,7 @@
     "arborsync": "./src/cli.ts"
   },
   "dependencies": {
+    "@arbor/canopy-client": "workspace:*",
     "@arbor/core": "workspace:*",
     "@arbor/data": "workspace:*",
     "@arbor/editor": "workspace:*",

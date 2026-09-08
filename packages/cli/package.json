@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@arbor/arborsync": "workspace:*",
-    "@arbor/client": "workspace:*",
+    "@arbor/arborsync-client": "workspace:*",
     "@arbor/core": "workspace:*",
     "@arbor/fs": "workspace:*",
     "@arbor/stores": "workspace:*",

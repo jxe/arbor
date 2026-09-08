@@ -1,5 +1,5 @@
 import type { MarkdownDocument, NodeSummary } from "@arbor/core";
-import type { NodeSnapshot } from "@arbor/client";
+import type { NodeSnapshot } from "@arbor/arborsync-client";
 import { parseMarkdown } from "@arbor/editor";
 
 export function nodeDocument(node: NodeSnapshot): MarkdownDocument | undefined {

@@ -63,6 +63,7 @@ New readers should start with the non-normative [walkthrough](spec/00-walkthroug
 | [child backings](spec/06-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
 | [executable documents](spec/07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Wire operations |
 | [authoring API](spec/08-authoring-api.md) | The `arbor/react` and `arbor/data` packages, React Actions, hooks, and styling an executable document is written against |
+| [client synchronization](spec/09-client-synchronization.md) | The direct Canopy synchronization state machine a durable replica runs against Wire: one prepared request in flight, one retained successor, validated apply, conflict ownership, and exact ambiguous recovery |
 
 The specification map does not report implementation progress. See
 [status.md](status.md) for that boundary and [`conformance/`](conformance) for

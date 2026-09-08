@@ -1,4 +1,4 @@
-import ArborClient
+import ArborSyncClient
 import Foundation
 
 enum ArborSyncProcessKind: Sendable, Equatable {

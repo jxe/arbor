@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@arbor/client": "workspace:*",
+    "@arbor/arborsync-client": "workspace:*",
     "@arbor/core": "workspace:*",
     "@arbor/editor": "workspace:*",
     "@blocknote/core": "0.52.1",

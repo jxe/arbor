@@ -40,6 +40,7 @@
         "arborsync": "./src/cli.ts",
       },
       "dependencies": {
+        "@arbor/canopy-client": "workspace:*",
         "@arbor/core": "workspace:*",
         "@arbor/data": "workspace:*",
         "@arbor/editor": "workspace:*",
@@ -48,6 +49,14 @@
         "@arbor/wire": "workspace:*",
         "@arbor/wire-projection": "workspace:*",
         "zod": "4.3.6",
+      },
+    },
+    "packages/arborsync-client": {
+      "name": "@arbor/arborsync-client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+        "yaml": "2.8.2",
       },
     },
     "packages/canopy": {
@@ -66,6 +75,16 @@
         "yaml": "2.8.2",
       },
     },
+    "packages/canopy-client": {
+      "name": "@arbor/canopy-client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+        "@arbor/fs": "workspace:*",
+        "@arbor/stores": "workspace:*",
+        "@arbor/wire": "workspace:*",
+      },
+    },
     "packages/cli": {
       "name": "@arbor/cli",
       "version": "0.1.0",
@@ -74,19 +93,12 @@
       },
       "dependencies": {
         "@arbor/arborsync": "workspace:*",
-        "@arbor/client": "workspace:*",
+        "@arbor/arborsync-client": "workspace:*",
         "@arbor/core": "workspace:*",
         "@arbor/fs": "workspace:*",
         "@arbor/stores": "workspace:*",
         "@arbor/wire": "workspace:*",
         "yaml": "2.8.2",
-      },
-    },
-    "packages/client": {
-      "name": "@arbor/client",
-      "version": "0.1.0",
-      "dependencies": {
-        "@arbor/core": "workspace:*",
       },
     },
     "packages/core": {
@@ -125,7 +137,7 @@
       "name": "@arbor/render",
       "version": "0.1.0",
       "dependencies": {
-        "@arbor/client": "workspace:*",
+        "@arbor/arborsync-client": "workspace:*",
         "@arbor/core": "workspace:*",
         "@arbor/editor": "workspace:*",
         "@blocknote/core": "0.52.1",
@@ -176,11 +188,13 @@
   "packages": {
     "@arbor/arborsync": ["@arbor/arborsync@workspace:packages/arborsync"],
 
+    "@arbor/arborsync-client": ["@arbor/arborsync-client@workspace:packages/arborsync-client"],
+
     "@arbor/canopy": ["@arbor/canopy@workspace:packages/canopy"],
 
-    "@arbor/cli": ["@arbor/cli@workspace:packages/cli"],
+    "@arbor/canopy-client": ["@arbor/canopy-client@workspace:packages/canopy-client"],
 
-    "@arbor/client": ["@arbor/client@workspace:packages/client"],
+    "@arbor/cli": ["@arbor/cli@workspace:packages/cli"],
 
     "@arbor/core": ["@arbor/core@workspace:packages/core"],
 

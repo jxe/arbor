@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ArborBlock, NodeSnapshot } from "@arbor/core";
-import type { NodeResponse } from "@arbor/client";
+import type { NodeResponse } from "@arbor/arborsync-client";
 import { serializeMarkdown } from "@arbor/editor";
 import {
   EditorCoordinator,
@@ -220,5 +220,118 @@ describe("editor coordinator", () => {
 
     expect(value.writes).toHaveLength(1);
     expect(value.writes[0]!.blocks.map((block) => block.id)).toEqual(["p", "child-link"]);
+  });
+});
+
+describe("editor coordinator admission machine", () => {
+  test("fifteen rapid edits make one admission carrying the final source", async () => {
+    const initial = { blocks: [paragraph("p", "initial")], frontmatter: {} };
+    const value = harness(initial);
+    for (let index = 1; index <= 15; index++) {
+      value.captured = { blocks: [paragraph("p", `edit ${index}`)], frontmatter: {} };
+      value.coordinator.markAuthored(value.captured);
+    }
+    expect(value.coordinator.admissionState.kind).toBe("dirty");
+    expect(value.writes).toHaveLength(0);
+    value.clock.runAll();
+    await value.coordinator.flush();
+    expect(value.writes).toHaveLength(1);
+    expect(value.writes[0]?.blocks[0]?.content).toBe("edit 15");
+    expect(value.coordinator.saveState).toBe("saved");
+  });
+
+  test("edits during an in-flight admission become one successor, never a second concurrent request", async () => {
+    const initial = { blocks: [paragraph("p", "initial")], frontmatter: {} };
+    const clock = new FakeClock();
+    let captured = structuredClone(initial);
+    const writes: DocumentSnapshot[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const coordinator = new EditorCoordinator({
+      path: "/page",
+      revision: "r0",
+      baseBlocks: initial.blocks,
+      baseFrontmatter: {},
+      initialSnapshot: initial,
+      clock,
+      capture: () => structuredClone(captured),
+      write: async (_path, _revision, snapshot) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        writes.push(structuredClone(snapshot));
+        if (writes.length === 1) await held;
+        inFlight -= 1;
+        return tree(`r${writes.length}`, snapshot);
+      },
+      applySnapshot: (snapshot) => { captured = structuredClone(snapshot); },
+      acceptNode: () => {},
+      notify: () => {},
+    });
+    captured = { blocks: [paragraph("p", "one")], frontmatter: {} };
+    coordinator.markAuthored(captured);
+    clock.runAll();
+    expect(coordinator.admissionState.kind).toBe("submitting");
+    for (const text of ["two", "three", "four"]) {
+      captured = { blocks: [paragraph("p", text)], frontmatter: {} };
+      coordinator.markAuthored(captured);
+    }
+    expect(coordinator.admissionState.kind).toBe("submitting-dirty");
+    expect(writes).toHaveLength(1);
+    release();
+    await coordinator.flush();
+    expect(writes).toHaveLength(2);
+    expect(writes[1]?.blocks[0]?.content).toBe("four");
+    expect(maxInFlight).toBe(1);
+    expect(coordinator.currentRevision).toBe("r2");
+  });
+
+  test("an edit back to the accepted bytes performs no request", async () => {
+    const initial = { blocks: [paragraph("p", "initial")], frontmatter: {} };
+    const value = harness(initial);
+    value.captured = { blocks: [paragraph("p", "changed")], frontmatter: {} };
+    value.coordinator.markAuthored(value.captured);
+    value.captured = structuredClone(initial);
+    value.coordinator.markAuthored(value.captured);
+    value.clock.runAll();
+    await value.coordinator.flush();
+    expect(value.writes).toHaveLength(0);
+    expect(value.coordinator.saveState).toBe("saved");
+  });
+
+  test("a Canopy-backed conflict never runs the local block merge", async () => {
+    const initial = { blocks: [paragraph("p", "initial")], frontmatter: {} };
+    const clock = new FakeClock();
+    let captured = structuredClone(initial);
+    const applied: DocumentSnapshot[] = [];
+    const coordinator = new EditorCoordinator({
+      path: "/page",
+      revision: "r0",
+      baseBlocks: initial.blocks,
+      baseFrontmatter: {},
+      initialSnapshot: initial,
+      transport: "canopy",
+      admissionBasis: "basis",
+      clock,
+      capture: () => structuredClone(captured),
+      write: async () => {
+        const error = Object.assign(new Error("conflict"), {
+          status: 409,
+          payload: { current: tree("r-remote", { blocks: [paragraph("q", "remote")], frontmatter: {} }) },
+        });
+        throw error;
+      },
+      applySnapshot: (snapshot) => { applied.push(structuredClone(snapshot)); captured = structuredClone(snapshot); },
+      acceptNode: () => {},
+      notify: () => {},
+    });
+    captured = { blocks: [paragraph("p", "mine")], frontmatter: {} };
+    coordinator.markAuthored(captured);
+    clock.runAll();
+    await expect(coordinator.flush()).rejects.toThrow();
+    expect(coordinator.saveState).toBe("conflict");
+    expect(applied).toHaveLength(0);
+    expect(captured.blocks[0]?.content).toBe("mine");
   });
 });

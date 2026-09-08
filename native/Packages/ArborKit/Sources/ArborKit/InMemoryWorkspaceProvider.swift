@@ -1,4 +1,3 @@
-import ArborClient
 import Foundation
 
 public actor InMemoryWorkspaceProvider: WorkspaceProvider {

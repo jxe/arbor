@@ -6,7 +6,7 @@ import { revisionOf } from "@arbor/core";
 import { mergeWireTrees } from "@arbor/canopy";
 import { snapshotDirectory } from "@arbor/fs";
 import { applyTransitionPayload, decodeCandidateUpdateJSON, decodeWireObject, updateRequestDigests } from "@arbor/wire";
-import { documentAdmissionBasis, freezeEditorAdmission } from "../../packages/arborsync/src/editor-admission.ts";
+import { documentAdmissionBasis, freezeEditorAdmission } from "@arbor/canopy-client";
 
 describe("opaque editor admission basis", () => {
   test("freezes _index.md edits as an ordinary update without touching disk", async () => {

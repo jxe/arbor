@@ -1,4 +1,4 @@
-import type { BrowserImportEntry } from "./api.ts";
+import type { BrowserImportEntry } from "@arbor/arborsync-client/api";
 
 interface WebkitFileEntry {
   isFile: boolean;
