@@ -956,6 +956,160 @@ describe("private self-sync", () => {
     expect(await pendingEditorAdmissions(tree)).toEqual([]);
   });
 
+  test("keeps publishing after an offline admission is merged on reconnection", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const admit = async (suffix: string) => {
+      const opened = await author.client.editorNode(ref);
+      const source = nodeDocument(opened)!.source;
+      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+      return author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        `${source}${suffix}`,
+        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
+      );
+    };
+    try {
+      await admit("First online admission.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("First online admission."));
+
+      host.server.stop(true);
+      await host.canopy[Symbol.asyncDispose]();
+      await admit("Offline admission.\n");
+      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toInclude("Offline admission.");
+
+      host = await serveCanopy({
+        dataRoot: hostState,
+        accounts: [{ handle: "owner", token, communityWriter: true }],
+        publicOrigin: `http://127.0.0.1:${hostPort}`,
+        hostname: "127.0.0.1",
+        port: hostPort,
+      });
+      // A remote edit lands before the daemon resubmits, so the offline
+      // admission returns as a merged result rather than an exact acceptance.
+      const owner = new WireClient(host.url, token);
+      const accepted = await readAccepted(owner, tree);
+      const remoteRoot = await mkdtemp(join(sandbox, "remote-"));
+      await writeFile(join(remoteRoot, "_index.md"), await readFile(join(treeA, "_index.md"), "utf8"));
+      await writeFile(join(remoteRoot, "note.md"), `${await readFile(join(treeA, "note.md"), "utf8")}Remote addition.\n`);
+      await owner.submitUpdate(tree, accepted.descriptor.tree.update, await snapshotDirectory(remoteRoot));
+
+      await author.running.service.synchronizeNow();
+      await waitFor(async () => {
+        const note = await readFile(join(treeA, "note.md"), "utf8");
+        return note.includes("Offline admission.") && note.includes("Remote addition.");
+      });
+
+      await admit("Admission after the merge.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Admission after the merge."), 10_000);
+      expect((await author.running.service.trees.descriptors()).find((descriptor) => descriptor.id === tree)?.sync).toBe("idle");
+    } finally {
+      await author.close();
+    }
+  });
+
+  test("keeps publishing after an offline admission is merged by the watch-driven reconnection", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const admit = async (suffix: string) => {
+      const opened = await author.client.editorNode(ref);
+      const source = nodeDocument(opened)!.source;
+      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+      return author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        `${source}${suffix}`,
+        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
+      );
+    };
+    try {
+      await admit("First watch-run admission.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("First watch-run admission."));
+
+      host.server.stop(true);
+      await host.canopy[Symbol.asyncDispose]();
+      await admit("Watch-run offline admission.\n");
+      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toInclude("Watch-run offline admission.");
+
+      host = await serveCanopy({
+        dataRoot: hostState,
+        accounts: [{ handle: "owner", token, communityWriter: true }],
+        publicOrigin: `http://127.0.0.1:${hostPort}`,
+        hostname: "127.0.0.1",
+        port: hostPort,
+      });
+      // A remote edit lands before the daemon resubmits, so the offline
+      // admission returns as a merged result rather than an exact acceptance.
+      const owner = new WireClient(host.url, token);
+      const accepted = await readAccepted(owner, tree);
+      const remoteRoot = await mkdtemp(join(sandbox, "watch-remote-"));
+      await writeFile(join(remoteRoot, "_index.md"), await readFile(join(treeA, "_index.md"), "utf8"));
+      await writeFile(join(remoteRoot, "note.md"), `${await readFile(join(treeA, "note.md"), "utf8")}Watch-run remote addition.\n`);
+      await owner.submitUpdate(tree, accepted.descriptor.tree.update, await snapshotDirectory(remoteRoot));
+
+      // No explicit synchronization: the daemon reconnects on its own.
+      await waitFor(async () => {
+        const note = await readFile(join(treeA, "note.md"), "utf8");
+        return note.includes("Watch-run offline admission.") && note.includes("Watch-run remote addition.");
+      }, 30_000);
+
+      await admit("Watch-run admission after the merge.\n");
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Watch-run admission after the merge."), 10_000);
+      expect((await author.running.service.trees.descriptors()).find((descriptor) => descriptor.id === tree)?.sync).toBe("idle");
+    } finally {
+      await author.close();
+    }
+  });
+
+  test("acknowledges an admission that returns to the accepted bytes and publishes the epoch behind it", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    try {
+      const historyBefore = host.canopy.acceptedUpdates(tree).length;
+      const opened = await author.client.editorNode(ref);
+      const source = nodeDocument(opened)!.source;
+      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+      // A whole-source admission of the accepted bytes is durable but needs no request.
+      const unchanged = await author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        source,
+        undefined,
+        "no-op-editor",
+      );
+      expect(nodeDocument(unchanged)!.source).toBe(source);
+
+      const later = await author.client.editorNode(ref);
+      if (!later.admissionBasis) throw new Error("Document omitted its admission basis after a no-op admission");
+      const suffix = "Published behind a no-op epoch.\n";
+      await author.client.admitDocumentCandidate(
+        ref,
+        later.admissionBasis,
+        later.capabilities.content!.revision,
+        `${source}${suffix}`,
+        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
+        "later-editor",
+      );
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Published behind a no-op epoch."), 10_000);
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      expect(await pendingEditorAdmissions(tree)).toEqual([]);
+    } finally {
+      await author.close();
+    }
+  });
+
   test("keeps an admitted Native candidate durable while Canopy is offline", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())

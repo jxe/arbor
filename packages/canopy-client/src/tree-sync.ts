@@ -541,6 +541,29 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     return placement;
   }
 
+  /**
+   * The admissions a persisted request names, in order, or undefined when the
+   * durable chain no longer starts with them. A generation admitted after
+   * preparation extends the chain; it is not part of this request.
+   */
+  private static chainFor(request: PreparedRequest, chain: readonly FrozenEditorAdmission[]): FrozenEditorAdmission[] | undefined {
+    if (chain.length < request.digests.length) return undefined;
+    const matches = request.digests.every((digest, index) => {
+      const admission = chain[index]!;
+      return digest === (admission.requestDigest ?? `${admission.id}:${admission.request.candidate}`);
+    });
+    return matches ? chain.slice(0, request.digests.length) : undefined;
+  }
+
+  /** Drop the in-memory machine and enter it again from durable state, then publish what remains. */
+  private reenterMachine(tree: string): void {
+    this.clearTimer(tree, "trailing");
+    this.clearTimer(tree, "max");
+    this.machines.delete(tree);
+    const client = this.pushClients.get(tree);
+    if (client) void this.publishEditorAdmissions(tree, client).catch(() => {});
+  }
+
   /** The unacknowledged chain of the earliest open editor epoch, as the machine's request identity. */
   private async editorRequest(tree: string): Promise<{ request: PreparedRequest; chain: FrozenEditorAdmission[] } | undefined> {
     const admissions = await pendingEditorAdmissions(tree);
@@ -588,6 +611,15 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       return;
     }
     const state = this.ensureMachine(tree);
+    if ("base" in state && state.base && prepared.request.candidate === state.base.root && !prepared.chain.some((admission) => admission.transmitted)) {
+      // The epoch returned to the accepted bytes: the machine issues no
+      // request for a head equal to its base, so acknowledge the chain here.
+      // The ordinary pass retires it and reports its request digests, and
+      // any later epoch behind it publishes normally.
+      await acknowledgePendingEditorAdmissions(tree, prepared.chain[0]!.id, prepared.chain.map((admission) => admission.request.candidate));
+      void this.deps.requestSync().catch(() => {});
+      return this.publishEditorAdmissions(tree, client, options);
+    }
     if (state.kind === "offline") this.dispatch(tree, { type: "transportAvailable", available: true });
     this.dispatch(tree, { type: "localHead", root: prepared.request.candidate, origin: "editor" });
     if (options.now) {
@@ -607,8 +639,16 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     if (!client) return Promise.resolve();
     const push = (async () => {
       const prepared = await this.editorRequest(tree);
-      if (!prepared || prepared.request.id !== request.id) return;
-      const { chain } = prepared;
+      const chain = prepared ? TreeSynchronizer.chainFor(request, prepared.chain) : undefined;
+      if (!chain) {
+        // The durable chain no longer starts with the persisted request (an
+        // acknowledged prefix was retired, or the epoch closed, between
+        // preparation and transmission). Returning silently would strand the
+        // machine in `prepared`; re-enter it from durable state instead, as a
+        // restart would, and publish whatever remains.
+        this.reenterMachine(tree);
+        return;
+      }
       const first = chain[0]!;
       await markEditorAdmissionsTransmitted(tree, first.id, chain.map((admission) => admission.request.candidate));
       this.dispatch(tree, { type: "submitStarted", id: request.id });

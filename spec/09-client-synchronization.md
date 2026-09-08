@@ -106,6 +106,18 @@ from the installed cursor rather than restarting placement.
     prefix exactly and appends the latest head once. This is the only
     transition that issues a longer append-only string, and it relies on
     the authority trimming the already accepted prefix.
+11. **A persisted request is transmitted as persisted.** The runner sends
+    exactly the elements the persisted request names. A generation admitted
+    after preparation is the retained successor, never a longer version of
+    the request in flight. If the durable chain no longer begins with the
+    persisted request, for example because an acknowledged prefix was retired
+    between preparation and transmission, the runner neither transmits a
+    different request nor drops the effect silently: it re-enters the machine
+    from durable state exactly as a restart would and publishes what remains.
+    A durable generation whose head equals the accepted base needs no
+    request; a runner that records per-generation acknowledgements (the
+    daemon's editor epochs) acknowledges such a generation locally so that
+    the generations behind it are not blocked.
 
 ### 2.4 Non-normative timing
 
