@@ -7,6 +7,9 @@
 > every current TypeScript and Swift path named below. Do not create a third
 > synchronization model, port Canopy's merge algorithm into a client, or
 > silently reinterpret every UI transaction as an accepted-history boundary.
+> [Reliability 006](006-progressive-replica-bootstrap.md) owns the resumable
+> initial replica bootstrap which precedes the direct Canopy machine; treat its
+> handoff as an input to this plan, not as a third synchronization model.
 > If anything in “STOP conditions” occurs, stop and report rather than
 > improvising. When complete, move this file to
 > `plans/_done/reliability/005-client-synchronization-state-machines.md`, add
@@ -37,7 +40,9 @@
 - **Depends on**: the focused native admission-debounce change present in the
   working tree at planning time
 - **Coordinates with**: Reliability 004 conflict presentation, but neither plan
-  blocks the other if they retain the same durable conflict evidence
+  blocks the other if they retain the same durable conflict evidence;
+  Reliability 006 defines the initial-placement bootstrap and must hand its
+  validated accepted root into state machine B
 - **Category**: correctness, durability, architecture, and client documentation
 - **Planned at**: commit `ccc96ec`, 2026-09-07
 
@@ -66,6 +71,14 @@ clients remain stateless transports. `docs/` presents these as the reference
 best practice for client authors; the portable Wire specification continues to
 permit plural update strings without recommending one Wire generation per UI
 gesture.
+
+Initial iOS placement is a prerequisite bootstrap submachine, not a third sync
+machine. Reliability 006 may show a verified, read-only root-page preview while
+it downloads and validates one immutable accepted snapshot. Only its atomic
+`bootstrapInstalled` handoff creates a complete `ArborReplica` and enters this
+plan's direct Canopy `current` state with `{root, update, cursor}`. Partial
+bootstrap data never enters state machine B and is never advertised as an
+offline-ready replica.
 
 A rapid sequence of 15 Option-arrow moves therefore has one normal result:
 
@@ -158,6 +171,11 @@ compaction.
   attempt, conflict, next base, and presentation; `syncActive/syncAgain` coalesce
   scheduling; `inFlight` prevents duplicate local submissions; response/watch
   races replay the exact durable request.
+- `ReplicaPlacementService.place` currently fetches and decodes the whole
+  snapshot before opening a usable replica. Reliability 006 replaces that
+  placement path with a resumable bootstrap and owns preview/progress state;
+  this plan begins only after the complete snapshot has been atomically
+  installed.
 - `ReplicaSyncCoordinator.syncImmediately` currently extends and sends a longer
   request while an older prefix is in flight. Its offline path already leaves
   many durable replica generations behind one latest head and extends an
@@ -269,6 +287,14 @@ platform's existing durable store. Shared fixtures use these semantic states:
 | `terminal` | diagnostic reason and retained durable files | A validation/programming invariant failed; automatic mutation stops. |
 
 Required transitions and invariants:
+
+0. Entry from first placement is only the Reliability 006
+   `bootstrapInstalled(root:update:cursor:)` handoff after complete snapshot
+   validation and durable replica initialization. Map it to `current`. A
+   preview, partial download, or merely fetched descriptor cannot enter this
+   machine. If Canopy advanced while the pinned snapshot downloaded, begin the
+   ordinary watch/catch-up transition from the installed cursor; do not restart
+   placement merely because a newer accepted root now exists.
 
 1. Local filesystem/replica admission becomes durable independently of network
    availability. The scheduler uses a trailing 250 ms remote-publication delay
@@ -510,6 +536,14 @@ TypeScript. The already-good offline compaction test remains and the current
 invariant test proving no concurrent successor POST until the prefix outcome is
 resolved, except in the named ambiguous-recovery transition.
 
+Consume Reliability 006's typed `bootstrapInstalled` result as the sole fresh
+placement entry into `current`. Do not absorb its descriptor fetch, root-page
+preview, partial-file checkpoint, transfer retry, or validation states into
+`DurableSyncControl`. Add an integration test in which Canopy advances after
+the bootstrap pins root A: installation enters `current(A, updateA, cursorA)`,
+then the ordinary direct machine catches up to B without discarding or
+redownloading A.
+
 **Verify**: `swift test --package-path native/Packages/ArborSync` -> all shared
 fixtures, restart/fault injection, two-peer convergence, offline compaction,
 and response/watch races pass.
@@ -627,6 +661,9 @@ commands and any demonstrated baseline-only failure when moving this plan to
   machine in their actual save paths.
 - [ ] TypeScript Arbor Sync and Swift `ReplicaSyncCoordinator` use the direct
   Canopy machine in their actual synchronization paths.
+- [ ] Swift direct synchronization accepts only Reliability 006's validated
+  `bootstrapInstalled` handoff for a fresh replica; preview and partial-transfer
+  states cannot masquerade as `current` or offline-ready.
 - [ ] Fifteen rapid Option-arrow moves produce one Local Arbor REST admission
   and normally one Canopy candidate/accepted update.
 - [ ] Every machine permits at most one ordinary request in flight and retains
@@ -689,3 +726,6 @@ Stop and report rather than improvising if:
 - Reliability 004 may add richer conflict transitions and presentation, but it
   must consume the durable `conflict` state rather than create a third save or
   synchronization coordinator.
+- Reliability 006 owns only pre-replica bootstrap. Once it atomically installs
+  a complete accepted snapshot, Reliability 005 exclusively owns catch-up,
+  local publication, conflict, retry, and steady-state synchronization.
