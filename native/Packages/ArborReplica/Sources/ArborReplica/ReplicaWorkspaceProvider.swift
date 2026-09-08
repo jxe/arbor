@@ -44,6 +44,7 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
                 reference: reference,
                 title: entry.title,
                 excerpt: entry.source.isEmpty ? nil : entry.source,
+                modifiedAt: entry.modifiedAt,
                 backlinkCount: backlinkCounts[entry.path, default: 0]
             ))
         }

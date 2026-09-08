@@ -95,7 +95,13 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
     public func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult] {
         let needle = query.localizedLowercase
         return nodesByIdentity.values
-            .filter { $0.reference.tree == tree && ($0.title.localizedLowercase.contains(needle) || source(of: $0).localizedLowercase.contains(needle)) }
+            .filter {
+                $0.reference.tree == tree && (
+                    needle.isEmpty
+                        || $0.title.localizedLowercase.contains(needle)
+                        || source(of: $0).localizedLowercase.contains(needle)
+                )
+            }
             .sorted { $0.title < $1.title }
             .map { node in
                 WorkspaceSearchResult(

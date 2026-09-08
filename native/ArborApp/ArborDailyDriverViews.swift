@@ -31,6 +31,9 @@ struct ArborWindowCommands {
     var newFolder: () -> Void
     var openLocation: () -> Void
     var showSearch: () -> Void
+    var recordAudio: (EditorCommands?) -> Void
+    var recordAudioLabel: String
+    var share: () -> Void
     var localTrees: [ArborLocalTreeMenuItem]
     var jumpToLocalTree: (String) -> Void
     var showHistory: () -> Void
@@ -47,6 +50,8 @@ struct ArborWindowCommands {
     var canCloseTab: Bool
     var hasDocument: Bool
     var hasNode: Bool
+    var canRecordAudio: Bool
+    var canShare: Bool
     var canMovePage: Bool
     var canMovePageToTrash: Bool
     var canRestorePage: Bool
@@ -144,7 +149,6 @@ struct ArborSidebarRow: View {
     }
 }
 
-#if os(macOS)
 struct ArborSidebarSearchRow: View {
     let result: WorkspaceSearchResult
     let showsBacklinkCount: Bool
@@ -165,7 +169,9 @@ struct ArborSidebarSearchRow: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(titleParts.text)
+#if os(macOS)
                         .font(.system(size: 14))
+#endif
                         .lineLimit(1)
                     if let contextPath = arborSidebarContextPath(result.reference.path) {
                         Text(contextPath)
@@ -187,7 +193,6 @@ struct ArborSidebarSearchRow: View {
         .buttonStyle(.plain)
     }
 }
-#endif
 
 func arborSidebarContextPath(_ path: String) -> String? {
     path.split(separator: "/", omittingEmptySubsequences: true).count > 1 ? path : nil

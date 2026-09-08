@@ -220,7 +220,6 @@ struct ArborAppTests {
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
     }
 
-#if os(macOS)
     @Test("Sidebar page orders sort and group searches")
     func sidebarPageOrders() throws {
         var calendar = Calendar(identifier: .gregorian)
@@ -262,8 +261,6 @@ struct ArborAppTests {
         #expect(arborSidebarContextPath("/March-Out-My-Work/arbor-demo")
             == "/March-Out-My-Work/arbor-demo")
     }
-#endif
-
     @Test("Opening a page pushes a native page-frame path")
     func openingPushesPageFrame() async {
         let model = ArborAppModel()
@@ -276,10 +273,14 @@ struct ArborAppTests {
         #expect(model.navigationRoot == .reference(home))
         #expect(model.navigationPath == [.reference(welcome)])
         #expect(!model.isLoading)
+        #expect(model.pagePresentation(for: .reference(home))?.editorLease != nil)
+        #expect(model.pagePresentation(for: .reference(welcome))?.editorLease != nil)
 
         model.setNavigationPath([])
         #expect(model.currentReference == home)
         #expect(model.navigationPath.isEmpty)
+        #expect(model.pagePresentation(for: .reference(home))?.editorLease != nil)
+        #expect(model.pagePresentation(for: .reference(welcome))?.editorLease != nil)
     }
 
     @Test("A directory becomes the sidebar browsing context")

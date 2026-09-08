@@ -1258,6 +1258,19 @@ private extension Dictionary where Key == String, Value == JSONValue {
 @MainActor
 @Observable
 final class ArborAppModel {
+    private struct PagePresentationKey: Hashable {
+        let tabID: UUID
+        let location: WorkspaceLocation
+    }
+
+    struct PagePresentation {
+        let node: WorkspaceNode
+        let children: [WorkspaceNode]
+        let editorLease: ArborEditorLease?
+        let editorHost: ArborEditorHost?
+        let backlinks: [WorkspaceSearchResult]
+    }
+
     struct TitleRenameProposal: Identifiable, Equatable {
         var reference: WorkspaceReference
         var proposedName: String
@@ -1287,6 +1300,7 @@ final class ArborAppModel {
     private(set) var isLoading = false
     private(set) var titleRenameProposal: TitleRenameProposal?
     private(set) var linkedPageTrashPrompt: LinkedPageTrashPrompt?
+    private var retainedPagePresentations: [PagePresentationKey: PagePresentation] = [:]
     private var observedWorkspaceGeneration: Int
     private var loadRequestID = 0
     private var searchRequestID = 0
@@ -1328,6 +1342,19 @@ final class ArborAppModel {
         return tabs.navigationPath
     }
 
+    func pagePresentation(for location: WorkspaceLocation) -> PagePresentation? {
+        if !isLoading, let node, node.location == location {
+            return PagePresentation(
+                node: node,
+                children: children,
+                editorLease: editorLease,
+                editorHost: editorHost,
+                backlinks: backlinks
+            )
+        }
+        return retainedPagePresentations[PagePresentationKey(tabID: selectedTabID, location: location)]
+    }
+
     func resetForWorkspace() async {
         guard observedWorkspaceGeneration != workspace.generation else {
             if node == nil { await load() }
@@ -1336,8 +1363,7 @@ final class ArborAppModel {
         observedWorkspaceGeneration = workspace.generation
         editorHost?.resolveMoveRequest(with: nil)
         editorHost?.resolveStructuralMoveRequest(with: nil)
-        editorLease = nil
-        editorHost = nil
+        await releaseAllPagePresentations()
         tabs = BrowserTabController(launchLocation: workspace.launchLocation)
         sidebarLocation = workspace.launchLocation
         tabVersion += 1
@@ -1417,55 +1443,164 @@ final class ArborAppModel {
     }
 
     func navigate(to location: WorkspaceLocation) async {
+        retainCurrentPagePresentation()
         tabs.navigate(to: location)
         tabVersion += 1
-        await load()
+        await loadOrRestoreCurrentPage()
     }
 
     func navigate(to reference: WorkspaceReference) async {
         await navigate(to: location(for: reference))
     }
 
-    func goBack() async { tabs.goBack(); tabVersion += 1; await load() }
-    func goForward() async { tabs.goForward(); tabVersion += 1; await load() }
-    func goParent() async { tabs.goParent(); tabVersion += 1; await load() }
+    func goBack() async { retainCurrentPagePresentation(); tabs.goBack(); tabVersion += 1; await loadOrRestoreCurrentPage() }
+    func goForward() async { retainCurrentPagePresentation(); tabs.goForward(); tabVersion += 1; await loadOrRestoreCurrentPage() }
+    func goParent() async { retainCurrentPagePresentation(); tabs.goParent(); tabVersion += 1; await loadOrRestoreCurrentPage() }
     func goHome() async {
         guard let home = treeHomeLocation else { return }
+        retainCurrentPagePresentation()
         tabs.goHome(to: home)
         tabVersion += 1
-        await load()
+        await loadOrRestoreCurrentPage()
     }
 
     func setNavigationPath(_ path: [WorkspaceLocation]) {
         guard path != tabs.navigationPath else { return }
+        retainCurrentPagePresentation()
         tabs.setNavigationPath(path)
         tabVersion += 1
-        Task { await load() }
+        if !restoreCurrentPagePresentation() {
+            isLoading = true
+            Task {
+                await load()
+                await pruneRetainedPagePresentations()
+            }
+        } else {
+            Task {
+                await loadBacklinks()
+                await pruneRetainedPagePresentations()
+            }
+        }
     }
 
     func newTab() async {
+        retainCurrentPagePresentation()
         tabs.newTab()
         tabVersion += 1
-        await load()
+        await loadOrRestoreCurrentPage()
     }
 
     func openInNewTab(_ location: WorkspaceLocation) async {
+        retainCurrentPagePresentation()
         tabs.newTab(at: location)
         tabVersion += 1
-        await load()
+        await loadOrRestoreCurrentPage()
     }
 
     func closeSelectedTab() async {
+        let closedTabID = selectedTabID
+        retainCurrentPagePresentation()
         tabs.closeTab(selectedTabID)
         tabVersion += 1
-        await load()
+        await releaseRetainedPagePresentations(for: closedTabID)
+        await loadOrRestoreCurrentPage()
     }
 
     func selectTab(_ id: UUID) async {
         guard id != selectedTabID else { return }
+        retainCurrentPagePresentation()
         tabs.selectTab(id)
         tabVersion += 1
-        await load()
+        await loadOrRestoreCurrentPage()
+    }
+
+    private func retainCurrentPagePresentation() {
+        guard let node else { return }
+        editorHost?.resolveMoveRequest(with: nil)
+        editorHost?.resolveStructuralMoveRequest(with: nil)
+        let key = PagePresentationKey(tabID: selectedTabID, location: node.location)
+        retainedPagePresentations[key] = PagePresentation(
+            node: node,
+            children: children,
+            editorLease: editorLease,
+            editorHost: editorHost,
+            backlinks: backlinks
+        )
+        self.node = nil
+        children = []
+        editorLease = nil
+        editorHost = nil
+        backlinks = []
+    }
+
+    private func restoreCurrentPagePresentation() -> Bool {
+        let key = PagePresentationKey(tabID: selectedTabID, location: currentLocation)
+        guard let presentation = retainedPagePresentations.removeValue(forKey: key) else {
+            return false
+        }
+        node = presentation.node
+        children = presentation.children
+        editorLease = presentation.editorLease
+        editorHost = presentation.editorHost
+        backlinks = presentation.backlinks
+        errorMessage = nil
+        isLoading = false
+        return true
+    }
+
+    private func loadOrRestoreCurrentPage() async {
+        if restoreCurrentPagePresentation() {
+            await loadBacklinks()
+        } else {
+            await load()
+        }
+        await pruneRetainedPagePresentations()
+    }
+
+    private func pruneRetainedPagePresentations() async {
+        let retainedKeys = Set(tabs.tabs.flatMap { tab in
+            (tab.back + [tab.current] + tab.forward).map {
+                PagePresentationKey(tabID: tab.id, location: $0)
+            }
+        })
+        let staleKeys = retainedPagePresentations.keys.filter { !retainedKeys.contains($0) }
+        for key in staleKeys {
+            guard let presentation = retainedPagePresentations.removeValue(forKey: key) else { continue }
+            await release(presentation)
+        }
+    }
+
+    private func releaseRetainedPagePresentations(for tabID: UUID) async {
+        let keys = retainedPagePresentations.keys.filter { $0.tabID == tabID }
+        for key in keys {
+            guard let presentation = retainedPagePresentations.removeValue(forKey: key) else { continue }
+            await release(presentation)
+        }
+    }
+
+    private func release(_ presentation: PagePresentation) async {
+        presentation.editorHost?.resolveMoveRequest(with: nil)
+        presentation.editorHost?.resolveStructuralMoveRequest(with: nil)
+        if let lease = presentation.editorLease {
+            await workspace.editorWorkspace.release(lease)
+        }
+    }
+
+    private func releaseAllPagePresentations() async {
+        if let editorLease {
+            editorHost?.resolveMoveRequest(with: nil)
+            editorHost?.resolveStructuralMoveRequest(with: nil)
+            await workspace.editorWorkspace.release(editorLease)
+        }
+        for presentation in retainedPagePresentations.values {
+            await release(presentation)
+        }
+        retainedPagePresentations.removeAll()
+        node = nil
+        children = []
+        editorLease = nil
+        editorHost = nil
+        backlinks = []
     }
 
     func search(_ query: String) async {

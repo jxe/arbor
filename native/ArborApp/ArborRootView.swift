@@ -108,7 +108,6 @@ enum ArborSidebarPageOrder: String, CaseIterable, Identifiable {
     }
 }
 
-#if os(macOS)
 struct ArborSidebarPageGroup: Identifiable, Equatable {
     var title: String
     var results: [WorkspaceSearchResult]
@@ -185,6 +184,7 @@ enum ArborSidebarPages {
     }
 }
 
+#if os(macOS)
 private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     let width: CGFloat
     let isVisible: Bool
@@ -421,10 +421,10 @@ struct ArborRootView: View {
     @State private var documentConflictExpanded = false
     @State private var voiceLaunchReady = false
     @State private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
-#if os(macOS)
     @State private var sidebarSearchText = ""
-    @State private var sidebarTitlebarAccessoryInstalled = false
     @FocusState private var sidebarSearchFocused: Bool
+#if os(macOS)
+    @State private var sidebarTitlebarAccessoryInstalled = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var managementPresented = false
     @State private var managementTab = MacManagementTab.status
@@ -432,8 +432,13 @@ struct ArborRootView: View {
     @State private var sheetAfterManagementDismiss: ArborPresentedSheet?
 #endif
 #if os(iOS)
-    @State private var sidebarPresented = false
+    @State private var sidebarRevealProgress: CGFloat = 0
+    @State private var sidebarDrawerWidth: CGFloat = 360
     @State private var placementPresented = false
+    @State private var treeAccountSwitcherPresented = false
+    @State private var topOverscrollProgress: CGFloat = 0
+    @State private var topOverscrollArmed = false
+    @State private var sidebarDismissDragSuppressesTap = false
 #endif
     @Environment(\.scenePhase) private var scenePhase
 
@@ -556,6 +561,20 @@ struct ArborRootView: View {
         .sheet(isPresented: $placementPresented) {
             IOSPlaceTreePanel(workspace: workspace)
         }
+        .sheet(isPresented: $treeAccountSwitcherPresented) {
+            IOSTreeAccountSwitcher(
+                workspace: workspace,
+                currentTreeID: model.currentReference.tree.rawValue,
+                openAccounts: {
+                    treeAccountSwitcherPresented = false
+                    accountPresented = true
+                },
+                placeTree: {
+                    treeAccountSwitcherPresented = false
+                    placementPresented = true
+                }
+            )
+        }
 #else
         .sheet(isPresented: $managementPresented, onDismiss: finishManagementDismissal) {
             macManagementPanel
@@ -620,16 +639,17 @@ struct ArborRootView: View {
                 }
         }
         .id(model.selectedTabID)
-        .sheet(isPresented: $sidebarPresented) {
-            NavigationStack {
-                sidebarContent
-                    .navigationTitle("Pages")
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { sidebarPresented = false }
-                        }
-                    }
+        .overlay(alignment: .leading) {
+            if model.navigationPath.isEmpty {
+                Color.clear
+                    .frame(width: 22)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(.rect)
+                    .gesture(openSidebarEdgeGesture)
             }
+        }
+        .overlay {
+            iosSidebarDrawer
         }
 #else
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -648,6 +668,96 @@ struct ArborRootView: View {
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
 #endif
     }
+
+#if os(iOS)
+    private var iosSidebarDrawer: some View {
+        GeometryReader { geometry in
+            let drawerWidth = min(430, max(280, geometry.size.width - 28))
+            ZStack(alignment: .leading) {
+                Color.black.opacity(0.22 * sidebarRevealProgress)
+                    .ignoresSafeArea()
+                    .contentShape(.rect)
+                    .onTapGesture { closeIOSSidebar() }
+
+                VStack(spacing: 0) {
+                    sidebarContent
+                }
+                .frame(width: drawerWidth)
+                .frame(maxHeight: .infinity)
+                .background {
+                    Rectangle()
+                        .fill(.regularMaterial)
+                        .ignoresSafeArea()
+                }
+                .overlay(alignment: .trailing) { Divider() }
+                .offset(x: -drawerWidth * (1 - sidebarRevealProgress))
+                .simultaneousGesture(closeSidebarDragGesture)
+            }
+            .allowsHitTesting(sidebarRevealProgress > 0)
+            .onAppear { sidebarDrawerWidth = drawerWidth }
+            .onChange(of: drawerWidth) { _, width in sidebarDrawerWidth = width }
+        }
+    }
+
+    private var openSidebarEdgeGesture: some Gesture {
+        DragGesture(minimumDistance: 18, coordinateSpace: .global)
+            .onChanged { value in
+                guard value.startLocation.x <= 22,
+                      value.translation.width > 0,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) {
+                    sidebarRevealProgress = min(1, value.translation.width / sidebarDrawerWidth)
+                }
+            }
+            .onEnded { value in
+                guard value.startLocation.x <= 22,
+                      abs(value.translation.width) > abs(value.translation.height) else {
+                    return
+                }
+                let shouldOpen = value.translation.width > 96
+                    || value.predictedEndTranslation.width > 170
+                sidebarSearchFocused = false
+                withAnimation(.snappy(duration: 0.28)) {
+                    sidebarRevealProgress = shouldOpen ? 1 : 0
+                }
+            }
+    }
+
+    private var closeSidebarDragGesture: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                guard value.translation.width < 0,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                sidebarDismissDragSuppressesTap = true
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) {
+                    sidebarRevealProgress = max(0, 1 + value.translation.width / sidebarDrawerWidth)
+                }
+            }
+            .onEnded { value in
+                let shouldClose = value.translation.width < -96
+                    || value.predictedEndTranslation.width < -170
+                sidebarSearchFocused = false
+                withAnimation(.snappy(duration: 0.28)) {
+                    sidebarRevealProgress = shouldClose ? 0 : 1
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(180))
+                    sidebarDismissDragSuppressesTap = false
+                }
+            }
+    }
+
+    private func closeIOSSidebar() {
+        sidebarSearchFocused = false
+        withAnimation(.snappy(duration: 0.28)) {
+            sidebarRevealProgress = 0
+        }
+    }
+#endif
 
     private var sidebarContent: some View {
 #if os(macOS)
@@ -670,26 +780,15 @@ struct ArborRootView: View {
             }
         }
 #else
-        sidebarList
+        VStack(spacing: 0) {
+            sidebarPagesHeader
+            sidebarList
+        }
 #endif
     }
 
     private var sidebarList: some View {
         List {
-#if os(iOS)
-            localTreesSection
-            Button {
-                searchPresented = true
-            } label: {
-                HStack {
-                    Label("Search", systemImage: "magnifyingglass")
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-#endif
-
-#if os(macOS)
             if sidebarPageOrder == .recent {
                 recentSidebarRows
             } else if sidebarPageOrder == .linkCount {
@@ -703,27 +802,12 @@ struct ArborRootView: View {
                     }
                 }
             }
-#else
-            Section {
-                sidebarChildRows
-            }
-#endif
-#if os(iOS)
-            Section {
-                Button("Place Another Tree", systemImage: "folder.badge.plus") {
-                    sidebarPresented = false
-                    placementPresented = true
-                }
-                Button("Accounts", systemImage: "person.crop.circle") {
-                    sidebarPresented = false
-                    accountPresented = true
-                }
-            }
-#endif
         }
         .listStyle(.sidebar)
+#if os(iOS)
+        .contentMargins(.top, 0, for: .scrollContent)
+#endif
         .overlay {
-#if os(macOS)
             if sidebarPageOrder == .alphabetical
                 && sidebarSearchText.isEmpty
                 && model.children.isEmpty {
@@ -734,16 +818,9 @@ struct ArborRootView: View {
                 ContentUnavailableView.search(text: sidebarSearchText)
                     .allowsHitTesting(false)
             }
-#else
-            if model.children.isEmpty {
-                ContentUnavailableView("No children", systemImage: "tree")
-                    .allowsHitTesting(false)
-            }
-#endif
         }
     }
 
-#if os(macOS)
     private var sidebarPagesHeader: some View {
         HStack(spacing: 6) {
             HStack(spacing: 6) {
@@ -765,23 +842,81 @@ struct ArborRootView: View {
                 }
             }
             .padding(.horizontal, 8)
+#if os(macOS)
             .frame(height: 28)
-            .background(.quaternary.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+#else
+            .frame(height: 40)
+#endif
+            .background {
+                RoundedRectangle(cornerRadius: sidebarSearchCornerRadius, style: .continuous)
+                    .fill(Color.primary.opacity(sidebarSearchFocused ? 0.065 : 0.035))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: sidebarSearchCornerRadius, style: .continuous)
+                            .stroke(
+                                Color.primary.opacity(sidebarSearchFocused ? 0.18 : 0.075),
+                                lineWidth: 0.75
+                            )
+                    }
+            }
 
+#if os(macOS)
             MacPageOrderPicker(selection: $sidebarPageOrder)
                 .frame(width: 32, height: 32)
                 .mutedMacToolbarHover()
                 .help("Page order: \(sidebarPageOrder.label)")
+#else
+            Menu {
+                ForEach(ArborSidebarPageOrder.allCases) { order in
+                    Button {
+                        selectSidebarPageOrder(order)
+                    } label: {
+                        Label(order.label, systemImage: order.symbol)
+                    }
+                }
+            } label: {
+                Image(systemName: sidebarPageOrder.symbol)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .frame(width: 48, height: 48)
+            .contentShape(.circle)
+            .tint(.gray)
+            .accessibilityLabel("Page order")
+            .accessibilityValue(sidebarPageOrder.label)
+
+#endif
         }
-        .padding(.horizontal, 8)
+#if os(macOS)
+        .padding(.leading, 8)
+        .padding(.trailing, 8)
         .frame(height: 52)
+#else
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+#endif
         .onChange(of: sidebarSearchText) { _, query in
             Task { await model.search(query) }
         }
-        .onChange(of: sidebarPageOrder) { _, order in
-            guard order != .alphabetical || !sidebarSearchText.isEmpty else { return }
-            Task { await model.search(sidebarSearchText) }
+        .task(id: sidebarPageOrder) {
+            guard sidebarPageOrder != .alphabetical || !sidebarSearchText.isEmpty else { return }
+            await model.search(sidebarSearchText)
         }
+    }
+
+    private var sidebarSearchCornerRadius: CGFloat {
+#if os(macOS)
+        7
+#else
+        10
+#endif
+    }
+
+    private func selectSidebarPageOrder(_ order: ArborSidebarPageOrder) {
+        sidebarPageOrder = order
+        guard order != .alphabetical || !sidebarSearchText.isEmpty else { return }
+        Task { await model.search(sidebarSearchText) }
     }
 
     @ViewBuilder
@@ -827,7 +962,6 @@ struct ArborRootView: View {
             openFromSidebar(.reference(result.reference))
         }
     }
-#endif
 
     @ViewBuilder
     private var sidebarChildRows: some View {
@@ -876,31 +1010,6 @@ struct ArborRootView: View {
     }
 #endif
 
-#if os(iOS)
-    @ViewBuilder
-    private var localTreesSection: some View {
-        if !workspace.nativePlacements.isEmpty {
-            Section("On This iPhone") {
-                ForEach(workspace.nativePlacements, id: \.tree.id) { placement in
-                    Button {
-                        sidebarPresented = false
-                        Task { await workspace.openNativePlacement(placement) }
-                    } label: {
-                        Label(
-                            placement.tree.canonicalPath ?? placement.tree.id,
-                            systemImage: placement.tree.id == model.currentReference.tree.rawValue
-                                ? "folder.fill"
-                                : "folder"
-                        )
-                        .lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-#endif
-
     private var recordingErrorBinding: Binding<Bool> {
         Binding(
             get: { recordingSession.errorMessage != nil },
@@ -938,7 +1047,8 @@ struct ArborRootView: View {
 
     private func openFromSidebar(_ location: WorkspaceLocation) {
 #if os(iOS)
-        sidebarPresented = false
+        guard !sidebarDismissDragSuppressesTap else { return }
+        closeIOSSidebar()
 #endif
         Task { await model.navigate(to: location) }
     }
@@ -996,6 +1106,11 @@ struct ArborRootView: View {
             newFolder: { presentedSheet = .createDirectory },
             openLocation: { presentedSheet = .openLocation },
             showSearch: { searchPresented = true },
+            recordAudio: { editorCommands in
+                Task { await toggleVoiceRecording(editorCommands: editorCommands) }
+            },
+            recordAudioLabel: voiceRecordingCommandLabel,
+            share: { sharePresented = true },
             localTrees: localTreeMenuItems,
             jumpToLocalTree: { path in
                 Task { await model.navigate(to: .local(path)) }
@@ -1016,6 +1131,10 @@ struct ArborRootView: View {
             canCloseTab: model.tabItems.count > 1,
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
+            canRecordAudio: recordingSession.state != .idle || (
+                model.node?.isWritable == true && model.binding != nil
+            ),
+            canShare: model.node != nil,
             canMovePage: model.node?.isWritable == true
                 && model.binding != nil
                 && model.currentReference.path != "/"
@@ -1026,6 +1145,33 @@ struct ArborRootView: View {
             canRestorePage: model.node?.isWritable == true
                 && model.currentReference.path.hasPrefix("/Trash/")
         )
+    }
+
+    private var voiceRecordingCommandLabel: String {
+        switch recordingSession.state {
+        case .idle: recordingSession.isTransitioning ? "Starting Recording" : "Record Audio"
+        case .recording: "Stop Recording"
+        case .transcribing: "Cancel Transcription"
+        }
+    }
+
+    private func toggleVoiceRecording(editorCommands: EditorCommands?) async {
+        switch recordingSession.state {
+        case .idle:
+            let target = editorCommands?.activeEditingBlock()
+            var inlineDelivery: VoiceTranscriptDelivery<String>?
+            if let target {
+                inlineDelivery = { transcript, destination in
+                    if editorCommands?.insertText(transcript, target) == true { return }
+                    try await workspace.deliverVoiceTranscript(transcript, to: destination)
+                }
+            }
+            await model.startVoiceRecording(recordingSession, delivery: inlineDelivery)
+        case .recording:
+            await recordingSession.stopAndDeliver()
+        case .transcribing:
+            recordingSession.cancelTranscription()
+        }
     }
 
     private var localTreeMenuItems: [ArborLocalTreeMenuItem] {
@@ -1221,10 +1367,23 @@ struct ArborRootView: View {
         }
         .overlay(alignment: .top) {
             if location == model.currentLocation {
-                attentionBanner
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: 560)
-                    .padding(.top, 8)
+                ZStack(alignment: .top) {
+                    attentionBanner
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: 560)
+                        .padding(.top, 8)
+#if os(iOS)
+                    if topOverscrollProgress > 0.02 {
+                        IOSTopOverscrollIndicator(
+                            progress: topOverscrollProgress,
+                            isArmed: topOverscrollArmed
+                        )
+                        .offset(y: 4 + elasticOverscrollIndicatorTravel)
+                        .opacity(min(1, topOverscrollProgress * 2.6))
+                        .transition(.scale(scale: 0.85).combined(with: .opacity))
+                    }
+#endif
+                }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
@@ -1259,36 +1418,33 @@ struct ArborRootView: View {
             }
             .sharedBackgroundVisibility(.hidden)
 #endif
-#if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                ArborPagesButton { sidebarPresented = true }
-            }
-#endif
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
                 ArborEditorUndoButtons()
-                if location == model.currentLocation,
-                   model.node?.isWritable == true,
-                   model.binding != nil {
+                if let presentation = model.pagePresentation(for: location),
+                   presentation.node.isWritable,
+                   presentation.editorLease != nil {
                     ArborVoiceRecordingToolbarButton(
                         session: recordingSession,
                         model: model,
                         workspace: workspace
                     )
+                    .disabled(location != model.currentLocation)
                 }
                 Button("Share", systemImage: "square.and.arrow.up") {
                     sharePresented = true
                 }
 #else
                 HStack(spacing: 4) {
-                    if location == model.currentLocation,
-                       model.node?.isWritable == true,
-                       model.binding != nil {
+                    if let presentation = model.pagePresentation(for: location),
+                       presentation.node.isWritable,
+                       presentation.editorLease != nil {
                         ArborVoiceRecordingToolbarButton(
                             session: recordingSession,
                             model: model,
                             workspace: workspace
                         )
+                        .disabled(location != model.currentLocation)
                         .frame(width: 32, height: 32)
                         .mutedMacToolbarHover()
                     }
@@ -1341,15 +1497,46 @@ struct ArborRootView: View {
     }
 #endif
 
+    private var editorTopOverscrollAction: EditorTopOverscrollAction? {
+#if os(iOS)
+        EditorTopOverscrollAction(
+            threshold: 112,
+            onProgress: { progress, isArmed in
+                if isArmed && !topOverscrollArmed {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+                topOverscrollProgress = progress
+                topOverscrollArmed = isArmed
+            },
+            onRelease: { committed in
+                topOverscrollProgress = 0
+                topOverscrollArmed = false
+                if committed {
+                    treeAccountSwitcherPresented = true
+                }
+            }
+        )
+#else
+        nil
+#endif
+    }
+
+#if os(iOS)
+    private var elasticOverscrollIndicatorTravel: CGFloat {
+        CGFloat(34 * (1 - exp(-2.4 * Double(topOverscrollProgress))))
+    }
+#endif
+
     @ViewBuilder
     private func pageFrameContent(for location: WorkspaceLocation) -> some View {
-        if location != model.currentLocation || model.isLoading {
-            ProgressView()
-        } else if let node = model.node {
+        if let presentation = model.pagePresentation(for: location) {
+            let node = presentation.node
             if node.surface.supportsDocumentSession, node.isWritable {
-                if let lease = model.editorLease, let host = model.editorHost {
+                if let lease = presentation.editorLease, let host = presentation.editorHost {
                     VStack(spacing: 0) {
-                        if documentConflictExpanded, let conflict = lease.binding.conflict {
+                        if location == model.currentLocation,
+                           documentConflictExpanded,
+                           let conflict = lease.binding.conflict {
                             ArborDocumentConflictView(
                                 conflict: conflict,
                                 resolve: { source in
@@ -1364,13 +1551,14 @@ struct ArborRootView: View {
                             binding: lease.binding,
                             host: host,
                             configuration: ArborStyle.editorConfiguration,
-                            pinchDictation: pinchDictation
+                            pinchDictation: pinchDictation,
+                            topOverscrollAction: editorTopOverscrollAction
                         ) {
                             ArborDocumentFooter(
                                 provider: workspace.providerDetail,
                                 sync: workspace.syncPresentation,
                                 binding: lease.binding,
-                                backlinks: model.backlinks,
+                                backlinks: presentation.backlinks,
                                 open: { destination in Task { await model.navigate(to: destination) } },
                                 showStatus: showStatusPanel
                             )
@@ -1382,7 +1570,7 @@ struct ArborRootView: View {
             } else {
                 WorkspaceSurfaceView(node: node)
             }
-        } else if let message = model.errorMessage {
+        } else if location == model.currentLocation, let message = model.errorMessage {
             ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else {
             ProgressView()
@@ -1543,16 +1731,6 @@ struct ArborRootView: View {
 }
 
 #if os(iOS)
-private struct ArborPagesButton: View {
-    let openPages: () -> Void
-
-    var body: some View {
-        Button("Pages", systemImage: "line.3.horizontal") {
-            openPages()
-        }
-    }
-}
-
 private struct ArborEditorUndoButtons: View {
     @FocusedValue(\.documentUndoController) private var undoController
     @State private var undoRevision = 0
@@ -2687,6 +2865,178 @@ struct ArborIOSLaunchView: View {
 #endif
 
 #if os(iOS)
+private struct IOSTopOverscrollIndicator: View {
+    let progress: CGFloat
+    let isArmed: Bool
+
+    var body: some View {
+        HStack(spacing: 9) {
+            ZStack {
+                Circle()
+                    .stroke(.secondary.opacity(0.22), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: min(1, progress))
+                    .stroke(isArmed ? Color.accentColor : .secondary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: isArmed ? "checkmark" : "arrow.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isArmed ? Color.accentColor : .secondary)
+            }
+            .frame(width: 24, height: 24)
+
+            Text(isArmed ? "Release for Trees & Accounts" : "Pull for Trees & Accounts")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(isArmed ? .primary : .secondary)
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct IOSTreeAccountGroup: Identifiable {
+    let account: NativeCanopyAccount?
+    let placements: [NativePlacementRecord]
+    let fallbackID: String
+
+    var id: String { account?.id ?? fallbackID }
+    var title: String { account?.arborDisplayName ?? "Other Trees" }
+    var detail: String? { account?.arborDisplayDetail }
+}
+
+private struct IOSTreeAccountSwitcher: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: ArborWorkspaceState
+    let currentTreeID: String
+    let openAccounts: @MainActor () -> Void
+    let placeTree: @MainActor () -> Void
+    @State private var accounts: [NativeCanopyAccount] = []
+    @State private var message: String?
+
+    private var groups: [IOSTreeAccountGroup] {
+        var output = accounts.map { account in
+            IOSTreeAccountGroup(
+                account: account,
+                placements: sortedPlacements.filter { $0.configurationTree == account.configurationTree },
+                fallbackID: account.configurationTree
+            )
+        }
+        let knownIDs = Set(accounts.map(\.configurationTree))
+        let unmatched = sortedPlacements.filter { placement in
+            guard let configurationTree = placement.configurationTree else { return true }
+            return !knownIDs.contains(configurationTree)
+        }
+        if !unmatched.isEmpty {
+            output.append(IOSTreeAccountGroup(
+                account: nil,
+                placements: unmatched,
+                fallbackID: "unmatched"
+            ))
+        }
+        return output.filter { !$0.placements.isEmpty }
+    }
+
+    private var sortedPlacements: [NativePlacementRecord] {
+        workspace.nativePlacements.sorted {
+            ($0.tree.canonicalPath ?? $0.tree.id).localizedStandardCompare(
+                $1.tree.canonicalPath ?? $1.tree.id
+            ) == .orderedAscending
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(groups) { group in
+                    Section {
+                        ForEach(group.placements, id: \.tree.id) { placement in
+                            Button {
+                                dismiss()
+                                Task { await workspace.openNativePlacement(placement) }
+                            } label: {
+                                HStack {
+                                    Label(
+                                        placement.tree.canonicalPath ?? placement.tree.id,
+                                        systemImage: placement.tree.id == currentTreeID ? "folder.fill" : "folder"
+                                    )
+                                    .lineLimit(1)
+                                    Spacer()
+                                    if placement.tree.id == currentTreeID {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.title)
+                            if let detail = group.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .textCase(nil)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Button("Place Another Tree", systemImage: "folder.badge.plus") {
+                        dismissThen(placeTree)
+                    }
+                    Button("Accounts", systemImage: "person.crop.circle") {
+                        dismissThen(openAccounts)
+                    }
+                }
+
+                if groups.isEmpty, message == nil {
+                    Section {
+                        ContentUnavailableView(
+                            "No Trees on This iPhone",
+                            systemImage: "tree",
+                            description: Text("Place a tree to make it available here.")
+                        )
+                    }
+                }
+                if let message {
+                    Section { Text(message).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Trees & Accounts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .task { await loadAccounts() }
+    }
+
+    private func loadAccounts() async {
+        do {
+            accounts = try await KeychainDeviceCredentialStore().accounts()
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func dismissThen(_ action: @escaping @MainActor () -> Void) {
+        dismiss()
+        Task { @MainActor in
+            await Task.yield()
+            action()
+        }
+    }
+}
+
 private struct IOSPlaceTreePanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: ArborWorkspaceState

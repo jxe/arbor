@@ -142,6 +142,15 @@ private struct ArborNavigationCommands: Commands {
                 .disabled(commands?.hasNode != true)
 #if os(macOS)
             Divider()
+            Button(commands?.recordAudioLabel ?? "Record Audio") {
+                commands?.recordAudio(editorCommands)
+            }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+            .disabled(commands?.canRecordAudio != true)
+            Button("Share…") { commands?.share() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(commands?.canShare != true)
+            Divider()
             ArborEditorCommandButton(
                 title: "Fold All Headings",
                 key: .leftArrow,

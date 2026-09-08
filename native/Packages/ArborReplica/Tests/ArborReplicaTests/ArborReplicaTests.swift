@@ -166,6 +166,11 @@ struct ReplicaProviderTests {
             )))
             let linkedSearch = try await provider.search("durable edit", in: tree)
             #expect(linkedSearch.first { $0.reference.stableKey == pageID }?.backlinkCount == 1)
+            #expect(linkedSearch.first { $0.reference.stableKey == pageID }?.modifiedAt
+                == Date(timeIntervalSince1970: 1_800_000_000))
+            #expect(try await provider.search("", in: tree).contains {
+                $0.reference.stableKey == pageID
+            })
             #expect(try await provider.backlinks(to: restored.reference).contains { $0.reference == linker.reference })
 
             await #expect(throws: WorkspaceProviderError.invalidAction("Canopy history is not available yet")) {

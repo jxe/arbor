@@ -200,7 +200,8 @@ public actor ArborReplica {
         try transact(
             mutation: mutation,
             pageKey: "_system",
-            accepted: (replacement.root, replacement.update, replacement.cursor)
+            accepted: (replacement.root, replacement.update, replacement.cursor),
+            recordsModificationDates: mutation != "initialize-from-system"
         ) { next in
             next = replacementState
         }
@@ -299,7 +300,9 @@ public actor ArborReplica {
         if index.generation != control.generation { try rebuildIndex() }
         let needle = query.localizedLowercase
         return index.entries.filter {
-            $0.title.localizedLowercase.contains(needle) || $0.source.localizedLowercase.contains(needle)
+            needle.isEmpty
+                || $0.title.localizedLowercase.contains(needle)
+                || $0.source.localizedLowercase.contains(needle)
         }
     }
 
@@ -629,18 +632,23 @@ public actor ArborReplica {
         mutation: String,
         pageKey: String,
         accepted: (root: String, update: String, cursor: String?)? = nil,
+        recordsModificationDates: Bool = true,
         change: (inout ReplicaState) throws -> Void
     ) throws {
         try requireOpen()
         var next = state
         try change(&next)
+        let changedAt = clock()
+        if recordsModificationDates {
+            applyModificationDates(from: state, to: &next, changedAt: changedAt)
+        }
         let generation = control.generation + 1
         let intent = ReplicaMutationIntent(
             id: UUID().uuidString.lowercased(),
             pageKey: pageKey,
             generation: generation,
             mutation: mutation,
-            changedAt: clock(),
+            changedAt: changedAt,
             state: next,
             acceptedRoot: accepted?.root,
             acceptedUpdate: accepted?.update,
@@ -654,6 +662,35 @@ public actor ArborReplica {
         } catch {
             terminal = true
             throw error
+        }
+    }
+
+    private func applyModificationDates(
+        from previous: ReplicaState,
+        to next: inout ReplicaState,
+        changedAt: Date
+    ) {
+        let previousByPageID = Dictionary(
+            uniqueKeysWithValues: previous.nodes.compactMap { node in
+                node.pageID.map { ($0, node) }
+            }
+        )
+        let previousByPath = Dictionary(uniqueKeysWithValues: previous.nodes.map { ($0.path, $0) })
+        for index in next.nodes.indices {
+            let candidate = next.nodes[index]
+            let old = candidate.pageID.flatMap { previousByPageID[$0] }
+                ?? previousByPath[candidate.path]
+            guard let old else {
+                next.nodes[index].modifiedAt = changedAt
+                continue
+            }
+            var oldContent = old
+            var candidateContent = candidate
+            oldContent.modifiedAt = nil
+            candidateContent.modifiedAt = nil
+            next.nodes[index].modifiedAt = oldContent == candidateContent
+                ? old.modifiedAt
+                : changedAt
         }
     }
 
@@ -750,7 +787,8 @@ public actor ArborReplica {
                     pageID: node.pageID,
                     title: ReplicaSemantics.title(for: node),
                     source: source,
-                    links: ReplicaSemantics.linkTargets(in: source, relativeTo: ReplicaSemantics.linkBase(for: node))
+                    links: ReplicaSemantics.linkTargets(in: source, relativeTo: ReplicaSemantics.linkBase(for: node)),
+                    modifiedAt: node.modifiedAt
                 )
             }.sorted { ReplicaSemantics.compareUTF8($0.path, $1.path) }
         )

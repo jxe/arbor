@@ -6,6 +6,7 @@ public struct ArborEditorSurface<Footer: View>: View {
     public let host: ArborEditorHost
     public let configuration: EditorConfiguration
     public let pinchDictation: EditorPinchDictation?
+    public let topOverscrollAction: EditorTopOverscrollAction?
     private let footer: Footer
 
     public init(
@@ -13,12 +14,14 @@ public struct ArborEditorSurface<Footer: View>: View {
         host: ArborEditorHost,
         configuration: EditorConfiguration = EditorConfiguration(),
         pinchDictation: EditorPinchDictation? = nil,
+        topOverscrollAction: EditorTopOverscrollAction? = nil,
         @ViewBuilder footer: () -> Footer
     ) {
         self.binding = binding
         self.host = host
         self.configuration = configuration
         self.pinchDictation = pinchDictation
+        self.topOverscrollAction = topOverscrollAction
         self.footer = footer()
     }
 
@@ -37,7 +40,8 @@ public struct ArborEditorSurface<Footer: View>: View {
             state: binding.editorState,
             host: host,
             configuration: configuration,
-            pinchDictation: pinchDictation
+            pinchDictation: pinchDictation,
+            topOverscrollAction: topOverscrollAction
         ) {
             footer
         }
@@ -49,13 +53,15 @@ public extension ArborEditorSurface where Footer == EmptyView {
         binding: ArborDocumentBinding,
         host: ArborEditorHost,
         configuration: EditorConfiguration = EditorConfiguration(),
-        pinchDictation: EditorPinchDictation? = nil
+        pinchDictation: EditorPinchDictation? = nil,
+        topOverscrollAction: EditorTopOverscrollAction? = nil
     ) {
         self.init(
             binding: binding,
             host: host,
             configuration: configuration,
-            pinchDictation: pinchDictation
+            pinchDictation: pinchDictation,
+            topOverscrollAction: topOverscrollAction
         ) { EmptyView() }
     }
 }

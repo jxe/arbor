@@ -207,6 +207,9 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
     var directoryBodyPlacement: ReplicaDirectoryBodyPlacement?
     // Not logical content; retained only so a shadowed sibling round-trips exactly.
     var shadowedSiblingMarkdownSource: String?
+    /// Local observation time for recency sorting. This is replica metadata,
+    /// deliberately omitted from ArborWire object encoding.
+    var modifiedAt: Date?
 
     init(
         path: String,
@@ -219,7 +222,8 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         boundaryTree: String? = nil,
         childrenSource: ReplicaCollectionFileDescriptor? = nil,
         directoryBodyPlacement: ReplicaDirectoryBodyPlacement? = nil,
-        shadowedSiblingMarkdownSource: String? = nil
+        shadowedSiblingMarkdownSource: String? = nil,
+        modifiedAt: Date? = nil
     ) {
         self.path = path
         self.pageID = pageID
@@ -232,6 +236,7 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         self.childrenSource = childrenSource
         self.directoryBodyPlacement = directoryBodyPlacement
         self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
+        self.modifiedAt = modifiedAt
     }
 }
 
@@ -300,6 +305,7 @@ struct ReplicaSearchIndex: Codable, Equatable, Sendable {
         var title: String
         var source: String
         var links: [ResolvedNodeTarget]
+        var modifiedAt: Date?
     }
 
     var generation: Int
