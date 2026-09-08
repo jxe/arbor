@@ -611,6 +611,11 @@ export class ArborSyncDaemon implements AsyncDisposable {
     });
   }
 
+  /** The direct Canopy synchronization machine state for one placed tree. */
+  treeSyncStateFor(tree: string) {
+    return this.treeSync.syncStateFor(tree);
+  }
+
   /** Submit a stale editor generation from its accepted Canopy base without first overwriting current disk state. */
   async admitDocumentCandidate(input: {
     ref: NodeRef;
@@ -647,10 +652,12 @@ export class ArborSyncDaemon implements AsyncDisposable {
         },
       });
     }
+    // The durable generation is published by the direct synchronization
+    // machine after its trailing delay; the pass that materializes the
+    // accepted result runs when the request resolves.
     void this.accountClient(placement)
-      .then((client) => this.treeSync.pushEditorAdmissions(scope.workspace.tree, client))
+      .then((client) => this.treeSync.publishEditorAdmissions(scope.workspace.tree, client))
       .catch(() => {});
-    void this.syncAll();
     const current = await this.withWorkspaceIO(scope.workspace, () => scope.workspace.snapshot(scope.ref));
     if (!current.content || !current.capabilities.content) throw new Error("Document admission target no longer has content");
     return {
@@ -1177,7 +1184,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
               continue;
             }
             this.treeSync.ensureWatch(placement);
-            await this.treeSync.updateWorkspace(workspace, placement, client, remoteTrees);
+            await this.treeSync.updateWorkspace(workspace, placement, client, remoteTrees, { publishNow: throwErrors });
           } catch (error) {
             this.trees.setSyncState(placement.tree, error instanceof TypeError ? "offline" : "error");
             if (throwErrors) throw error;

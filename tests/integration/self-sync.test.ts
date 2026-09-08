@@ -390,7 +390,7 @@ describe("private self-sync", () => {
     await author.close();
   });
 
-  test("posts a longer editor update string while its prior prefix is in flight", async () => {
+  test("retains a generation admitted during an in-flight request as one successor, never a concurrent longer prefix", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -401,6 +401,8 @@ describe("private self-sync", () => {
 
     const historyBefore = host.canopy.acceptedUpdates(tree).length;
     const updateBodies: any[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
     const systemFetch = globalThis.fetch;
     let releaseFirst!: () => void;
     const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
@@ -411,10 +413,17 @@ describe("private self-sync", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
         updateBodies.push(JSON.parse(init.body));
-        if (blockNextUpdate) {
-          blockNextUpdate = false;
-          observeFirst();
-          await firstReleased;
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        try {
+          if (blockNextUpdate) {
+            blockNextUpdate = false;
+            observeFirst();
+            await firstReleased;
+          }
+          return await systemFetch(input, init);
+        } finally {
+          inFlight -= 1;
         }
       }
       return systemFetch(input, init);
@@ -430,6 +439,9 @@ describe("private self-sync", () => {
         firstSource,
         [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nFirst admitted generation.\n" }],
       );
+      expect(first.admissionRequestDigest).toStartWith("sha256:");
+      // The admission is durable before any network request; publication follows the trailing delay.
+      expect(updateBodies).toHaveLength(0);
       await firstObserved;
       if (!first.admissionBasis) throw new Error("Admitted document omitted its next admission basis");
       const second = await author.client.admitDocumentCandidate(
@@ -439,7 +451,11 @@ describe("private self-sync", () => {
         secondSource,
         [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second admitted generation.\n" }],
       );
-      await waitFor(async () => updateBodies.length >= 2);
+      expect(second.admissionRequestDigest).toStartWith("sha256:");
+      await Bun.sleep(400);
+      // While the first request is in flight the second generation is a retained successor.
+      expect(updateBodies).toHaveLength(1);
+      expect(author.running.service.treeSyncStateFor(tree).kind).toBe("submitting-pending");
       releaseFirst();
       await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
         && (await author.running.service.trees.descriptors())
@@ -447,15 +463,15 @@ describe("private self-sync", () => {
 
       const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
       expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
+      expect(maxInFlight).toBe(1);
       expect(updateBodies).toHaveLength(2);
       expect(updateBodies[0].updates).toHaveLength(1);
-      expect(updateBodies[1].updates).toHaveLength(2);
+      // The successor extends the immutable transmitted prefix exactly; Canopy trims it.
       expect(updateBodies[1].base).toBe(updateBodies[0].base);
       expect(updateBodies[1].updates.slice(0, 1)).toEqual(updateBodies[0].updates);
+      expect(updateBodies[1].updates).toHaveLength(2);
       expect(accepted[1]!.previousRoot).toBe(accepted[0]!.root);
       expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
-      expect(first.admissionRequestDigest).toStartWith("sha256:");
-      expect(second.admissionRequestDigest).toStartWith("sha256:");
       const materialized = await author.client.node(ref);
       expect(materialized.acceptedRequestDigests).toContain(first.admissionRequestDigest!);
       expect(materialized.acceptedRequestDigests).toContain(second.admissionRequestDigest!);
@@ -481,7 +497,78 @@ describe("private self-sync", () => {
       globalThis.fetch = systemFetch;
       await author.close();
     }
-  });
+  }, 10_000);
+
+  test("a burst of admissions before the publication delay becomes one request with one element", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const opened = await author.client.editorNode(ref);
+    const openedSource = nodeDocument(opened)!.source;
+    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const updateBodies: any[] = [];
+    const systemFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        updateBodies.push(JSON.parse(init.body));
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      let current = opened;
+      let source = openedSource;
+      const digests: `sha256:${string}`[] = [];
+      for (let index = 1; index <= 5; index++) {
+        const next = `${source}Burst ${index}.\n`;
+        current = await author.client.admitDocumentCandidate(
+          ref,
+          current.admissionBasis!,
+          current.capabilities.content!.revision,
+          next,
+          [{ offset: Buffer.byteLength(source), length: 0, replacement: `Burst ${index}.\n` }],
+        );
+        digests.push(current.admissionRequestDigest!);
+        source = next;
+      }
+      expect(updateBodies).toHaveLength(0);
+      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
+        && (await author.running.service.trees.descriptors())
+          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      // Unsent intermediate generations were compacted before request preparation.
+      expect(updateBodies).toHaveLength(1);
+      expect(updateBodies[0].updates).toHaveLength(1);
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(source);
+      // Only the final generation's digest is a request identity; the editor waits for its latest.
+      const materialized = await author.client.node(ref);
+      expect(materialized.acceptedRequestDigests).toContain(digests.at(-1)!);
+
+      const after = await author.client.node(ref);
+      const restoredSource = "# Complete-object fallback\n";
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: after.capabilities.content!.revision,
+        source: restoredSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(nodeDocument(after)!.source),
+          replacement: restoredSource,
+          expected: nodeDocument(after)!.source,
+        }],
+      });
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      globalThis.fetch = systemFetch;
+      await author.close();
+    }
+  }, 10_000);
 
   test("keeps interleaved editor sessions as sibling Canopy candidates", async () => {
     const author = await launch(stateA, treeA);

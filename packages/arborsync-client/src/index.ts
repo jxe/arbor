@@ -652,3 +652,5 @@ export class ArborSyncRESTClient {
     });
   }
 }
+
+export * from "./document-admission.ts";

@@ -174,14 +174,44 @@ export function appendPendingEditorAdmission(
     const acknowledged = admissions.length > 0 && admissions.every((candidate) => candidate.acknowledged);
     const standalone = acknowledged ? build([]) : undefined;
     const startsNewEpoch = standalone !== undefined && admissions.every((candidate) => candidate.id !== standalone.id);
-    const admission = startsNewEpoch ? standalone : build(admissions);
+    let admission = startsNewEpoch ? standalone : build(admissions);
     if (startsNewEpoch) admissions = [];
     const existing = admissions.find((candidate) => candidate.id === admission.id && candidate.request.candidate === admission.request.candidate);
-    if (!existing) {
-      admissions.push(admission);
+    if (existing) return existing;
+    // Compaction before request preparation: a generation from the same
+    // editor that no request has carried yet is replaced by this newer one,
+    // so one candidate represents one intentional accepted-history boundary.
+    // Anything transmitted is immutable and stays as the prefix.
+    let unsent = admissions.length;
+    while (unsent > 0) {
+      const candidate = admissions[unsent - 1]!;
+      if (candidate.transmitted || candidate.acknowledged || candidate.editorID !== admission.editorID || candidate.id !== admission.id) break;
+      unsent -= 1;
+    }
+    if (unsent < admissions.length) {
+      admissions = admissions.slice(0, unsent);
+      admission = build(admissions);
+    }
+    admissions.push(admission);
+    await save(tree, { ...state, editorAdmissions: admissions });
+    return admission;
+  });
+}
+
+/** Persist that a request carrying these elements is about to be sent; they can no longer be compacted. */
+export function markEditorAdmissionsTransmitted(
+  tree: string,
+  id: string,
+  candidates: readonly string[],
+): Promise<void> {
+  return serialized(tree, async () => {
+    const state = await load(tree);
+    const admissions = [...(state.editorAdmissions ?? [])];
+    for (const candidate of candidates) {
+      const index = admissions.findIndex((admission) => admission.id === id && admission.request.candidate === candidate);
+      if (index >= 0) admissions[index] = { ...admissions[index]!, transmitted: true };
     }
     await save(tree, { ...state, editorAdmissions: admissions });
-    return existing ?? admission;
   });
 }
 

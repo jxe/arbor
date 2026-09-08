@@ -592,6 +592,8 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     baseBlocks: authored,
     baseFrontmatter: markdownDocument?.frontmatter ?? {},
     initialSnapshot: { blocks: initial, frontmatter: markdownDocument?.frontmatter ?? {} },
+    admissionBasis: (node as NodeResponse).admissionBasis,
+    transport: (node as NodeResponse).admissionBasis ? "canopy" : "local",
     capture: () => snapshotRef.current(),
     write: (_path, baseRevision, value, base) => writeEditorSnapshot(baseRevision, value, base),
     applySnapshot: replaceEditorSnapshot,
@@ -623,7 +625,7 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     });
   }, [childrenRevision, coordinator, node.capabilities.content?.revision]);
 
-  useEffect(() => () => coordinator.dispose(), [coordinator]);
+  useEffect(() => () => { void coordinator.dispose(); }, [coordinator]);
 
   useLayoutEffect(() => {
     const surface = bodySurface.current;

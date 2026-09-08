@@ -14,10 +14,20 @@ import {
 import { ProtocolError, type Hash } from "@arbor/core";
 import type { PlacementRegistry, SyncEventSink, SyncWorkspace } from "./ports.ts";
 import {
+  initialSyncState,
+  reduceSync,
+  type PreparedRequest,
+  type SyncEffect,
+  type SyncEvent,
+  type SyncState,
+} from "./direct-sync.ts";
+import type { FrozenEditorAdmission } from "./editor-admission.ts";
+import {
   acceptedTreeObjects,
   clearPendingTreeUpdate,
   clearTreeConflict,
   deltasFromPending,
+  markEditorAdmissionsTransmitted,
   pendingFromSnapshot,
   pendingEditorAdmissions,
   pendingTreeUpdate,
@@ -42,6 +52,31 @@ export interface TreeSyncDeps<W extends SyncWorkspace = SyncWorkspace> {
   snapshotWorkspace(workspace: W, client: WireClient, remoteTrees?: readonly RemoteTreeDescriptor[]): Promise<TreeSnapshot>;
   /** Schedule one coalesced synchronization pass; resolves when a pass covering the request completes. */
   requestSync(): Promise<void>;
+  /** Injected for deterministic publication and grace timers in tests. */
+  clock?: SyncClock;
+  /** Override the reference publication delays. */
+  publicationDelayMs?: number;
+  publicationMaxDelayMs?: number;
+}
+
+export interface SyncClock {
+  setTimeout(callback: () => void, delay: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+const systemClock: SyncClock = {
+  setTimeout: (callback, delay) => {
+    const timer = setTimeout(callback, delay);
+    (timer as { unref?: () => void }).unref?.();
+    return timer;
+  },
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+interface TreeTimers {
+  trailing?: unknown;
+  max?: unknown;
+  grace?: unknown;
 }
 
 type TreeRefWatchEvent = Extract<WatchEvent, { kind: "tree.update" }>;
@@ -74,24 +109,121 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
   readonly conflicts = new Set<string>();
   private readonly queued = new Map<string, TreeRefWatchEvent[]>();
   private readonly watches = new Map<string, { abort: AbortController; done: Promise<void> }>();
-  private readonly editorPushes = new Map<string, Map<string, Promise<void>>>();
-  private readonly recentEditorActivity = new Map<string, number>();
+  /** One direct Canopy synchronization machine per placed tree. */
+  private readonly machines = new Map<string, SyncState>();
+  private readonly timers = new Map<string, TreeTimers>();
+  /** At most one editor publication request in flight per tree. */
+  private readonly pushes = new Map<string, Promise<void>>();
+  private readonly pushClients = new Map<string, WireClient>();
   /** Exact roots written by this process, including pre-metadata handoff windows. */
   private readonly lastMaterializedRoots = new Map<string, ObjectHash>();
+  private readonly clock: SyncClock;
   private closed = false;
 
-  constructor(private readonly deps: TreeSyncDeps<W>) {}
-
-  /** During an editor epoch disk is a materialized mirror, not local intent. */
-  noteEditorActivity(tree: string): void {
-    this.recentEditorActivity.set(tree, Date.now() + RECENT_EDITOR_GRACE_MS);
+  constructor(private readonly deps: TreeSyncDeps<W>) {
+    this.clock = deps.clock ?? systemClock;
   }
 
-  private hasRecentEditorActivity(tree: string): boolean {
-    const until = this.recentEditorActivity.get(tree) ?? 0;
-    if (until > Date.now()) return true;
-    this.recentEditorActivity.delete(tree);
-    return false;
+  /** The machine state for one tree, for status and tests. */
+  syncStateFor(tree: string): SyncState {
+    return this.machines.get(tree) ?? initialSyncState();
+  }
+
+  private timersFor(tree: string): TreeTimers {
+    let timers = this.timers.get(tree);
+    if (!timers) {
+      timers = {};
+      this.timers.set(tree, timers);
+    }
+    return timers;
+  }
+
+  private clearTimer(tree: string, name: keyof TreeTimers): void {
+    const timers = this.timersFor(tree);
+    if (timers[name] !== undefined) this.clock.clearTimeout(timers[name]);
+    timers[name] = undefined;
+  }
+
+  /** Enter the machine at the placement's accepted base, or advance its base when the placement moved. */
+  private ensureMachine(tree: string): SyncState {
+    const placement = this.deps.trees.placementFor(tree);
+    let state = this.syncStateFor(tree);
+    if (state.kind === "unplaced" && placement?.ref && placement.update) {
+      state = reduceSync(state, { type: "bootstrapInstalled", root: placement.ref, update: placement.update }).state;
+      this.machines.set(tree, state);
+    }
+    return state;
+  }
+
+  /**
+   * Feed one event to a tree's machine and run its effects. Effects that need
+   * daemon I/O are executed asynchronously; the reducer itself never waits.
+   */
+  private dispatch(tree: string, event: SyncEvent): SyncState {
+    const before = this.ensureMachine(tree);
+    const transition = reduceSync(before, event, {
+      publicationDelayMs: this.deps.publicationDelayMs,
+      publicationMaxDelayMs: this.deps.publicationMaxDelayMs,
+    });
+    this.machines.set(tree, transition.state);
+    for (const effect of transition.effects) this.runEffect(tree, effect);
+    return transition.state;
+  }
+
+  private runEffect(tree: string, effect: SyncEffect): void {
+    switch (effect.type) {
+      case "schedule": {
+        this.clearTimer(tree, effect.timer);
+        const timers = this.timersFor(tree);
+        timers[effect.timer] = this.clock.setTimeout(() => {
+          timers[effect.timer] = undefined;
+          this.dispatch(tree, { type: effect.timer === "max" ? "maxDelayElapsed" : "publishDelayElapsed" });
+        }, effect.delay);
+        return;
+      }
+      case "cancelTimers":
+        this.clearTimer(tree, "trailing");
+        this.clearTimer(tree, "max");
+        return;
+      case "persistRequest":
+        // Editor generations are already durable elements; the request is the
+        // unacknowledged chain of the current epoch.
+        void this.prepareEditorRequest(tree).catch(() => {});
+        return;
+      case "submit":
+        void this.pushEditorChain(tree, effect.request).catch(() => {});
+        return;
+      case "apply":
+      case "catchUp":
+        // The daemon's serialized synchronization pass materializes accepted state.
+        void this.deps.requestSync().catch(() => {});
+        return;
+      case "discardMirrorHead":
+      case "surfaceConflict":
+      case "stop":
+        return;
+    }
+  }
+
+  /**
+   * During an editor epoch disk is a materialized mirror, not local intent.
+   * The role stays `editor-mirror` while any admission is retained and for a
+   * bounded grace period after the latest basis or admission, covering
+   * delayed watcher delivery.
+   */
+  noteEditorActivity(tree: string): void {
+    this.dispatch(tree, { type: "setRole", role: "editor-mirror" });
+    this.clearTimer(tree, "grace");
+    this.timersFor(tree).grace = this.clock.setTimeout(() => {
+      this.timersFor(tree).grace = undefined;
+      void pendingEditorAdmissions(tree).then((retained) => {
+        if (!retained.length) this.dispatch(tree, { type: "setRole", role: "source" });
+      });
+    }, RECENT_EDITOR_GRACE_MS);
+  }
+
+  private filesystemIsEditorMirror(tree: string, retained: readonly FrozenEditorAdmission[]): boolean {
+    return retained.length > 0 || this.syncStateFor(tree).role === "editor-mirror";
   }
 
   private snapshotWorkspace(
@@ -119,6 +251,11 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
 
   async close(): Promise<void> {
     this.closed = true;
+    for (const tree of this.timers.keys()) {
+      this.clearTimer(tree, "trailing");
+      this.clearTimer(tree, "max");
+      this.clearTimer(tree, "grace");
+    }
     const open = [...this.watches.values()];
     for (const watch of open) watch.abort.abort();
     await Promise.all(open.map((watch) => watch.done));
@@ -347,6 +484,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     placement: SharedTreePlacement,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
+    publishNow: boolean,
   ): Promise<SharedTreePlacement> {
     let admissions = await pendingEditorAdmissions(workspace.tree);
     if (!admissions.length) return placement;
@@ -354,7 +492,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       this.deps.trees.setSyncState(workspace.tree, "conflict");
       return placement;
     }
-    await this.pushEditorAdmissions(workspace.tree, client);
+    await this.publishEditorAdmissions(workspace.tree, client, { now: publishNow });
     admissions = await pendingEditorAdmissions(workspace.tree);
     if (admissions.some((admission) => !admission.acknowledged)) return placement;
 
@@ -363,6 +501,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     const acknowledged = admissions.filter((admission) => admission.acknowledged);
     if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) {
       await retireAcknowledgedEditorAdmissions(workspace.tree, acknowledged);
+      this.dispatch(workspace.tree, { type: "applied" });
       return this.deps.trees.placementFor(workspace.tree) ?? placement;
     }
     const current = await client.descriptor(workspace.tree);
@@ -391,6 +530,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         "Materialized editor admission does not match its accepted Canopy root",
       );
       await retireAcknowledgedEditorAdmissions(workspace.tree, acknowledged);
+      this.dispatch(workspace.tree, { type: "applied" });
       placement = {
         ...placement,
         ref: current.tree.root,
@@ -401,30 +541,79 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     return placement;
   }
 
-  /**
-   * Push the currently durable editor prefix immediately. A later admission
-   * gets a different key and can therefore post its longer prefix while this
-   * request is still in flight; exact duplicate pushes share one promise.
-   */
-  async pushEditorAdmissions(tree: string, client: WireClient): Promise<void> {
+  /** The unacknowledged chain of the earliest open editor epoch, as the machine's request identity. */
+  private async editorRequest(tree: string): Promise<{ request: PreparedRequest; chain: FrozenEditorAdmission[] } | undefined> {
     const admissions = await pendingEditorAdmissions(tree);
     const firstIndex = admissions.findIndex((admission) => !admission.acknowledged);
     const first = admissions[firstIndex];
-    if (!first) return;
+    if (!first) return undefined;
     const nextEpoch = admissions.findIndex((admission, index) => index > firstIndex && admission.id !== first.id);
     const prefix = admissions.slice(0, nextEpoch < 0 ? admissions.length : nextEpoch);
     const chain = prefix.filter((admission) => admission.id === first.id);
-    const key = `${first.id}:${chain.length}:${chain.at(-1)!.request.candidate}`;
-    let pushes = this.editorPushes.get(tree);
-    if (!pushes) {
-      pushes = new Map();
-      this.editorPushes.set(tree, pushes);
+    const digests = chain.map((admission) => admission.requestDigest ?? `${admission.id}:${admission.request.candidate}`);
+    return {
+      chain,
+      request: {
+        id: digests.at(-1)!,
+        base: first.request.base,
+        candidate: chain.at(-1)!.request.candidate,
+        digests,
+      },
+    };
+  }
+
+  private async prepareEditorRequest(tree: string): Promise<void> {
+    const prepared = await this.editorRequest(tree);
+    if (!prepared) {
+      // Nothing unacknowledged remains: the head equals the accepted base.
+      const state = this.syncStateFor(tree);
+      if (state.kind === "locally-pending") this.dispatch(tree, { type: "localHead", root: state.base.root, origin: "editor" });
+      return;
     }
-    const existing = pushes.get(key);
+    this.dispatch(tree, { type: "requestPersisted", request: prepared.request });
+  }
+
+  /**
+   * Publish frozen editor generations through the direct synchronization
+   * machine. A new durable candidate updates one unsent head and resets the
+   * trailing publication delay; a request already in flight retains the head
+   * as its successor instead of posting a concurrent longer prefix. Explicit
+   * synchronization (`now`) bypasses the delay and awaits the in-flight push.
+   */
+  async publishEditorAdmissions(tree: string, client: WireClient, options: { now?: boolean } = {}): Promise<void> {
+    this.pushClients.set(tree, client);
+    const prepared = await this.editorRequest(tree);
+    if (!prepared) {
+      await this.pushes.get(tree);
+      return;
+    }
+    const state = this.ensureMachine(tree);
+    if (state.kind === "offline") this.dispatch(tree, { type: "transportAvailable", available: true });
+    this.dispatch(tree, { type: "localHead", root: prepared.request.candidate, origin: "editor" });
+    if (options.now) {
+      const now = this.syncStateFor(tree);
+      if (now.kind === "locally-pending" && !now.preparing) this.dispatch(tree, { type: "maxDelayElapsed" });
+      // Preparation and submission are asynchronous; wait for the push they start.
+      await new Promise<void>((resolve) => this.clock.setTimeout(resolve, 0));
+      await this.pushes.get(tree);
+    }
+  }
+
+  /** Send exactly one request for the tree's current chain; mark it transmitted first. */
+  private pushEditorChain(tree: string, request: PreparedRequest): Promise<void> {
+    const existing = this.pushes.get(tree);
     if (existing) return existing;
+    const client = this.pushClients.get(tree);
+    if (!client) return Promise.resolve();
     const push = (async () => {
+      const prepared = await this.editorRequest(tree);
+      if (!prepared || prepared.request.id !== request.id) return;
+      const { chain } = prepared;
+      const first = chain[0]!;
+      await markEditorAdmissionsTransmitted(tree, first.id, chain.map((admission) => admission.request.candidate));
+      this.dispatch(tree, { type: "submitStarted", id: request.id });
       try {
-        await client.submitUpdates(tree, {
+        const response = await client.submitUpdates(tree, {
           base: first.request.base,
           updates: chain.map((admission) => decodeCandidateUpdateJSON(admission.request)),
         });
@@ -433,8 +622,28 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
           first.id,
           chain.map((admission) => admission.request.candidate),
         );
+        const final = response.results.at(-1)!;
+        this.dispatch(tree, {
+          type: "accepted",
+          id: request.id,
+          result: {
+            kind: final.outcome,
+            root: final.update.root,
+            update: final.update.id,
+            digests: response.results.map((result) => result.requestDigest),
+          },
+        });
+        // For Arbor Sync the durable acknowledgement is the apply boundary of
+        // the editor path: the accepted decision is retained locally and on
+        // Canopy, and the ordinary pass materializes disk once every open
+        // epoch is acknowledged. A retained successor may publish now.
+        this.dispatch(tree, { type: "applied" });
+        void this.deps.requestSync().catch(() => {});
       } catch (error) {
-        if (!(error instanceof WireUpdateConflict)) throw error;
+        if (!(error instanceof WireUpdateConflict)) {
+          this.dispatch(tree, { type: "transportFailed", id: request.id });
+          throw error;
+        }
         await acknowledgePendingEditorAdmissions(
           tree,
           first.id,
@@ -443,6 +652,14 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         await saveTreeConflict(tree, error.result);
         this.deps.trees.setSyncState(tree, "conflict");
         this.conflicts.add(tree);
+        this.dispatch(tree, {
+          type: "conflicted",
+          id: request.id,
+          conflict: {
+            current: { root: error.result.details.current.root, update: error.result.details.current.id },
+            localRoot: request.candidate,
+          },
+        });
         this.deps.events.emit({
           tree,
           kind: "diagnostic",
@@ -450,14 +667,11 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
           origin: "sync",
         });
       }
-    })();
-    pushes.set(key, push);
-    try {
-      await push;
-    } finally {
-      pushes.delete(key);
-      if (!pushes.size) this.editorPushes.delete(tree);
-    }
+    })().finally(() => {
+      if (this.pushes.get(tree) === push) this.pushes.delete(tree);
+    });
+    this.pushes.set(tree, push);
+    return push;
   }
 
   async updateWorkspace(
@@ -465,10 +679,15 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     initialPlacement: SharedTreePlacement,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
+    options: { publishNow?: boolean } = {},
   ): Promise<void> {
     const { trees } = this.deps;
     trees.setSyncState(workspace.tree, "syncing");
-    let placement = await this.submitEditorAdmissions(workspace, initialPlacement, client, remoteTrees);
+    if (this.ensureMachine(workspace.tree).kind === "offline") {
+      // Each pass is a reconnection probe for a request whose transport failed.
+      this.dispatch(workspace.tree, { type: "transportAvailable", available: true });
+    }
+    let placement = await this.submitEditorAdmissions(workspace, initialPlacement, client, remoteTrees, options.publishNow ?? false);
     if (await treeConflict(workspace.tree)) {
       trees.setSyncState(workspace.tree, "conflict");
       this.conflicts.add(workspace.tree);
@@ -478,8 +697,8 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     if (retainedEditorAdmissions.some((admission) => !admission.acknowledged)) {
       // Editor admissions are already durable and represent the earliest
       // authored order. Do not let a filesystem snapshot overtake them and
-      // turn same-device edits into artificial three-way merges.
-      this.deps.requestSync();
+      // turn same-device edits into artificial three-way merges. The pending
+      // publication requests the next pass when its request resolves.
       return;
     }
     if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) return;
@@ -537,8 +756,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       await this.pullCurrent(workspace, placement, client, remoteTrees, current, local);
       return;
     }
-    const filesystemIsEditorMirror = retainedEditorAdmissions.length > 0
-      || this.hasRecentEditorActivity(workspace.tree);
+    const filesystemIsEditorMirror = this.filesystemIsEditorMirror(workspace.tree, retainedEditorAdmissions);
     if (filesystemIsEditorMirror && pending?.origin !== "local-api") {
       // Editor admissions are the sole local source during this epoch. Bytes
       // materialized from an earlier accepted prefix must not be frozen as a

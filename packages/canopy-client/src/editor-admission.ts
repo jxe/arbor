@@ -41,6 +41,8 @@ export interface FrozenEditorAdmission {
   admissionBasis: string;
   /** Credential-scoped digest Canopy will echo when this generation is accepted. */
   requestDigest?: `sha256:${string}`;
+  /** Set before the first POST that carries this element; a transmitted element is immutable. */
+  transmitted?: boolean;
   /** Durable acknowledgement marker; retained until the editor reanchors on a newer watchpoint. */
   acknowledged?: boolean;
 }
