@@ -322,12 +322,11 @@ export function App() {
   const refreshSystem = useCallback(async () => {
     const request = ++systemRequest.current;
     try {
-      const [treeSnapshot, community, accountDirectory, visitedDirectory, identityStatus] = await Promise.all([
+      const [treeSnapshot, community, accountDirectory, visitedDirectory] = await Promise.all([
         api.client.trees(),
         api.configurationStatus(),
         api.client.accounts(),
         api.node({ tree: "system", path: "/visited", stableKey: null }),
-        api.client.profileIdentity(),
       ]);
       if (request !== systemRequest.current) return;
       const origin = community.origin;
@@ -341,7 +340,7 @@ export function App() {
         ...(typeof community.communityURL === "string" ? { communityURL: community.communityURL } : {}),
       });
       setAccounts(accountDirectory.accounts);
-      setIdentity(identityStatus.identity);
+      setIdentity(accountDirectory.identity);
       const nextTrees = treeSnapshot.snapshot;
       const currentURLPath = pathFromLocation();
       const activePlacement = nextTrees

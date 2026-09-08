@@ -379,6 +379,16 @@ public actor AccountStoredCredentialProvider: WireCredentialProvider {
     public func credential() async throws -> String? { try await store.load(configurationTree: configurationTree) }
 }
 
+/// Generate a 128-bit lowercase base32 Arbor identity with the supplied stable prefix
+/// (`tr`, `dv`, …); it edits no file and reserves no server state, matching `generateArborID` in `@arbor/core`.
+public func generateArborID(prefix: String) throws -> String {
+    var bytes = [UInt8](repeating: 0, count: 16)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+        throw ArborWireValidationError.invalidValue("Could not generate identity")
+    }
+    return prefix + "_" + Data(bytes).lowercaseBase32()
+}
+
 public struct PairingPayload: Codable, Equatable, Sendable {
     public struct Pairing: Codable, Equatable, Sendable {
         public var id: String
@@ -763,13 +773,7 @@ public actor NativeAccountService {
         return try await client.resolve(path: path).ref.tree
     }
 
-    private func generatedID(prefix: String) throws -> String {
-        var bytes = [UInt8](repeating: 0, count: 16)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw ArborWireValidationError.invalidValue("Could not generate identity")
-        }
-        return prefix + "_" + Data(bytes).lowercaseBase32()
-    }
+    private func generatedID(prefix: String) throws -> String { try generateArborID(prefix: prefix) }
 
     private func initialAccountConfiguration(
         profileTree: String,

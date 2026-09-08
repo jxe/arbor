@@ -414,7 +414,11 @@ public actor ReplicaSyncCoordinator {
             return try await submit(attempt)
         } catch let error as WireUpdateConflictError {
             let validated = try error.conflict.validated()
-            control.conflict = DurableSyncConflict(response: validated, localRootAtConflict: attempt.candidate)
+            control.conflict = DurableSyncConflict(
+                response: validated,
+                localRootAtConflict: attempt.candidate,
+                attempt: attempt
+            )
             control.attempt = nil
             control.presentation = WorkspaceSyncPresentation(
                 state: .conflict,
@@ -473,7 +477,11 @@ public actor ReplicaSyncCoordinator {
                 return try await presentation()
             }
             let validated = try error.conflict.validated()
-            control.conflict = DurableSyncConflict(response: validated, localRootAtConflict: control.attempt?.candidate ?? attempt.candidate)
+            control.conflict = DurableSyncConflict(
+                response: validated,
+                localRootAtConflict: control.attempt?.candidate ?? attempt.candidate,
+                attempt: control.attempt ?? attempt
+            )
             control.attempt = nil
             control.presentation = WorkspaceSyncPresentation(
                 state: .conflict,

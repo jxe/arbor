@@ -635,7 +635,7 @@ final class ArborWorkspaceState {
               canonicalURL.fragment == nil else {
             throw ArborWireValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
         }
-        let tree = try await client.treeID()
+        let tree = try generateArborID(prefix: "tr")
         let ref = NodeRef(tree: account.configurationTree, path: "/trees.yaml", stableKey: nil)
         let file = try await client.file(ref)
         guard let source = String(data: file.bytes, encoding: .utf8) else {

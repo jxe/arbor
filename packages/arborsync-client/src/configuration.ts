@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@arbor/core";
-import { canonicalArborLocator } from "@arbor/core";
+import { canonicalArborLocator, generateArborID } from "@arbor/core";
 import { sha256 } from "@arbor/core/hash";
 import { ArborSyncRESTClient } from "./index.ts";
 import { parseDocument, type Document } from "yaml";
@@ -141,7 +141,7 @@ export async function configurationAccessEntries(client: ArborSyncRESTClient, tr
 export async function applyConfigurationAction(client: ArborSyncRESTClient, action: ConfigurationAction): Promise<void> {
   const { tree: configTree, device, community } = await context(client);
   if (action.op === "promoteTree") {
-    const id = await client.treeID();
+    const id = generateArborID("tr");
     const access = await normalizedRules(client, rules(action.audience));
     await edit(client, configTree, "/trees.yaml", (document) => {
       document.setIn(["trees", id], { canonicalPath: action.canonicalPath, access });

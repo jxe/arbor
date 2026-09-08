@@ -85,7 +85,6 @@ and fields but never reinterpret malformed required data.
 GET  /v1/status
 POST /v1/sync
 POST /v1/sessions
-POST /v1/tree-ids
 GET  /v1/trees
 GET  /v1/accounts
 GET  /v1/resolve?locator={ArborLocator}
@@ -109,9 +108,10 @@ and reject missing, offline, conflicting, errored, or still-syncing targets.
 `POST /v1/sessions` accepts one absolute local root and activates
 the daemon's filesystem watching and durable node identity for that browsing
 session; repeated activation of the same root is idempotent.
-`POST /v1/tree-ids` returns an unreserved client-generated
-`{ id }`; it edits no file and reserves no server state. New IDs are `tr_`
-plus 26 lowercase base32 characters encoding 128 random bits.
+New TreeIDs are minted by the client (`generateArborID` in `@arbor/core`,
+`generateArborID(prefix:)` in `CanopyClient`): `tr_` plus 26 lowercase base32
+characters encoding 128 random bits. Minting edits no file and reserves no
+server state, so it is not a daemon operation.
 
 `GET /v1/trees` returns `{ snapshot: LocalTreeDescriptor[], observedThrough }`.
 It includes placed trees, pathless replicas, known remote placements, and the
@@ -122,6 +122,9 @@ descriptor for `local` or `system`.
 entry reports its Canopy origin, profile TreeID, current DeviceID, credential
 availability, diagnostics, and an optional Canopy-specific presentation
 handle. The handle and origin are never account identity or credential keys.
+The same response carries `identity`: the local self-certifying person
+identity (`profileTree`, `profilePath`, `keyAvailable`) or `null` before
+`arbor me create`. `POST /v1/me` creates that identity at a profile path.
 
 Fresh v2 account bootstrap and account-qualified pairing use:
 

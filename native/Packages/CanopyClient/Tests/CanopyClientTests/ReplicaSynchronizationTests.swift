@@ -838,6 +838,10 @@ struct ReplicaSynchronizationTests {
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: conflictTransport, stateRoot: root)
             #expect(try await coordinator.syncOnce().state == .conflict)
             #expect(try await coordinator.conflict()?.draft == draft.root)
+            let retainedConflict = try DurableSyncFiles(root: root).load().conflict
+            let retainedLocalRoot = try await replica.currentSnapshot().root
+            #expect(retainedConflict?.attempt?.candidate == retainedLocalRoot)
+            #expect(retainedConflict?.attempt?.allRequestDigests.count == 1)
             try await coordinator.resolveConflictKeepingLocal()
 
             let accepting = ClosureTransport(initial: initial) { prepared, _ in

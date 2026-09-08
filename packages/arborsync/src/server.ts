@@ -7,7 +7,7 @@ import type {
   MutationRequest,
   NodeRef,
 } from "@arbor/core";
-import { PathEscapeError, encodeSSEFrame, generateArborID } from "@arbor/core";
+import { PathEscapeError, encodeSSEFrame } from "@arbor/core";
 import { decodeNodeRef } from "@arbor/core/node-model";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";
@@ -463,17 +463,12 @@ function startArborSyncServer(
           }
           return json(await service.openSession(body.path), 201);
         }
-        if (request.method === "POST" && url.pathname === "/v1/tree-ids") {
-          return json({ id: generateArborID("tr") }, 201);
-        }
         if (request.method === "GET" && url.pathname === "/v1/trees") {
           return json(await service.treeList());
         }
         if (request.method === "GET" && url.pathname === "/v1/accounts") {
-          return json({ accounts: await service.accountList() });
-        }
-        if (request.method === "GET" && url.pathname === "/v1/me") {
-          return json({ identity: await service.profileIdentity() });
+          const [accounts, identity] = await Promise.all([service.accountList(), service.profileIdentity()]);
+          return json({ accounts, identity });
         }
         if (request.method === "POST" && url.pathname === "/v1/me") {
           const body = await request.json() as { path?: unknown };

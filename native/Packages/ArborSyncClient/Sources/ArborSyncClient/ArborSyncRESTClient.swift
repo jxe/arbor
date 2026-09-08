@@ -125,13 +125,6 @@ public actor ArborSyncRESTClient {
         try await get(path: "/v1/resolve", items: [URLQueryItem(name: "locator", value: locator)])
     }
 
-    public func treeID() async throws -> String {
-        var request = URLRequest(url: url("/v1/tree-ids"))
-        request.httpMethod = "POST"
-        let generated: GeneratedTreeID = try await perform(request)
-        return generated.id
-    }
-
     public func synchronize(configurationTree: String? = nil) async throws {
         struct Request: Encodable { var configurationTree: String? }
         struct Response: Decodable { var synchronized: Bool }
@@ -667,7 +660,6 @@ public actor ArborSyncRESTClient {
     }
 }
 
-private struct GeneratedTreeID: Decodable { var id: String }
 private struct ForgetResult: Decodable { var forgotten: Bool }
 private struct LocalResyncObservation: Decodable { var cursor: String; var tree: String; var kind: String }
 

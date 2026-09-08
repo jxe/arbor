@@ -635,7 +635,7 @@ async function placeLocal(
         throw new Error(`${path} already has a different canonical URL`);
       }
     } else {
-      tree = await client.treeID();
+      tree = generateArborID("tr");
       const rules = await accessRulesFor(wire, initialAudience(audience, target));
       await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
         document.setIn([tree!], { canonical: `${target.endpoint}${target.canonicalPath}`, access: rules });

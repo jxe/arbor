@@ -250,10 +250,6 @@ export class ArborSyncRESTClient {
     return this.request(`/v1/resolve?locator=${encodeURIComponent(locator)}`);
   }
 
-  async treeID(): Promise<string> {
-    return (await this.request<{ id: string }>("/v1/tree-ids", { method: "POST" })).id;
-  }
-
   status(): Promise<ArborSyncStatus> {
     return this.request("/v1/status");
   }
@@ -324,12 +320,9 @@ export class ArborSyncRESTClient {
     return this.request("/v1/bootstrap/accounts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   }
 
-  accounts(): Promise<{ accounts: LocalCanopyAccountDescriptor[] }> {
+  /** The claimed Canopy accounts of this data home and the local person identity, if one exists. */
+  accounts(): Promise<{ accounts: LocalCanopyAccountDescriptor[]; identity: LocalProfileIdentity | null }> {
     return this.request("/v1/accounts");
-  }
-
-  profileIdentity(): Promise<{ identity: LocalProfileIdentity | null }> {
-    return this.request("/v1/me");
   }
 
   createProfileIdentity(path: string): Promise<{ identity: LocalProfileIdentity }> {

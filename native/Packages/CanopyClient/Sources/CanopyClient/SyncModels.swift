@@ -70,6 +70,10 @@ struct DurableSyncAttempt: Codable, Equatable, Sendable {
 struct DurableSyncConflict: Codable, Equatable, Sendable {
     var response: WireUpdateConflict
     var localRootAtConflict: String
+    /// The exact update string that stopped at `response.details.failedIndex`.
+    /// Retaining it preserves the failed element and untouched suffix across
+    /// restart; the final local root alone cannot recover those boundaries.
+    var attempt: DurableSyncAttempt? = nil
 }
 
 struct DurableSyncControl: Codable, Equatable, Sendable {
