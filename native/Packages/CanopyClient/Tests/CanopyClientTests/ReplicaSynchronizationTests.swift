@@ -784,22 +784,23 @@ struct ReplicaSynchronizationTests {
                 return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, reconciliation: WireTransitionPayload(objects: returned.objects), observedThrough: update.id)
             }
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
-            let first = try await coordinator.syncOnce()
-            #expect(first.state == .locallyPending)
-            #expect(first.acceptedRoot != initial.root)
+            // The accepted frozen candidate advances the base beneath the retained
+            // successor, which publishes against that base without waiting, so one
+            // explicit synchronization settles both requests.
+            let settled = try await coordinator.syncOnce()
+            #expect(settled.state == .current)
+            #expect(await coordinator.syncState.kind == "current")
             #expect((try await session.snapshot()).source.hasSuffix("Candidate\nTail\n"))
-            #expect(try await replica.heads().acceptedRoot == initial.root)
-
-            let second = try await coordinator.syncOnce()
-            #expect(second.state == .current)
             #expect(try await replica.heads().pendingRoot == nil)
             let requests = await transport.requests
             #expect(requests.count == 2)
             let firstRequest = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
             let secondRequest = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
-            #expect(first.acceptedRoot == firstRequest.candidate)
+            #expect(firstRequest.base == "up_initial")
             #expect(firstRequest.candidate != secondRequest.candidate)
             #expect(secondRequest.base == "up_1")
+            #expect(try await replica.heads().acceptedRoot == secondRequest.candidate)
+            #expect(try await replica.heads().acceptedUpdate == "up_2")
             #expect(candidate.contentRevision != (try await session.snapshot()).contentRevision)
         }
     }
