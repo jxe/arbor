@@ -9,6 +9,7 @@ import type {
   NodeSnapshot,
   RecoveryPage,
   SearchPage,
+  SyncConflictWorkspace,
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
@@ -73,6 +74,7 @@ describe("REST v1 protocol fixtures", () => {
     const mutation = await json<MutationRequest>("mutation.json");
     const receipt = await json<MutationReceipt>("receipt.json");
     const error = await json<ArborError>("error.json");
+    const conflict = await json<SyncConflictWorkspace>("conflict-workspace.json");
     expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: '[["id","abc123"]]' });
     expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
@@ -83,6 +85,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(receipt.effects[0]?.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(receipt.effects[0]?.propertiesRevision).toBe("sha256:properties");
     expect(error.error).toBe("future-error-code");
+    expect(conflict.items[0]?.draft).toEqual({ kind: "text", text: "both\n" });
     expect(status).toEqual({
       service: "arborsync",
       version: "0.1.0",

@@ -1410,7 +1410,8 @@ struct ArborRootView: View {
                 id: tree.id,
                 title: title,
                 detail: detail,
-                condition: localTreeCondition(tree)
+                condition: localTreeCondition(tree),
+                reviewableConflict: tree.reviewableConflict
             )
         }
 #else
@@ -1432,7 +1433,7 @@ struct ArborRootView: View {
     private func localTreeCondition(_ tree: LocalArborSyncTreePresentation) -> String {
         if tree.missing { return "Missing" }
         switch tree.sync {
-        case "conflict": return "Conflict"
+        case "conflict": return tree.reviewableConflict ? "Conflict" : "Conflict details unavailable"
         case "error": return "Error"
         case "offline": return "Offline"
         case "syncing": return "Syncing"
@@ -1520,6 +1521,16 @@ struct ArborRootView: View {
             treeStatuses: syncTreeStatuses,
             retrySave: { Task { await model.retryDocumentSave() } },
             syncNow: { Task { await workspace.syncNow() } },
+            reviewConflict: { tree in
+#if os(macOS)
+                Task {
+                    await workspace.prepareLocalArborSyncConflictReview(tree: tree)
+                    guard workspace.localArborSyncConflictTree == tree else { return }
+                    sheetAfterManagementDismiss = .syncConflict
+                    managementPresented = false
+                }
+#endif
+            },
             reconnectArborSync: {
 #if os(macOS)
                 Task { await workspace.restartArborSync() }
@@ -1790,6 +1801,23 @@ struct ArborRootView: View {
             }
             .frame(minWidth: 560, minHeight: 420)
         case .syncConflict:
+#if os(macOS)
+            if workspace.localArborSyncConflictTree != nil {
+                ArborSyncConflictView(
+                    workspace: workspace.syncConflictWorkspace,
+                    load: {},
+                    resolve: { await workspace.resolveLocalArborSyncConflict($0) },
+                    close: { presentedSheet = nil }
+                )
+            } else if workspace.syncConflict != nil {
+                ArborSyncConflictView(
+                    workspace: workspace.syncConflictWorkspace,
+                    load: { await workspace.prepareSyncConflictReview() },
+                    resolve: { await workspace.resolveSyncConflict($0) },
+                    close: { presentedSheet = nil }
+                )
+            }
+#else
             if workspace.syncConflict != nil {
                 ArborSyncConflictView(
                     workspace: workspace.syncConflictWorkspace,
@@ -1798,6 +1826,7 @@ struct ArborRootView: View {
                     close: { presentedSheet = nil }
                 )
             }
+#endif
         case .syncStatus:
             syncStatusPanel
         default:

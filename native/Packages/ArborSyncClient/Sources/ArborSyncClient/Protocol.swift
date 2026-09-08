@@ -102,7 +102,41 @@ public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
     public var osPath: String?
     public var placement: String
     public var sync: String?
+    public var reviewableConflict: Bool?
     public var missing: Bool?
+}
+
+public struct ArborSyncConflictContent: Codable, Sendable, Equatable {
+    public var kind: String
+    public var text: String?
+    public var bytes: String?
+    public var entries: [String]?
+    public var tree: String?
+}
+
+public struct ArborSyncConflictItem: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { path }
+    public var path: String
+    public var reasons: [String]
+    public var base: ArborSyncConflictContent
+    public var current: ArborSyncConflictContent
+    public var mine: ArborSyncConflictContent
+    public var draft: ArborSyncConflictContent
+    public var offersBoth: Bool
+}
+
+public struct ArborSyncConflictWorkspace: Codable, Sendable, Equatable {
+    public var identity: String
+    public var tree: String
+    public var items: [ArborSyncConflictItem]
+    public var unattemptedCount: Int
+}
+
+public enum ArborSyncConflictResolution: Sendable, Equatable {
+    case current
+    case mine
+    case both
+    case edit(String)
 }
 
 public struct Diagnostic: Codable, Sendable, Equatable {

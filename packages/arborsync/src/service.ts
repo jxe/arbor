@@ -15,6 +15,9 @@ import type {
   SnapshotEnvelope,
   TreeRef,
   SourceEdit,
+  SyncConflictContent,
+  SyncConflictResolution,
+  SyncConflictWorkspace,
   WorkspaceOperation,
 } from "@arbor/core";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalArborLocator, canonicalNodePath, pageIDFromStableKey, revisionOf, siblingMarkdownTreePath } from "@arbor/core";
@@ -31,7 +34,7 @@ import {
   type LocalPlacement,
   type SharedTreePlacement,
 } from "@arbor/stores";
-import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireClient, applyTransitionPayload, compareWireNames, decodeCandidateUpdateJSON, decodeWireObject, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, verifyTreeSnapshotGraph, type ObjectDelta, type ObjectHash, type RemoteTreeDescriptor, type TreeSnapshot } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
 import { accountWireClient, type AccountSelector, type AccountWireClient } from "@arbor/canopy-client";
 import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "@arbor/canopy-client";
@@ -52,14 +55,16 @@ import {
   savePendingTreeUpdate,
   saveAcceptedTreeObjects,
   snapshotFromConflictDraft,
+  saveTreeConflictMaterial,
   treeConflict,
+  treeConflictMaterial,
   withDelta,
 } from "@arbor/canopy-client";
 import { SystemTreeProjection } from "./system-tree.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { TreeSynchronizer } from "@arbor/canopy-client";
 import { ProtocolError, RevisionConflictError, Workspace, type ConfirmedSourcePatch, type WorkspaceOptions } from "./workspace.ts";
-import { documentAdmissionBasis, EditorAdmissionReconciliationError, freezeEditorAdmission } from "@arbor/canopy-client";
+import { acceptedEditorAdmissionNeedsReview, documentAdmissionBasis, editorAdmissionContext, EditorAdmissionReconciliationError, freezeEditorAdmission } from "@arbor/canopy-client";
 
 export { resolveUserPath } from "@arbor/canopy-client";
 
@@ -79,6 +84,105 @@ export interface ArborSyncDaemonOptions {
 
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const WIRE_SYNC_TIMEOUT_MS = 60_000;
+
+type ConflictTarget = { kind: "object"; hash: ObjectHash } | { kind: "boundary"; tree: string } | { kind: "missing" };
+
+function conflictPath(path: string): string[] {
+  if (!path.startsWith("/")) throw new Error("Conflict path is not absolute");
+  if (path === "/") return [];
+  const parts = path.slice(1).split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) throw new Error("Conflict path is invalid");
+  return parts;
+}
+
+function conflictTarget(snapshot: TreeSnapshot, path: string): ConflictTarget {
+  verifyTreeSnapshotGraph(snapshot);
+  const parts = conflictPath(path);
+  if (!parts.length) return { kind: "object", hash: snapshot.root };
+  let hash = snapshot.root;
+  for (const [index, part] of parts.entries()) {
+    const bytes = snapshot.objects.get(hash);
+    if (!bytes) throw new Error(`Conflict snapshot is missing object: ${hash}`);
+    const object = decodeWireObject(bytes);
+    if (object.type !== "directory") return { kind: "missing" };
+    const entry = object.entries.find((candidate) => candidate.name === part);
+    if (!entry) return { kind: "missing" };
+    if (index === parts.length - 1) {
+      if (entry.tree) return { kind: "boundary", tree: entry.tree };
+      return entry.hash ? { kind: "object", hash: entry.hash } : { kind: "missing" };
+    }
+    if (!entry.hash) return { kind: "missing" };
+    hash = entry.hash;
+  }
+  return { kind: "missing" };
+}
+
+function conflictContent(snapshot: TreeSnapshot, path: string): SyncConflictContent {
+  const target = conflictTarget(snapshot, path);
+  if (target.kind === "missing") return { kind: "missing" };
+  if (target.kind === "boundary") return { kind: "boundary", tree: target.tree };
+  const bytes = snapshot.objects.get(target.hash);
+  if (!bytes) throw new Error(`Conflict snapshot is missing object: ${target.hash}`);
+  const object = decodeWireObject(bytes);
+  if (object.type === "directory") return { kind: "directory", entries: object.entries.map((entry) => entry.name) };
+  try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(object.bytes) }; }
+  catch { return { kind: "binary", bytes: Buffer.from(object.bytes).toString("base64") }; }
+}
+
+function replaceConflictTarget(destination: TreeSnapshot, path: string, source: TreeSnapshot, editedText?: string): TreeSnapshot {
+  verifyTreeSnapshotGraph(destination);
+  verifyTreeSnapshotGraph(source);
+  const replacement = editedText === undefined
+    ? conflictTarget(source, path)
+    : (() => {
+        const bytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(editedText) });
+        return { kind: "object", hash: hashObject(bytes), bytes } as const;
+      })();
+  const parts = conflictPath(path);
+  const objects = new Map(destination.objects);
+  for (const [hash, bytes] of source.objects) objects.set(hash, bytes);
+  if ("bytes" in replacement) objects.set(replacement.hash, replacement.bytes);
+  if (!parts.length) {
+    if (replacement.kind !== "object") throw new Error("The tree root cannot be removed or become a boundary");
+    return reachableSnapshot(replacement.hash, objects);
+  }
+  const rewrite = (directoryHash: ObjectHash, depth: number): ObjectHash => {
+    const bytes = objects.get(directoryHash);
+    if (!bytes) throw new Error(`Conflict snapshot is missing object: ${directoryHash}`);
+    const directory = decodeWireObject(bytes);
+    if (directory.type !== "directory") throw new Error("Conflict path parent is not a directory");
+    const name = parts[depth]!;
+    const entries = directory.entries.filter((entry) => entry.name !== name);
+    if (depth === parts.length - 1) {
+      if (replacement.kind === "object") entries.push({ name, hash: replacement.hash });
+      if (replacement.kind === "boundary") entries.push({ name, tree: replacement.tree });
+    } else {
+      const prior = directory.entries.find((entry) => entry.name === name);
+      if (!prior?.hash) throw new Error("Conflict path parent is missing");
+      entries.push({ name, hash: rewrite(prior.hash, depth + 1) });
+    }
+    entries.sort((left, right) => compareWireNames(left.name, right.name));
+    const next = encodeWireObject({ type: "directory", entries, ...(directory.childrenSource ? { childrenSource: directory.childrenSource } : {}) });
+    const nextHash = hashObject(next);
+    objects.set(nextHash, next);
+    return nextHash;
+  };
+  return reachableSnapshot(rewrite(destination.root, 0), objects);
+}
+
+function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<ObjectHash, Uint8Array>): TreeSnapshot {
+  const objects = new Map<ObjectHash, Uint8Array>();
+  const visit = (hash: ObjectHash) => {
+    if (objects.has(hash)) return;
+    const bytes = available.get(hash);
+    if (!bytes) throw new Error(`Retained editor candidate is missing object: ${hash}`);
+    objects.set(hash, bytes);
+    const object = decodeWireObject(bytes);
+    if (object.type === "directory") for (const entry of object.entries) if (entry.hash) visit(entry.hash);
+  };
+  visit(root);
+  return verifyTreeSnapshotGraph({ root, objects });
+}
 
 /**
  * The daemon's top-level coordinator: one process-wide event bus, a root
@@ -314,7 +418,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
             admissionBasis: retainedAdmission.admissionBasis,
           };
         }
-        const wirePath = await scope.workspace.wireDocumentPath(scope.ref.path);
+        const wirePath = await scope.workspace.wireDocumentPath(response.ref.path);
         const accepted = await snapshotDirectory(
           scope.workspace.root,
           this.trees.sharedBoundariesWithin(scope.workspace.root),
@@ -342,7 +446,16 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   async treeList(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
-    return { snapshot: await this.trees.descriptors(), observedThrough: this.events.currentCursor() };
+    const descriptors = await this.trees.descriptors();
+    return {
+      snapshot: await Promise.all(descriptors.map(async (descriptor) => ({
+        ...descriptor,
+        ...(descriptor.sync === "conflict" ? {
+          reviewableConflict: Boolean(await treeConflict(descriptor.id)) || await this.hasAcknowledgedEditorReview(descriptor.id),
+        } : {}),
+      }))),
+      observedThrough: this.events.currentCursor(),
+    };
   }
 
   async resolveLocator(locator: string): Promise<LocatorResolution> {
@@ -967,6 +1080,261 @@ export class ArborSyncDaemon implements AsyncDisposable {
 
   async createPairingBootstrap(configurationTree?: string) {
     return createPairingBootstrap(this, configurationTree);
+  }
+
+  private async acknowledgedEditorReview(tree: string) {
+    const admissions = await pendingEditorAdmissions(tree);
+    if (!admissions.length || admissions.some((admission) => !admission.acknowledged)) return null;
+    const mineAdmission = admissions.at(-1)!;
+    const context = editorAdmissionContext(mineAdmission);
+    const placement = this.trees.placementFor(tree);
+    const workspace = await this.trees.workspaceByTree(tree);
+    if (!placement || !workspace) return null;
+    const client = await this.accountClient(placement);
+    const descriptor = (await client.descriptor(tree)).tree;
+    const [originalBase, current] = await Promise.all([
+      client.snapshot(tree, context.baseRoot),
+      client.snapshot(tree, descriptor.root),
+    ]);
+    let available = new Map([...originalBase.objects, ...current.objects]);
+    for (const admission of admissions) {
+      available = applyTransitionPayload(available, decodeCandidateUpdateJSON(admission.request));
+    }
+    const mine = reachableSnapshot(mineAdmission.request.candidate, available);
+    if (mine.root === current.root) return null;
+    const predecessor = admissions.at(-2);
+    const baseRoot = predecessor?.request.candidate ?? context.baseRoot;
+    const base = reachableSnapshot(baseRoot, available);
+    const identity = revisionOf(JSON.stringify({
+      requestDigest: mineAdmission.requestDigest ?? mine.root,
+      currentRoot: current.root,
+      currentUpdate: descriptor.update,
+    }));
+    return {
+      identity,
+      path: context.wirePath,
+      descriptor,
+      placement,
+      workspace,
+      client,
+      admissions,
+      material: { base, current, mine, draft: current },
+    };
+  }
+
+  private async hasAcknowledgedEditorReview(tree: string): Promise<boolean> {
+    const admissions = await pendingEditorAdmissions(tree);
+    if (!admissions.length || admissions.some((admission) => !admission.acknowledged)) return false;
+    const final = admissions.at(-1)!;
+    return acceptedEditorAdmissionNeedsReview(final);
+  }
+
+  private async conflictReviewMaterial(tree: string) {
+    const conflict = await treeConflict(tree);
+    if (!conflict) throw new ProtocolError("not-found", `Tree has no stored synchronization conflict: ${tree}`, 404);
+    const identity = conflict.details.candidate;
+    const retained = await treeConflictMaterial(tree);
+    if (retained?.identity === identity) return { conflict, identity, material: retained.material };
+    const placement = this.trees.placementFor(tree);
+    const workspace = await this.trees.workspaceByTree(tree);
+    if (!placement || !workspace) throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
+    const client = await this.accountClient(placement);
+    const mine = await this.snapshotWorkspace(workspace, client);
+    if (mine.root !== conflict.details.candidate) {
+      throw new ProtocolError(
+        "conflict",
+        "Conflict evidence is unavailable because the local tree advanced before its candidate graph was retained",
+        409,
+        { tree, details: { kind: "conflict-evidence-unavailable" } },
+      );
+    }
+    const [base, current] = await Promise.all([
+      client.snapshot(tree, conflict.details.base),
+      client.snapshot(tree, conflict.details.current.root),
+    ]);
+    if (base.root !== conflict.details.base || current.root !== conflict.details.current.root) {
+      throw new Error("Canopy returned conflict snapshots with unexpected roots");
+    }
+    const draft = snapshotFromConflictDraft(conflict, mine);
+    const material = {
+      base: verifyTreeSnapshotGraph(base),
+      current: verifyTreeSnapshotGraph(current),
+      mine: verifyTreeSnapshotGraph(mine),
+      draft: verifyTreeSnapshotGraph(draft),
+    };
+    await saveTreeConflictMaterial(tree, identity, material);
+    return { conflict, identity, material };
+  }
+
+  async treeConflictWorkspace(tree: string): Promise<SyncConflictWorkspace> {
+    if (!await treeConflict(tree)) {
+      const review = await this.acknowledgedEditorReview(tree);
+      if (!review) throw new ProtocolError("not-found", `Tree has no reviewable synchronization conflict: ${tree}`, 404);
+      const current = conflictContent(review.material.current, review.path);
+      const mine = conflictContent(review.material.mine, review.path);
+      return {
+        identity: review.identity,
+        tree,
+        unattemptedCount: 0,
+        items: [{
+          path: review.path,
+          reasons: ["accepted-merge-needs-review"],
+          base: conflictContent(review.material.base, review.path),
+          current,
+          mine,
+          draft: current,
+          offersBoth: false,
+        }],
+      };
+    }
+    const { conflict, identity, material } = await this.conflictReviewMaterial(tree);
+    const grouped = new Map<string, string[]>();
+    for (const item of conflict.details.conflicts) {
+      grouped.set(item.path, [...(grouped.get(item.path) ?? []), item.reason]);
+    }
+    const admissions = await pendingEditorAdmissions(tree);
+    const failed = admissions.findIndex((admission) => admission.request.candidate === conflict.details.candidate);
+    const unattemptedCount = failed < 0 ? 0 : admissions.slice(failed + 1).filter((admission) => !admission.acknowledged).length;
+    return {
+      identity,
+      tree,
+      unattemptedCount,
+      items: [...grouped].sort(([left], [right]) => compareWireNames(left, right)).map(([path, reasons]) => {
+        const current = conflictContent(material.current, path);
+        const mine = conflictContent(material.mine, path);
+        const draft = conflictContent(material.draft, path);
+        return {
+          path,
+          reasons,
+          base: conflictContent(material.base, path),
+          current,
+          mine,
+          draft,
+          offersBoth: JSON.stringify(draft) !== JSON.stringify(current) && JSON.stringify(draft) !== JSON.stringify(mine),
+        };
+      }),
+    };
+  }
+
+  async resolveReviewedTreeConflict(
+    tree: string,
+    identity: string,
+    resolutions: Record<string, SyncConflictResolution>,
+  ): Promise<MutationReceipt["effects"]> {
+    const review = await this.treeConflictWorkspace(tree);
+    if (review.identity !== identity) throw new ProtocolError("conflict", "Conflict review is stale; reopen it before submitting", 409);
+    if (review.unattemptedCount > 0) {
+      throw new ProtocolError("unsupported-operation", "Later queued changes require ordered replay before this conflict can be resolved", 422);
+    }
+    const paths = review.items.map((item) => item.path);
+    if (Object.keys(resolutions).length !== paths.length || paths.some((path) => !resolutions[path])) {
+      throw new ProtocolError("invalid-request", "Choose a resolution for every conflicting path", 400);
+    }
+    for (const left of paths) for (const right of paths) {
+      if (left !== right && right.startsWith(left === "/" ? "/" : `${left}/`)) {
+        throw new ProtocolError("unsupported-operation", "Overlapping conflict paths cannot be resolved independently", 422);
+      }
+    }
+    if (!await treeConflict(tree)) {
+      const retained = await this.acknowledgedEditorReview(tree);
+      if (!retained || retained.identity !== identity) {
+        throw new ProtocolError("conflict", "Accepted merge review is stale; reopen it before submitting", 409);
+      }
+      const item = review.items[0]!;
+      const resolution = resolutions[item.path]!;
+      if (resolution.choice === "both") throw new ProtocolError("invalid-request", "Both is unavailable for an accepted merge review", 400);
+      let candidate = retained.material.current;
+      if (resolution.choice === "mine") {
+        candidate = replaceConflictTarget(candidate, item.path, retained.material.mine);
+      } else if (resolution.choice === "edit") {
+        if (![item.current, item.mine].some((content) => content.kind === "text")) {
+          throw new ProtocolError("invalid-request", `${item.path} is not editable text`, 400);
+        }
+        candidate = replaceConflictTarget(candidate, item.path, retained.material.current, resolution.text);
+      }
+      const latest = (await retained.client.descriptor(tree)).tree;
+      if (latest.root !== retained.descriptor.root || latest.update !== retained.descriptor.update) {
+        throw new ProtocolError("conflict", "Canopy advanced while accepted merge review was open; reopen it before submitting", 409);
+      }
+      await materializeTree(
+        retained.workspace.root,
+        candidate.root,
+        (hash) => {
+          const bytes = candidate.objects.get(hash);
+          if (!bytes) throw new Error(`Reviewed accepted merge is missing object: ${hash}`);
+          return Promise.resolve(bytes);
+        },
+        undefined,
+        this.trees.excludedMountsWithin(retained.workspace.root),
+      );
+      await clearPendingEditorAdmissions(tree);
+      await this.trees.updateSyncMetadata({
+        ...retained.placement,
+        ref: retained.descriptor.root,
+        update: retained.descriptor.update,
+        access: retained.descriptor.access === "none" ? "read" : retained.descriptor.access,
+      });
+      this.treeSync.conflicts.delete(tree);
+      if (candidate.root === retained.descriptor.root) {
+        await clearPendingTreeUpdate(tree);
+        await saveAcceptedTreeObjects(tree, retained.material.current);
+        this.trees.setSyncState(tree, "idle");
+      } else {
+        await savePendingTreeUpdate(tree, pendingFromSnapshot(retained.descriptor.update, candidate, new Set(), "local-api"));
+        const refreshedPlacement = this.trees.placementFor(tree);
+        if (!refreshedPlacement) throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
+        await this.treeSync.updateWorkspace(
+          retained.workspace,
+          refreshedPlacement,
+          retained.client,
+          (await retained.client.list()).snapshot,
+        );
+      }
+      return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/conflicts/${tree}`, stableKey: null } }];
+    }
+    const { conflict, material } = await this.conflictReviewMaterial(tree);
+    let candidate = material.draft;
+    for (const item of review.items) {
+      const resolution = resolutions[item.path]!;
+      if (resolution.choice === "both") {
+        if (!item.offersBoth) throw new ProtocolError("invalid-request", `Both is unavailable for ${item.path}`, 400);
+      } else if (resolution.choice === "current") {
+        candidate = replaceConflictTarget(candidate, item.path, material.current);
+      } else if (resolution.choice === "mine") {
+        candidate = replaceConflictTarget(candidate, item.path, material.mine);
+      } else {
+        if (resolution.choice !== "edit") throw new ProtocolError("invalid-request", `Invalid resolution for ${item.path}`, 400);
+        const editable = [item.current, item.mine, item.draft].some((content) => content.kind === "text");
+        if (!editable) throw new ProtocolError("invalid-request", `${item.path} is not editable text`, 400);
+        candidate = replaceConflictTarget(candidate, item.path, material.draft, resolution.text);
+      }
+    }
+    const placement = this.trees.placementFor(tree);
+    const workspace = await this.trees.workspaceByTree(tree);
+    if (!placement || !workspace) throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
+    const client = await this.accountClient(placement);
+    const descriptor = (await client.descriptor(tree)).tree;
+    const local = await this.snapshotWorkspace(workspace, client);
+    if (descriptor.root !== conflict.details.current.root || descriptor.update !== conflict.details.current.id || local.root !== material.mine.root) {
+      throw new ProtocolError("conflict", "The tree changed while conflict review was open; reopen it before submitting", 409);
+    }
+    await materializeTree(
+      workspace.root,
+      candidate.root,
+      (hash) => {
+        const bytes = candidate.objects.get(hash);
+        if (!bytes) throw new Error(`Reviewed conflict candidate is missing object: ${hash}`);
+        return Promise.resolve(bytes);
+      },
+      undefined,
+      this.trees.excludedMountsWithin(workspace.root),
+    );
+    await clearPendingEditorAdmissions(tree);
+    await savePendingTreeUpdate(tree, pendingFromSnapshot(conflict.details.current.id, candidate, new Set(), "local-api"));
+    await clearTreeConflict(tree);
+    this.treeSync.conflicts.delete(tree);
+    await this.treeSync.updateWorkspace(workspace, placement, client, (await client.list()).snapshot);
+    return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/conflicts/${tree}`, stableKey: null } }];
   }
 
   async resolveTreeConflict(

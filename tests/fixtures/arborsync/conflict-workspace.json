@@ -1,0 +1,14 @@
+{
+  "identity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tree": "tr_notes7f3q2ab7c",
+  "unattemptedCount": 0,
+  "items": [{
+    "path": "/note.md",
+    "reasons": ["frontmatter-conflict"],
+    "base": { "kind": "text", "text": "base\n" },
+    "current": { "kind": "text", "text": "current\n" },
+    "mine": { "kind": "text", "text": "mine\n" },
+    "draft": { "kind": "text", "text": "both\n" },
+    "offersBoth": true
+  }]
+}

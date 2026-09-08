@@ -4,6 +4,7 @@ import { arborPrivateRoot, prepareArborDataRoot } from "@arbor/stores";
 import {
   decodeObjectDeltas,
   decodeTreeSnapshotJSON,
+  encodeTreeSnapshotJSON,
   encodeObjectDeltaJSON,
   encodeObjectEnvelopes,
   encodeUpdateConflictJSON,
@@ -12,16 +13,25 @@ import {
   type TreeSnapshot,
   type UpdateConflictJSON,
   type UpdateConflictResult,
+  type TreeSnapshotJSON,
   type CandidateUpdateJSON,
   applyTransitionPayload,
   decodeUpdateConflictJSON,
 } from "@arbor/wire";
 import type { FrozenEditorAdmission } from "./editor-admission.ts";
 import type { Hash } from "@arbor/core";
+import type { AcceptedUpdate } from "@arbor/wire";
 
 /** The durable pending update is exactly the wire request body it will become. */
 export type PendingTreeUpdate = CandidateUpdateJSON & {
   base: string | null;
+  /**
+   * A transmitted prefix repeated verbatim when a newer filesystem head was
+   * authored while Canopy was reconciling it. Canopy trims accepted elements
+   * by request digest, then applies only each successor's delta from the
+   * preceding submitted candidate.
+   */
+  successors?: CandidateUpdateJSON[];
   /** Explicit Local Arbor API intent remains authoritative during an editor epoch. */
   origin?: "local-api";
 };
@@ -37,10 +47,26 @@ export type StoredTreeConflict = UpdateConflictJSON;
 interface TreeSyncState {
   pending?: PendingTreeUpdate;
   conflict?: StoredTreeConflict;
+  conflictMaterial?: StoredTreeConflictMaterial;
   accepted?: AcceptedTreeObjects;
   editorAdmissions?: FrozenEditorAdmission[];
   /** Recent Canopy request digests whose accepted state was materialized locally. */
   acceptedRequestDigests?: Hash[];
+}
+
+export interface TreeConflictMaterial {
+  base: TreeSnapshot;
+  current: TreeSnapshot;
+  mine: TreeSnapshot;
+  draft: TreeSnapshot;
+}
+
+interface StoredTreeConflictMaterial {
+  identity: string;
+  base: TreeSnapshotJSON;
+  current: TreeSnapshotJSON;
+  mine: TreeSnapshotJSON;
+  draft: TreeSnapshotJSON;
 }
 
 const MAX_ACCEPTED_REQUEST_DIGESTS = 256;
@@ -80,6 +106,7 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
   if (
     !state.pending
     && !state.conflict
+    && !state.conflictMaterial
     && !state.accepted
     && !state.editorAdmissions?.length
     && !state.acceptedRequestDigests?.length
@@ -111,6 +138,23 @@ export function pendingFromSnapshot(
 
 export function snapshotFromPending(pending: PendingTreeUpdate): TreeSnapshot {
   return decodeTreeSnapshotJSON({ root: pending.candidate, objects: pending.objects });
+}
+
+export function updatesFromPending(pending: PendingTreeUpdate): CandidateUpdateJSON[] {
+  const { base: _base, origin: _origin, successors: _successors, ...first } = pending;
+  return [first, ...(pending.successors ?? [])];
+}
+
+/** Append a newer filesystem head behind an already-transmitted prefix. */
+export function appendPendingTreeSuccessor(
+  pending: PendingTreeUpdate,
+  snapshot: TreeSnapshot,
+): PendingTreeUpdate {
+  // The complete graph is intentional: the successor derives from the prior
+  // submitted candidate, which may not have been materialized after a merge.
+  const successor = pendingFromSnapshot(null, snapshot);
+  const { base: _base, origin: _origin, successors: _successors, ...update } = successor;
+  return { ...pending, successors: [...(pending.successors ?? []), update] };
 }
 
 export function deltasFromPending(pending: PendingTreeUpdate): ObjectDelta[] {
@@ -220,13 +264,18 @@ export function acknowledgePendingEditorAdmissions(
   tree: string,
   id: string,
   candidates: readonly string[],
+  accepted: readonly AcceptedUpdate[] = [],
 ): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
     const admissions = [...(state.editorAdmissions ?? [])];
-    for (const candidate of candidates) {
+    for (const [decisionIndex, candidate] of candidates.entries()) {
       const index = admissions.findIndex((admission) => admission.id === id && admission.request.candidate === candidate);
-      if (index >= 0) admissions[index] = { ...admissions[index]!, acknowledged: true };
+      if (index >= 0) admissions[index] = {
+        ...admissions[index]!,
+        acknowledged: true,
+        ...(accepted[decisionIndex] ? { accepted: accepted[decisionIndex] } : {}),
+      };
     }
     await save(tree, { ...state, editorAdmissions: admissions });
   });
@@ -284,6 +333,39 @@ export function treeConflict(tree: string): Promise<StoredTreeConflict | undefin
   return serialized(tree, async () => (await load(tree)).conflict);
 }
 
+export function treeConflictMaterial(tree: string): Promise<{ identity: string; material: TreeConflictMaterial } | undefined> {
+  return serialized(tree, async () => {
+    const stored = (await load(tree)).conflictMaterial;
+    if (!stored) return undefined;
+    return {
+      identity: stored.identity,
+      material: {
+        base: decodeTreeSnapshotJSON(stored.base),
+        current: decodeTreeSnapshotJSON(stored.current),
+        mine: decodeTreeSnapshotJSON(stored.mine),
+        draft: decodeTreeSnapshotJSON(stored.draft),
+      },
+    };
+  });
+}
+
+export function saveTreeConflictMaterial(tree: string, identity: string, material: TreeConflictMaterial): Promise<void> {
+  return serialized(tree, async () => {
+    const state = await load(tree);
+    if (!state.conflict) throw new Error(`Cannot retain conflict material without a conflict: ${tree}`);
+    await save(tree, {
+      ...state,
+      conflictMaterial: {
+        identity,
+        base: encodeTreeSnapshotJSON(material.base),
+        current: encodeTreeSnapshotJSON(material.current),
+        mine: encodeTreeSnapshotJSON(material.mine),
+        draft: encodeTreeSnapshotJSON(material.draft),
+      },
+    });
+  });
+}
+
 export function savePendingTreeUpdate(tree: string, pending: PendingTreeUpdate): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
@@ -302,6 +384,7 @@ export function clearPendingTreeUpdate(tree: string): Promise<void> {
 export function saveTreeConflict(tree: string, conflict: UpdateConflictResult): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
+    delete state.conflictMaterial;
     await save(tree, { ...state, conflict: encodeUpdateConflictJSON(conflict) });
   });
 }
@@ -310,6 +393,7 @@ export function clearTreeConflict(tree: string): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
     delete state.conflict;
+    delete state.conflictMaterial;
     await save(tree, state);
   });
 }

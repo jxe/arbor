@@ -42,11 +42,12 @@ describe("Arbor daemon supervision", () => {
     const commands: string[][] = [];
     let loaded = false;
     let running = false;
+    let instance = 0;
     const supervisor = new DarwinArborDaemonSupervisor({
       home,
       executable: "/opt/arbor/arborsync",
       fetcher: (async () => running
-        ? Response.json({ service: "arborsync", protocolVersion: "v1" })
+        ? Response.json({ service: "arborsync", protocolVersion: "v1", instanceID: `instance-${instance}` })
         : Promise.reject(new Error("stopped"))),
       run: async (command) => {
         commands.push(command);
@@ -56,8 +57,8 @@ describe("Arbor daemon supervision", () => {
             ? { exitCode: 0, stdout: `state = ${running ? "running" : "waiting"}\npid = 812`, stderr: "" }
             : { exitCode: 113, stdout: "", stderr: "not found" };
         }
-        if (action === "bootstrap") { loaded = true; running = true; }
-        if (action === "kickstart") { running = true; }
+        if (action === "bootstrap") { loaded = true; running = true; instance += 1; }
+        if (action === "kickstart") { running = true; instance += 1; }
         if (action === "kill") running = false;
         if (action === "bootout") { loaded = false; running = false; }
         return { exitCode: 0, stdout: "", stderr: "" };
@@ -95,4 +96,15 @@ describe("Arbor daemon supervision", () => {
     });
     await expect(supervisor.install()).rejects.toThrow("unsupervised Arbor Sync");
   });
+
+  test("does not report restart success while the old instance still owns the port", async () => {
+    delete process.env.ARBOR_DATA_HOME;
+    const supervisor = new DarwinArborDaemonSupervisor({
+      fetcher: async () => Response.json({ service: "arborsync", protocolVersion: "v1", instanceID: "old-instance" }),
+      run: async (command) => command[1] === "print"
+        ? { exitCode: 0, stdout: "state = running\npid = 812", stderr: "" }
+        : { exitCode: 0, stdout: "", stderr: "" },
+    });
+    await expect(supervisor.restart()).rejects.toThrow("did not produce a new service instance");
+  }, 10_000);
 });

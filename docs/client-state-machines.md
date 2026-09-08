@@ -146,6 +146,26 @@ that state is written, Arbor Sync emits the incorporated digests with the
 `updated` event and keeps recent ones on later node snapshots, which is how
 a reconnecting editor recovers its fence.
 
+On daemon restart, an acknowledged admission may still be the exact graph on
+disk while the placement metadata names its older accepted base. If that graph
+matches the final acknowledged candidate, it is the daemon's own editor mirror,
+not an unknown filesystem edit. Re-anchor it directly when Canopy accepted that
+exact root. If Canopy instead reports a Markdown merge with approximate
+placements, retain the candidate and authority decision, leave disk untouched,
+and stop for explicit review. Older journals without the authority-decision
+field take the same conservative review path after a transmitted admission.
+Only a different local graph is an unexplained divergence.
+
+The same prefix rule applies to filesystem-authored work that moves during a
+request. If Canopy merged the transmitted candidate while newer local bytes
+were already durable, Arbor Sync must not turn those bytes into a fresh request
+against the original stale base. It persists a longer request containing the
+exact transmitted prefix plus the latest successor once. Canopy deduplicates
+the prefix by request digest and reconciles only the successor transition. If
+that transition conflicts, Arbor Sync retains Base, Current, Mine, and Draft
+immediately because its base may be a submitted candidate rather than a
+snapshot-addressable accepted root.
+
 Choose this machine when a local daemon owns authored persistence. Choose the
 direct machine when the client owns a durable replica. Do not combine them or
 skip local durability.
@@ -158,3 +178,36 @@ The thick client retains those boundaries across restart, submits the reviewed
 failed element first, and then replays the exact later local changes in order.
 Most conflicts therefore produce one content review; another review appears
 only if a later guarded replay or Canopy submission independently conflicts.
+
+## 7. Conflict review for Arbor Sync clients
+
+Treat tree status and review evidence as separate facts. `sync: "conflict"`
+means automatic synchronization stopped; it does not authorize a choice.
+Fetch `/v1/conflicts?tree=...` and offer resolution only after that request
+returns the durable, identity-fenced Base, Current, Mine, and Canopy Draft
+values. A missing or unavailable workspace is an error state, never an empty
+conflict and never permission to keep local or remote implicitly.
+
+The UI may present Current, Mine, `Both` when `offersBoth` is true, and Edit
+when at least one returned value is textual. It submits those semantic choices
+and the opaque workspace identity to Arbor Sync. The daemon owns graph
+replacement, validates every resulting object hash, rechecks both the remote
+accepted update and local candidate, and durably records the reviewed result
+before clearing the conflict. On a stale-identity response, discard the open
+review and fetch it again.
+
+An accepted merge with approximate Markdown placements is also a review
+boundary even though Canopy returned success rather than `409`. Arbor Sync
+returns `accepted-merge-needs-review`, uses the latest accepted tree as Current
+and Draft, and preserves the exact editor candidate as Mine. `Both` is disabled
+because the automatically combined authority text is precisely the result that
+needs review. Choosing Mine or Edit creates a new exact candidate against the
+latest accepted update; choosing Current acknowledges authority without another
+write.
+
+Persist review material before depending on it for recovery. A restart must
+not turn remembered status into fabricated evidence, and losing connectivity
+after the first successful review fetch must not make the four graphs vanish.
+If `unattemptedCount` is nonzero, keep the suffix untouched and disable submit;
+the failed element and later update-string elements are distinct authored
+history boundaries.

@@ -155,8 +155,39 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
   osPath?: string;
   placement: "placed" | "replica" | "remote";
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  /** True only when the daemon has durable Canopy evidence that can be reviewed. */
+  reviewableConflict?: boolean;
   missing?: boolean;
 }
+
+export type SyncConflictContent =
+  | { kind: "missing" }
+  | { kind: "text"; text: string }
+  | { kind: "binary"; bytes: string }
+  | { kind: "directory"; entries: string[] }
+  | { kind: "boundary"; tree: string };
+
+export interface SyncConflictItem {
+  path: string;
+  reasons: string[];
+  base: SyncConflictContent;
+  current: SyncConflictContent;
+  mine: SyncConflictContent;
+  draft: SyncConflictContent;
+  offersBoth: boolean;
+}
+
+/** A restart-safe, identity-fenced view of one Canopy conflict. */
+export interface SyncConflictWorkspace {
+  identity: string;
+  tree: TreeID;
+  items: SyncConflictItem[];
+  unattemptedCount: number;
+}
+
+export type SyncConflictResolution =
+  | { choice: "current" | "mine" | "both" }
+  | { choice: "edit"; text: string };
 
 /** A one-time device pairing offer; identical on the Wire and through Arbor Sync. */
 export interface PairingOffer {

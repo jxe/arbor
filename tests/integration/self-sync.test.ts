@@ -193,6 +193,43 @@ describe("private self-sync", () => {
     }
   });
 
+  test("adds an admission basis after healing a renamed document by stable identity", async () => {
+    const author = await launch(stateA, treeA);
+    try {
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      const staleRef = { tree, path: "/admission-before-rename", stableKey: null } as const;
+      await author.client.mutateStructural([{
+        op: "createMarkdown",
+        tree,
+        path: staleRef.path,
+      }], "create-admission-rename-page");
+      const created = await author.client.node(staleRef);
+      const identified = await author.client.ensureDocumentIdentity(
+        staleRef,
+        created.capabilities.content!.revision,
+      );
+      await author.client.mutateStructural([{
+        op: "rename",
+        ref: identified.ref,
+        name: "admission-after-rename",
+      }], "rename-admission-page");
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+
+      const healed = await author.client.editorNode({
+        ...identified.ref,
+        path: staleRef.path,
+      });
+
+      expect(healed.ref.path).toBe("/admission-after-rename");
+      expect(healed.ref.stableKey).toBe(identified.ref.stableKey);
+      expect(healed.admissionBasis).toBeString();
+    } finally {
+      await author.close();
+    }
+  });
+
   test("preserves divergent mirror bytes without submitting or overwriting them", async () => {
     const author = await launch(stateA, treeA);
     try {
@@ -389,6 +426,128 @@ describe("private self-sync", () => {
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     await author.close();
   });
+
+  test("repeats a merged prefix when local files advance instead of reapplying them against its stale base", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const before = await author.client.node(ref);
+    const firstSource = "# Moving local generation one\n";
+    const secondSource = "# Moving local generation two\n";
+    const daemonBodies: any[] = [];
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const systemFetch = globalThis.fetch;
+    let releaseFirst!: () => void;
+    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let observeFirst!: () => void;
+    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
+    let blockDaemonUpdate = true;
+    let recordDaemon = true;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (recordDaemon && url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        daemonBodies.push(JSON.parse(init.body));
+        if (blockDaemonUpdate) {
+          blockDaemonUpdate = false;
+          observeFirst();
+          await firstReleased;
+        }
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: before.capabilities.content!.revision,
+        source: firstSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(nodeDocument(before)!.source),
+          replacement: firstSource,
+          expected: nodeDocument(before)!.source,
+        }],
+      });
+      await firstObserved;
+
+      // Advance Canopy while Arbor Sync's first local candidate is in flight,
+      // forcing that candidate to be accepted through a merge.
+      const owner = new WireClient(host.url, token);
+      const remote = await readAccepted(owner, tree);
+      const remoteRoot = decodeWireObject(remote.snapshot.objects.get(remote.snapshot.root)!);
+      if (remoteRoot.type !== "directory") throw new Error("Expected a directory root");
+      const remoteFile = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("remote sibling\n") });
+      const remoteDirectory = encodeWireObject({
+        ...remoteRoot,
+        entries: [...remoteRoot.entries, { name: "remote-during-moving-local.txt", hash: hashObject(remoteFile) }]
+          .sort((left, right) => compareWireNames(left.name, right.name)),
+      });
+      remote.snapshot.objects.set(hashObject(remoteFile), remoteFile);
+      remote.snapshot.objects.set(hashObject(remoteDirectory), remoteDirectory);
+      recordDaemon = false;
+      const remoteAccepted = await owner.submitUpdate(tree, remote.descriptor.tree.update, {
+        root: hashObject(remoteDirectory),
+        objects: remote.snapshot.objects,
+      });
+      recordDaemon = true;
+      if (remoteAccepted.outcome !== "accepted") throw new Error("Expected the remote sibling update to be accepted");
+
+      const afterFirst = await author.client.node(ref);
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: afterFirst.capabilities.content!.revision,
+        source: secondSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(nodeDocument(afterFirst)!.source),
+          replacement: secondSource,
+          expected: nodeDocument(afterFirst)!.source,
+        }],
+      });
+      releaseFirst();
+
+      await waitFor(async () => daemonBodies.length >= 2, 10_000);
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "conflict", 10_000);
+      expect(daemonBodies[0].updates).toHaveLength(1);
+      expect(daemonBodies[1].base).toBe(daemonBodies[0].base);
+      expect(daemonBodies[1].updates[0]).toEqual(daemonBodies[0].updates[0]);
+      expect(daemonBodies[1].updates).toHaveLength(2);
+      expect(host.canopy.acceptedUpdates(tree).slice(historyBefore).map((update) => update.kind))
+        .toEqual(["accepted", "merged"]);
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
+
+      // The successor cannot be applied cleanly, so its exact latest bytes
+      // remain Mine in durable review rather than becoming another merge.
+      const review = await author.client.conflict(tree);
+      expect(review.items.length).toBeGreaterThan(0);
+      expect(review.items.every((item) => item.base && item.current && item.mine && item.draft)).toBe(true);
+      await author.client.resolveConflict(tree, review.identity, Object.fromEntries(
+        review.items.map((item) => [item.path, { choice: "current" as const }]),
+      ));
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      expect(await readFile(join(treeA, "remote-during-moving-local.txt"), "utf8")).toBe("remote sibling\n");
+
+      await rm(join(treeA, "remote-during-moving-local.txt"));
+      const after = await author.client.node(ref);
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: after.capabilities.content!.revision,
+        source: "# Complete-object fallback\n",
+      });
+      await author.running.service.synchronizeNow();
+    } finally {
+      recordDaemon = true;
+      releaseFirst();
+      globalThis.fetch = systemFetch;
+      await author.close();
+    }
+  }, 20_000);
 
   test("retains a generation admitted during an in-flight request as one successor, never a concurrent longer prefix", async () => {
     const author = await launch(stateA, treeA);
@@ -807,7 +966,7 @@ describe("private self-sync", () => {
     }
   });
 
-  test("submits a stale Native document candidate to Canopy instead of overwriting the accepted file", async () => {
+  test("reviews an approximate merge of a stale Native document candidate", async () => {
     const author = await launch(stateA, treeA);
     try {
       await waitFor(async () => (await author.running.service.trees.descriptors())
@@ -862,8 +1021,8 @@ describe("private self-sync", () => {
           }],
         );
         await waitFor(async () => {
-          const source = await readFile(join(treeA, "note.md"), "utf8");
-          return source.includes("Remote while open.") && source.includes("Native while open.");
+          const descriptor = (await author.client.trees()).snapshot.find((candidate) => candidate.id === tree);
+          return descriptor?.sync === "conflict" && descriptor.reviewableConflict === true;
         });
       } finally {
         globalThis.fetch = systemFetch;
@@ -874,7 +1033,17 @@ describe("private self-sync", () => {
       expect(requests.some(({ url }) => url.includes(`/.arbor/trees/${tree}/snapshots/`))).toBe(false);
       expect(requests.find(({ url, body }) => url.includes(`/.arbor/trees/${tree}/updates`) && typeof body?.updates?.[0]?.candidate === "string")?.body)
         .toMatchObject({ base: current.descriptor.tree.update, updates: [expect.objectContaining({ ifMatch: "modelHash" })] });
-      expect(await readFile(join(treeA, "note.md"), "utf8")).toContain("Native while open.");
+      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toContain("Native while open.");
+      const review = await author.client.conflict(tree);
+      expect(review.items[0]).toMatchObject({
+        path: "/note.md",
+        reasons: ["accepted-merge-needs-review"],
+      });
+      const reviewedSource = `${openedSource}\nRemote while open.\nNative while open.\n`;
+      await author.client.resolveConflict(tree, review.identity, {
+        "/note.md": { choice: "edit", text: reviewedSource },
+      });
+      await waitFor(async () => await readFile(join(treeA, "note.md"), "utf8") === reviewedSource);
       await waitFor(async () => (await pendingEditorAdmissions(tree)).length === 0);
       expect(await pendingEditorAdmissions(tree)).toEqual([]);
 
@@ -956,7 +1125,7 @@ describe("private self-sync", () => {
     expect(await pendingEditorAdmissions(tree)).toEqual([]);
   });
 
-  test("keeps publishing after an offline admission is merged on reconnection", async () => {
+  test("reviews an accepted offline merge before materializing it", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -1000,9 +1169,25 @@ describe("private self-sync", () => {
 
       await author.running.service.synchronizeNow();
       await waitFor(async () => {
-        const note = await readFile(join(treeA, "note.md"), "utf8");
-        return note.includes("Offline admission.") && note.includes("Remote addition.");
+        const descriptor = (await author.client.trees()).snapshot.find((candidate) => candidate.id === tree);
+        return descriptor?.sync === "conflict" && descriptor.reviewableConflict === true;
       });
+      const unchangedDisk = await readFile(join(treeA, "note.md"), "utf8");
+      expect(unchangedDisk).not.toInclude("Offline admission.");
+      expect(unchangedDisk).not.toInclude("Remote addition.");
+      const review = await author.client.conflict(tree);
+      expect(review.items).toEqual([expect.objectContaining({
+        path: "/note.md",
+        reasons: ["accepted-merge-needs-review"],
+        offersBoth: false,
+      })]);
+      expect(review.items[0]?.current.kind).toBe("text");
+      expect(review.items[0]?.mine.kind).toBe("text");
+      const reviewedSource = `${unchangedDisk}Remote addition.\nOffline admission.\n`;
+      await author.client.resolveConflict(tree, review.identity, {
+        "/note.md": { choice: "edit", text: reviewedSource },
+      });
+      await waitFor(async () => await readFile(join(treeA, "note.md"), "utf8") === reviewedSource);
 
       await admit("Admission after the merge.\n");
       await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Admission after the merge."), 10_000);
@@ -1012,7 +1197,7 @@ describe("private self-sync", () => {
     }
   });
 
-  test("keeps publishing after an offline admission is merged by the watch-driven reconnection", async () => {
+  test("reviews an accepted offline merge found by watch-driven reconnection", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -1056,9 +1241,23 @@ describe("private self-sync", () => {
 
       // No explicit synchronization: the daemon reconnects on its own.
       await waitFor(async () => {
-        const note = await readFile(join(treeA, "note.md"), "utf8");
-        return note.includes("Watch-run offline admission.") && note.includes("Watch-run remote addition.");
+        const descriptor = (await author.client.trees()).snapshot.find((candidate) => candidate.id === tree);
+        return descriptor?.sync === "conflict" && descriptor.reviewableConflict === true;
       }, 30_000);
+      const unchangedDisk = await readFile(join(treeA, "note.md"), "utf8");
+      expect(unchangedDisk).not.toInclude("Watch-run offline admission.");
+      expect(unchangedDisk).not.toInclude("Watch-run remote addition.");
+      const review = await author.client.conflict(tree);
+      expect(review.items[0]).toMatchObject({
+        path: "/note.md",
+        reasons: ["accepted-merge-needs-review"],
+        offersBoth: false,
+      });
+      const reviewedSource = `${unchangedDisk}Watch-run remote addition.\nWatch-run offline admission.\n`;
+      await author.client.resolveConflict(tree, review.identity, {
+        "/note.md": { choice: "edit", text: reviewedSource },
+      });
+      await waitFor(async () => await readFile(join(treeA, "note.md"), "utf8") === reviewedSource);
 
       await admit("Watch-run admission after the merge.\n");
       await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Watch-run admission after the merge."), 10_000);
@@ -1253,7 +1452,17 @@ describe("private self-sync", () => {
       const descriptor = (await restarted.client.trees()).snapshot.find((candidate) => candidate.id === tree);
       return descriptor?.sync === "conflict";
     });
-    await restarted.running.service.resolveTreeConflict(tree, "local");
+    const review = await restarted.client.conflict(tree);
+    expect(review.tree).toBe(tree);
+    expect(review.items).toEqual([expect.objectContaining({
+      path: "/sample.bin",
+      reasons: ["binary-conflict"],
+      offersBoth: false,
+    })]);
+    expect(review.items[0]?.mine.kind).toBe("text");
+    await restarted.client.resolveConflict(tree, review.identity, {
+      "/sample.bin": { choice: "mine" },
+    });
     await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2);
     await restarted.close();
 

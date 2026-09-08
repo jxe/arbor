@@ -11,6 +11,7 @@ import {
   type ObjectHash,
   type TreeSnapshot,
   type CandidateUpdateJSON,
+  type AcceptedUpdate,
   decodeCandidateUpdateJSON,
   updateRequestDigests,
 } from "@arbor/wire";
@@ -31,6 +32,14 @@ interface AdmissionBasisValue {
   objects: ReturnType<typeof encodeObjectEnvelopes>;
 }
 
+export function editorAdmissionContext(admission: FrozenEditorAdmission): {
+  baseRoot: ObjectHash;
+  wirePath: string;
+} {
+  const basis = decodeBasis(admission.admissionBasis);
+  return { baseRoot: basis.baseRoot, wirePath: basis.wirePath };
+}
+
 export interface FrozenEditorAdmission {
   editorID?: string;
   id: string;
@@ -45,6 +54,14 @@ export interface FrozenEditorAdmission {
   transmitted?: boolean;
   /** Durable acknowledgement marker; retained until the editor reanchors on a newer watchpoint. */
   acknowledged?: boolean;
+  /** The exact authority decision for this candidate, retained through materialization. */
+  accepted?: AcceptedUpdate;
+}
+
+export function acceptedEditorAdmissionNeedsReview(admission: FrozenEditorAdmission): boolean {
+  if (!admission.accepted) return admission.transmitted === true;
+  return admission.accepted.merge?.version === "markdown-additive-v1"
+    && admission.accepted.merge.approximatePlacements > 0;
 }
 
 export class EditorAdmissionReconciliationError extends Error {

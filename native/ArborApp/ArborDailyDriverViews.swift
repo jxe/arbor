@@ -1003,6 +1003,7 @@ struct ArborTreeSyncStatus: Identifiable {
     let title: String
     let detail: String
     let condition: String
+    let reviewableConflict: Bool
 }
 
 struct ArborSyncStatusView: View {
@@ -1013,6 +1014,7 @@ struct ArborSyncStatusView: View {
     let treeStatuses: [ArborTreeSyncStatus]
     let retrySave: () -> Void
     let syncNow: () -> Void
+    let reviewConflict: (String) -> Void
     let reconnectArborSync: () -> Void
     let showArborSyncLogs: () -> Void
 
@@ -1079,26 +1081,12 @@ struct ArborSyncStatusView: View {
                 if !treeStatuses.isEmpty {
                     Section("Trees") {
                         ForEach(treeStatuses) { tree in
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(tree.title)
-                                    Text(tree.detail)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                Spacer()
-                                Text(tree.condition)
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(
-                                        (tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
-                                            .opacity(0.1),
-                                        in: Capsule()
-                                    )
+                            if tree.condition == "Conflict" && tree.reviewableConflict {
+                                Button { reviewConflict(tree.id) } label: { treeRow(tree) }
+                                    .buttonStyle(.plain)
+                                    .accessibilityHint("Opens the Canopy conflict review")
+                            } else {
+                                treeRow(tree)
                             }
                         }
                     }
@@ -1139,6 +1127,31 @@ struct ArborSyncStatusView: View {
 #if os(macOS)
         .frame(minWidth: 560, minHeight: 430)
 #endif
+    }
+
+    private func treeRow(_ tree: ArborTreeSyncStatus) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tree.title)
+                Text(tree.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            Text(tree.condition == "Conflict" && tree.reviewableConflict ? "Review Conflict" : tree.condition)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    (tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
+                        .opacity(0.1),
+                    in: Capsule()
+                )
+        }
+        .contentShape(Rectangle())
     }
 
     private var saveStatus: String {
@@ -1358,7 +1371,7 @@ struct ArborSyncConflictView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 16) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Canopy stopped at the first change it could not merge safely. Review each affected path using the actual content, then submit the result as a new edit.")
+                                Text(reviewIntroduction(workspace))
                                     .foregroundStyle(.secondary)
                                 if workspace.unattemptedCount > 0 {
                                     Label("\(workspace.unattemptedCount) later change\(workspace.unattemptedCount == 1 ? "" : "s") remain untouched and will not be discarded.", systemImage: "clock.arrow.circlepath")
@@ -1475,9 +1488,18 @@ struct ArborSyncConflictView: View {
             "The same path became incompatible kinds of node. Choose the intended node shape."
         case "binary-conflict":
             "Both versions replaced opaque file content. Arbor cannot combine those bytes automatically."
+        case "accepted-merge-needs-review":
+            "Canopy accepted a combined result that differs from your exact edit. Review it before Arbor writes that result to disk."
         default:
             "Review the local candidate against the remote version at this path, then retry the intended result."
         }
+    }
+
+    private func reviewIntroduction(_ workspace: ReplicaConflictWorkspace) -> String {
+        if workspace.items.contains(where: { $0.reasons.contains("accepted-merge-needs-review") }) {
+            return "Canopy combined concurrent changes, but the accepted result differs from your exact edit. Choose Current, Mine, or edit the result before Arbor writes it to disk."
+        }
+        return "Canopy stopped at the first change it could not merge safely. Review each affected path using the actual content, then submit the result as a new edit."
     }
 }
 

@@ -43,6 +43,7 @@ final class ArborSyncClientTests: XCTestCase {
         let recovery = try decode(RecoveryPage.self, "recovery.json")
         let operationRequests = try decode([MutationRequest].self, "operations.json")
         let errors = try decode([ArborSyncErrorEnvelope].self, "errors.json")
+        let conflict = try decode(ArborSyncConflictWorkspace.self, "conflict-workspace.json")
         let unknownNode = try decode(NodeSnapshot.self, "node-unknown-field.json")
         let untracked = try decode(NodeSnapshot.self, "node-untracked.json")
         let systemTree = try decode(NodeSnapshot.self, "node-system-tree.json")
@@ -83,6 +84,8 @@ final class ArborSyncClientTests: XCTestCase {
             ["writeMarkdown", "writeProperties", "writeText", "createMarkdown", "createDirectory", "rename", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity"]
         )
         XCTAssertEqual(errors.last?.error, "future-error-code")
+        XCTAssertEqual(conflict.items.first?.draft.text, "both\n")
+        XCTAssertEqual(conflict.items.first?.offersBoth, true)
         XCTAssertEqual(mergeFixtures["version"] as? Int, 2)
         XCTAssertGreaterThanOrEqual((mergeFixtures["markdownCases"] as? [[String: Any]])?.count ?? 0, 10)
         XCTAssertEqual((mergeFixtures["pageMoveCases"] as? [[String: Any]])?.count, 4)

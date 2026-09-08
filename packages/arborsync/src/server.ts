@@ -466,6 +466,31 @@ function startArborSyncServer(
         if (request.method === "GET" && url.pathname === "/v1/trees") {
           return json(await service.treeList());
         }
+        if (request.method === "GET" && url.pathname === "/v1/conflicts") {
+          const tree = url.searchParams.get("tree");
+          if (!tree) throw new ProtocolError("invalid-request", "conflicts requires explicit tree scope", 400);
+          return json(await service.treeConflictWorkspace(tree));
+        }
+        if (request.method === "POST" && url.pathname === "/v1/conflicts/resolve") {
+          const body = await request.json() as { tree?: unknown; identity?: unknown; resolutions?: unknown };
+          if (typeof body.tree !== "string" || typeof body.identity !== "string" || !isRecord(body.resolutions)) {
+            throw new ProtocolError("invalid-request", "Conflict resolution requires tree, identity, and resolutions", 400);
+          }
+          const resolutions: Record<string, import("@arbor/core").SyncConflictResolution> = {};
+          for (const [path, value] of Object.entries(body.resolutions)) {
+            if (!isRecord(value) || typeof value.choice !== "string") {
+              throw new ProtocolError("invalid-request", `Invalid conflict resolution for ${path}`, 400);
+            }
+            if (["current", "mine", "both"].includes(value.choice) && Object.keys(value).length === 1) {
+              resolutions[path] = { choice: value.choice as "current" | "mine" | "both" };
+            } else if (value.choice === "edit" && typeof value.text === "string" && Object.keys(value).every((key) => key === "choice" || key === "text")) {
+              resolutions[path] = { choice: "edit", text: value.text };
+            } else {
+              throw new ProtocolError("invalid-request", `Invalid conflict resolution for ${path}`, 400);
+            }
+          }
+          return json({ effects: await service.resolveReviewedTreeConflict(body.tree, body.identity, resolutions) });
+        }
         if (request.method === "GET" && url.pathname === "/v1/accounts") {
           const [accounts, identity] = await Promise.all([service.accountList(), service.profileIdentity()]);
           return json({ accounts, identity });
@@ -663,6 +688,10 @@ function startArborSyncServer(
           });
         }
         if (error instanceof PathEscapeError) return errorResponse("unsafe-path", error.message, 400);
+        console.error(
+          `[arborsync] Unhandled ${request.method} ${url.pathname}`,
+          error instanceof Error ? error.stack ?? error.message : error,
+        );
         return errorResponse("internal-error", "Arbor Sync could not complete the request", 500, {
           retryable: true,
         });

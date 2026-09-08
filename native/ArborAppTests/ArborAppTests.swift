@@ -102,6 +102,31 @@ struct ArborAppTests {
         ) != nil)
     }
 
+    @Test("Local overview refreshes for synchronized ordinary trees")
+    func localOverviewSyncEvents() {
+        let configurationTree = "tr_account"
+        #expect(ArborWorkspaceState.localOverviewEventRequiresRefresh(
+            tree: "system",
+            origin: "external",
+            configurationTree: configurationTree
+        ))
+        #expect(ArborWorkspaceState.localOverviewEventRequiresRefresh(
+            tree: configurationTree,
+            origin: "api",
+            configurationTree: configurationTree
+        ))
+        #expect(ArborWorkspaceState.localOverviewEventRequiresRefresh(
+            tree: "tr_document",
+            origin: "sync",
+            configurationTree: configurationTree
+        ))
+        #expect(!ArborWorkspaceState.localOverviewEventRequiresRefresh(
+            tree: "tr_document",
+            origin: "api",
+            configurationTree: configurationTree
+        ))
+    }
+
     @Test("Extras state uses Arbor-owned support directories")
     func extrasSupportDirectories() {
         #expect(ArborSupportDirectories.root.lastPathComponent == "Arbor")

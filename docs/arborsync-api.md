@@ -40,6 +40,7 @@ type LocalTreeDescriptor = TreeDescriptor & {
   placement: "placed" | "replica" | "remote";
   osPath?: string;
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  reviewableConflict?: boolean;
   missing?: boolean;
 };
 
@@ -122,6 +123,9 @@ characters encoding 128 random bits. Minting edits no file and reserves no
 server state, so it is not a daemon operation.
 
 `GET /v1/trees` returns `{ snapshot: LocalTreeDescriptor[], observedThrough }`.
+When `sync` is `conflict`, `reviewableConflict: true` means the daemon can
+produce durable content evidence through the conflict endpoint. Clients must
+not infer that a conflict is resolvable merely from its status label.
 It includes placed trees, pathless replicas, known remote placements, and the
 implicit authenticated account-configuration tree. It never invents a
 descriptor for `local` or `system`.
@@ -450,10 +454,36 @@ with the profile key, and submits the account claim. It is restart-idempotent
 and never rewrites user-authored YAML to insert IDs or normalize it. Pairing
 creates or claims the server pairing while similarly keeping the raw
 new-device credential local. Local forget disconnects this data home without
-revoking the server device or deleting user files. Tree-level conflict
-resolution is not a REST operation: the daemon keeps the durable conflict
-evidence and the native replica resolves its own; a macOS presentation is
-Reliability 004's work.
+revoking the server device or deleting user files.
+
+Tree-level conflict review uses:
+
+```text
+GET  /v1/conflicts?tree=<TreeID>
+POST /v1/conflicts/resolve
+```
+
+The read returns an identity-fenced workspace containing Canopy's reported
+paths and reasons plus hash-validated Base, Current, Mine, and Draft content.
+`Both` is advertised only when Canopy's draft has a distinct combined value;
+textual paths may also be edited. Resolution submits a choice for every path
+with the workspace identity. Arbor Sync rechecks the accepted Canopy update
+and the local candidate before recording the reviewed result as new durable
+intent. It never asks a REST client to merge object graphs.
+
+`accepted-merge-needs-review` is emitted when Canopy accepted a Markdown merge
+whose summary reports approximate placements. This is a review boundary despite
+the successful Wire response: Arbor Sync retains the exact candidate and the
+accepted decision and does not materialize the combined result first. Current
+and Draft are the latest accepted content, Mine is the exact editor candidate,
+and `Both` is unavailable. A legacy transmitted admission without the newer
+accepted-decision journal field follows the same conservative recovery path.
+
+A tree may report `sync: "conflict"` while review evidence is unavailable—for
+example, legacy in-memory state created before a durable conflict body was
+written. In that case the conflict endpoint returns an error and clients must
+not invent choices or clear state. A nonzero `unattemptedCount` similarly
+disables submission until ordered suffix replay is supported.
 
 ## 8. Snapshot then observe
 

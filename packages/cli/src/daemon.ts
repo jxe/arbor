@@ -213,9 +213,10 @@ export class DarwinArborDaemonSupervisor implements ArborDaemonSupervisor {
 
   async restart(): Promise<string> {
     if (!await this.launchdRecord()) throw new Error("Arbor Sync is not installed; run `arbor daemon install` first");
+    const previous = await this.liveStatus();
     const result = await this.run(["/bin/launchctl", "kickstart", "-k", this.service]);
     if (result.exitCode !== 0) throw commandFailure("Restarting Arbor Sync", result);
-    await this.waitUntilRunning();
+    await this.waitUntilRunning(previous?.instanceID);
     return `Restarted Arbor Sync at ${this.origin}.`;
   }
 
@@ -271,22 +272,33 @@ export class DarwinArborDaemonSupervisor implements ArborDaemonSupervisor {
   }
 
   private async reachable(): Promise<boolean> {
+    return await this.liveStatus() !== null;
+  }
+
+  private async liveStatus(): Promise<{ service: string; protocolVersion: string; instanceID?: string } | null> {
     try {
       const response = await this.fetcher(`${this.origin}/v1/status`, { signal: AbortSignal.timeout(1_000) });
-      if (!response.ok) return false;
-      const status = await response.json() as { service?: string; protocolVersion?: string };
-      return status.service === "arborsync" && status.protocolVersion === "v1";
+      if (!response.ok) return null;
+      const status = await response.json() as { service?: string; protocolVersion?: string; instanceID?: string };
+      return status.service === "arborsync" && status.protocolVersion === "v1"
+        ? { service: status.service, protocolVersion: status.protocolVersion, ...(status.instanceID ? { instanceID: status.instanceID } : {}) }
+        : null;
     } catch {
-      return false;
+      return null;
     }
   }
 
-  private async waitUntilRunning(): Promise<void> {
+  private async waitUntilRunning(previousInstanceID?: string): Promise<void> {
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      if (await this.reachable()) return;
+      const status = await this.liveStatus();
+      if (status && (previousInstanceID === undefined || (status.instanceID && status.instanceID !== previousInstanceID))) return;
       await Bun.sleep(100);
     }
-    throw new Error(`Arbor Sync was launched but REST v1 did not become ready. Inspect ${this.paths.log}`);
+    throw new Error(
+      previousInstanceID
+        ? `Arbor Sync restart did not produce a new service instance. Another process may still own port 4317. Inspect ${this.paths.log}`
+        : `Arbor Sync was launched but REST v1 did not become ready. Inspect ${this.paths.log}`,
+    );
   }
 
   private async launchdRecord(): Promise<{ running: boolean; pid?: number } | null> {

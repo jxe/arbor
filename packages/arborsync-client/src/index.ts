@@ -19,6 +19,8 @@ import type {
   SnapshotEnvelope,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
+  SyncConflictResolution,
+  SyncConflictWorkspace,
   TreeRef,
   WorkspaceEvent,
 } from "@arbor/core";
@@ -47,6 +49,8 @@ export type {
   TreeID,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
+  SyncConflictResolution,
+  SyncConflictWorkspace,
   TreeRef,
   WorkspaceEvent,
   WorkspaceOperation,
@@ -225,6 +229,22 @@ export class ArborSyncRESTClient {
 
   trees(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
     return this.request("/v1/trees");
+  }
+
+  conflict(tree: string): Promise<SyncConflictWorkspace> {
+    return this.request(`/v1/conflicts?tree=${encodeURIComponent(tree)}`);
+  }
+
+  resolveConflict(
+    tree: string,
+    identity: string,
+    resolutions: Record<string, SyncConflictResolution>,
+  ): Promise<{ effects: MutationReceipt["effects"] }> {
+    return this.request("/v1/conflicts/resolve", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tree, identity, resolutions }),
+    });
   }
 
   resolve(locator: string): Promise<LocatorResolution> {

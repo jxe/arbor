@@ -77,7 +77,11 @@ from the installed cursor rather than restarting placement.
    `accepted-pending-apply` replaces one successor head. The client does not
    send a longer prefix because another edit arrived. After the result is
    durably applied, it publishes the successor against the new base without
-   waiting for the trailing delay.
+   waiting for the trailing delay. If a filesystem-owned successor prevents
+   materializing a merged result without overwriting newer durable bytes, the
+   client instead persists one longer string: it repeats the transmitted
+   prefix exactly and appends the successor once. The authority trims the
+   accepted prefix by request digest and reconciles only the new transition.
 5. **Racing evidence.** The response and the matching watch event are
    evidence for the same request. The client correlates by request digest
    and by accepted update or cursor, applies whichever arrives first, and
@@ -111,9 +115,10 @@ from the installed cursor rather than restarting placement.
 10. **Ambiguous recovery.** On reconnection, a request that may have reached
     the authority is retried exactly. If newer durable heads exist behind
     it, the client persists one longer request that repeats the transmitted
-    prefix exactly and appends the latest head once. This is the only
-    transition that issues a longer append-only string, and it relies on
-    the authority trimming the already accepted prefix.
+    prefix exactly and appends the latest head once. Together with the
+    filesystem-owned merged-result handoff in rule 4, these are the only
+    transitions that issue a longer append-only string; both rely on the
+    authority trimming the already accepted prefix.
 11. **A persisted request is transmitted as persisted.** The runner sends
     exactly the elements the persisted request names. A generation admitted
     after preparation is the retained successor, never a longer version of

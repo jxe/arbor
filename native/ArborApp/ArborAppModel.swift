@@ -44,6 +44,7 @@ struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let placement: String
     let access: String?
     let sync: String?
+    let reviewableConflict: Bool
     let missing: Bool
 }
 
@@ -133,6 +134,7 @@ final class ArborWorkspaceState {
     private(set) var localArborSyncOverview: LocalArborSyncOverview?
     private(set) var localArborSyncOverviewIsRefreshing = false
     private(set) var localArborSyncOverviewError: String?
+    private(set) var localArborSyncConflictTree: String?
     private(set) var localCanopyDevicesByConfigurationTree: [String: [LocalArborSyncDevicePresentation]] = [:]
 #endif
 #if os(iOS)
@@ -835,6 +837,7 @@ final class ArborWorkspaceState {
                 placement: $0.placement,
                 access: $0.access,
                 sync: $0.sync,
+                reviewableConflict: $0.reviewableConflict == true,
                 missing: $0.missing == true
             )
         }
@@ -982,17 +985,101 @@ final class ArborWorkspaceState {
                 let observations = await client.observations(after: cursor)
                 for try await event in observations {
                     guard !Task.isCancelled else { return }
-                    guard event.tree == "system" || event.tree == self?.localArborSyncOverview?.configurationTree else { continue }
+                    guard Self.localOverviewEventRequiresRefresh(
+                        tree: event.tree,
+                        origin: event.change.origin,
+                        configurationTree: self?.localArborSyncOverview?.configurationTree
+                    ) else { continue }
                     try await Task.sleep(for: .milliseconds(150))
                     guard !Task.isCancelled else { return }
                     await self?.refreshLocalArborSyncOverview()
                 }
             } catch is CancellationError {
                 return
+            } catch let error as ArborSyncServerError where error.value.code == "resync-required" {
+                // A daemon restart creates a new process-wide event cursor. Reload
+                // from its current overview, then let that refresh install a watch
+                // beginning at the replacement daemon's cursor.
+                self?.overviewWatchTask = nil
+                await self?.refreshLocalArborSyncOverview()
+                return
             } catch {
                 self?.localArborSyncOverviewError = error.localizedDescription
             }
             self?.overviewWatchTask = nil
+        }
+    }
+
+    static func localOverviewEventRequiresRefresh(
+        tree: String,
+        origin: String,
+        configurationTree: String?
+    ) -> Bool {
+        tree == "system" || tree == configurationTree || origin == "sync"
+    }
+
+    func prepareLocalArborSyncConflictReview(tree: String) async {
+        guard let client = arborsyncClient else { return }
+        do {
+            let review = try await client.conflict(tree: tree)
+            guard review.tree == tree else {
+                throw ArborSyncSupervisorError.incompatibleService("Arbor Sync returned a different conflict")
+            }
+            syncConflictWorkspace = ReplicaConflictWorkspace(
+                identity: review.identity,
+                items: review.items.map { item in
+                    ReplicaConflictItem(
+                        path: item.path,
+                        reasons: item.reasons,
+                        base: Self.replicaConflictContent(item.base),
+                        current: Self.replicaConflictContent(item.current),
+                        mine: Self.replicaConflictContent(item.mine),
+                        draft: Self.replicaConflictContent(item.draft),
+                        offersBoth: item.offersBoth
+                    )
+                },
+                unattemptedCount: review.unattemptedCount
+            )
+            localArborSyncConflictTree = tree
+        } catch {
+            syncConflictWorkspace = nil
+            localArborSyncConflictTree = nil
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func resolveLocalArborSyncConflict(_ resolutions: [String: ReplicaConflictResolution]) async -> Bool {
+        guard let client = arborsyncClient,
+              let tree = localArborSyncConflictTree,
+              let review = syncConflictWorkspace else { return false }
+        let values = resolutions.mapValues { resolution -> ArborSyncConflictResolution in
+            switch resolution {
+            case .current: .current
+            case .mine: .mine
+            case .both: .both
+            case let .edit(text): .edit(text)
+            }
+        }
+        do {
+            try await client.resolveConflict(tree: tree, identity: review.identity, resolutions: values)
+            syncConflictWorkspace = nil
+            localArborSyncConflictTree = nil
+            await refreshLocalArborSyncOverview()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            await prepareLocalArborSyncConflictReview(tree: tree)
+            return false
+        }
+    }
+
+    private static func replicaConflictContent(_ value: ArborSyncConflictContent) -> ReplicaConflictContent {
+        switch value.kind {
+        case "text": .text(value.text ?? "")
+        case "binary": .binary(Data(base64Encoded: value.bytes ?? "") ?? Data())
+        case "directory": .directory(value.entries ?? [])
+        case "boundary": .boundary(tree: value.tree ?? "")
+        default: .missing
         }
     }
 

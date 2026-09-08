@@ -5,6 +5,7 @@ import {
   applyTransitionPayload,
   decodeCandidateUpdateJSON,
   decodeWireObject,
+  verifyTreeSnapshotGraph,
   type CurrentTree,
   type ObjectHash,
   type RemoteTreeDescriptor,
@@ -21,12 +22,12 @@ import {
   type SyncEvent,
   type SyncState,
 } from "./direct-sync.ts";
-import type { FrozenEditorAdmission } from "./editor-admission.ts";
+import { acceptedEditorAdmissionNeedsReview, type FrozenEditorAdmission } from "./editor-admission.ts";
 import {
   acceptedTreeObjects,
+  appendPendingTreeSuccessor,
   clearPendingTreeUpdate,
   clearTreeConflict,
-  deltasFromPending,
   markEditorAdmissionsTransmitted,
   pendingFromSnapshot,
   pendingEditorAdmissions,
@@ -37,9 +38,10 @@ import {
   saveAcceptedTreeObjects,
   savePendingTreeUpdate,
   saveTreeConflict,
+  saveTreeConflictMaterial,
   acknowledgePendingEditorAdmissions,
-  snapshotFromPending,
   treeConflict,
+  updatesFromPending,
 } from "./sync-state.ts";
 import { materializeTree } from "@arbor/fs";
 
@@ -72,6 +74,20 @@ const systemClock: SyncClock = {
   },
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
+
+function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<ObjectHash, Uint8Array>): TreeSnapshot {
+  const objects = new Map<ObjectHash, Uint8Array>();
+  const visit = (hash: ObjectHash) => {
+    if (objects.has(hash)) return;
+    const bytes = available.get(hash);
+    if (!bytes) throw new Error(`Pending update is missing reachable object: ${hash}`);
+    objects.set(hash, bytes);
+    const object = decodeWireObject(bytes);
+    if (object.type === "directory") for (const entry of object.entries) if (entry.hash) visit(entry.hash);
+  };
+  visit(root);
+  return verifyTreeSnapshotGraph({ root, objects });
+}
 
 interface TreeTimers {
   trailing?: unknown;
@@ -500,8 +516,64 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     if (admissions.some((admission) => !admission.acknowledged)) return placement;
 
     const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
-    if (!placement.ref || local.root !== placement.ref) return placement;
     const acknowledged = admissions.filter((admission) => admission.acknowledged);
+    const finalAdmission = acknowledged.at(-1)!;
+    if (!placement.ref) return placement;
+    if (acceptedEditorAdmissionNeedsReview(finalAdmission)) {
+      // Canopy incorporated this editor generation into an authority root
+      // other than the submitted candidate. Applying that result blindly can
+      // make an approximate Markdown placement look like authored duplicate
+      // content. Keep the admission evidence and stop for explicit review.
+      this.deps.trees.setSyncState(workspace.tree, "conflict");
+      this.conflicts.add(workspace.tree);
+      return placement;
+    }
+    if (local.root !== placement.ref) {
+      if (local.root !== finalAdmission.request.candidate) return placement;
+      if (finalAdmission.accepted?.root !== finalAdmission.request.candidate) {
+        const current = await client.descriptor(workspace.tree);
+        const snapshot = await this.readSparseCurrent(client, workspace.tree, current, local);
+        let applied = false;
+        await this.deps.withWorkspaceIO(workspace, async () => {
+          const stillCandidate = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
+          if (stillCandidate.root !== local.root) return;
+          await this.materialize(
+            workspace,
+            snapshot,
+            acknowledged.flatMap((admission) => admission.requestDigest ? [admission.requestDigest] : []),
+          );
+          await this.deps.trees.updateSyncMetadata({
+            ...placement,
+            ref: current.tree.root,
+            update: current.tree.update,
+            access: current.tree.access === "none" ? "read" : current.tree.access,
+          });
+          await this.confirmMaterialized(workspace, client, remoteTrees, current.tree.root, "Recovered editor admission did not materialize Canopy's accepted root");
+          applied = true;
+        });
+        if (!applied) return placement;
+        await retireAcknowledgedEditorAdmissions(workspace.tree, acknowledged);
+        this.dispatch(workspace.tree, { type: "applied" });
+        return this.deps.trees.placementFor(workspace.tree) ?? placement;
+      }
+      if (!finalAdmission.accepted) return placement;
+      let reanchored = false;
+      await this.deps.withWorkspaceIO(workspace, async () => {
+        const stillCandidate = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
+        if (stillCandidate.root !== local.root) return;
+        await this.deps.trees.updateSyncMetadata({
+          ...placement,
+          ref: finalAdmission.accepted!.root,
+          update: finalAdmission.accepted!.id,
+        });
+        await saveAcceptedTreeObjects(workspace.tree, stillCandidate);
+        reanchored = true;
+      });
+      if (!reanchored) return placement;
+      await retireAcknowledgedEditorAdmissions(workspace.tree, acknowledged);
+      this.dispatch(workspace.tree, { type: "applied" });
+      return this.deps.trees.placementFor(workspace.tree) ?? placement;
+    }
     if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) {
       await retireAcknowledgedEditorAdmissions(workspace.tree, acknowledged);
       this.dispatch(workspace.tree, { type: "applied" });
@@ -664,6 +736,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
           tree,
           first.id,
           chain.map((admission) => admission.request.candidate),
+          response.results.map((result) => result.update),
         );
         const final = response.results.at(-1)!;
         this.dispatch(tree, {
@@ -691,6 +764,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
           tree,
           first.id,
           chain.slice(0, error.result.details.completed.length).map((admission) => admission.request.candidate),
+          error.result.details.completed.map((result) => result.update),
         );
         await saveTreeConflict(tree, error.result);
         this.deps.trees.setSyncState(tree, "conflict");
@@ -731,6 +805,10 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       this.dispatch(workspace.tree, { type: "transportAvailable", available: true });
     }
     let placement = await this.submitEditorAdmissions(workspace, initialPlacement, client, remoteTrees, options.publishNow ?? false);
+    if (this.conflicts.has(workspace.tree)) {
+      trees.setSyncState(workspace.tree, "conflict");
+      return;
+    }
     if (await treeConflict(workspace.tree)) {
       trees.setSyncState(workspace.tree, "conflict");
       this.conflicts.add(workspace.tree);
@@ -836,17 +914,18 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     }
 
     for (let generation = 0; generation < 4; generation++) {
+      const submittedUpdates = updatesFromPending(pending);
       try {
-        const result = await client.submitUpdate(
-          workspace.tree,
-          pending.base,
-          snapshotFromPending(pending),
-          { deltas: deltasFromPending(pending) },
-        );
+        const response = await client.submitUpdates(workspace.tree, {
+          base: pending.base,
+          updates: submittedUpdates.map((update) => decodeCandidateUpdateJSON(update)),
+        });
+        const result = response.results.at(-1)!;
         const accepted = result.update;
+        const submittedCandidate = submittedUpdates.at(-1)!.candidate;
         local = await this.snapshotWorkspace(workspace, client, remoteTrees);
-        if (local.root !== pending.candidate) {
-          if (accepted.root === pending.candidate) {
+        if (local.root !== submittedCandidate) {
+          if (accepted.root === submittedCandidate) {
             // The server accepted this local generation while a later local
             // save was already durable. Advance that later generation's base
             // to the just-accepted update; resubmitting it against the older
@@ -855,8 +934,10 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
             const retained = await acceptedTreeObjects(workspace.tree);
             const retainedHashes = new Set<ObjectHash>(retained?.hashes ?? []);
             retainedHashes.add(accepted.root);
-            for (const object of pending.objects) retainedHashes.add(object.hash);
-            for (const delta of pending.deltas ?? []) retainedHashes.add(delta.result);
+            for (const update of submittedUpdates) {
+              for (const object of update.objects) retainedHashes.add(object.hash);
+              for (const delta of update.deltas ?? []) retainedHashes.add(delta.result);
+            }
             placement = {
               ...placement,
               ref: accepted.root,
@@ -869,17 +950,18 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
             });
             pending = pendingFromSnapshot(accepted.id, local, retainedHashes, pending.origin);
           } else {
-            const retained = await acceptedTreeObjects(workspace.tree);
-            const retainedHashes = retained && retained.root === placement.ref
-              ? new Set(retained.hashes)
-              : new Set<ObjectHash>();
-            pending = pendingFromSnapshot(pending.base, local, retainedHashes, pending.origin);
+            // The authority merged the transmitted candidate while another
+            // local generation was already durable. Keep the accepted prefix
+            // byte-for-byte and append the newer head once. Replacing it with
+            // a single request against the old base reapplies the same logical
+            // intent and can duplicate Markdown blocks on every pass.
+            pending = appendPendingTreeSuccessor(pending, local);
           }
           await savePendingTreeUpdate(workspace.tree, pending);
           continue;
         }
         await this.deps.withWorkspaceIO(workspace, async () => {
-          if (accepted.root !== pending!.candidate) {
+          if (accepted.root !== submittedCandidate) {
             if (!result.reconciliation) throw new Error("Server omitted a required reconciliation transition");
             await this.materialize(workspace, {
               root: accepted.root,
@@ -896,7 +978,31 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         return;
       } catch (error) {
         if (error instanceof WireUpdateConflict) {
+          // A conflict after Canopy trimmed an accepted prefix can name the
+          // preceding submitted candidate as its base. That root is durable
+          // request evidence but is not necessarily an accepted snapshot the
+          // review endpoint can fetch later, so retain all four graphs now.
+          const [requestBase, conflictCurrent] = await Promise.all([
+            client.snapshot(workspace.tree, placement.ref!),
+            client.snapshot(workspace.tree, error.result.details.current.root),
+          ]);
+          let available = new Map(requestBase.objects);
+          for (const update of submittedUpdates) {
+            available = applyTransitionPayload(available, decodeCandidateUpdateJSON(update));
+          }
+          const conflictBase = reachableSnapshot(error.result.details.base, available);
+          const conflictMine = reachableSnapshot(error.result.details.candidate, available);
+          const conflictDraft = verifyTreeSnapshotGraph({
+            root: error.result.details.draft.root,
+            objects: applyTransitionPayload(conflictMine.objects, error.result.details.draft),
+          });
           await saveTreeConflict(workspace.tree, error.result);
+          await saveTreeConflictMaterial(workspace.tree, error.result.details.candidate, {
+            base: conflictBase,
+            current: conflictCurrent,
+            mine: conflictMine,
+            draft: conflictDraft,
+          });
           await clearPendingTreeUpdate(workspace.tree);
           trees.setSyncState(workspace.tree, "conflict");
           const firstConflict = !this.conflicts.has(workspace.tree);
