@@ -1,6 +1,6 @@
 # Cleanup 004 — Carve the four thick client packages
 
-- **State:** CARVED; awaiting macOS verification
+- **State:** DONE 2026-09-08; verified on macOS and merged
 - **Priority:** P1; precedes Reliability 005
 - **Depends on:** nothing; Reliability 005 and 006 depend on the resulting
   package layout
@@ -108,5 +108,22 @@ does not become the package.
 
 ## Exit evidence
 
-Record the passing commands, then move this file to
-`plans/_done/cleanups/` and remove its entry from `plans/README.md`.
+Verified on macOS on 2026-09-08 (Swift 6.4, Xcode 27 toolchain). Every command
+below passed; the only fixes the carve needed were an `ArborKit` import in the
+`ArborSyncClient` tests and nested `#require` expressions in the fixture tests.
+
+```sh
+swift test --package-path native/Packages/ArborKit
+swift test --package-path native/Packages/ArborWire
+swift test --package-path native/Packages/ArborReplica
+swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path native/Packages/CanopyClient
+tools/test-arbor-quagmire-local.sh
+bun install && bun run typecheck && bun run test && bun run test:protocol && bun run build
+git diff --check
+```
+
+`bun run test` carries two pre-existing parallel-only flakes (`shallow workspace
+search` and `NodeProviderRouter conformance`) that also fail on `main` under
+`--parallel=4` and pass alone. The `Arbor` scheme built for macOS and the iOS
+27 simulator after `xcodegen generate`.

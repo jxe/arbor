@@ -2,7 +2,7 @@
 
 - **State:** PLANNED
 - **Priority:** P2; after Reliability 005 has run on both platforms
-- **Depends on:** [Reliability 005](../reliability/005-client-synchronization-state-machines.md)
+- **Depends on:** [Reliability 005](../_done/reliability/005-client-synchronization-state-machines.md)
   (the admission machine this API serves) and the
   [document admission reference](../../docs/client-state-machines.md)
 

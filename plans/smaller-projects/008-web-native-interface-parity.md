@@ -8,7 +8,7 @@ id: wnp4kq
 - **Reference:** native Arbor at `5a45847`
 - **Depends on:** no implementation milestone; coordinate unsafe search excerpts
   with [Security 001](../security/001-search-excerpts.md) and synchronization
-  meaning with [Reliability 005](../reliability/005-client-synchronization-state-machines.md)
+  meaning with [Reliability 005](../_done/reliability/005-client-synchronization-state-machines.md)
 
 ## Target result
 

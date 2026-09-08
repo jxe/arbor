@@ -6,7 +6,7 @@
 > root-page preview may appear early, but editing, offline-ready status, and
 > normal synchronization begin only after the complete accepted snapshot has
 > been validated and atomically installed. [Reliability
-> 005](005-client-synchronization-state-machines.md) owns steady-state
+> 005](../_done/reliability/005-client-synchronization-state-machines.md) owns steady-state
 > synchronization after that handoff. Do not build a second lazy replica or
 > materialize a partial object graph into the normal replica store. If a STOP
 > condition occurs, stop and report rather than improvising. When complete,

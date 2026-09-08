@@ -7,7 +7,7 @@
 > every current TypeScript and Swift path named below. Do not create a third
 > synchronization model, port Canopy's merge algorithm into a client, or
 > silently reinterpret every UI transaction as an accepted-history boundary.
-> [Reliability 006](006-progressive-replica-bootstrap.md) owns the resumable
+> [Reliability 006](../../reliability/006-progressive-replica-bootstrap.md) owns the resumable
 > initial replica bootstrap which precedes the direct Canopy machine; treat its
 > handoff as an input to this plan, not as a third synchronization model.
 > If anything in “STOP conditions” occurs, stop and report rather than
@@ -34,17 +34,18 @@
 
 ## Status
 
-- **State**: IN PROGRESS. Steps 1–5 and 7 are implemented on branch
-  `claude/client-reorganization-state-machines-h74mfj` after
-  [Cleanup 004](../cleanups/004-client-package-reorganization.md) carved the
-  four client packages. Step 6's runtime assertions exist for TypeScript
-  (`tests/unit/editor-coordinator.test.ts`, the self-sync suite's
-  successor and burst tests) and Swift (the rewritten
-  `ReplicaSynchronizationTests`); the Swift suites and Step 8's macOS
-  commands have not yet been run because the implementing session had no
-  Swift toolchain. Drift since `ccc96ec`: the web editor already used
-  `/v1/documents/admit` when a basis was present, so Step 2's transport change
-  became "make the kind explicit" rather than "adopt the route".
+- **State**: DONE 2026-09-08. Every step ran on macOS: all six Swift suites,
+  the TypeScript gate, the protocol gate, and the app smoke test on macOS and
+  the iOS 27 simulator against a disposable Canopy. The macOS run found no
+  reducer disagreement with the shared fixture. It did find two gaps in the
+  daemon's effect runner (a push that returned silently when the durable chain
+  changed between preparation and transmission, and an editor epoch equal to
+  the accepted base that was never acknowledged), both fixed with regression
+  tests in the self-sync suite and recorded as runner obligations in
+  `spec/09-client-synchronization.md` §2.3 item 11. Drift since `ccc96ec`: the
+  web editor already used `/v1/documents/admit` when a basis was present, so
+  Step 2's transport change became "make the kind explicit" rather than
+  "adopt the route".
 - **Priority**: P1
 - **Effort**: XL
 - **Risk**: HIGH
@@ -683,6 +684,16 @@ the planned base before classifying them as regressions. Record exact passing
 commands and any demonstrated baseline-only failure when moving this plan to
 `_done`.
 
+**Recorded 2026-09-08 (macOS 27, Swift 6.4):** every command above passed,
+plus `swift test` for `ArborWire` and `ArborReplica`. Baseline-only failures
+under `bun run test --parallel=4`, reproduced on a clean `main` worktree:
+`shallow workspace search` and `NodeProviderRouter conformance`; both pass
+alone. The app smoke test typed bursts in a Canopy-backed page on macOS (one
+admission and one accepted update per burst), edited offline on the iOS
+simulator and reconnected (one accepted update), and resolved a path-kind
+conflict on iOS by keeping local work; the take-remote choice is not offered
+by the current iOS sheet and remains Reliability 004's presentation work.
+
 ## Test plan
 
 - **Shared scenarios**: both TypeScript and Swift decode and execute every case
@@ -716,14 +727,16 @@ commands and any demonstrated baseline-only failure when moving this plan to
 
 - [x] One versioned shared fixture defines both machines and is executed by
   TypeScript and Swift tests (`conformance/client-state-machines.json`;
-  the Swift execution awaits its macOS run).
+  `DocumentAdmissionMachineTests` and `DirectSyncMachineTests` pass on macOS).
 - [x] TypeScript web and Swift native editors use the Arbor Sync admission
   machine in their actual save paths.
 - [x] TypeScript Arbor Sync and Swift `ReplicaSyncCoordinator` use the direct
   Canopy machine in their actual synchronization paths.
 - [ ] Swift direct synchronization accepts only Reliability 006's validated
   `bootstrapInstalled` handoff for a fresh replica; preview and partial-transfer
-  states cannot masquerade as `current` or offline-ready.
+  states cannot masquerade as `current` or offline-ready. (Deferred to
+  Reliability 006, which owns the bootstrap; today `ReplicaPlacementService`
+  installs the complete snapshot before the coordinator enters the machine.)
 - [x] Fifteen rapid Option-arrow moves produce one Local Arbor REST admission
   and normally one Canopy candidate/accepted update (unit and self-sync
   burst tests).
@@ -732,17 +745,20 @@ commands and any demonstrated baseline-only failure when moving this plan to
 - [x] An ambiguous request remains immutable and exactly retryable; plural
   append-only recovery remains supported.
 - [x] No Canopy-backed client performs a competing Markdown/tree merge.
-- [ ] Every Arbor Sync editor client owns its own latest request-digest fence;
+- [x] Every Arbor Sync editor client owns its own latest request-digest fence;
   Arbor Sync exposes authenticated accepted digests without imposing a
-  machine-wide editor gate.
-- [ ] Authority responses are validated and materialized before the accepted
-  base advances in both direct clients.
-- [ ] Conflict evidence and newer local work survive restart in both direct
-  clients.
+  machine-wide editor gate (`tests/unit/editor-coordinator.test.ts`, the
+  self-sync "interleaved editor sessions" and "fresh editor epoch" tests).
+- [x] Authority responses are validated and materialized before the accepted
+  base advances in both direct clients (`ReplicaSynchronizationTests`
+  crash-point cases; the self-sync materialization tests).
+- [x] Conflict evidence and newer local work survive restart in both direct
+  clients (`ReplicaSynchronizationTests` conflict and restart cases; the
+  self-sync "preserves both sides" and "keeps binary conflicts" tests).
 - [x] `docs/client-state-machines.md` is linked and describes the admission
   machine; the direct machine is normative in
   `spec/09-client-synchronization.md` with timing marked non-normative.
-- [ ] All commands in Step 8 pass, relative Markdown links resolve, and no
+- [x] All commands in Step 8 pass, relative Markdown links resolve, and no
   unrelated files are modified.
 
 ## STOP conditions
