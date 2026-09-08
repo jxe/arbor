@@ -34,7 +34,7 @@ struct DocumentAdmissionMachineTests {
                     revision: try #require(accepted["revision"] as? String),
                     admissionBasis: accepted["admissionBasis"] as? String
                 ),
-                transport: try #require(DocumentAdmissionMachine.Transport(rawValue: try #require(initial["transport"] as? String)))
+                transport: try Self.enumValue(DocumentAdmissionMachine.Transport.self, from: initial, key: "transport")
             )
             let steps = try #require(scenario["steps"] as? [[String: Any]])
             for (index, step) in steps.enumerated() {
@@ -128,6 +128,11 @@ struct DocumentAdmissionMachineTests {
         case let (left as [String], right as [String]): left == right
         default: false
         }
+    }
+
+    private static func enumValue<T: RawRepresentable>(_: T.Type, from json: [String: Any], key: String) throws -> T where T.RawValue == String {
+        let raw = try #require(json[key] as? String)
+        return try #require(T(rawValue: raw))
     }
 
     enum FixtureError: Error {

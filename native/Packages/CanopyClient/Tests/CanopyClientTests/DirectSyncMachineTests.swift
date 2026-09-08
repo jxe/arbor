@@ -58,7 +58,7 @@ struct DirectSyncMachineTests {
         guard let json else { return nil }
         return .init(
             root: try #require(json["root"] as? String),
-            origin: try #require(DirectSyncMachine.HeadOrigin(rawValue: try #require(json["origin"] as? String)))
+            origin: try Self.enumValue(DirectSyncMachine.HeadOrigin.self, from: json, key: "origin")
         )
     }
 
@@ -74,7 +74,7 @@ struct DirectSyncMachineTests {
 
     private static func result(_ json: [String: Any]) throws -> DirectSyncMachine.AuthorityResult {
         .init(
-            kind: try #require(DirectSyncMachine.AuthorityResult.Kind(rawValue: try #require(json["kind"] as? String))),
+            kind: try Self.enumValue(DirectSyncMachine.AuthorityResult.Kind.self, from: json, key: "kind"),
             root: try #require(json["root"] as? String),
             update: try #require(json["update"] as? String),
             cursor: json["cursor"] as? String,
@@ -138,7 +138,7 @@ struct DirectSyncMachineTests {
         return DirectSyncMachine.State(
             phase: phase,
             base: try (json["base"] as? [String: Any]).map(base),
-            role: try #require(DirectSyncMachine.Role(rawValue: try #require(json["role"] as? String))),
+            role: try Self.enumValue(DirectSyncMachine.Role.self, from: json, key: "role"),
             transportAvailable: json["transportAvailable"] as? Bool ?? true
         )
     }
@@ -152,11 +152,11 @@ struct DirectSyncMachineTests {
                 cursor: json["cursor"] as? String
             )
         case "setRole":
-            return .setRole(try #require(DirectSyncMachine.Role(rawValue: try #require(json["role"] as? String))))
+            return .setRole(try Self.enumValue(DirectSyncMachine.Role.self, from: json, key: "role"))
         case "localHead":
             return .localHead(
                 root: try #require(json["root"] as? String),
-                origin: try #require(DirectSyncMachine.HeadOrigin(rawValue: try #require(json["origin"] as? String)))
+                origin: try Self.enumValue(DirectSyncMachine.HeadOrigin.self, from: json, key: "origin")
             )
         case "publishDelayElapsed":
             return .publishDelayElapsed
@@ -193,7 +193,7 @@ struct DirectSyncMachineTests {
         case "credentialsRefreshed":
             return .credentialsRefreshed
         case "resolveConflict":
-            return .resolveConflict(try #require(DirectSyncMachine.Event.Resolution(rawValue: try #require(json["choice"] as? String))))
+            return .resolveConflict(try Self.enumValue(DirectSyncMachine.Event.Resolution.self, from: json, key: "choice"))
         default:
             throw FixtureError.unknownEvent(String(describing: json["type"]))
         }
@@ -216,6 +216,11 @@ struct DirectSyncMachineTests {
         case let (left as [String], right as [String]): left == right
         default: false
         }
+    }
+
+    private static func enumValue<T: RawRepresentable>(_: T.Type, from json: [String: Any], key: String) throws -> T where T.RawValue == String {
+        let raw = try #require(json[key] as? String)
+        return try #require(T(rawValue: raw))
     }
 
     enum FixtureError: Error {
