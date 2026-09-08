@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import ArborKit
 @testable import ArborSyncClient
 
 final class ArborSyncClientTests: XCTestCase {
