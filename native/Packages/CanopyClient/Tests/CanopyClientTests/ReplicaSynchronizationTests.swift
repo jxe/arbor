@@ -842,6 +842,25 @@ struct ReplicaSynchronizationTests {
             let retainedLocalRoot = try await replica.currentSnapshot().root
             #expect(retainedConflict?.attempt?.candidate == retainedLocalRoot)
             #expect(retainedConflict?.attempt?.allRequestDigests.count == 1)
+
+            var sequencedControl = try DurableSyncFiles(root: root).load()
+            var sequencedAttempt = try #require(sequencedControl.conflict?.attempt)
+            var sequencedRequest = try JSONDecoder().decode(WireUpdateRequest.self, from: sequencedAttempt.body)
+            sequencedRequest.updates.append(try #require(sequencedRequest.updates.first))
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            sequencedAttempt.body = try encoder.encode(sequencedRequest)
+            sequencedAttempt.requestDigests = sequencedAttempt.allRequestDigests + ["unattempted-suffix"]
+            sequencedAttempt.digest = "unattempted-suffix"
+            sequencedControl.conflict?.attempt = sequencedAttempt
+            try DurableSyncFiles(root: root).write(sequencedControl)
+            let sequencedCoordinator = try ReplicaSyncCoordinator(replica: replica, transport: conflictTransport, stateRoot: root)
+            await #expect(throws: ReplicaSyncError.conflictSequenceRequiresReview) {
+                try await sequencedCoordinator.resolveConflictKeepingLocal()
+            }
+            var originalControl = sequencedControl
+            originalControl.conflict?.attempt = retainedConflict?.attempt
+            try DurableSyncFiles(root: root).write(originalControl)
             try await coordinator.resolveConflictKeepingLocal()
 
             let accepting = ClosureTransport(initial: initial) { prepared, _ in

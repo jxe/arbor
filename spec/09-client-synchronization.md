@@ -35,7 +35,7 @@ the authority.
 | `submitting` | the same immutable request | The outcome may become ambiguous; the request is never mutated or replaced. |
 | `submitting-pending` | the immutable request plus one latest durable head | Later local work is a replaceable successor, not another request. |
 | `accepted-pending-apply` | the validated authority result, any later head | The decision is known; the accepted graph is not yet durably applied. |
-| `conflict` | the complete validated conflict, the local root at conflict, any later head | Client-owned and restart-safe; the authority stores no rejected history. |
+| `conflict` | the complete validated conflict, exact prepared request, successful-prefix boundary, failed element, unattempted suffix, and any later head | Client-owned and restart-safe; the authority stores no rejected history. The final local root does not replace the retained element boundaries. |
 | `offline` | one of the pending or prepared shapes, whether the request was transmitted, a classified availability failure | Retry resumes from durable state without changing identity. |
 | `terminal` | a diagnostic and the retained files | A validation or programming invariant failed; automatic mutation stops. |
 
@@ -91,10 +91,18 @@ from the installed cursor rather than restarting placement.
    transition batch in memory and materializes its final state once, or
    pulls the current snapshot when the batch does not chain. A watch event
    under pending work triggers publication and never overwrites the head.
-8. **Conflict.** A conflict retains base, local, current, draft, and reasons
-   durably, permits further local work, and exits only through explicit
-   resolution: keeping local work becomes a new ordinary request at the
-   verified current base; taking the current or draft state applies it.
+8. **Conflict is sequential.** A conflict stops at the first failed element.
+   The machine retains the returned successful prefix, the failed element at
+   `failedIndex`, and every unattempted suffix element from the exact prepared
+   request. It reviews only the failed element against the verified current
+   state. Once the reviewed element is durably submitted and applied, the
+   machine replays the retained suffix changes in order. A replay applies the
+   exact local change between adjacent original candidates to the newly
+   accepted state; if its guards no longer match, that element becomes the next
+   client-owned conflict before submission. The machine must not collapse the
+   failed element and suffix into the final local root, submit an old suffix
+   candidate against a different logical base, or describe unattempted work as
+   conflicted. Further local work remains one successor behind the sequence.
 9. **Availability is distinct from validity.** Transport failure enters
    `offline` and retries automatically when transport returns.
    Authentication failure and revocation enter `offline` with an

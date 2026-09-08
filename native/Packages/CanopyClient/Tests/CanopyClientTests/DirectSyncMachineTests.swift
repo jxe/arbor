@@ -86,7 +86,8 @@ struct DirectSyncMachineTests {
         .init(
             current: try base(try #require(json["current"] as? [String: Any])),
             draft: json["draft"] as? String,
-            localRoot: try #require(json["localRoot"] as? String)
+            localRoot: try #require(json["localRoot"] as? String),
+            failedIndex: json["failedIndex"] as? Int ?? 0
         )
     }
 
@@ -119,6 +120,13 @@ struct DirectSyncMachineTests {
             phase = .conflict(
                 request: try #require(try request(json["request"] as? [String: Any])),
                 conflict: try conflict(try #require(json["conflict"] as? [String: Any])),
+                head: try head(json["head"] as? [String: Any])
+            )
+        case "conflict-preparing":
+            phase = .conflictPreparing(
+                request: try #require(try request(json["request"] as? [String: Any])),
+                conflict: try conflict(try #require(json["conflict"] as? [String: Any])),
+                choice: try Self.enumValue(DirectSyncMachine.Event.Resolution.self, from: json, key: "choice"),
                 head: try head(json["head"] as? [String: Any])
             )
         case "offline":
@@ -194,6 +202,8 @@ struct DirectSyncMachineTests {
             return .credentialsRefreshed
         case "resolveConflict":
             return .resolveConflict(try Self.enumValue(DirectSyncMachine.Event.Resolution.self, from: json, key: "choice"))
+        case "conflictResolutionFailed":
+            return .conflictResolutionFailed
         default:
             throw FixtureError.unknownEvent(String(describing: json["type"]))
         }

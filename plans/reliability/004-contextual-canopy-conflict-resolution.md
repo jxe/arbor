@@ -27,11 +27,12 @@
 
 ## Outcome
 
-When Canopy cannot merge a tree update automatically, Arbor shows every
-conflicting authored location in context. A person can choose the current
-version, their version, both when structurally safe, or an edited result for
-each conflict. Arbor assembles all reviewed choices into one candidate tree and
-submits that candidate as new intent based on the still-current accepted root.
+When Canopy cannot merge one element of an update string automatically, Arbor
+shows that element's conflicting authored locations in context. A person can
+choose the current version, their version, both when structurally safe, or an
+edited result for each conflict. Arbor submits the reviewed element against the
+still-current accepted root, then replays the unattempted suffix in order. A
+later review appears only if a later element independently conflicts.
 
 No choice discards the live editor or clears durable conflict evidence before
 the replacement intent is itself durable. Ordinary non-overlapping edits from
@@ -40,12 +41,12 @@ independent editors continue to merge in Canopy without invoking this UI.
 ## Why this matters
 
 Canopy already returns useful structured conflict evidence: the accepted base,
-candidate, current root, a server-generated draft, and one or more path/reason
-records. The current native UI preserves that evidence but presents either a
-tree-level “keep local” choice or a whole-document source editor. That is safe,
-but it makes a conflict in one paragraph feel like a conflict in an entire
-document, and it does not scale when one update conflicts at several paths or
-at several places within one Markdown file.
+failed candidate, current root, a server-generated draft, the successful-prefix
+boundary, and one or more path/reason records. The current native UI preserves
+only part of that evidence and presents a tree-level “keep local” choice. It
+also treats the final local root as the conflicted candidate even though that
+root may contain suffix elements Canopy never attempted. That is both confusing
+and causally wrong.
 
 The resolution UI must use Canopy's conflict result as the authority. It must
 not run a competing client merge and silently claim success where Canopy found
@@ -92,9 +93,14 @@ The multi-location UI requires a deliberately small Quagmire change.
 - **ArborQuagmire owns Markdown context**: derive conflict hunks from exact
   base/current/local/draft sources and map their source ranges through
   `ArborSourceLedger` to a `BlockID` or a document gap.
-- **ArborSync owns tree resolution**: retain and materialize conflict snapshots,
-  combine all per-path decisions into one reviewed candidate tree, and submit
-  it against the verified current accepted root.
+- **The thick direct clients own sequencing**: the Swift `DirectSyncMachine`
+  and TypeScript `reduceSync`, frozen by shared fixtures, retain the exact
+  failed element and suffix, request persistence/materialization effects in
+  order, and never delegate replay policy to ArborApp or the daemon service.
+- **ArborSync/CanopyClient effect runners own graph work**: retain and
+  materialize conflict snapshots, combine the failed element's per-path
+  decisions, and guardedly replay later element changes when requested by the
+  shared machine.
 - **ArborApp owns product interaction**: labels, unresolved counts, navigation,
   confirmation, and the inline resolution cards.
 
@@ -105,10 +111,12 @@ gate when no accessory is present.
 
 ## Resolution model
 
-For each durable conflict, materialize and integrity-check four views:
+For the failed element of each durable conflict, materialize and
+integrity-check four views:
 
 1. **Base** — the immutable root identified by `details.base`.
-2. **Mine** — the complete local candidate root captured at conflict time.
+2. **Mine** — the failed element's candidate root, not the final local root
+   that may also contain an unattempted suffix.
 3. **Current** — the accepted root in `details.current`, revalidated before
    committing a resolution.
 4. **Draft** — reconstruct `details.draft.root` by validating and applying its
@@ -136,12 +144,15 @@ content is editable Markdown.
 
 ## Steps
 
-### Step 1: Expose complete durable conflict material safely
+### Step 1: Preserve element boundaries and expose conflict material safely
 
-Add an ArborSync conflict-workspace API that reconstructs the base, mine,
-current, and draft snapshots from retained immutable objects and the
-`WireConflictDraft` transition payload. Validate every object hash, graph, root,
-tree identity, and reported conflict path before returning UI data.
+Update the shared direct-client state machine and both thick implementations so
+the durable conflict retains the exact prepared request, `completed` prefix,
+failed element at `failedIndex`, unattempted suffix, and any later head. Add a
+conflict-workspace API that reconstructs base, failed-element mine, current,
+and draft snapshots from retained immutable objects and the `WireConflictDraft`
+transition payload. Validate every object hash, graph, root, tree identity, and
+reported conflict path before returning UI data.
 
 Do not widen the Canopy protocol or expose private server history. If a required
 base object is no longer retained locally and cannot be fetched through the
@@ -203,18 +214,23 @@ The editor remains usable for ordinary inspection, but resolution choices edit
 the provisional conflict workspace, not the live binding. Do not silently
 serialize unrelated incidental editor changes into the reviewed candidate.
 
-### Step 5: Assemble and submit one atomic tree candidate
+### Step 5: Submit the reviewed element and replay the suffix
 
-After every conflict location is resolved, apply the reviewed per-path results
-to the complete local candidate snapshot and build one new tree candidate.
+After every conflict location in the failed element is resolved, apply the
+reviewed per-path results to that element's candidate and build one new tree
+candidate.
 Immediately before submission, fetch or read the accepted descriptor and verify
 that both the durable conflict identity and current accepted root still match.
 
-Submit the reviewed candidate as new intent based on that current root. Keep the
-original durable conflict and provisional decisions until the new attempt is
-durably journaled. Clear them only through the ordinary acknowledged-success
-path. If the replacement conflicts again, retain both the new Canopy evidence
-and the person's provisional work.
+Submit the reviewed candidate as new intent based on that current root. After
+it is durably applied, guardedly replay each original suffix change—from its
+original predecessor candidate to its original candidate—onto the newly
+accepted state, preserving order and exact untouched bytes. Persist and submit
+the resulting sequence through state-machine effects. If a guard fails, surface
+that element as the next local conflict before submission. Never submit an old
+suffix candidate against a different logical base or collapse the suffix into
+the final local root. Keep the original durable conflict and provisional
+decisions until the reviewed request is durably journaled.
 
 Implement explicit whole-tree actions alongside reviewed resolution:
 

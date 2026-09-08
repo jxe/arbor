@@ -190,6 +190,9 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         // unacknowledged chain of the current epoch.
         void this.prepareEditorRequest(tree).catch(() => {});
         return;
+      case "persistConflictResolution":
+        // Conflict resolution is not exposed by the daemon runner yet.
+        return;
       case "submit":
         void this.pushEditorChain(tree, effect.request).catch(() => {});
         return;

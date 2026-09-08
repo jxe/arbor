@@ -90,11 +90,13 @@ public enum DirectSyncMachine {
         public var current: AcceptedBase
         public var draft: String?
         public var localRoot: String
+        public var failedIndex: Int
 
-        public init(current: AcceptedBase, draft: String? = nil, localRoot: String) {
+        public init(current: AcceptedBase, draft: String? = nil, localRoot: String, failedIndex: Int = 0) {
             self.current = current
             self.draft = draft
             self.localRoot = localRoot
+            self.failedIndex = failedIndex
         }
     }
 
@@ -119,6 +121,7 @@ public enum DirectSyncMachine {
         case submittingPending(request: PreparedRequest, head: LocalHead)
         case acceptedPendingApply(result: AuthorityResult, request: PreparedRequest?, head: LocalHead?)
         case conflict(request: PreparedRequest, conflict: ConflictEvidence, head: LocalHead?)
+        case conflictPreparing(request: PreparedRequest, conflict: ConflictEvidence, choice: Event.Resolution, head: LocalHead?)
         case offline(availability: Availability, request: PreparedRequest?, transmitted: Bool, head: LocalHead?)
         case terminal(reason: String)
 
@@ -132,6 +135,7 @@ public enum DirectSyncMachine {
             case .submittingPending: "submitting-pending"
             case .acceptedPendingApply: "accepted-pending-apply"
             case .conflict: "conflict"
+            case .conflictPreparing: "conflict-preparing"
             case .offline: "offline"
             case .terminal: "terminal"
             }
@@ -187,6 +191,7 @@ public enum DirectSyncMachine {
         case transportAvailable(Bool)
         case credentialsRefreshed
         case resolveConflict(Resolution)
+        case conflictResolutionFailed
 
         public enum Resolution: String, Sendable, Equatable {
             case local
@@ -207,6 +212,7 @@ public enum DirectSyncMachine {
         case catchUp(cursor: String?)
         /// A filesystem observation arrived while disk is an editor mirror: reconcile, create no candidate.
         case discardMirrorHead(root: String)
+        case persistConflictResolution(request: PreparedRequest, conflict: ConflictEvidence, choice: Event.Resolution)
         case surfaceConflict(ConflictEvidence)
         case stop(reason: String)
 
@@ -219,6 +225,7 @@ public enum DirectSyncMachine {
             case .apply: "apply"
             case .catchUp: "catchUp"
             case .discardMirrorHead: "discardMirrorHead"
+            case .persistConflictResolution: "persistConflictResolution"
             case .surfaceConflict: "surfaceConflict"
             case .stop: "stop"
             }
@@ -279,6 +286,9 @@ public enum DirectSyncMachine {
             case let .conflict(request, conflict, _):
                 next.phase = .conflict(request: request, conflict: conflict, head: latest)
                 return (next, [])
+            case let .conflictPreparing(request, conflict, choice, _):
+                next.phase = .conflictPreparing(request: request, conflict: conflict, choice: choice, head: latest)
+                return (next, [])
             case let .offline(availability, request, transmitted, _):
                 // Later local work replaces one successor head; intermediate generations are compacted.
                 next.phase = .offline(availability: availability, request: request, transmitted: transmitted, head: latest)
@@ -291,6 +301,10 @@ public enum DirectSyncMachine {
 
         case let .requestPersisted(request):
             switch state.phase {
+            case let .conflictPreparing(_, conflict, _, head):
+                next.base = conflict.current
+                next.phase = .prepared(request: request, head: head?.root == request.candidate ? nil : head)
+                return (next, [.submit(request)])
             case let .locallyPending(head, _):
                 let successor = head.root != request.candidate ? head : nil
                 next.phase = .prepared(request: request, head: successor)
@@ -444,18 +458,13 @@ public enum DirectSyncMachine {
 
         case let .resolveConflict(choice):
             guard case let .conflict(request, conflict, head) = state.phase else { return (state, []) }
-            let verified = conflict.current
-            switch choice {
-            case .local:
-                next.base = verified
-                next.phase = .locallyPending(head: head ?? LocalHead(root: conflict.localRoot, origin: .api), preparing: false)
-                return (next, [.schedule(.trailing, .zero)])
-            case .remote, .draft:
-                let root = choice == .draft ? (conflict.draft ?? verified.root) : verified.root
-                let result = AuthorityResult(kind: .current, root: root, update: verified.update, cursor: verified.cursor)
-                next.phase = .acceptedPendingApply(result: result, request: request, head: nil)
-                return (next, [.apply(result)])
-            }
+            next.phase = .conflictPreparing(request: request, conflict: conflict, choice: choice, head: head)
+            return (next, [.persistConflictResolution(request: request, conflict: conflict, choice: choice)])
+
+        case .conflictResolutionFailed:
+            guard case let .conflictPreparing(request, conflict, _, head) = state.phase else { return (state, []) }
+            next.phase = .conflict(request: request, conflict: conflict, head: head)
+            return (next, [.surfaceConflict(conflict)])
         }
     }
 
@@ -552,11 +561,14 @@ extension DirectSyncMachine.State {
             value["result"] = resultValue
             put(request)
             put(head)
-        case let .conflict(request, conflict, head):
+        case let .conflict(request, conflict, head),
+             let .conflictPreparing(request, conflict, _, head):
             put(request)
             var conflictValue: [String: Any] = ["current": conflict.current.fixtureRepresentation, "localRoot": conflict.localRoot]
             if let draft = conflict.draft { conflictValue["draft"] = draft }
+            conflictValue["failedIndex"] = conflict.failedIndex
             value["conflict"] = conflictValue
+            if case let .conflictPreparing(_, _, choice, _) = phase { value["choice"] = choice.rawValue }
             put(head)
         case let .offline(availability, request, transmitted, head):
             value["availability"] = ["kind": availability.kind]

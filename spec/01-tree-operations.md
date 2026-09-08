@@ -623,6 +623,15 @@ A conflict uses the shared `ArborError` envelope with
 reasons naming each conflicting node; and `draft`, the transition from the
 candidate root to the draft root the client keeps.
 
+A direct client treats `failedIndex` as a sequencing boundary. It reviews only
+that failed element; later elements have not conflicted because the authority
+has not examined them. After the reviewed result is accepted, the client
+replays each retained suffix change in order against the resulting accepted
+state. Replay preserves the original change between adjacent submitted
+candidates. It does not reuse an old complete candidate under a new logical
+base or collapse the suffix into one root. A guarded replay that cannot be
+applied exactly becomes a new client-owned conflict before submission.
+
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
 of `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`, with
@@ -636,8 +645,9 @@ transport choices and are excluded. An ambiguous retry may therefore replace a
 delta with complete bytes without changing identity. Exact accepted or merged
 elements replay their original results and create no duplicate accepted update.
 A `current` element may be evaluated again. Clients durably retain their epoch
-base, ordered elements, required content, and any conflict draft until the
-corresponding prefix has been applied.
+base, ordered elements, required content, successful-prefix boundary, and any
+conflict draft until the reviewed element and every retained suffix change have
+been applied.
 
 A conflict and every other error use the shared envelope:
 

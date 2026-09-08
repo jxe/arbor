@@ -52,6 +52,7 @@ export interface ConflictEvidence {
   current: AcceptedBase;
   draft?: string;
   localRoot: string;
+  failedIndex?: number;
 }
 
 export type Availability = { kind: "transport" } | { kind: "authentication"; reason?: string };
@@ -71,6 +72,7 @@ export type SyncState =
   | (Base & { kind: "submitting-pending"; base: AcceptedBase; request: PreparedRequest; head: LocalHead })
   | (Base & { kind: "accepted-pending-apply"; base: AcceptedBase; result: AuthorityResult; request?: PreparedRequest; head?: LocalHead })
   | (Base & { kind: "conflict"; base: AcceptedBase; request: PreparedRequest; conflict: ConflictEvidence; head?: LocalHead })
+  | (Base & { kind: "conflict-preparing"; base: AcceptedBase; request: PreparedRequest; conflict: ConflictEvidence; choice: "local" | "remote" | "draft"; head?: LocalHead })
   | (Base & {
     kind: "offline";
     base: AcceptedBase;
@@ -100,7 +102,8 @@ export type SyncEvent =
   | { type: "validationFailed"; reason: string }
   | { type: "transportAvailable"; available: boolean }
   | { type: "credentialsRefreshed" }
-  | { type: "resolveConflict"; choice: "local" | "remote" | "draft" };
+  | { type: "resolveConflict"; choice: "local" | "remote" | "draft" }
+  | { type: "conflictResolutionFailed" };
 
 export type SyncEffect =
   | { type: "schedule"; timer: "trailing" | "max"; delay: number }
@@ -114,6 +117,7 @@ export type SyncEffect =
   | { type: "catchUp"; cursor?: string }
   /** A filesystem observation arrived while disk is an editor mirror: reconcile disk to accepted state, create no candidate. */
   | { type: "discardMirrorHead"; root: string }
+  | { type: "persistConflictResolution"; request: PreparedRequest; conflict: ConflictEvidence; choice: "local" | "remote" | "draft" }
   | { type: "surfaceConflict"; conflict: ConflictEvidence }
   | { type: "stop"; reason: string };
 
@@ -203,6 +207,7 @@ export function reduceSync(state: SyncState, event: SyncEvent, options: SyncOpti
         case "submitting-pending":
         case "accepted-pending-apply":
         case "conflict":
+        case "conflict-preparing":
         case "offline":
           // Later local work replaces one successor head; intermediate generations are compacted.
           return { state: { ...state, head: latest }, effects: [] };
@@ -217,6 +222,13 @@ export function reduceSync(state: SyncState, event: SyncEvent, options: SyncOpti
     }
 
     case "requestPersisted": {
+      if (state.kind === "conflict-preparing") {
+        const successor = state.head && state.head.root !== event.request.candidate ? state.head : undefined;
+        return {
+          state: { ...ctx(state), kind: "prepared", base: state.conflict.current, request: event.request, ...(successor ? { head: successor } : {}) },
+          effects: [{ type: "submit", request: event.request }],
+        };
+      }
       if (state.kind === "locally-pending") {
         const successor = state.head.root !== event.request.candidate ? state.head : undefined;
         return {
@@ -423,19 +435,17 @@ export function reduceSync(state: SyncState, event: SyncEvent, options: SyncOpti
 
     case "resolveConflict": {
       if (state.kind !== "conflict") return { state, effects: [] };
-      const verified = state.conflict.current;
-      if (event.choice === "local") {
-        const latest = state.head ?? head(state.conflict.localRoot, "api");
-        return {
-          state: { ...ctx(state), kind: "locally-pending", base: verified, head: latest },
-          effects: [{ type: "schedule", timer: "trailing", delay: 0 }],
-        };
-      }
-      const root = event.choice === "draft" && state.conflict.draft ? state.conflict.draft : verified.root;
-      const result: AuthorityResult = { kind: "current", root, update: verified.update, ...(verified.cursor ? { cursor: verified.cursor } : {}), digests: [] };
       return {
-        state: { ...ctx(state), kind: "accepted-pending-apply", base: state.base, result, request: state.request },
-        effects: [{ type: "apply", result }],
+        state: { ...ctx(state), kind: "conflict-preparing", base: state.base, request: state.request, conflict: state.conflict, choice: event.choice, ...(state.head ? { head: state.head } : {}) },
+        effects: [{ type: "persistConflictResolution", request: state.request, conflict: state.conflict, choice: event.choice }],
+      };
+    }
+
+    case "conflictResolutionFailed": {
+      if (state.kind !== "conflict-preparing") return { state, effects: [] };
+      return {
+        state: { ...ctx(state), kind: "conflict", base: state.base, request: state.request, conflict: state.conflict, ...(state.head ? { head: state.head } : {}) },
+        effects: [{ type: "surfaceConflict", conflict: state.conflict }],
       };
     }
   }

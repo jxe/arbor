@@ -71,7 +71,8 @@ public actor ReplicaSyncCoordinator {
                 conflict: DirectSyncMachine.ConflictEvidence(
                     current: .init(root: conflict.response.current.root, update: conflict.response.current.id),
                     draft: conflict.response.draft.root,
-                    localRoot: conflict.localRootAtConflict
+                    localRoot: conflict.localRootAtConflict,
+                    failedIndex: conflict.response.details.failedIndex
                 ),
                 head: nil
             )
@@ -126,6 +127,10 @@ public actor ReplicaSyncCoordinator {
             // Submission, materialization, and catch-up are performed inline by
             // the pass that dispatched the event; they report back with
             // `applied`, `conflicted`, or a failure.
+            break
+        case .persistConflictResolution:
+            // The coordinator persists the reviewed candidate synchronously
+            // from its public resolution API before starting another pass.
             break
         }
     }
@@ -457,7 +462,8 @@ public actor ReplicaSyncCoordinator {
             conflict: DirectSyncMachine.ConflictEvidence(
                 current: .init(root: validated.current.root, update: validated.current.id),
                 draft: validated.draft.root,
-                localRoot: attempt.candidate
+                localRoot: attempt.candidate,
+                failedIndex: validated.details.failedIndex
             )
         ))
     }
@@ -507,6 +513,11 @@ public actor ReplicaSyncCoordinator {
     public func resolveConflictKeepingLocal() throws {
         try requireOpen()
         guard let conflict = control.conflict else { throw ReplicaSyncError.noConflict }
+        if let attempt = conflict.attempt,
+           let request = try? JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body),
+           request.updates.count > conflict.response.details.failedIndex + 1 {
+            throw ReplicaSyncError.conflictSequenceRequiresReview
+        }
         control.nextBase = WireUpdateBase(root: conflict.response.current.root, update: conflict.response.current.id)
         control.conflict = nil
         if case .conflict = machine.phase { dispatch(.resolveConflict(.local)) }

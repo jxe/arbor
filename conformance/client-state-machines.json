@@ -166,9 +166,9 @@
       ]
     },
     "direct-canopy-synchronization": {
-      "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "conflict", "offline", "terminal"],
-      "events": ["bootstrapInstalled", "setRole", "localHead", "publishDelayElapsed", "maxDelayElapsed", "requestPersisted", "submitStarted", "accepted", "watch", "watchGap", "conflicted", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed", "resolveConflict"],
-      "effects": ["schedule", "cancelTimers", "persistRequest", "submit", "apply", "catchUp", "discardMirrorHead", "surfaceConflict", "stop"],
+      "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "conflict", "conflict-preparing", "offline", "terminal"],
+      "events": ["bootstrapInstalled", "setRole", "localHead", "publishDelayElapsed", "maxDelayElapsed", "requestPersisted", "submitStarted", "accepted", "watch", "watchGap", "conflicted", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed", "resolveConflict", "conflictResolutionFailed"],
+      "effects": ["schedule", "cancelTimers", "persistRequest", "persistConflictResolution", "submit", "apply", "catchUp", "discardMirrorHead", "surfaceConflict", "stop"],
       "scenarios": [
         {
           "name": "bootstrap installation is the only entry into current; earlier events are ignored",
@@ -349,20 +349,19 @@
           ]
         },
         {
-          "name": "explicit conflict resolution keeping local work becomes a new request at the verified current base",
-          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h1" }, "head": { "root": "h2", "origin": "editor" }, "role": "source", "transportAvailable": true },
+          "name": "explicit conflict resolution prepares the failed element and untouched suffix at the verified current base",
+          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q3", "base": "uA", "candidate": "h3", "digests": ["q1", "q2", "q3"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h3", "failedIndex": 1 }, "head": { "root": "h4", "origin": "editor" }, "role": "source", "transportAvailable": true },
           "steps": [
-            { "event": { "type": "resolveConflict", "choice": "local" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "R", "base.update": "uR", "head.root": "h2" } },
-            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] },
-            { "event": { "type": "requestPersisted", "request": { "id": "q2", "base": "uR", "candidate": "h2", "digests": ["q2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "request.base": "uR" } }
+            { "event": { "type": "resolveConflict", "choice": "local" }, "state": "conflict-preparing", "effects": ["persistConflictResolution"], "expect": { "base.root": "A", "conflict.failedIndex": 1, "head.root": "h4" } },
+            { "event": { "type": "requestPersisted", "request": { "id": "r3", "base": "uR", "candidate": "r3", "digests": ["r1", "r2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "base.root": "R", "request.base": "uR", "head.root": "h4" } }
           ]
         },
         {
-          "name": "explicit conflict resolution taking the remote state applies it and returns to current",
+          "name": "failed conflict resolution returns to the same retained conflict",
           "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h1" }, "role": "source", "transportAvailable": true },
           "steps": [
-            { "event": { "type": "resolveConflict", "choice": "remote" }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "result.root": "R" } },
-            { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "R", "base.update": "uR" } }
+            { "event": { "type": "resolveConflict", "choice": "remote" }, "state": "conflict-preparing", "effects": ["persistConflictResolution"] },
+            { "event": { "type": "conflictResolutionFailed" }, "state": "conflict", "effects": ["surfaceConflict"], "expect": { "request.id": "q1", "conflict.current.root": "R" } }
           ]
         },
         {

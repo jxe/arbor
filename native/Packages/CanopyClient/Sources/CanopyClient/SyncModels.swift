@@ -8,6 +8,7 @@ public enum ReplicaSyncError: Error, Equatable, Sendable {
     case returnedSnapshotMismatch
     case returnedRequestDigestMismatch
     case conflictSnapshotMissing
+    case conflictSequenceRequiresReview
     case noConflict
     case localWorkAdvanced
     case closed
