@@ -1,8 +1,8 @@
 # Smaller project 010 — Trim the Local Arbor REST surface to its real callers
 
-- **State:** PLANNED
+- **State:** DONE 2026-09-08
 - **Priority:** P2; independent of, and smaller than,
-  [Smaller project 009](009-admission-shaped-rest-api.md); do this first
+  [Smaller project 009](../../smaller-projects/009-admission-shaped-rest-api.md); done first
 - **Depends on:** nothing. Coordinates with 009 only where both touch
   `packages/arborsync/src/server.ts`.
 
@@ -126,6 +126,51 @@ Swift callers and are not in question.
 Each step is one commit with its caller change; the route table in step 9
 is regenerated at the end.
 
+## What execution showed
+
+- **`/v1/file` is not a duplicate.** It is the NodeRef-addressed read that
+  the CLI, `@arbor/arborsync-client` configuration helpers, and the Mac app
+  use for system and configuration-tree files (`/trees.yaml`,
+  `/devices.yaml`), which the OS-path root route cannot address. It stays.
+- **Assets and imports are different operations.** `POST /v1/assets` places
+  bytes content-addressed under `/Assets` and returns the Markdown-relative
+  path the editor inserts; `POST /v1/imports` places entries at chosen paths.
+  Merging them would be a protocol change for no caller's benefit. Both stay.
+- **The shared layer is `@arbor/stores`.** The only daemon-independent logic
+  the CLI needed was the claimed-account projection; identity already lived
+  in `ProfileIdentityStore` and ID minting in `@arbor/core`. A new package
+  would have held one function, so `listLocalAccounts` joined the data-home
+  kit and `ArborSyncDaemon.accountList` delegates to it.
+- **`arbor status` now lists accounts while the daemon is down**, because
+  that read is durable configuration; runtime and tree state still come from
+  the running daemon.
+- **Removed:** `POST /v1/conflicts/:tree/resolve`, the daemon's Wire
+  `queries`/`mutate` routes and their runtime options, `POST /v1/tree-ids`
+  (both clients mint locally; `CanopyClient` gained `generateArborID`), and
+  `GET /v1/me` (folded into `GET /v1/accounts` as `identity`;
+  `POST /v1/me` keeps its web caller).
+- **The CLI's private daemon is gone.** `withArborSync` and `arbor open`
+  attach or fail; the three CLI integration suites start an explicit control
+  daemon per command and pass `ARBOR_SYNC_URL`.
+
+## Exit evidence (2026-09-08)
+
+```sh
+bun run typecheck
+bun run test
+bun run test:protocol
+bun run build
+swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path native/Packages/CanopyClient
+git diff --check
+grep -rn "conflicts/.*resolve\|/v1/tree-ids\|/v1/me\b" packages native tests --include='*.ts' --include='*.tsx' --include='*.swift'
+grep -n "serveArborSync(" packages/cli/src/index.ts
+```
+
+All passed; the two greps return only `POST /v1/me` (kept) and no
+`serveArborSync` in the CLI. `bun run test` carries the known parallel-only
+flakes recorded for Reliability 005.
+
 ## Out of scope
 
 - The editor-facing admit/open/observe/close shape (009).
@@ -156,13 +201,13 @@ grep -n "serveArborSync(" packages/cli/src/index.ts   # only the daemon and clou
 
 ## Done criteria
 
-- [ ] Every route in `server.ts` has a non-test caller outside the daemon's
+- [x] Every route in `server.ts` has a non-test caller outside the daemon's
   own process, listed in `docs/arborsync-api.md`.
-- [ ] The CLI never starts a private daemon; it attaches to a running Arbor
+- [x] The CLI never starts a private daemon; it attaches to a running Arbor
   Sync or errors, and `arbor daemon …` is the only command that runs one.
-- [ ] Drawback-free commands run through the extracted library with no HTTP,
+- [x] Drawback-free commands run through the extracted library with no HTTP,
   and `ArborService` imports that same library rather than duplicating it.
-- [ ] One bytes route, one upload route, one identity read.
-- [ ] `POST /v1/conflicts/:tree/resolve` and the daemon's Wire query and
+- [x] One identity read; the bytes and upload routes were found to be distinct operations (see above).
+- [x] `POST /v1/conflicts/:tree/resolve` and the daemon's Wire query and
   mutation routes are gone.
-- [ ] All verification commands pass.
+- [x] All verification commands pass.
