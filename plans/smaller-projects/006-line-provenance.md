@@ -32,9 +32,10 @@
   migration, bounded access to private history, and cross-language protocol
   surface
 - **State:** PLANNED
-- **Depends on:** no implementation milestone; coordinate retention with
+- **Depends on:** [Smaller project 007](007-canopy-document-history.md), whose
+  accepted document-version index this plan reuses; coordinate retention with
   [Canopy storage 001](../canopy-storage/001-pack-object-storage.md), which must
-  not prune history required by this feature without an equivalent checkpoint
+  not prune history required by either feature without an equivalent checkpoint
 - **Planned at:** `0ea0f31`, 2026-09-05
 
 ## Target result
@@ -59,8 +60,9 @@ literal:
   device whose candidate triggered the merge;
 - public, access-link, system, and un-attributable legacy updates remain
   explicitly distinguishable without exposing credentials or digests; and
-- it exposes no deleted source, rejected candidates, conflict drafts, generic
-  historical snapshot, or accepted-history listing.
+- it exposes no deleted source beyond the separately authorized document
+  History contract, rejected candidates, conflict drafts, generic historical
+  snapshot, or generic tree-wide accepted-history listing.
 
 This is current-line provenance, not a general revision browser.
 
@@ -92,11 +94,12 @@ only the device subject. The current relation
 while those rows retain their original meaning, but the accepted row itself
 does not freeze the Profile TreeID used at acceptance.
 
-History is deliberately private. `packages/canopy/README.md`,
-`spec/01-tree-operations.md`, and `plans/_done/native/overview.md` reject a
-generic accepted-history collection. Keep that decision: compute provenance
-inside Canopy and return only metadata for lines that exist in the currently
-readable source.
+Accepted document history is owned by
+[Smaller project 007](007-canopy-document-history.md). It remains
+document-scoped and write-credential-authorized rather than a generic accepted
+history collection. This plan computes provenance inside Canopy and returns
+only metadata for lines in the currently readable source; it reuses project
+007's document-version index instead of adding a second historical index.
 
 The native app already has `ArborSourceInspector` in
 `native/ArborApp/ArborDailyDriverViews.swift`. `ArborKit` has local recovery
@@ -209,12 +212,12 @@ adding `actor`; otherwise an access-link writer's private digest or a device ID
 could be mistaken for safe attribution. Compatibility, TypeScript, Swift, and
 fixture changes must land atomically with the server change.
 
-Increment the Canopy schema version and create the next available disposable
-migration directory under `migrations/` following
-`migrations/001-if-match-and-model-hash/` and `migrations/README.md`. At the
-time this plan was written the next number was `005`; if that number has been
-used, take the next available number and update this plan/index before work.
-The migration must:
+Extend the schema established by Smaller project 007 and create the next
+available disposable migration directory under `migrations/` following
+`migrations/001-if-match-and-model-hash/` and `migrations/README.md`. Do not
+rebuild or duplicate its `document_versions` index. At execution time take the
+next available number and update this plan/index before work. The migration
+must:
 
 1. operate only on an exact supported source schema;
 2. add and validate the two actor columns;
@@ -313,7 +316,8 @@ Out of scope even if it looks adjacent:
 
 - changing object hashes, canonical CBOR, root identity, update ordering,
   merge acceptance, or request-digest replay;
-- a general history/snapshot API, historical editing, or remote restore;
+- a generic tree history/snapshot API or historical editing; accepted
+  document restore is owned by Smaller project 007;
 - database-row, generated-result, binary, arbitrary-text, or copy provenance;
 - profile-key signing of every device update, profile succession/recovery, or
   cross-Canopy history federation; and
@@ -548,7 +552,8 @@ Stop and report rather than improvising if:
   rows, generated query results, binary files, or arbitrary ordinary text in
   the first version.
 - No copy detection across unrelated documents or deleted history.
-- No generic accepted-history browser or restoration from Canopy history.
+- No generic tree-wide accepted-history browser. Document-scoped accepted
+  history and restore-as-new-change are owned by Smaller project 007.
 - No promise that a submitting profile was the human who typed a line; the
   record identifies the profile account whose device submitted the accepted
   change.
