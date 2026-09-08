@@ -34,6 +34,8 @@ public struct ArborMarkdownOpenedDocument: Sendable {
 }
 
 public enum ArborMarkdownCodec {
+    private static let childrenMarker = "<!-- arbor:children -->"
+
     private struct ParsedBlock {
         var block: Block
         var raw: String
@@ -47,6 +49,72 @@ public enum ArborMarkdownCodec {
     public static func serializeBlocks(_ blocks: [Block], newline: String = "\n") -> String {
         let ledger = ArborSourceLedger(source: "", revision: "standalone", envelope: "", newline: newline, records: [:])
         return admission(blocks: blocks, ledger: ledger).0.source
+    }
+
+    /// Insert unmentioned immediate children into the operational document at
+    /// the explicit children marker, or at the implicit marker after authored
+    /// source. The generated links are ordinary Quagmire blocks, but remain
+    /// projected until the user moves them into an authored position.
+    static func placeDirectoryChildren(
+        _ children: [WorkspaceNode],
+        in blocks: [Block],
+        directory: WorkspaceReference
+    ) -> [Block] {
+        let authored = removingProjectedBlocks(from: blocks)
+        var mentionedIdentities = Set<WorkspaceIdentity>()
+        var mentionedPaths = Set<String>()
+        var markerCount = 0
+
+        func pathKey(tree: TreeID, path: String) -> String {
+            "\(tree.rawValue)\u{0}\(path)"
+        }
+        func inspect(_ values: [Block]) {
+            for block in values {
+                if case let .documentLink(_, reference) = block.kind,
+                   let target = resolveNodeTarget(base: directory.path, href: reference.rawValue) {
+                    let tree = target.tree.map(TreeID.init(rawValue:)) ?? directory.tree
+                    let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+                    if let stableKey {
+                        mentionedIdentities.insert(.key(tree: tree, stableKey: stableKey))
+                    }
+                    mentionedPaths.insert(pathKey(tree: tree, path: target.path))
+                }
+                if isChildrenMarker(block) { markerCount += 1 }
+                inspect(block.children)
+            }
+        }
+        inspect(authored)
+        guard markerCount <= 1 else { return authored }
+
+        let missing = children
+            .filter {
+                !mentionedIdentities.contains($0.reference.identity)
+                    && !mentionedPaths.contains(pathKey(tree: $0.reference.tree, path: $0.reference.path))
+            }
+            .sorted { Array($0.reference.path.utf8).lexicographicallyPrecedes(Array($1.reference.path.utf8)) }
+        guard !missing.isEmpty else { return authored }
+
+        let generated = missing.map { child -> Block in
+            let rawReference = buildCanonicalLink(
+                from: directory.path,
+                toPath: child.reference.path,
+                stableKey: child.reference.stableKey
+            ) ?? child.reference.path
+            return Block(
+                id: projectedChildID(child.reference),
+                kind: .documentLink(
+                    label: AttributedString(child.title),
+                    reference: DocumentReference(rawReference)
+                ),
+                persistence: .projected
+            )
+        }
+
+        var result = authored
+        if !insert(generated, afterChildrenMarkerIn: &result) {
+            appendAtImplicitMarker(generated, to: &result)
+        }
+        return result
     }
 
     static func patch(from source: String, to result: String, revision: String) -> WorkspaceDocumentPatch {
@@ -168,6 +236,7 @@ public enum ArborMarkdownCodec {
             if !isEmptyParagraph(block) { count += 1 }
         }
         func append(_ block: Block, depth: Int, containerDepth: Int) {
+            guard block.persistence == .authored else { return }
             let emptyParagraph = isEmptyParagraph(block)
             if !emptyParagraph { remainingNonemptyBlocks -= 1 }
             var raw: String
@@ -266,7 +335,12 @@ public enum ArborMarkdownCodec {
                 resultID = block.id
             }
             usedIDs.insert(resultID)
-            value = Block(id: resultID, kind: block.kind, children: block.children.map(reuse))
+            value = Block(
+                id: resultID,
+                kind: block.kind,
+                children: block.children.map(reuse),
+                persistence: block.persistence
+            )
             sourceIDByResultID[value.id] = block.id
             return value
         }
@@ -363,7 +437,11 @@ public enum ArborMarkdownCodec {
         }
         if let image = wholeImage(trimmed) { return .image(source: image.target, alt: image.label, id: id) }
         if trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("|") || trimmed.hasPrefix("[^") {
-            return .unsupported(payload: lines.map(\.raw).joined(), display: "Raw Markdown", id: id)
+            return .unsupported(
+                payload: lines.map(\.raw).joined(),
+                display: trimmed == childrenMarker ? "Children" : "Raw Markdown",
+                id: id
+            )
         }
         let text = contents.filter { !$0.isEmpty }.joined(separator: "\n")
         return .paragraph(text: parseInline(text), id: id)
@@ -604,6 +682,50 @@ public enum ArborMarkdownCodec {
         return BlockID(uuid)
     }
 
+    private static func projectedChildID(_ reference: WorkspaceReference) -> BlockID {
+        let digest = Array(SHA256.hash(
+            data: Data("arbor-child:\(String(describing: reference.identity))".utf8)
+        ).prefix(16))
+        return BlockID(UUID(uuid: (
+            digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
+            digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]
+        )))
+    }
+
+    private static func isChildrenMarker(_ block: Block) -> Bool {
+        guard case let .unsupported(payload, _) = block.kind else { return false }
+        return payload.trimmingCharacters(in: .whitespacesAndNewlines) == childrenMarker
+    }
+
+    private static func removingProjectedBlocks(from blocks: [Block]) -> [Block] {
+        blocks.compactMap { block in
+            guard block.persistence == .authored else { return nil }
+            var value = block
+            value.children = removingProjectedBlocks(from: block.children)
+            return value
+        }
+    }
+
+    private static func insert(_ generated: [Block], afterChildrenMarkerIn blocks: inout [Block]) -> Bool {
+        for index in blocks.indices {
+            if isChildrenMarker(blocks[index]) {
+                blocks.insert(contentsOf: generated, at: index + 1)
+                return true
+            }
+            if insert(generated, afterChildrenMarkerIn: &blocks[index].children) { return true }
+        }
+        return false
+    }
+
+    private static func appendAtImplicitMarker(_ generated: [Block], to blocks: inout [Block]) {
+        guard let index = blocks.indices.last,
+              case .heading = blocks[index].kind else {
+            blocks.append(contentsOf: generated)
+            return
+        }
+        appendAtImplicitMarker(generated, to: &blocks[index].children)
+    }
+
     private static func foldHeadings(_ blocks: [Block]) -> [Block] {
         var roots: [Block] = []
         var stack: [(block: Block, level: HeadingLevel)] = []
@@ -661,7 +783,9 @@ public enum ArborMarkdownCodec {
 
     private static func flattenedBlocks(_ blocks: [Block]) -> [Block] {
         var result: [Block] = []
-        walk(blocks) { block, _ in result.append(block) }
+        walk(blocks) { block, _ in
+            if block.persistence == .authored { result.append(block) }
+        }
         return result
     }
 }

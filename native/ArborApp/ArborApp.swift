@@ -58,10 +58,16 @@ private struct ArborNavigationCommands: Commands {
             Button("Open Location…") { commands?.openLocation() }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(commands == nil)
-            Button("Search…") { commands?.showSearch() }
+            Button("Search Contents…") { commands?.showSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(commands == nil)
             Divider()
+            Button("Back") { commands?.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(commands?.canGoBack != true)
+            Button("Forward") { commands?.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(commands?.canGoForward != true)
             Button("Go to Parent") { commands?.goParent() }
                 .keyboardShortcut(.upArrow, modifiers: .command)
                 .disabled(commands?.canGoParent != true)
@@ -112,6 +118,9 @@ private struct ArborNavigationCommands: Commands {
             Button("Toggle Sidebar") { commands?.toggleSidebar() }
                 .keyboardShortcut("\\", modifiers: .command)
                 .disabled(commands == nil)
+            Button("Search Sidebar") { commands?.focusSidebarSearch() }
+                .keyboardShortcut("/", modifiers: .command)
+                .disabled(commands == nil)
             Toggle("Alphabetical Pages", isOn: sidebarPageOrderBinding(.alphabetical))
                 .keyboardShortcut("1", modifiers: [.command, .option])
                 .disabled(commands == nil)
@@ -123,13 +132,13 @@ private struct ArborNavigationCommands: Commands {
                 .disabled(commands == nil)
             Divider()
 #endif
+#if os(iOS)
             Button("Back") { commands?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
                 .disabled(commands?.canGoBack != true)
             Button("Forward") { commands?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(commands?.canGoForward != true)
-#if os(iOS)
             Button("Go to Parent") { commands?.goParent() }
                 .keyboardShortcut(.upArrow, modifiers: .command)
                 .disabled(commands?.canGoParent != true)

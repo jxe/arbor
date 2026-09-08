@@ -241,26 +241,42 @@ enum ArborPagePickerSelection {
 }
 
 #if os(macOS)
+private enum MacSidebarSearchCommand {
+    case previous
+    case next
+    case open
+}
+
 private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     let width: CGFloat
     let isVisible: Bool
+    let focusSearchRequest: Int
+    let handleSearchCommand: @MainActor (MacSidebarSearchCommand) -> Void
     @Binding var installed: Bool
     let content: AnyView
 
     init<Content: View>(
         width: CGFloat,
         isVisible: Bool,
+        focusSearchRequest: Int,
+        handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void,
         installed: Binding<Bool>,
         @ViewBuilder content: () -> Content
     ) {
         self.width = width
         self.isVisible = isVisible
+        self.focusSearchRequest = focusSearchRequest
+        self.handleSearchCommand = handleSearchCommand
         _installed = installed
         self.content = AnyView(content())
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(installed: $installed, isVisible: isVisible)
+        Coordinator(
+            installed: $installed,
+            isVisible: isVisible,
+            handleSearchCommand: handleSearchCommand
+        )
     }
 
     func makeNSView(context: Context) -> MacWindowReaderView {
@@ -272,7 +288,13 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     }
 
     func updateNSView(_ view: MacWindowReaderView, context: Context) {
-        context.coordinator.update(content: content, width: width, isVisible: isVisible)
+        context.coordinator.update(
+            content: content,
+            width: width,
+            isVisible: isVisible,
+            focusSearchRequest: focusSearchRequest,
+            handleSearchCommand: handleSearchCommand
+        )
         context.coordinator.attach(to: view.window)
     }
 
@@ -289,10 +311,19 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
         private weak var window: NSWindow?
         private var sidebarWidth: CGFloat = 240
         private var isVisible: Bool
+        private var pendingFocusSearchRequest = 0
+        private var handledFocusSearchRequest = 0
+        private var handleSearchCommand: @MainActor (MacSidebarSearchCommand) -> Void
+        private var keyMonitor: Any?
 
-        init(installed: Binding<Bool>, isVisible: Bool) {
+        init(
+            installed: Binding<Bool>,
+            isVisible: Bool,
+            handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void
+        ) {
             self.installed = installed
             self.isVisible = isVisible
+            self.handleSearchCommand = handleSearchCommand
             controller.layoutAttribute = .left
             hostingView.wantsLayer = true
             hostingView.layer?.masksToBounds = true
@@ -300,15 +331,24 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
             widthConstraint.isActive = true
         }
 
-        func update(content: AnyView, width: CGFloat, isVisible: Bool) {
+        func update(
+            content: AnyView,
+            width: CGFloat,
+            isVisible: Bool,
+            focusSearchRequest: Int,
+            handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void
+        ) {
             hostingView.rootView = content
             sidebarWidth = max(0, width)
             self.isVisible = isVisible
+            self.handleSearchCommand = handleSearchCommand
+            pendingFocusSearchRequest = focusSearchRequest
             guard isVisible else {
                 detach()
                 return
             }
             fitToSidebar()
+            focusSearchFieldIfRequested()
         }
 
         func attach(to nextWindow: NSWindow?) {
@@ -319,20 +359,27 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
             guard let nextWindow else { return }
             guard window !== nextWindow else {
                 fitToSidebar()
+                installKeyMonitorIfNeeded()
                 return
             }
             detach()
             window = nextWindow
+            installKeyMonitorIfNeeded()
             controller.view.frame = NSRect(x: 0, y: 0, width: sidebarWidth, height: 52)
             nextWindow.addTitlebarAccessoryViewController(controller)
             fitToSidebar()
             DispatchQueue.main.async { [weak self] in
                 self?.fitToSidebar()
                 self?.setInstalled(true)
+                self?.focusSearchFieldIfRequested()
             }
         }
 
         func detach() {
+            if let keyMonitor {
+                NSEvent.removeMonitor(keyMonitor)
+                self.keyMonitor = nil
+            }
             if let window,
                let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === controller }) {
                 window.removeTitlebarAccessoryViewController(at: index)
@@ -360,6 +407,50 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
             DispatchQueue.main.async { [installed] in
                 installed.wrappedValue = value
             }
+        }
+
+        private func focusSearchFieldIfRequested() {
+            guard pendingFocusSearchRequest > 0,
+                  pendingFocusSearchRequest != handledFocusSearchRequest else { return }
+            let request = pendingFocusSearchRequest
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let field = self.firstEditableTextField(in: self.hostingView),
+                      self.window?.makeFirstResponder(field) == true else { return }
+                self.handledFocusSearchRequest = request
+            }
+        }
+
+        private func firstEditableTextField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            for child in view.subviews {
+                if let field = firstEditableTextField(in: child) { return field }
+            }
+            return nil
+        }
+
+        private func installKeyMonitorIfNeeded() {
+            guard keyMonitor == nil else { return }
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      event.window === self.window,
+                      self.searchFieldIsFirstResponder else { return event }
+                let command: MacSidebarSearchCommand
+                switch event.keyCode {
+                case 126: command = .previous
+                case 125: command = .next
+                case 36, 76: command = .open
+                default: return event
+                }
+                self.handleSearchCommand(command)
+                return nil
+            }
+        }
+
+        private var searchFieldIsFirstResponder: Bool {
+            guard let responder = window?.firstResponder,
+                  let field = firstEditableTextField(in: hostingView) else { return false }
+            return responder === field || field.currentEditor() === responder
         }
     }
 }
@@ -569,6 +660,7 @@ struct ArborRootView: View {
     @FocusState private var sidebarSearchFocused: Bool
 #if os(macOS)
     @State private var sidebarTitlebarAccessoryInstalled = false
+    @State private var sidebarSearchFocusRequest = 0
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var managementPresented = false
     @State private var managementTab = MacManagementTab.status
@@ -734,12 +826,10 @@ struct ArborRootView: View {
 #endif
         .sheet(isPresented: $searchPresented, onDismiss: {
             searchText = ""
-            Task { await model.search("") }
         }) {
             ArborSearchPalette(
                 query: $searchText,
-                results: model.searchResults,
-                search: { await model.search($0) },
+                search: { await model.fullTextSearch($0) },
                 open: { reference in Task { await model.navigate(to: reference) } }
             )
         }
@@ -932,6 +1022,8 @@ struct ArborRootView: View {
                 MacSidebarTitlebarAccessory(
                     width: geometry.size.width,
                     isVisible: columnVisibility != .detailOnly,
+                    focusSearchRequest: sidebarSearchFocusRequest,
+                    handleSearchCommand: handleSidebarSearchCommand,
                     installed: $sidebarTitlebarAccessoryInstalled
                 ) {
                     sidebarPagesHeader
@@ -1048,6 +1140,22 @@ struct ArborRootView: View {
             in: results.map(\.id)
         )
     }
+
+#if os(macOS)
+    private func handleSidebarSearchCommand(_ command: MacSidebarSearchCommand) {
+        let results = keyboardNavigableSidebarResults
+        guard !results.isEmpty else { return }
+        switch command {
+        case .previous:
+            moveSidebarKeyboardSelection(by: -1, in: results)
+        case .next:
+            moveSidebarKeyboardSelection(by: 1, in: results)
+        case .open:
+            let result = results.first { $0.id == sidebarKeyboardSelection } ?? results[0]
+            openFromSidebar(.reference(result.reference))
+        }
+    }
+#endif
 
 #if os(macOS)
     @ViewBuilder
@@ -1178,6 +1286,20 @@ struct ArborRootView: View {
             newDocument: { presentedSheet = .createMarkdown },
             newFolder: { presentedSheet = .createDirectory },
             openLocation: { presentedSheet = .openLocation },
+            focusSidebarSearch: {
+#if os(macOS)
+                if columnVisibility == .detailOnly {
+                    withAnimation { columnVisibility = .all }
+                }
+#endif
+                Task { @MainActor in
+                    await Task.yield()
+                    sidebarSearchFocused = true
+#if os(macOS)
+                    sidebarSearchFocusRequest += 1
+#endif
+                }
+            },
             showSearch: { searchPresented = true },
             recordAudio: { editorCommands in
                 Task { await toggleVoiceRecording(editorCommands: editorCommands) }
@@ -1631,8 +1753,6 @@ struct ArborRootView: View {
                                 provider: workspace.providerDetail,
                                 sync: workspace.syncPresentation,
                                 binding: lease.binding,
-                                host: host,
-                                children: editorChildren(for: presentation),
                                 backlinks: presentation.backlinks,
                                 open: { destination in Task { await model.navigate(to: destination) } },
                                 showStatus: showStatusPanel
@@ -1650,13 +1770,6 @@ struct ArborRootView: View {
         } else {
             ProgressView()
         }
-    }
-
-    private func editorChildren(
-        for presentation: ArborAppModel.PagePresentation
-    ) -> [WorkspaceNode] {
-        guard case .directoryDocument = presentation.node.surface else { return [] }
-        return presentation.children
     }
 
     @ViewBuilder

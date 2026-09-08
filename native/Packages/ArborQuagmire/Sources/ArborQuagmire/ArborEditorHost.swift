@@ -166,7 +166,11 @@ public final class ArborEditorHost: EditorHost {
 
     public func moveDocuments(matching rawQuery: String) async -> [ArborMoveDocument] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let results = try? await provider.search(query, in: binding.reference.tree) {
+        if let allResults = try? await provider.search("", in: binding.reference.tree) {
+            let results = query.isEmpty ? allResults : allResults.filter {
+                $0.title.localizedCaseInsensitiveContains(query)
+                    || $0.reference.path.localizedCaseInsensitiveContains(query)
+            }
             var documents: [ArborMoveDocument] = []
             for result in results.prefix(200) {
                 guard let node = try? await provider.resolve(result.reference),
@@ -316,33 +320,6 @@ public final class ArborEditorHost: EditorHost {
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
         guard let reference = workspaceReference(for: url) else { return nil }
         return ArborDocumentReferenceCodec.encode(reference)
-    }
-
-    public func implicitChildren(
-        among children: [WorkspaceNode],
-        in document: Document
-    ) -> [WorkspaceNode] {
-        var linked = Set<WorkspaceIdentity>()
-        var linkedPaths = Set<String>()
-        func pathKey(_ reference: WorkspaceReference) -> String {
-            "\(reference.tree.rawValue)\u{0}\(reference.path)"
-        }
-        func visit(_ blocks: [Block]) {
-            for block in blocks {
-                if case let .documentLink(_, reference) = block.kind,
-                   let url = URL(string: reference.rawValue),
-                   let target = workspaceReference(for: url) {
-                    linked.insert(target.identity)
-                    linkedPaths.insert(pathKey(target))
-                }
-                visit(block.children)
-            }
-        }
-        visit(document.children)
-        return children.filter {
-            !linked.contains($0.reference.identity)
-                && !linkedPaths.contains(pathKey($0.reference))
-        }
     }
 
     private func workspaceReference(for reference: DocumentReference) -> WorkspaceReference? {

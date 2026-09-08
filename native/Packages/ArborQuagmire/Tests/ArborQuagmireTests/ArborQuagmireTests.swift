@@ -1076,49 +1076,59 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
-    @Test("Implicit child rows exclude children already linked in authored Markdown")
-    func implicitChildRowsExcludeAuthoredLinks() async throws {
-        let tree: TreeID = "tr_implicit_children"
-        let parent = WorkspaceNode(
-            reference: .init(tree: tree, path: "/parent", stableKey: markdownStableKey("pg_parent")),
-            title: "Parent",
-            surface: .directoryDocument(
-                source: "# Parent\n\n[Linked child](linked)\n",
-                contentRevision: "r1",
-                stored: true
+    @Test("Directory children project at the marker and materialize when moved")
+    func directoryChildrenProjectAndMaterialize() throws {
+        let tree: TreeID = "tr_projected_children"
+        let directory = WorkspaceReference(
+            tree: tree,
+            path: "/parent",
+            stableKey: markdownStableKey("pg_parent")
+        )
+        let child = WorkspaceNode(
+            reference: .init(
+                tree: tree,
+                path: "/parent/child",
+                stableKey: markdownStableKey("pg_child")
             ),
+            title: "Child",
+            surface: .markdown(source: "# Child\n", contentRevision: "r1"),
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
-        let linked = WorkspaceNode(
-            reference: .init(tree: tree, path: "/parent/linked", stableKey: markdownStableKey("pg_linked")),
-            title: "Linked child",
-            surface: .markdown(source: "# Linked child\n", contentRevision: "r1"),
-            provenance: parent.provenance
+        let source = "# Parent\n\nBefore\n\n<!-- arbor:children -->\n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "projected-children"
         )
-        let implicit = WorkspaceNode(
-            reference: .init(tree: tree, path: "/parent/implicit", stableKey: markdownStableKey("pg_implicit")),
-            title: "Implicit child",
-            surface: .markdown(source: "# Implicit child\n", contentRevision: "r1"),
-            provenance: parent.provenance
+        let projected = ArborMarkdownCodec.placeDirectoryChildren(
+            [child],
+            in: opened.blocks,
+            directory: directory
         )
-        let provider = InMemoryWorkspaceProvider(
-            nodes: [parent, linked, implicit],
-            children: [parent.id: [linked.id, implicit.id]]
-        )
-        let session = try await provider.openDocument(parent.reference)
-        let binding = try await ArborDocumentBinding.open(reference: parent.reference, session: session)
-        let host = ArborEditorHost(
-            binding: binding,
-            provider: provider,
-            linkPreviewService: linkPreviewService(),
-            relativeReferenceBase: parent.reference
-        )
+        let parent = try #require(projected.first)
+        let markerIndex = try #require(parent.children.firstIndex {
+            if case let .unsupported(_, display) = $0.kind { return display == "Children" }
+            return false
+        })
+        let generated = try #require(parent.children.indices.contains(markerIndex + 1)
+            ? parent.children[markerIndex + 1]
+            : nil)
 
-        #expect(host.implicitChildren(
-            among: [linked, implicit],
-            in: binding.document
-        ).map(\.reference.identity) == [implicit.reference.identity])
-        await session.close()
+        #expect(generated.persistence == .projected)
+        #expect(ArborMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == source)
+
+        let document = Document(id: DocumentID("projected-children"), children: projected)
+        let generatedID = generated.id
+        let parentID = parent.id
+        document.transaction(name: "Move Child Link") {
+            _ = document.moveSubtrees([generatedID], to: DropPath(parent: parentID, position: 0))
+        }
+        let admitted = ArborMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger).0.source
+        #expect(document.find(generatedID)?.persistence == .authored)
+        #expect(admitted.contains("[Child]("))
+        let linkRange = try #require(admitted.range(of: "[Child]("))
+        let markerRange = try #require(admitted.range(of: "<!-- arbor:children -->"))
+        #expect(linkRange.lowerBound < markerRange.lowerBound)
     }
 
     @MainActor

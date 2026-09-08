@@ -33,6 +33,7 @@ public final class ArborDocumentBinding {
     private var pendingConflict: WorkspaceDocumentConflict?
     private var pendingFailure: Error?
     private let debounce: Duration
+    private var directoryProjection: (reference: WorkspaceReference, children: [WorkspaceNode])?
 
     public var generation: Int { machine.generation }
     /// True from the first uncommitted authored generation until Arbor Sync acknowledges the latest one.
@@ -166,6 +167,22 @@ public final class ArborDocumentBinding {
         return try await session.snapshot()
     }
 
+    /// Project the directory's immediate children into the live editor without
+    /// adding them to authored Markdown. Moving a projected row materializes
+    /// it through Quagmire's ordinary block move transaction.
+    public func projectDirectoryChildren(
+        _ children: [WorkspaceNode],
+        in reference: WorkspaceReference
+    ) {
+        directoryProjection = (reference, children)
+        let projected = ArborMarkdownCodec.placeDirectoryChildren(
+            children,
+            in: document.children,
+            directory: reference
+        )
+        _ = document.replaceChildrenReconciled(projected)
+    }
+
     /// Reconcile a provider-authored path change for this stable identity
     /// without replacing the live editor tree.
     public func reconcileReference(_ reference: WorkspaceReference) {
@@ -228,7 +245,17 @@ public final class ArborDocumentBinding {
             identitySeed: String(describing: snapshot.reference.identity)
         )
         let rebased = ArborMarkdownCodec.rebased(opened, preserving: document.children)
-        _ = document.replaceChildrenReconciled(rebased.blocks)
+        let replacement: [Block]
+        if let directoryProjection {
+            replacement = ArborMarkdownCodec.placeDirectoryChildren(
+                directoryProjection.children,
+                in: rebased.blocks,
+                directory: directoryProjection.reference
+            )
+        } else {
+            replacement = rebased.blocks
+        }
+        _ = document.replaceChildrenReconciled(replacement)
         accepted = snapshot
         reference = snapshot.reference
         ledger = rebased.ledger

@@ -30,6 +30,7 @@ struct ArborWindowCommands {
     var newDocument: () -> Void
     var newFolder: () -> Void
     var openLocation: () -> Void
+    var focusSidebarSearch: () -> Void
     var showSearch: () -> Void
     var recordAudio: (EditorCommands?) -> Void
     var recordAudioLabel: String
@@ -263,19 +264,21 @@ private func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: S
 
 struct ArborSearchPalette: View {
     @Binding var query: String
-    let results: [WorkspaceSearchResult]
-    let search: @MainActor (String) async -> Void
+    let search: @MainActor (String) async -> [WorkspaceSearchResult]
     let open: (WorkspaceReference) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var searchFocused: Bool
+    @State private var results: [WorkspaceSearchResult] = []
+    @State private var keyboardSelection: WorkspaceIdentity?
+    @State private var isLoading = false
 
     var body: some View {
         Group {
 #if os(iOS)
             NavigationStack {
                 resultsList
-                    .navigationTitle("Search")
+                    .navigationTitle("Search Contents")
                     .navigationBarTitleDisplayMode(.inline)
                     .searchable(
                         text: $query,
@@ -283,6 +286,9 @@ struct ArborSearchPalette: View {
                         prompt: "Titles and text"
                     )
                     .searchFocused($searchFocused)
+                    .onKeyPress(keys: [.upArrow, .downArrow, .return]) { press in
+                        handleSearchKeyPress(press)
+                    }
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { dismiss() }
@@ -296,11 +302,14 @@ struct ArborSearchPalette: View {
                     TextField("Search titles and text", text: $query)
                         .textFieldStyle(.roundedBorder)
                         .focused($searchFocused)
+                        .onKeyPress(keys: [.upArrow, .downArrow, .return]) { press in
+                            handleSearchKeyPress(press)
+                        }
                         .padding(12)
                     Divider()
                     resultsList
                 }
-                .navigationTitle("Search")
+                .navigationTitle("Search Contents")
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 }
@@ -310,71 +319,110 @@ struct ArborSearchPalette: View {
         }
         .task { searchFocused = true }
         .task(id: query) {
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                results = []
+                keyboardSelection = nil
+                isLoading = false
+                return
+            }
             do { try await Task.sleep(for: .milliseconds(140)) }
             catch { return }
             guard !Task.isCancelled else { return }
-            await search(query)
+            isLoading = true
+            let loaded = await search(trimmed)
+            guard !Task.isCancelled else { return }
+            results = loaded
+            keyboardSelection = nil
+            isLoading = false
         }
     }
 
     private var resultsList: some View {
-        List(results) { result in
-            Button {
-                open(result.reference)
-                dismiss()
-            } label: {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline, spacing: 7) {
-                            Text(result.title)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                            if let path = containingPath(for: result.reference) {
-                                Text(path)
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
+        ScrollViewReader { proxy in
+            List(results) { result in
+                Button { activate(result) } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                Text(result.title)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.primary)
                                     .lineLimit(1)
-                                    .truncationMode(.head)
+                                if let path = containingPath(for: result.reference) {
+                                    Text(path)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                        .truncationMode(.head)
+                                }
+                            }
+                            if let excerpt = result.excerpt {
+                                Text(excerpt)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
                             }
                         }
-                        if let excerpt = result.excerpt {
-                            Text(excerpt)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
-                    Label("\(result.backlinkCount)", systemImage: "link")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(result.backlinkCount == 0 ? .tertiary : .secondary)
-                        .accessibilityLabel(backlinkCountLabel(result.backlinkCount))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-        }
-        .overlay {
-            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && results.isEmpty {
-                ContentUnavailableView(
-                    "Search this tree",
-                    systemImage: "magnifyingglass",
-                    description: Text("Titles and visible document text stay local.")
+                .buttonStyle(.plain)
+                .listRowBackground(
+                    keyboardSelection == result.id
+                        ? Color.accentColor.opacity(0.12)
+                        : Color.clear
                 )
-            } else if results.isEmpty {
-                ContentUnavailableView.search(text: query)
+                .id(result.id)
+            }
+            .overlay {
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView(
+                        "Search this tree",
+                        systemImage: "text.magnifyingglass",
+                        description: Text("Find words in page titles and body text.")
+                    )
+                } else if isLoading, results.isEmpty {
+                    ProgressView("Searching contents")
+                } else if results.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                }
+            }
+            .onChange(of: keyboardSelection) { _, selection in
+                guard let selection else { return }
+                withAnimation { proxy.scrollTo(selection, anchor: .center) }
             }
         }
     }
 
-    private func backlinkCountLabel(_ count: Int) -> String {
-        switch count {
-        case 0: "No backlinks"
-        case 1: "1 backlink"
-        default: "\(count) backlinks"
+    private func handleSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        guard press.phase == .down, searchFocused, !results.isEmpty else { return .ignored }
+        switch press.key {
+        case .upArrow:
+            keyboardSelection = ArborPagePickerSelection.moved(
+                keyboardSelection,
+                by: -1,
+                in: results.map(\.id)
+            )
+        case .downArrow:
+            keyboardSelection = ArborPagePickerSelection.moved(
+                keyboardSelection,
+                by: 1,
+                in: results.map(\.id)
+            )
+        case .return:
+            activate(results.first { $0.id == keyboardSelection } ?? results[0])
+        default:
+            return .ignored
         }
+        return .handled
+    }
+
+    private func activate(_ result: WorkspaceSearchResult) {
+        open(result.reference)
+        dismiss()
     }
 
     private func containingPath(for reference: WorkspaceReference) -> String? {
@@ -877,34 +925,12 @@ struct ArborDocumentFooter: View {
     let provider: String
     let sync: WorkspaceSyncPresentation
     let binding: ArborDocumentBinding?
-    let host: ArborEditorHost
-    let children: [WorkspaceNode]
     let backlinks: [WorkspaceSearchResult]
     let open: (WorkspaceReference) -> Void
     let showStatus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            if !implicitChildren.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(implicitChildren) { child in
-                        Button { open(child.reference) } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "doc.text")
-                                    .frame(width: 16)
-                                    .foregroundStyle(.secondary)
-                                Text(child.title)
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
             if !backlinks.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Linked from")
@@ -949,11 +975,6 @@ struct ArborDocumentFooter: View {
         }
         .padding(.top, 24)
         .padding(.bottom, 12)
-    }
-
-    private var implicitChildren: [WorkspaceNode] {
-        guard let binding else { return children }
-        return host.implicitChildren(among: children, in: binding.document)
     }
 
     private var statusTitle: String {

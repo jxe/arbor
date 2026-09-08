@@ -207,6 +207,7 @@ struct ArborAppTests {
         await model.load()
         #expect(model.node?.title == "Home")
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
+        #expect(!model.canGoHome)
     }
 
     @Test("A document keeps its containing directory visible in the sidebar")
@@ -446,6 +447,22 @@ struct ArborAppTests {
         await model.search("")
 
         #expect(model.searchResults.contains { $0.reference.path == "/welcome" })
+    }
+
+    @Test("Full-text search does not replace the sidebar page results")
+    func fullTextSearchIsIndependentFromSidebar() async throws {
+        let workspace = ArborWorkspaceState(provider: .sample())
+        let model = ArborAppModel(workspace: workspace)
+        await model.search("")
+        let sidebarIdentities = model.searchResults.map(\.id)
+
+        let matches = await model.fullTextSearch("Native Arbor is ready")
+
+        #expect(matches.contains { $0.reference.path == "/welcome" })
+        #expect(model.searchResults.map(\.id) == sidebarIdentities)
+
+        await model.search("Native Arbor is ready")
+        #expect(!model.searchResults.contains { $0.reference.path == "/welcome" })
     }
 
     @Test("A final editor commit is durable before navigation completes")

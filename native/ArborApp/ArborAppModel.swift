@@ -1339,6 +1339,8 @@ final class ArborAppModel {
     private var loadRequestID = 0
     private var searchRequestID = 0
     private var lastSearchQuery = ""
+    private var pageIndexTree: TreeID?
+    private var pageIndexResults: [WorkspaceSearchResult] = []
     private var dismissedTitleRenameProposals = Set<String>()
 
     init(workspace: ArborWorkspaceState) {
@@ -1364,7 +1366,10 @@ final class ArborAppModel {
     var canGoBack: Bool { tabs.canGoBack }
     var canGoForward: Bool { tabs.canGoForward }
     var canGoParent: Bool { tabs.canGoParent }
-    var canGoHome: Bool { treeHomeLocation != nil }
+    var canGoHome: Bool {
+        guard let home = treeHomeLocation else { return false }
+        return currentLocation != home
+    }
     var selectedTabID: UUID { tabs.selectedTabID }
     var tabItems: [BrowserTab] { tabs.tabs }
     var binding: ArborDocumentBinding? { editorLease?.binding }
@@ -1403,6 +1408,8 @@ final class ArborAppModel {
         sidebarLocation = workspace.launchLocation
         searchResults = []
         lastSearchQuery = ""
+        pageIndexTree = nil
+        pageIndexResults = []
         tabVersion += 1
         await load()
     }
@@ -1445,6 +1452,9 @@ final class ArborAppModel {
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
                     return
+                }
+                if case .directoryDocument = resolved.surface {
+                    lease.binding.projectDirectoryChildren(loadedChildren, in: resolved.reference)
                 }
                 editorLease = lease
                 let relativeReferenceBase: WorkspaceReference
@@ -1655,12 +1665,39 @@ final class ArborAppModel {
         let requestID = searchRequestID
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         lastSearchQuery = trimmed
+        let tree = currentReference.tree
+        if pageIndexTree == tree {
+            searchResults = sidebarResults(matching: trimmed, in: pageIndexResults)
+        } else {
+            pageIndexTree = tree
+            pageIndexResults = []
+            searchResults = []
+        }
         do {
-            let results = try await workspace.provider.search(trimmed, in: currentReference.tree)
-            guard requestID == searchRequestID else { return }
-            searchResults = results
+            let results = try await workspace.provider.search("", in: tree)
+            guard requestID == searchRequestID, tree == currentReference.tree else { return }
+            pageIndexResults = results
+            searchResults = sidebarResults(matching: trimmed, in: results)
         }
         catch { errorMessage = error.localizedDescription }
+    }
+
+    private func sidebarResults(
+        matching query: String,
+        in results: [WorkspaceSearchResult]
+    ) -> [WorkspaceSearchResult] {
+        guard !query.isEmpty else { return results }
+        return results.filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || $0.reference.path.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    func fullTextSearch(_ query: String) async -> [WorkspaceSearchResult] {
+        (try? await workspace.provider.search(
+            query.trimmingCharacters(in: .whitespacesAndNewlines),
+            in: currentReference.tree
+        )) ?? []
     }
 
     func loadBacklinks() async {
