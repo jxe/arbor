@@ -1,5 +1,5 @@
 {
-  "originHash" : "4bd590cb97680cb93f42c6c62c3d856a823d1c805fe12e9b88c78753deaeb03b",
+  "originHash" : "06c9266f4a8da45e152056e799967dceb10bc97b61ea0d8f982fcab6b4c09b58",
   "pins" : [
     {
       "identity" : "emojikit",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jxe/quagmire.git",
       "state" : {
-        "revision" : "9f79e9d92f48c84b7b330e8b3b17876338796741",
-        "version" : "0.5.3"
+        "revision" : "4410d6ba5fd24ca1a4fce936d816b9f62e6cc7af",
+        "version" : "0.6.0"
       }
     }
   ],
