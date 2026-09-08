@@ -82,6 +82,7 @@ private enum MacManagementTab: Hashable {
     case accounts
     case status
 }
+#endif
 
 enum ArborSidebarPageOrder: String, CaseIterable, Identifiable {
     case alphabetical
@@ -107,6 +108,7 @@ enum ArborSidebarPageOrder: String, CaseIterable, Identifiable {
     }
 }
 
+#if os(macOS)
 struct ArborSidebarPageGroup: Identifiable, Equatable {
     var title: String
     var results: [WorkspaceSearchResult]
@@ -339,6 +341,68 @@ private extension View {
         modifier(MutedMacToolbarHoverModifier())
     }
 }
+
+private struct MacPageOrderPicker: NSViewRepresentable {
+    @Binding var selection: ArborSidebarPageOrder
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    func makeNSView(context: Context) -> PageOrderPopUpButton {
+        let button = PageOrderPopUpButton(frame: .zero, pullsDown: false)
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+        button.toolTip = "Page order"
+        button.setAccessibilityLabel("Page order")
+        if let cell = button.cell as? NSPopUpButtonCell {
+            cell.highlightsBy = []
+            cell.arrowPosition = .noArrow
+        }
+        for order in ArborSidebarPageOrder.allCases {
+            button.addItem(withTitle: order.label)
+            let item = button.lastItem
+            item?.representedObject = order.rawValue
+            item?.image = NSImage(systemSymbolName: order.symbol, accessibilityDescription: order.label)
+            item?.image?.isTemplate = true
+        }
+        return button
+    }
+
+    func updateNSView(_ button: PageOrderPopUpButton, context: Context) {
+        context.coordinator.selection = $selection
+        if let index = ArborSidebarPageOrder.allCases.firstIndex(of: selection) {
+            button.selectItem(at: index)
+        }
+        button.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.78)
+        button.setAccessibilityValue(selection.label)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var selection: Binding<ArborSidebarPageOrder>
+
+        init(selection: Binding<ArborSidebarPageOrder>) {
+            self.selection = selection
+        }
+
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            guard let rawValue = sender.selectedItem?.representedObject as? String,
+                  let order = ArborSidebarPageOrder(rawValue: rawValue) else { return }
+            selection.wrappedValue = order
+        }
+    }
+}
+
+@MainActor
+private final class PageOrderPopUpButton: NSPopUpButton {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 32, height: 32)
+    }
+}
 #endif
 
 struct ArborRootView: View {
@@ -356,9 +420,9 @@ struct ArborRootView: View {
     @State private var arborsyncLogs = ""
     @State private var documentConflictExpanded = false
     @State private var voiceLaunchReady = false
+    @State private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
 #if os(macOS)
     @State private var sidebarSearchText = ""
-    @State private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
     @State private var sidebarTitlebarAccessoryInstalled = false
     @FocusState private var sidebarSearchFocused: Bool
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -704,29 +768,10 @@ struct ArborRootView: View {
             .frame(height: 28)
             .background(.quaternary.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
 
-            Menu {
-                ForEach(ArborSidebarPageOrder.allCases) { order in
-                    Button {
-                        sidebarPageOrder = order
-                    } label: {
-                        Label(
-                            order.label,
-                            systemImage: order == sidebarPageOrder ? "checkmark" : order.symbol
-                        )
-                    }
-                }
-            } label: {
-                Image(systemName: sidebarPageOrder.symbol)
-                    .foregroundStyle(mutedMacToolbarForeground)
-                    .frame(width: 32, height: 32)
-                    .contentShape(.rect)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .mutedMacToolbarHover()
-            .help("Page order: \(sidebarPageOrder.label)")
-            .accessibilityLabel("Page order")
-            .accessibilityValue(sidebarPageOrder.label)
+            MacPageOrderPicker(selection: $sidebarPageOrder)
+                .frame(width: 32, height: 32)
+                .mutedMacToolbarHover()
+                .help("Page order: \(sidebarPageOrder.label)")
         }
         .padding(.horizontal, 8)
         .frame(height: 52)
@@ -929,6 +974,15 @@ struct ArborRootView: View {
 #if os(macOS)
                 withAnimation {
                     columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                }
+#endif
+            },
+            sidebarPageOrder: sidebarPageOrder,
+            setSidebarPageOrder: { order in
+                sidebarPageOrder = order
+#if os(macOS)
+                if columnVisibility == .detailOnly {
+                    withAnimation { columnVisibility = .all }
                 }
 #endif
             },

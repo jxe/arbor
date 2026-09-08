@@ -112,6 +112,15 @@ private struct ArborNavigationCommands: Commands {
             Button("Toggle Sidebar") { commands?.toggleSidebar() }
                 .keyboardShortcut("\\", modifiers: .command)
                 .disabled(commands == nil)
+            Toggle("Alphabetical Pages", isOn: sidebarPageOrderBinding(.alphabetical))
+                .keyboardShortcut("1", modifiers: [.command, .option])
+                .disabled(commands == nil)
+            Toggle("Recent Pages", isOn: sidebarPageOrderBinding(.recent))
+                .keyboardShortcut("2", modifiers: [.command, .option])
+                .disabled(commands == nil)
+            Toggle("Pages by Link Count", isOn: sidebarPageOrderBinding(.linkCount))
+                .keyboardShortcut("3", modifiers: [.command, .option])
+                .disabled(commands == nil)
             Divider()
 #endif
             Button("Back") { commands?.goBack() }
@@ -167,6 +176,17 @@ private struct ArborNavigationCommands: Commands {
         }
 #endif
     }
+
+#if os(macOS)
+    private func sidebarPageOrderBinding(_ order: ArborSidebarPageOrder) -> Binding<Bool> {
+        Binding(
+            get: { commands?.sidebarPageOrder == order },
+            set: { selected in
+                if selected { commands?.setSidebarPageOrder(order) }
+            }
+        )
+    }
+#endif
 }
 
 #if os(macOS)
