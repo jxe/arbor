@@ -244,7 +244,7 @@ private struct ArborEditorCommandButton: View {
 
 private struct ArborEditorBlockMenuItems: View {
     var body: some View {
-        ArborEditorCommandButton(title: "Turn Selected Block Into…", key: "/", action: .openBlockActionMenu)
+        ArborEditorCommandButton(title: "Turn Selected Block Into…", key: ".", action: .openBlockActionMenu)
         ArborEditorCommandButton(title: "Create Page from Selected Block…", key: "k", action: .toggleLinkOrDocument)
         ArborEditorCommandButton(title: "Insert Block Below", key: .return, action: .newBlockBelow)
         ArborEditorCommandButton(
