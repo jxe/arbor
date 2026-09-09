@@ -35,6 +35,7 @@ public struct ArborMarkdownOpenedDocument: Sendable {
 
 public enum ArborMarkdownCodec {
     private static let childrenMarker = "<!-- arbor:children -->"
+    static let projectedChildMetadataKey = "arbor.projected-child"
 
     private struct ParsedBlock {
         var block: Block
@@ -53,8 +54,8 @@ public enum ArborMarkdownCodec {
 
     /// Insert unmentioned immediate children into the operational document at
     /// the explicit children marker, or at the implicit marker after authored
-    /// source. The generated links are ordinary Quagmire blocks, but remain
-    /// projected until the user moves them into an authored position.
+    /// source. The generated links are ordinary Quagmire blocks carrying
+    /// host-owned metadata until a transfer explicitly places them.
     static func placeDirectoryChildren(
         _ children: [WorkspaceNode],
         in blocks: [Block],
@@ -106,7 +107,7 @@ public enum ArborMarkdownCodec {
                     label: AttributedString(child.title),
                     reference: DocumentReference(rawReference)
                 ),
-                persistence: .projected
+                metadata: [projectedChildMetadataKey: "true"]
             )
         }
 
@@ -236,7 +237,7 @@ public enum ArborMarkdownCodec {
             if !isEmptyParagraph(block) { count += 1 }
         }
         func append(_ block: Block, depth: Int, containerDepth: Int) {
-            guard block.persistence == .authored else { return }
+            guard !isProjectedChild(block) else { return }
             let emptyParagraph = isEmptyParagraph(block)
             if !emptyParagraph { remainingNonemptyBlocks -= 1 }
             var raw: String
@@ -339,7 +340,7 @@ public enum ArborMarkdownCodec {
                 id: resultID,
                 kind: block.kind,
                 children: block.children.map(reuse),
-                persistence: block.persistence
+                metadata: block.metadata
             )
             sourceIDByResultID[value.id] = block.id
             return value
@@ -699,11 +700,25 @@ public enum ArborMarkdownCodec {
 
     private static func removingProjectedBlocks(from blocks: [Block]) -> [Block] {
         blocks.compactMap { block in
-            guard block.persistence == .authored else { return nil }
+            guard !isProjectedChild(block) else { return nil }
             var value = block
             value.children = removingProjectedBlocks(from: block.children)
             return value
         }
+    }
+
+    static func isProjectedChild(_ block: Block) -> Bool {
+        block.metadata[projectedChildMetadataKey] == "true"
+    }
+
+    static func materializingProjectedChildren(_ blocks: [Block]) -> [Block] {
+        func materialize(_ block: Block) -> Block {
+            var value = block
+            value.metadata.removeValue(forKey: projectedChildMetadataKey)
+            value.children = block.children.map(materialize)
+            return value
+        }
+        return blocks.map(materialize)
     }
 
     private static func insert(_ generated: [Block], afterChildrenMarkerIn blocks: inout [Block]) -> Bool {
@@ -784,7 +799,7 @@ public enum ArborMarkdownCodec {
     private static func flattenedBlocks(_ blocks: [Block]) -> [Block] {
         var result: [Block] = []
         walk(blocks) { block, _ in
-            if block.persistence == .authored { result.append(block) }
+            if !isProjectedChild(block) { result.append(block) }
         }
         return result
     }

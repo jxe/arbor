@@ -546,6 +546,11 @@ public final class ArborEditorHost: EditorHost {
         }
     }
 
+    public func prepareBlocksForTransfer(_ blocks: [Block], in document: Document) -> [Block] {
+        guard document === binding.document else { return blocks }
+        return ArborMarkdownCodec.materializingProjectedChildren(blocks)
+    }
+
     public func relocateDocument(_ reference: DocumentReference, from document: Document) async -> Bool {
         guard document === binding.document,
               let decoded = workspaceReference(for: reference),

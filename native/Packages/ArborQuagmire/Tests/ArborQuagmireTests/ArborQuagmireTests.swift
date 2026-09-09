@@ -1114,17 +1114,19 @@ struct ArborQuagmireTests {
             ? parent.children[markerIndex + 1]
             : nil)
 
-        #expect(generated.persistence == .projected)
+        #expect(ArborMarkdownCodec.isProjectedChild(generated))
         #expect(ArborMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == source)
 
         let document = Document(id: DocumentID("projected-children"), children: projected)
         let generatedID = generated.id
         let parentID = parent.id
+        let prepared = ArborMarkdownCodec.materializingProjectedChildren([generated])
         document.transaction(name: "Move Child Link") {
+            _ = document.replaceSubtree(generatedID, with: prepared)
             _ = document.moveSubtrees([generatedID], to: DropPath(parent: parentID, position: 0))
         }
         let admitted = ArborMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger).0.source
-        #expect(document.find(generatedID)?.persistence == .authored)
+        #expect(document.find(generatedID).map(ArborMarkdownCodec.isProjectedChild) == false)
         #expect(admitted.contains("[Child]("))
         let linkRange = try #require(admitted.range(of: "[Child]("))
         let markerRange = try #require(admitted.range(of: "<!-- arbor:children -->"))
