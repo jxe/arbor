@@ -1,27 +1,19 @@
 # Arbor plans
 
-Active planning is organized by why the work matters, with related plans grouped beneath each heading. Numbers are stable identifiers within each directory, not a global execution sequence; the priority, status, and dependencies stated here determine what should happen next.
+Active planning starts with the outcomes to pursue soon, then keeps the remaining work grouped by why it matters. Numbers are stable identifiers within each directory, not a global execution sequence; the order and status stated here determine what should happen next.
 
 For what works now, use [status.md](../status.md). For portable behavior, use the [specification](../spec.md). The [documentation map](../docs/README.md) explains the remaining document types.
 
-## Highly Important
+## What to do soon
 
-These are the plans that currently matter most. They include known correctness and durability failures plus two foundational capabilities that should not be buried among product-completion or general hardening work.
+The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
 
-- **Reliability** — Behavior that can become wrong or lose durability under concurrency, recovery, lifecycle changes, or unusual input.
-  - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **P1 · TODO.**
-  - [Reliability 003 — Make untracked collection-file mutations and receipts restart-safe](reliability/003-untracked-collection-file-transactions.md) — **P1 · TODO; depends on Reliability 002 and historical Data 011 terminology.**
-  - [Reliability 004 — Resolve Canopy conflicts at their authored locations](reliability/004-contextual-canopy-conflict-resolution.md) — **P1 · IN PROGRESS; rescoped by Native 022.** Native per-path conflict review with Current/Mine/Both/Edit choices is implemented and stays for working-tree conflicts; the daemon-side editor conflict path for app edits (editor admissions, `accepted-merge-needs-review`) was deleted in Native 022 Phase 7, and the daemon's `/v1/conflicts` now reviews only its own filesystem head. Remaining: ordered suffix replay in `UpdateCoordinator`, inline hunk placement and the Quagmire accessory seam, and Step 6 crash hardening.
-  - [Reliability 006 — Preview and resume initial working-tree bootstrap](reliability/006-progressive-replica-bootstrap.md) — **P1 · PLANNED; rescoped by Native 022.** Applies to iOS placement and to visits; on the Mac the bootstrap is loopback from the daemon and not progressive. Show a verified read-only root page early, resume immutable snapshot bytes across interruptions, atomically install the complete working tree, then enter normal direct synchronization.
-- **Native synchronization** — One update machine everywhere; the daemon becomes the folder's client plus loopback services.
-  - [Native 022 — Run the Mac app as a working-tree client](native/022-run-the-mac-app-as-a-working-tree-client.md) — **P1 · IMPLEMENTED, awaiting live switch and soak.** Plan A is in the tree: the Mac app edits through its own `UpdateCoordinator` against Canopy with the daemon's credential, the daemon serves bootstrap, credential, and a disk-backed object cache, and the daemon's editor path is deleted. Pending Joe: the live Mac switch and the iPhone re-place (sync the phone first), then a soak of a couple of weeks. Follow-ons: Native 023 and 024 below.
-  - [Native 023 — Rebuild the web editor on the working tree](native/023-rebuild-the-web-editor-on-the-working-tree.md) — **P1 · PLANNED; starts after the Native 022 soak.** TypeScript `@arbor/working-tree` and `@arbor/object-store` as the twins of the Swift packages, passing the same fixture; Arbor web becomes a direct Canopy client and the render bundle is mounted again.
-  - [Native 024 — Disk editors for non-tree folders](native/024-disk-editors-for-non-tree-folders.md) — **P2 · PLANNED; depends on Native 022 for the Mac and Native 023 for the web.** A dumb `/v1/fs` file backend and a Mac `FilesystemWorkspaceProvider`, no synchronization machinery, refusing paths inside placed trees.
-- **External agent access**
-  - [Smaller project 004 — Give external agents safe structured access](smaller-projects/004-external-agent-access.md) — **P1 · IN PROGRESS; general status and cloud-session discovery are implemented.** The remaining structured read/mutation commands and agent skill can proceed; compiled-handle invocation depends on Apps 001.
-- **Canopy storage** — Reduce the physical cost of retained immutable objects and accepted transition history without changing Wire identity or accepted-state semantics.
-  - [Canopy storage 001 — Pack object and history storage](canopy-storage/001-pack-object-storage.md) — **P1 · NEEDS BASELINE AND DESIGN REVIEW.** Measure and replace expensive loose-object/history storage with an integrity-checked packed representation.
-  - **Storage boundary.** Packing changes durability, recovery, verification, pruning, and read-performance boundaries, so it needs one storage-owned design and acceptance gate.
+- Reify conflicts on Canopy so they do not block merges and tree advances so often.
+- Rearchitect Arbor Sync to make it more maintainable and less of a messy HTTP API.
+- Make sure Canopy storage is not unreasonably big.
+- Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
+
+The closest existing plans are [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) for client-side conflict review and replay, and [Canopy storage 001](canopy-storage/001-pack-object-storage.md) for measuring and bounding storage. The Arbor Sync architecture and user-directory/profile work still need their next outcomes defined; the list above deliberately does not prejudge those designs.
 
 ## Cleanups
 
@@ -32,7 +24,6 @@ Bounded deletion, simplification, and deduplication whose result is less tempora
   - [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported Canopy and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
   - [Cleanup 003 — Remove singular update compatibility](cleanups/003-remove-singular-update-compatibility.md) — **WAITING** for every supported Canopy server and Arbor client to complete the plural-update rollout and for the mixed-version observation window to show no supported singular callers.
 - **Smaller cleanup candidates and shared seams**
-  - **Split `ArborService` responsibilities** — **Simplification · DELIVERED by Native 022 Phase 7.** The Canopy/Wire orchestration seam is `accountWireClient` in `@arbor/canopy-client`, the durable-configuration seam is the `@arbor/stores` projection (Smaller project 010), and Phase 7 removed the node-routing and virtual-system-projection surfaces from the daemon altogether; `ArborSyncDaemon` is now bootstrap, credential, objects, conflicts, placements, and the per-tree synchronizer. Promote a new item only when a current change needs a further seam.
   - **Shared runtime protocol decoding** — **Deduplication · WAITING.** Promote when a second trusted boundary besides Arbor Sync needs runtime decoding; then colocate browser-safe pure decoders in `@arbor/core`, without adding schema generation solely to reduce repetition.
   - **Provider scalar normalization** — **Deduplication · OWNED by Postgres 001 and 002.** Freeze one language-neutral representation for blobs, 64-bit integers, booleans, nullability, and other provider scalars before implementations drift.
   - **Bounded-placement conformance** — **Deduplication · OWNED by Smaller projects 001 and 003 and Postgres 001.** Reuse the common placement corpus when deferred providers land; do not create another placement algorithm.
@@ -40,8 +31,11 @@ Bounded deletion, simplification, and deduplication whose result is less tempora
 
 ## Product Completion
 
-This is work that fills out Arbor's product feature surface. It is useful and often substantial, but is not classified as highly important merely because a plan carries a P1 product priority.
+This is work that fills out Arbor's product feature surface. It is useful and often substantial, but is not near-term merely because an older plan carries a P1 product priority.
 
+- **Working-tree follow-ons** — The native working-tree transition is implemented and live; these plans restore surfaces deliberately left for later.
+  - [Native 023 — Rebuild the web editor on the working tree](native/023-rebuild-the-web-editor-on-the-working-tree.md) — **PLANNED; after the Native 022 soak.** Build TypeScript `@arbor/working-tree` and `@arbor/object-store` as twins of the Swift packages, pass the same fixture, and mount the Arbor web editor again.
+  - [Native 024 — Add disk editors for non-tree folders](native/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Native 023 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 - **Apps** — Make authored Arbor applications executable through complete product slices that freeze the shared compiler, runtime, hosting, and agent contracts. The implemented headless SQLite query, observation, and mutation phases are documented in [`@arbor/data`](../packages/data/README.md).
   - [Apps 001 — Run the unchanged Supplies tree locally, natively, and on Canopy](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003 and 004**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the unchanged [`examples/supplies`](../examples/supplies) corpus as executable documents in local Arbor web, signed macOS Arbor, and its canonical Canopy website.
   - [Apps 002 — Host authored conversational interfaces over compiled Arbor handles](apps/002-canopy-hosted-agents.md) — **P1 · PLANNED; depends on Apps 001**, Arbor users, and Canopy execution. Agents reuse the same compiled query/mutation handles and authenticated Arbor-user context rather than introducing a separate data/runtime framework.
@@ -62,6 +56,7 @@ This is work that fills out Arbor's product feature surface. It is useful and of
   - [Smaller project 001 — Preserve representation equivalence](smaller-projects/001-representation-equivalence.md) — **P1 · PLANNED; depends on historical Data 002 and 011.** Preserve node identity and logical equivalence when a child set changes representation.
   - [Smaller project 002 — Unify locator identity surfaces](smaller-projects/002-locator-identity-surfaces.md) — **P2 · PLANNED; depends on Smaller project 001 and Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
   - [Smaller project 003 — Project collection files into native offline replicas](smaller-projects/003-native-offline-collection-file-projection.md) — **P2 · PRIORITY RAISED by Native 022; depends on historical Data 002 and 011 and Apps 003.** Needed by the Mac working tree now and by the web working tree in Plan B.
+  - [Smaller project 004 — Give external agents safe structured access](smaller-projects/004-external-agent-access.md) — **IN PROGRESS; not near-term.** General status and cloud-session discovery are implemented; structured read/mutation commands and the reusable agent skill remain.
   - [Smaller project 005 — Close web-editor interaction and fidelity gaps](smaller-projects/005-web-editor.md) — **P2 · BACKLOG.** Its items are independently selectable unless the plan says otherwise.
   - [Smaller project 007 — Surface accepted document history from Canopy](smaller-projects/007-canopy-document-history.md) — **P1 · PLANNED; execute before Smaller project 006 and coordinate retained-root policy with Canopy storage 001.** Surface accepted document history and restore-as-new-change from Canopy while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
   - [Smaller project 006 — Attribute accepted updates and show line provenance](smaller-projects/006-line-provenance.md) — **P2 · PLANNED; depends on Smaller project 007 and coordinates retained-root policy with Canopy storage 001.** Reuse Canopy's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
@@ -75,6 +70,8 @@ This is work that fills out Arbor's product feature surface. It is useful and of
 ## Hardening, Efficiency, Polish, etc.
 
 - **Further reliability hardening**
+  - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **DEFERRED.** The race remains real, but it is not near-term work.
+  - [Reliability 006 — Preview and resume initial working-tree bootstrap](reliability/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
   - **Explicit web-editor unload drain** — **WAITING on Native 022 Plan B.** App-controlled navigation already awaits the admission machine's flush; browser `beforeunload`/`pagehide` has no bounded drain and no visible pending state, which Reliability 005 left as a documented limitation. Add one or surface the limitation in the UI.
   - **Commit native control text before flush** — **REVERIFY.** Confirm that Quagmire can still hold text outside `ArborDocumentBinding` at background, navigation, and close boundaries; if so, add commit-then-flush lifecycle behavior and visible checkpoint-pending state.
   - **Per-key frontmatter conflict semantics** — **READY.** Preserve independent external and local changes, detect same-key conflicts and deletions, and test them beside block three-way merge.
@@ -95,7 +92,7 @@ This is work that fills out Arbor's product feature surface. It is useful and of
   - **Safe ordinary-file metadata and previews** — **NEEDS DESIGN.** Define bounded size/type detection and inert preview rules before exposing richer untracked-file metadata; never parse binary or placeholder bytes as authored text.
 - **Testing and evidence**
   - [Testing 001 — Run maintained gates in CI](testing/001-ci.md) — **P2 · TODO.** Cover TypeScript, browser, protocol, performance, and Swift; Testing 002 should land first if the repeated parallel lane is not stable.
-  - [Testing 002 — Make parallel integration tests independent](testing/002-parallel-integration-isolation.md) — **P1 · TODO.** Remove dependence on process-global fixture state and scheduling.
+  - [Testing 002 — Make parallel integration tests independent](testing/002-parallel-integration-isolation.md) — **DEFERRED · LOW PRIORITY.** Revisit only if shared process-global fixture state causes recurring failures or blocks CI.
   - **Developer browser smoke harness** — **WAITING on Native 022 Plan B.** Preserve DOM, state, and network probes for deterministic invariants; reserve hands-on checks for hover, focus, pointer drag, and feel.
   - **Canopy authorization characterization** — **READY.** Cover revoked grants, read-link write denial, non-admin access mutation, and removal of transitive group access in a dedicated daemon suite.
   - **Cross-client group workflow coverage** — **WAITING.** Add browser and native creation/membership coverage after the first-party flow is designed; do not freeze manual YAML as the UX.
