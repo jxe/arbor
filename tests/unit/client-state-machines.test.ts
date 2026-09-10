@@ -6,8 +6,8 @@ import {
   reduceAdmission,
   type AdmissionEvent,
   type AdmissionState,
-} from "@arbor/arborsync-client";
-import { reduceSync, type SyncEvent, type SyncState } from "@arbor/canopy-client";
+} from "@arbor/core";
+import { reduceUpdate, type UpdateEvent, type UpdateState } from "@arbor/canopy-client";
 
 interface Step {
   event: Record<string, unknown>;
@@ -32,8 +32,8 @@ interface MachineFixture {
 interface Fixture {
   version: number;
   machines: {
-    "arborsync-document-admission": MachineFixture;
-    "direct-canopy-synchronization": MachineFixture;
+    "document-admission": MachineFixture;
+    "working-tree-updates": MachineFixture;
   };
 }
 
@@ -89,40 +89,40 @@ describe("client state machine fixtures", () => {
   test("declare every state, event, and effect a step names", async () => {
     const fixture = await loadFixture();
     expect(fixture.version).toBe(1);
-    validateSchema(fixture.machines["arborsync-document-admission"]);
-    validateSchema(fixture.machines["direct-canopy-synchronization"]);
+    validateSchema(fixture.machines["document-admission"]);
+    validateSchema(fixture.machines["working-tree-updates"]);
   });
 
   test("the TypeScript document admission machine executes every scenario", async () => {
     const fixture = await loadFixture();
     const options = { equal: (left: string, right: string) => left === right };
-    for (const scenario of fixture.machines["arborsync-document-admission"].scenarios) {
-      const initial = scenario.initial as { accepted: { source: string; revision: string; admissionBasis?: string }; transport: "canopy" | "local" };
+    for (const scenario of fixture.machines["document-admission"].scenarios) {
+      const initial = scenario.initial as { accepted: { source: string; revision: string } };
       runScenario<AdmissionState<string>, AdmissionEvent<string>>(
         scenario,
-        initialAdmissionState(initial.accepted, initial.transport),
+        initialAdmissionState(initial.accepted),
         (state, event) => reduceAdmission(state, event, options),
       );
     }
   });
 
-  test("the TypeScript direct Canopy synchronization machine executes every scenario", async () => {
+  test("the TypeScript working-tree update machine executes every scenario", async () => {
     const fixture = await loadFixture();
-    for (const scenario of fixture.machines["direct-canopy-synchronization"].scenarios) {
-      runScenario<SyncState, SyncEvent>(
+    for (const scenario of fixture.machines["working-tree-updates"].scenarios) {
+      runScenario<UpdateState, UpdateEvent>(
         scenario,
-        scenario.initial as unknown as SyncState,
-        (state, event) => reduceSync(state, event),
+        scenario.initial as unknown as UpdateState,
+        (state, event) => reduceUpdate(state, event),
       );
     }
   });
 
   test("the fixture rejects unknown states and incomplete steps", async () => {
     const fixture = await loadFixture();
-    const machine = structuredClone(fixture.machines["arborsync-document-admission"]);
+    const machine = structuredClone(fixture.machines["document-admission"]);
     machine.scenarios[0]!.steps[0]!.state = "unknown-state";
     expect(() => validateSchema(machine)).toThrow(/unknown state/);
-    const incomplete = structuredClone(fixture.machines["direct-canopy-synchronization"]);
+    const incomplete = structuredClone(fixture.machines["working-tree-updates"]);
     delete (incomplete.scenarios[0]!.steps[0] as Partial<Step>).effects;
     expect(() => validateSchema(incomplete)).toThrow(/omits expected effects/);
   });

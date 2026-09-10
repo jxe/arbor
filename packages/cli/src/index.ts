@@ -9,6 +9,7 @@ import { materializeTree, snapshotDirectory } from "@arbor/fs";
 import {
   addLocalPlacement,
   accountCheckoutPath,
+  editAccountConfigurationFile,
   CanopyAccountStore,
   arborDataRoot,
   clearRehomeTransaction,
@@ -24,7 +25,7 @@ import {
   type CanopyAccountConfigurationSnapshot,
 } from "@arbor/stores";
 import { WireClient } from "@arbor/wire";
-import { parseDocument, type Document } from "yaml";
+import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 import {
   cloudPlacementPath,
@@ -77,7 +78,11 @@ function usage(): never {
   arbor place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor place <canonical-url> <local-path>
   arbor mv [--dry-run] <placed-local-root> <new-local-path>
-  arbor mv [--dry-run] <source-canonical-url> <destination-canonical-url>`);
+  arbor mv [--dry-run] <source-canonical-url> <destination-canonical-url>
+
+Notes:
+  arbor open  opens the daemon-hosted web editor, which is being rebuilt and may be unavailable.
+  arbor place / mv  edit the account checkout under accounts/<ConfigurationTreeID>/ on disk; Arbor Sync pushes it.`);
   process.exit(2);
 }
 
@@ -91,11 +96,7 @@ export async function attachedArborSyncURL(target: OpenTarget, port: number, sel
   try {
     const status = await fetch(`${origin}/v1/status`);
     if (!status.ok || (await status.json() as { service?: string }).service !== "arborsync") return null;
-    if (target.path) {
-      const client = new ArborSyncRESTClient({ baseURL: origin });
-      await client.openSession(target.path);
-      return new URL(`${origin}/render${target.path}`);
-    }
+    if (target.path) return new URL(`${origin}/render${target.path}`);
     const browserURL = new URL(`${origin}/render`);
     if (target.remoteURL) browserURL.searchParams.set("browse", target.remoteURL);
     return browserURL;
@@ -279,7 +280,6 @@ async function withArborSync<T>(
   if (!compatible) {
     throw new Error(`A compatible Arbor Sync is not reachable at ${baseURL}; start one with \`arbor daemon start\` or \`arborsync --control\`, or point ARBOR_SYNC_URL at it`);
   }
-  await client.openSession(path);
   return run(client, {
     async synchronizeNow(configurationTree?: string) { await client.synchronizeNow(configurationTree); },
   });
@@ -292,14 +292,16 @@ async function editAccountConfigurationYAML(
   validate: (source: string) => void,
   filename = "trees.yaml",
 ): Promise<void> {
-  const ref = { tree: configurationTree, path: `/${filename}`, stableKey: null } as const;
-  const file = await client.file(ref);
-  const document = parseDocument(new TextDecoder("utf-8", { fatal: true }).decode(file.bytes), { uniqueKeys: true, keepSourceTokens: true });
-  if (document.errors.length) throw new Error(document.errors[0]!.message);
-  await change(document);
-  const source = document.toString({ lineWidth: 0 });
-  validate(source);
-  await client.writeText(ref, file.revision, source);
+  // The configuration checkout is a placed folder: edit it on disk and let the
+  // daemon push it. Refuse while the daemon holds a conflict on it, so a local
+  // edit cannot silently overwrite a review that is still pending.
+  const descriptor = (await client.trees()).snapshot.find((candidate) =>
+    candidate.id === configurationTree && candidate.configurationTree === configurationTree
+  );
+  if (descriptor?.sync === "conflict") {
+    throw new Error(`Account configuration ${configurationTree} has a synchronization conflict; resolve it (\`arbor status\`) before editing ${filename}`);
+  }
+  await editAccountConfigurationFile(configurationTree, filename, change, validate);
 }
 
 function sameOrDescendantPath(path: string, root: string): boolean {
@@ -602,6 +604,28 @@ async function accessRulesFor(client: WireClient, audience: ShareAudience) {
     : rule));
 }
 
+/**
+ * Push one account's configuration now, or leave it on disk for the daemon to
+ * push later when that account's Canopy is unreachable. Any other failure is
+ * surfaced as before.
+ */
+async function synchronizeOrDefer(
+  client: ArborSyncRESTClient,
+  service: { synchronizeNow(configurationTree?: string): Promise<void> },
+  configurationTree: string,
+): Promise<boolean> {
+  try {
+    await service.synchronizeNow(configurationTree);
+    return true;
+  } catch (error) {
+    const descriptor = (await client.trees()).snapshot.find((candidate) =>
+      candidate.id === configurationTree && candidate.configurationTree === configurationTree
+    );
+    if (descriptor?.sync !== "offline") throw error;
+    return false;
+  }
+}
+
 async function placeLocal(
   first: string,
   second: string,
@@ -612,7 +636,7 @@ async function placeLocal(
   const target = canonicalTarget(second);
   await withArborSync(path, async (client, service) => {
     let selected = await accountForCanonicalTarget(target, { administrator: true });
-    await service.synchronizeNow(selected.configuration.configurationTree);
+    await synchronizeOrDefer(client, service, selected.configuration.configurationTree);
     selected = await accountForCanonicalTarget(target, { administrator: true });
     const config = selected.configuration;
     const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
@@ -669,7 +693,8 @@ async function placeLocal(
     if (isNew && audience.length === 0) {
       console.warn(`Warning: no audience options supplied; created ${target.supplied} with private access.`);
     }
-    await service.synchronizeNow(config.configurationTree);
+    const pushed = await synchronizeOrDefer(client, service, config.configurationTree);
+    if (!pushed) console.warn(`Warning: ${selected.connection.record.origin} is unreachable; the placement is saved in trees.yaml and Arbor Sync will push it when the account reconnects.`);
     console.log(`${target.supplied} ↔ ${path}`);
   });
 }
@@ -1039,7 +1064,7 @@ async function cloudPlacementsReady(
     const remote = (await wire.descriptor(target.treeID)).tree;
     if (remote.access !== "write") return { ready: false, reason: `${target.relativePath} lost write access` };
     if (descriptor.update !== remote.update) return { ready: false, reason: `${target.relativePath} has not accepted the current Canopy update` };
-    const localSnapshot = await snapshotDirectory(target.path);
+    const localSnapshot = await snapshotDirectory(target.path); // roots only
     if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from Canopy` };
   }
   return { ready: true };
@@ -1506,6 +1531,7 @@ async function main(): Promise<void> {
     if (attached) {
       if (target.remoteURL && await isReservedProfile(target)) attached.searchParams.set("claimable", "true");
       console.log(`Attached to Arbor Sync at ${attached.origin}`);
+      console.log("Note: the web editor is being rebuilt and may be unavailable until it returns.");
       await openBrowser(attached.toString());
       return;
     }

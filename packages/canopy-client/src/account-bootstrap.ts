@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 
 import { join, resolve } from "node:path";
 import type { MutationReceipt, PairingOffer } from "@arbor/core";
 import { SYSTEM_TREE, generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge } from "@arbor/core";
-import { snapshotDirectory } from "@arbor/fs";
+import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 import {
   CanopyAccountStore,
   ProfileIdentityStore,
@@ -192,7 +192,7 @@ async function claimAccountProfileBootstrap(
         deviceID,
         credentialDigest: `sha256:${sha256(credential)}`,
         files,
-        configuration: persistableBootstrapSnapshot(await snapshotDirectory(staging)),
+        configuration: persistableBootstrapSnapshot(await resolveSnapshot(await snapshotDirectory(staging))),
       };
       await new CanopyAccountStore(configurationTree).storeProvisionalCredential(credential);
       await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });

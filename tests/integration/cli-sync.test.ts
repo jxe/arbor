@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon, EventBus, TreeManager } from "@arbor/arborsync";
 import { serveArborSyncControl } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
 import { generateArborID } from "@arbor/core";
 import { parseDocument } from "yaml";
@@ -318,6 +319,55 @@ describe("plural-account CLI place", () => {
     expect(await arbor(["mv", canonical, moved])).toContain(`to ${moved}`);
     expect(secondCanopy.canopy.boundary("/~joe/healthy")).toBeNull();
     expect(secondCanopy.canopy.boundary("/~joe/healthy-moved")?.id).toBeDefined();
+  });
+
+  test("places through a stopped Canopy by editing trees.yaml on disk, then pushes on reconnect", async () => {
+    // firstCanopy was stopped by the previous test and stays stopped here.
+    const offlineSource = await source("placed-while-first-offline", "# Placed offline\n");
+    const canonical = `${firstCanopy.url}/~alice/offline-placed`;
+    const account = (await loadCanopyAccountConfigurations()).find((candidate) => candidate.account?.canopy === firstCanopy.url)!;
+    const before = await readFile(join(account.path, "trees.yaml"), "utf8");
+
+    const daemon = await serveArborSyncControl({ port: 0 });
+    try {
+      const placed = Bun.spawn(["bun", "packages/cli/src/index.ts", "place", offlineSource, canonical], {
+        cwd: join(import.meta.dir, "../.."),
+        env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: daemon.url },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stdout, stderr] = await Promise.all([placed.exited, new Response(placed.stdout).text(), new Response(placed.stderr).text()]);
+      expect(exit, stderr).toBe(0);
+      expect(stdout).toContain(canonical);
+      expect(stderr).toContain("unreachable");
+
+      const after = await readFile(join(account.path, "trees.yaml"), "utf8");
+      expect(after).not.toBe(before);
+      const declared = parseDocument(after).toJS() as Record<string, { canonical: string }>;
+      const tree = Object.entries(declared).find(([, declaration]) => declaration.canonical === canonical)?.[0];
+      expect(tree).toBeDefined();
+      expect((await loadLocalPlacements()).placements).toContainEqual({ configurationTree: account.configurationTree, path: offlineSource, tree: tree! });
+
+      const client = new ArborSyncRESTClient({ baseURL: daemon.url });
+      const configurationDescriptor = () => client.trees().then((value) =>
+        value.snapshot.find((candidate) => candidate.id === account.configurationTree && candidate.configurationTree === account.configurationTree)
+      );
+      expect((await configurationDescriptor())?.sync).toBe("offline");
+
+      firstCanopy = await serveCanopy({
+        dataRoot: join(sandbox, "first-canopy"),
+        publicOrigin: firstCanopy.url,
+        hostname: "127.0.0.1",
+        port: Number(new URL(firstCanopy.url).port),
+        community: { handle: "first", name: "First" },
+      });
+      await client.synchronizeNow(account.configurationTree);
+      expect((await configurationDescriptor())?.sync).toBe("idle");
+      expect(firstCanopy.canopy.boundary("/~alice/offline-placed")?.id).toBe(tree);
+    } finally {
+      daemon.server.stop(true);
+      await daemon.service[Symbol.asyncDispose]();
+    }
   });
 });
 

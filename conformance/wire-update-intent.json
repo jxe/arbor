@@ -21,6 +21,35 @@
     "ifMatch": "modelHash",
     "onConflict": "merge"
   },
+  "envelopeIndependence": {
+    "description": "Two plural requests with the same tree, base, candidates, ifMatch, and onConflict but different object envelopes have identical element digests. Envelopes are transport, not intent: an adopter may re-pack a persisted request's objects and still prove the same identity.",
+    "tree": "tr_atlas",
+    "base": "1",
+    "candidates": [
+      "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+      "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    "ifMatch": "modelHash",
+    "onConflict": "merge",
+    "packings": [
+      [
+        [{ "hash": "sha256:d2329baf1457f5569a0ba70197f588709d4b7eefc4549b7d93d49717ec0f9f6a", "bytes": "omR0eXBlZGZpbGVlYnl0ZXNEb25lCg==" }],
+        []
+      ],
+      [
+        [],
+        [{ "hash": "sha256:16fd124e92ebfee2818b5bd8c304d33611e520fe934dead3aeceedeae7c9f472", "bytes": "omR0eXBlZGZpbGVlYnl0ZXNEdHdvCg==" }]
+      ],
+      [
+        [],
+        []
+      ]
+    ],
+    "digests": [
+      "sha256:ec69538f559cbde299b86032eb56f2a00d4452e18390f678f4b41f62a24eac4b",
+      "sha256:b1e77bdcae52ad1e1c2062098d5d5a3a7055eb9c49e5b43138d93a442861dbac"
+    ]
+  },
   "replayCases": [
     {
       "name": "same-intent-different-object-envelope",

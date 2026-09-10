@@ -640,7 +640,7 @@ async function createScenario(state: LabState, scenario: string, binary = "commo
   await waitForConvergence(state, scenario);
   const found = await sshBash(state, "alice", [
     "for attempt in $(seq 1 30); do",
-    `  tree=$(curl -fsS 'http://127.0.0.1:4317/v1/children?tree=system&path=%2Ftrees' | jq -r --arg name '${scenario}' '.items[] | select(.name == $name) | .path | split("/")[-1]' | head -n1)`,
+    `  tree=$(curl -fsS 'http://127.0.0.1:4317/v1/trees' | jq -r --arg name '${scenario}' '.snapshot[] | select(.name == $name) | .id' | head -n1)`,
     "  if [[ $tree == tr_* ]]; then printf '%s' \"$tree\"; exit 0; fi",
     "  sleep 1",
     "done",
@@ -662,17 +662,27 @@ async function authorityHistoryCount(state: LabState, tree: string): Promise<num
 
 async function hasConflict(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<boolean> {
   const response = await sshBash(state, role,
-    `curl -fsS 'http://127.0.0.1:4317/v1/node?tree=system&path=%2Ftrees%2F${tree}'`,
+    "curl -fsS 'http://127.0.0.1:4317/v1/trees'",
     { allowFailure: true, quiet: true });
   if (response.exitCode !== 0) return false;
-  let body: { document?: { frontmatter?: Record<string, unknown> } };
+  let body: { snapshot?: Array<{ id?: string; sync?: string }> };
   try {
     body = JSON.parse(response.stdout) as typeof body;
   } catch {
     return false;
   }
-  return body.document?.frontmatter?.sync === "conflict"
-    && Array.isArray(body.document.frontmatter.conflicts);
+  if (body.snapshot?.find((descriptor) => descriptor.id === tree)?.sync !== "conflict") return false;
+  // A durable, reviewable conflict answers the review endpoint with its evidence.
+  const review = await sshBash(state, role,
+    `curl -fsS 'http://127.0.0.1:4317/v1/conflicts?tree=${tree}'`,
+    { allowFailure: true, quiet: true });
+  if (review.exitCode !== 0) return false;
+  try {
+    const workspace = JSON.parse(review.stdout) as { identity?: string; items?: unknown[] };
+    return typeof workspace.identity === "string" && Array.isArray(workspace.items) && workspace.items.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function smoke(state: LabState): Promise<void> {
@@ -765,7 +775,7 @@ async function acceptance(state: LabState): Promise<void> {
     "cd /tmp/arbor-replay",
     "sudo -u arbor -H env ARBOR_LAB_TOKEN=\"$ARBOR_LAB_TOKEN\" ARBOR_LAB_REPLAY=\"$ARBOR_LAB_REPLAY\" /usr/local/bin/bun - <<'JAVASCRIPT'",
     "import { WireClient } from '/opt/arbor-current/packages/wire/src/index.ts';",
-    "import { snapshotDirectory } from '/opt/arbor-current/packages/fs/src/index.ts';",
+    "import { resolveSnapshot, snapshotDirectory } from '/opt/arbor-current/packages/fs/src/index.ts';",
     "import { generateArborID } from '/opt/arbor-current/packages/core/src/index.ts';",
     "import { readAccountConfigGraph, snapshotAccountConfig } from '/opt/arbor-current/packages/canopy/src/account-policy.ts';",
     "import { writeFile } from 'node:fs/promises';",
@@ -782,11 +792,11 @@ async function acceptance(state: LabState): Promise<void> {
     "  trees: { version: 1, trees: { ...graph.trees.trees, [treeID]: { kind: 'shared-subtree', canonicalPath: `/~owner/${process.env.ARBOR_LAB_REPLAY}`, access: [] } } },",
     "  devices: { ...graph.devices, [administrator]: { ...graph.devices[administrator], placements: { ...graph.devices[administrator].placements, [treeID]: { server: graph.account.community, path: '/tmp/arbor-replay' } } } },",
     "}));",
-    "const initial = await snapshotDirectory('/tmp/arbor-replay');",
+    "const initial = await resolveSnapshot(await snapshotDirectory('/tmp/arbor-replay'));",
     "await client.submitUpdate(treeID, null, initial);",
     "const tree = await client.descriptor(treeID);",
     "await writeFile('/tmp/arbor-replay/note.md', 'two\\n');",
-    "const next = await snapshotDirectory('/tmp/arbor-replay');",
+    "const next = await resolveSnapshot(await snapshotDirectory('/tmp/arbor-replay'));",
     "const first = await client.submitUpdate(tree.tree.id, tree.tree.update, next);",
     "const second = await client.submitUpdate(tree.tree.id, tree.tree.update, next);",
     "if (JSON.stringify(first) !== JSON.stringify(second)) throw new Error('Semantic replay changed its accepted result');",
@@ -828,9 +838,11 @@ async function acceptance(state: LabState): Promise<void> {
   await setClients(state, "restart", ["bob"] as const);
   await waitUntil("Bob conflict recovery after restart", () => hasConflict(state, "bob", conflictTree));
 
-  const mutationID = crypto.randomUUID();
+  // Resolve through the review endpoint: every conflicting path keeps Bob's bytes.
   await sshBash(state, "bob", [
-    `curl -fsS -H 'content-type: application/json' -d '{"mutationID":"${mutationID}","operations":[{"op":"resolveTreeConflict","tree":"${conflictTree}","choice":"local"}]}' http://127.0.0.1:4317/v1/mutations >/dev/null`,
+    `review=$(curl -fsS 'http://127.0.0.1:4317/v1/conflicts?tree=${conflictTree}')`,
+    `body=$(printf '%s' "$review" | jq -c --arg tree '${conflictTree}' '{tree: $tree, identity: .identity, resolutions: (.items | map({key: .path, value: {choice: "mine"}}) | from_entries)}')`,
+    "curl -fsS -H 'content-type: application/json' -d \"$body\" http://127.0.0.1:4317/v1/conflicts/resolve >/dev/null",
   ].join("\n"));
   await waitUntil("resolved binary update acceptance", async () => await authorityHistoryCount(state, conflictTree) === before + 2);
   await setClients(state, "start", ["alice", "carol"] as const);
@@ -1004,7 +1016,7 @@ async function collect(state: LabState): Promise<string> {
       `journalctl -u '${service}' --no-pager -n 1000 || true`,
       ...(role === "community" ? [] : [
         `find '${CLIENT_PATHS[role]}' -mindepth 2 -type f -print0 | sort -z | xargs -0 sha256sum || true`,
-        "curl -fsS 'http://127.0.0.1:4317/v1/children?tree=system&path=%2Ftrees' || true",
+        "curl -fsS 'http://127.0.0.1:4317/v1/trees' || true",
       ]),
     ].join("\n"), { allowFailure: true, quiet: true, timeoutMs: 60_000 });
     await writeFile(join(destination, `${role}.log`), `${report.stdout}\n${report.stderr}`);

@@ -22,6 +22,50 @@ export function encodeSnapshotBundle(snapshot: TreeSnapshot): Uint8Array {
   return encodeCanonicalCBOR({ version: 1, objects: objects.map(({ bytes }) => bytes) });
 }
 
+/**
+ * Encode a *sparse* bundle: the same canonical CBOR shape as
+ * `encodeSnapshotBundle` (objects sorted by hash, no duplicates) without the
+ * reachability check, so a producer may omit objects the consumer resolves on
+ * demand. Every included object is still hash-checked against its declared
+ * hash; a directory spine with file objects left out is the intended use.
+ */
+export function encodeSparseSnapshotBundle(objects: Iterable<[ObjectHash, Uint8Array]>): Uint8Array {
+  const seen = new Set<ObjectHash>();
+  const ordered = [...objects].map(([declaredHash, bytes]) => {
+    const actualHash = hashObject(bytes);
+    if (actualHash !== declaredHash) throw new Error(`Snapshot object hash mismatch: ${declaredHash}`);
+    if (seen.has(actualHash)) throw new Error(`Snapshot contains duplicate object: ${actualHash}`);
+    seen.add(actualHash);
+    return { hash: actualHash, bytes };
+  }).sort((left, right) => left.hash < right.hash ? -1 : left.hash > right.hash ? 1 : 0);
+  return encodeCanonicalCBOR({ version: 1, objects: ordered.map(({ bytes }) => bytes) });
+}
+
+/** Decode a bundle's objects without verifying reachability; the caller validates the sparse graph. */
+export function decodeSparseSnapshotBundle(bytes: Uint8Array): Map<ObjectHash, Uint8Array> {
+  const value = decodeCBOR(bytes);
+  if (!value || typeof value !== "object" || value instanceof Uint8Array || Array.isArray(value)) {
+    throw new Error("Snapshot bundle must be a map");
+  }
+  const record = value as Record<string, unknown>;
+  if (!bytesEqual(encodeCanonicalCBOR(value), bytes)) throw new Error("Snapshot bundle is not canonical CBOR");
+  if (Object.keys(record).length !== 2 || record.version !== 1 || !Array.isArray(record.objects)) {
+    throw new Error("Snapshot bundle fields are invalid");
+  }
+  const objects = new Map<ObjectHash, Uint8Array>();
+  let previous: ObjectHash | undefined;
+  for (const objectBytes of record.objects) {
+    if (!(objectBytes instanceof Uint8Array)) throw new Error("Snapshot object must be a CBOR byte string");
+    const hash = hashObject(objectBytes);
+    if (previous && hash <= previous) throw new Error("Snapshot objects are not ordered by hash");
+    previous = hash;
+    if (objects.has(hash)) throw new Error(`Snapshot contains duplicate object: ${hash}`);
+    decodeWireObject(objectBytes);
+    objects.set(hash, objectBytes);
+  }
+  return objects;
+}
+
 /** Decode and fully verify a canonical immutable snapshot bundle for the URL root. */
 export function decodeSnapshotBundle(root: string, bytes: Uint8Array): TreeSnapshot {
   if (!HASH.test(root)) throw new Error("Snapshot root hash is invalid");

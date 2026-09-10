@@ -31,6 +31,15 @@ interface IntentFixtures {
     canonicalCBORBase64: string;
     digest: ObjectHash;
   };
+  envelopeIndependence: {
+    tree: string;
+    base: string;
+    candidates: ObjectHash[];
+    ifMatch: "modelHash";
+    onConflict: "merge";
+    packings: Array<Array<Array<{ hash: ObjectHash; bytes: string }>>>;
+    digests: ObjectHash[];
+  };
   replayCases: Array<{
     name: string;
     sameIntent: boolean;
@@ -132,6 +141,20 @@ describe("updates-v1 JSON identity", () => {
         deltas: [{ base, result, instructions: [{ insert: "eA==" }] }],
       }],
     })).toThrow("also supplied as a complete object");
+  });
+
+  test("element digests are independent of how object envelopes are packed", () => {
+    const vector = fixtures.envelopeIndependence;
+    for (const packing of vector.packings) {
+      const updates = vector.candidates.map((candidate, index) => ({
+        candidate,
+        ifMatch: vector.ifMatch,
+        onConflict: vector.onConflict,
+        objects: (packing[index] ?? []).map((envelope) => ({ hash: envelope.hash, bytes: Buffer.from(envelope.bytes, "base64") })),
+        deltas: [],
+      }));
+      expect(updateRequestDigests(vector.tree, { base: vector.base, updates })).toEqual(vector.digests);
+    }
   });
 
   test("chains later identities through the exact append-only prefix", () => {

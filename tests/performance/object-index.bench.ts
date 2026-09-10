@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Workspace } from "@arbor/arborsync";
-import { WorkspaceIndex, workspaceStateDirectory } from "@arbor/stores";
+import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 
 const root = await mkdtemp(join(tmpdir(), "arbor-performance-tree-"));
 const state = await mkdtemp(join(tmpdir(), "arbor-performance-state-"));
@@ -19,35 +19,36 @@ try {
   }
 
   const startupStart = performance.now();
-  const workspace = await Workspace.open(root);
+  const workspace = await Workspace.open(root, { objectRevalidationMs: 0 });
   const startupMs = performance.now() - startupStart;
 
-  const searchStart = performance.now();
-  const results = workspace.search("orchard");
-  const searchMs = performance.now() - searchStart;
-  await workspace[Symbol.asyncDispose]();
+  // The first walk fills the object index; the second is served from stat tuples.
+  const coldStart = performance.now();
+  const cold = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, workspace.objectIndex()));
+  const coldMs = performance.now() - coldStart;
+  const warmStart = performance.now();
+  const warm = await snapshotDirectory(root, new Map(), [], undefined, workspace.objectIndex());
+  const warmMs = performance.now() - warmStart;
+  expect(warm.root).toBe(cold.root);
 
-  const changedPath = join(root, "directory-0", "note-0.txt");
-  await Bun.write(changedPath, "newly visible orchard");
-  const workspaceState = await workspaceStateDirectory(root);
-  const index = new WorkspaceIndex(root, join(workspaceState, "index.sqlite"));
+  await Bun.write(join(root, "directory-0", "note-0.txt"), "newly visible orchard");
   const incrementalStart = performance.now();
-  await index.updateAbsolute(changedPath);
+  const changed = await snapshotDirectory(root, new Map(), [], undefined, workspace.objectIndex());
   const incrementalMs = performance.now() - incrementalStart;
+  expect(changed.root).not.toBe(cold.root);
+  await workspace[Symbol.asyncDispose]();
 
   const metrics = {
     files: 50_000,
     startupMs: Math.round(startupMs),
-    incrementalMs: Number(incrementalMs.toFixed(2)),
-    searchMs: Number(searchMs.toFixed(2)),
-    results: results.length,
+    coldWalkMs: Math.round(coldMs),
+    warmWalkMs: Math.round(warmMs),
+    incrementalWalkMs: Math.round(incrementalMs),
   };
   console.log(JSON.stringify(metrics));
 
   expect(startupMs).toBeLessThan(5_000);
-  expect(incrementalMs).toBeLessThan(200);
-  expect(searchMs).toBeLessThan(100);
-  index.close();
+  expect(warmMs).toBeLessThan(coldMs);
 } finally {
   await rm(root, { recursive: true, force: true });
   await rm(state, { recursive: true, force: true });

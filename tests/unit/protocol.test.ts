@@ -3,21 +3,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ArborError,
-  BacklinksPage,
-  MutationReceipt,
-  MutationRequest,
-  NodeSnapshot,
-  RecoveryPage,
-  SearchPage,
   SyncConflictWorkspace,
   WorkspaceEvent,
-  WorkspaceOperation,
 } from "@arbor/core";
 import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
-import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
-import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigests } from "@arbor/wire";
-import type { ArborSyncStatus } from "@arbor/arborsync-client";
-import { nodeDocument } from "../helpers/node-snapshot.ts";
+import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
+import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireObject, hashObject, updateRequestDigests } from "@arbor/wire";
+import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "@arbor/arborsync-client";
 
 // Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
 // `WireSafeAccessSubject` decoding; the TypeScript packages export no descriptor
@@ -68,24 +60,13 @@ const conformanceJSON = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(conformance, name), "utf8")) as T;
 
 describe("REST v1 protocol fixtures", () => {
-  test("decode the shared node, mutation, receipt, and unknown error values", async () => {
+  test("decode the shared status, conflict-workspace, and unknown error values", async () => {
     const status = await json<ArborSyncStatus>("status.json");
-    const node = await json<NodeResponse>("node.json");
-    const mutation = await json<MutationRequest>("mutation.json");
-    const receipt = await json<MutationReceipt>("receipt.json");
     const error = await json<ArborError>("error.json");
     const conflict = await json<SyncConflictWorkspace>("conflict-workspace.json");
-    expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: '[["id","abc123"]]' });
-    expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
-    expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
-    expect(node.admissionRequestDigest).toBe(`sha256:${"a".repeat(64)}`);
-    expect(node.acceptedRequestDigests).toEqual([`sha256:${"b".repeat(64)}`]);
-    expect(mutation.operations[0]?.op).toBe("move");
-    expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
-    expect(receipt.effects[0]?.ref.tree).toBe("tr_notes7f3q2ab7c");
-    expect(receipt.effects[0]?.propertiesRevision).toBe("sha256:properties");
     expect(error.error).toBe("future-error-code");
     expect(conflict.items[0]?.draft).toEqual({ kind: "text", text: "both\n" });
+    expect(conflict.tree).toStartWith("tr_");
     expect(status).toEqual({
       service: "arborsync",
       version: "0.1.0",
@@ -96,54 +77,34 @@ describe("REST v1 protocol fixtures", () => {
     });
   });
 
-  test("decodes the tree-scoped, unpromoted, and system fixtures", async () => {
-    const untracked = await json<NodeResponse>("node-untracked.json");
-    const systemTree = await json<NodeResponse>("node-system-tree.json");
-    const backlinks = await json<BacklinksPage>("backlinks.json");
-    const recovery = await json<RecoveryPage>("recovery.json");
-    expect(untracked.ref.tree).toBe("local");
-    expect(untracked.ref.path).toBe("/Users/joe/Desktop/stray");
-    expect(untracked.enclosingTree).toBeUndefined();
-    expect(systemTree.ref.tree).toBe("system");
-    expect(systemTree.capabilities.content?.writable).toBe(false);
-    expect(nodeDocument(systemTree)?.frontmatter.credentialAvailable).toBe(true);
-    expect(backlinks.entries[0]?.ref.stableKey).toBe('[["id","week01"]]');
-    const search = await json<SearchPage>("search.json");
-    expect(search.results[0]?.backlinkCount).toBe(2);
-    expect(search.results[0]?.modifiedAt).toBe(1725192000);
-    expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
+  test("decodes the bootstrap and credential fixtures", async () => {
+    const clean = await json<TreeBootstrap>("bootstrap.json");
+    const pending = await json<TreeBootstrap>("bootstrap-pending.json");
+    const credential = await json<TreeCredential>("credential.json");
+    expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
+    expect(clean.accepted.cursor).toBe(clean.accepted.update);
+    expect(clean.blocked).toBeUndefined();
+    expect(clean.pending).toBeUndefined();
+    // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
+    const spine = decodeSparseSnapshotBundle(Buffer.from(clean.spine, "base64"));
+    const root = decodeWireObject(spine.get(clean.accepted.root as never)!);
+    if (root.type !== "directory") throw new Error("Expected a directory root");
+    expect(root.entries.map((entry) => entry.name)).toEqual(["_index.md", "photo.bin"]);
+    expect(spine.has(root.entries[0]!.hash!)).toBe(true);
+    expect(spine.has(root.entries[1]!.hash!)).toBe(false);
+    expect(clean.files["/photo.bin"]).toEqual({ size: 5, mtime: 1725192000000 });
+    // A pending bootstrap carries the daemon's request string verbatim with digests the client can recompute.
+    const request = decodeUpdateRequestJSON({ base: pending.pending!.base, updates: pending.pending!.updates });
+    expect(pending.pending!.requestDigests).toEqual(updateRequestDigests(pending.tree.id, request));
+    expect(pending.pending!.updates[0]!.candidate).toBe(pending.accepted.root);
+    expect(credential.token).toBe("canopy-account-token-fixture");
   });
 
-  test("keeps unknown fields decodable while requiring explicit tree scope", async () => {
-    const node = await json<NodeResponse>("node-unknown-field.json");
-    expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
-    expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
-  });
-
-  test("covers every operation, current error code, cursor, and unknown response field", async () => {
-    const operationRequests = await json<MutationRequest[]>("operations.json");
+  test("covers every current error code, cursor shape, and the control routes' fixtures", async () => {
     const errors = await json<ArborError[]>("errors.json");
-    const node = await json<NodeSnapshot>("node-unknown-field.json");
     const cursors = await json<{ current: string; foreignEpoch: string; malformed: string }>("cursors.json");
-    expect(operationRequests
-      .flatMap((request) => [...request.operations] as WorkspaceOperation[])
-      .map((operation) => operation.op)).toEqual([
-      "writeMarkdown",
-      "writeProperties",
-      "writeText",
-      "createMarkdown",
-      "createDirectory",
-      "rename",
-      "move",
-      "copy",
-      "trash",
-      "restore",
-      "restoreRecovery",
-      "ensureDocumentIdentity",
-    ]);
     expect(errors.map((value) => value.error)).toContain("internal-error");
     expect(errors.at(-1)?.error).toBe("future-error-code");
-    expect(node.ref.stableKey).toBe('[["id","abc123"]]');
     expect(cursors.current).toEndWith(":5");
     expect(cursors.foreignEpoch).not.toStartWith("11111111");
     expect(cursors.malformed).not.toContain(":");
@@ -375,8 +336,8 @@ describe("canonical descriptor helpers", () => {
     const canonical = values.valid.remoteTreeDescriptor.canonical!;
     expect(canonicalHTTPURL(canonical)).toBe("https://community.example/~joe");
     expect(canonicalArborLocator(canonical)).toBe("arbor://community.example/~joe");
-    const fixture = JSON.parse(await readFile(join(fixtures, "node.json"), "utf8")) as NodeResponse;
-    expect(canonicalHTTPURL(fixture.enclosingTree!.canonical!)).toBe("https://notes.example/~joe/notes");
-    expect(canonicalArborLocator(fixture.enclosingTree!.canonical!)).toBe("arbor://notes.example/~joe/notes");
+    const bootstrap = await json<TreeBootstrap>("bootstrap.json");
+    expect(canonicalHTTPURL(bootstrap.tree.canonical!)).toBe("https://notes.example/~joe/notes");
+    expect(canonicalArborLocator(bootstrap.tree.canonical!)).toBe("arbor://notes.example/~joe/notes");
   });
 });

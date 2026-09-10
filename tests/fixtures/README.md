@@ -2,8 +2,8 @@
 
 These fixtures test the current Arbor implementation rather than defining the portable specification:
 
-- `arborsync/` covers the reference REST API and local event model;
-- `client/` covers local filesystem, `system:`, legacy, and external-link resolution behavior;
+- `arborsync/` covers the reference control surface (status, bootstrap, credential, conflicts) and local event model;
+- `client/` covers local filesystem, legacy, and external-link resolution behavior;
 - `canopy/` covers Canopy's exact merge algorithm; and
 - `workspace/` contains authored files used by implementation tests.
 

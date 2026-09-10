@@ -1,29 +1,25 @@
 /**
- * Arbor Sync document admission: the state machine every editor talking to
- * Local Arbor REST runs (Reliability 005, machine A).
+ * Document admission: the state machine every editor talking to a working
+ * tree's document session runs (Reliability 005, machine A).
  *
  * The reducer is pure. It owns every timer, in-flight, successor, flush,
  * observation, failure, and conflict transition; the caller runs the effects
  * it returns. Sources are opaque: the reducer only compares them with the
- * `equal` option, so the web editor can keep block snapshots and a native
+ * `equal` option, so a web editor can keep block snapshots and a native
  * editor can use exact Markdown strings while executing the same fixtures.
+ * Admission is working-tree durability, not accepted history: the update
+ * machine (`@arbor/canopy-client` `reduceUpdate`, spec/09) publishes the
+ * durable heads afterwards, and the two machines compose in sequence.
  */
-
-import type { Hash } from "./identifiers.ts";
 
 /** Reference debounce for the current web and native editors. */
 export const ADMISSION_DEBOUNCE_MS = 250;
-
-/** Whether the document is Canopy-backed or purely local. Decides conflict policy. */
-export type AdmissionTransport = "canopy" | "local";
 
 export interface AdmissionAccepted<S> {
   /** Exact source the editor last acknowledged as locally durable. */
   source: S;
   /** Content revision the next request must name as its base. */
   revision: string;
-  /** Opaque Canopy admission context returned by Arbor Sync, when any. */
-  admissionBasis?: string;
 }
 
 export interface AdmissionSubmission<S> {
@@ -34,8 +30,6 @@ export interface AdmissionSubmission<S> {
 export interface AdmissionObservation<S> {
   source: S;
   revision: string;
-  admissionBasis?: string;
-  acceptedRequestDigests: readonly Hash[];
 }
 
 /** Captured before an asynchronous read so a stale result can be discarded. */
@@ -47,8 +41,6 @@ export interface AdmissionAnchor {
 export interface AdmissionResult<S> {
   source: S;
   revision: string;
-  admissionBasis?: string;
-  requestDigest?: Hash;
 }
 
 export interface AdmissionFailure {
@@ -60,7 +52,6 @@ interface Base<S> {
   accepted: AdmissionAccepted<S>;
   /** Monotonic editor generation; every edit increments it. */
   generation: number;
-  transport: AdmissionTransport;
 }
 
 export type AdmissionState<S> =
@@ -68,7 +59,6 @@ export type AdmissionState<S> =
   | (Base<S> & { kind: "dirty"; latest: AdmissionSubmission<S>; timer: boolean })
   | (Base<S> & { kind: "submitting"; submitted: AdmissionSubmission<S> })
   | (Base<S> & { kind: "submitting-dirty"; submitted: AdmissionSubmission<S>; latest: AdmissionSubmission<S> })
-  | (Base<S> & { kind: "admitted-awaiting-authority"; requestDigest: Hash })
   | (Base<S> & {
     kind: "conflict";
     submitted: AdmissionSubmission<S>;
@@ -94,14 +84,13 @@ export type AdmissionEvent<S> =
 export type AdmissionEffect<S> =
   | { type: "schedule"; delay: number }
   | { type: "cancelTimer" }
-  | { type: "admit"; generation: number; source: S; baseRevision: string; admissionBasis?: string }
-  /** Arbor Sync acknowledged the exact tree already in the editor; advance source authority without replacing it. */
+  | { type: "admit"; generation: number; source: S; baseRevision: string }
+  /** The working tree acknowledged the exact tree already in the editor; advance source authority without replacing it. */
   | { type: "acknowledge"; result: AdmissionResult<S> }
   /** Replace the editor with authoritative content. */
   | { type: "apply"; source: S; revision: string }
-  /** The local (non-Canopy) transport rejected the write; the caller may run its explicit local merge helper. */
+  /** The working tree rejected the write; the caller may run its explicit local merge helper or surface the conflict. */
   | { type: "mergeLocally"; current?: AdmissionObservation<S>; submitted: S; base: S }
-  | { type: "surfaceConflict" }
   | { type: "surfaceFailure"; error: AdmissionFailure }
   | { type: "stop" };
 
@@ -115,11 +104,8 @@ export interface AdmissionTransition<S> {
   effects: AdmissionEffect<S>[];
 }
 
-export function initialAdmissionState<S>(
-  accepted: AdmissionAccepted<S>,
-  transport: AdmissionTransport,
-): AdmissionState<S> {
-  return { kind: "clean", accepted, generation: 0, transport };
+export function initialAdmissionState<S>(accepted: AdmissionAccepted<S>): AdmissionState<S> {
+  return { kind: "clean", accepted, generation: 0 };
 }
 
 /** Whether the machine still holds authored intent that is not locally durable. */
@@ -147,12 +133,11 @@ function admitEffect<S>(state: Base<S>, submission: AdmissionSubmission<S>): Adm
     generation: submission.generation,
     source: submission.source,
     baseRevision: state.accepted.revision,
-    ...(state.accepted.admissionBasis ? { admissionBasis: state.accepted.admissionBasis } : {}),
   };
 }
 
 function base<S>(state: AdmissionState<S>): Base<S> {
-  return { accepted: state.accepted, generation: state.generation, transport: state.transport };
+  return { accepted: state.accepted, generation: state.generation };
 }
 
 function submit<S>(state: AdmissionState<S>, latest: AdmissionSubmission<S>, options: AdmissionOptions<S>): AdmissionTransition<S> {
@@ -188,12 +173,6 @@ export function reduceAdmission<S>(
         case "submitting":
         case "submitting-dirty":
           return { state: { ...base(state), generation, kind: "submitting-dirty", submitted: state.submitted, latest }, effects: [] };
-        case "admitted-awaiting-authority":
-          // New local intent supersedes the fence: this editor now waits for the next digest it receives.
-          return {
-            state: { ...base(state), generation, kind: "dirty", latest, timer: true },
-            effects: [{ type: "schedule", delay: debounce }],
-          };
         case "conflict":
           return { state: { ...state, generation, latest }, effects: [] };
         case "failed":
@@ -224,27 +203,13 @@ export function reduceAdmission<S>(
     case "admitted": {
       if (state.kind !== "submitting" && state.kind !== "submitting-dirty") return { state, effects: [] };
       if (event.generation !== state.submitted.generation) return { state, effects: [] };
-      const accepted: AdmissionAccepted<S> = {
-        source: event.result.source,
-        revision: event.result.revision,
-        ...(event.result.admissionBasis ? { admissionBasis: event.result.admissionBasis } : {}),
-      };
-      const next: Base<S> = {
-        accepted,
-        generation: state.generation,
-        transport: event.result.admissionBasis ? "canopy" : state.transport,
-      };
+      const accepted: AdmissionAccepted<S> = { source: event.result.source, revision: event.result.revision };
+      const next: Base<S> = { accepted, generation: state.generation };
       const effects: AdmissionEffect<S>[] = [{ type: "acknowledge", result: event.result }];
       if (state.kind === "submitting-dirty") {
         // Derive the successor's patch from the admitted source and submit it at once.
         const transition = submit({ ...next, kind: "clean" }, state.latest, options);
         return { state: transition.state, effects: [...effects, ...transition.effects] };
-      }
-      if (event.result.requestDigest) {
-        return {
-          state: { ...next, kind: "admitted-awaiting-authority", requestDigest: event.result.requestDigest },
-          effects,
-        };
       }
       return { state: { ...next, kind: "clean" }, effects };
     }
@@ -260,13 +225,10 @@ export function reduceAdmission<S>(
         ...(event.current ? { current: event.current } : {}),
         ...(latest ? { latest } : {}),
       };
-      if (state.transport === "local") {
-        return {
-          state: conflict,
-          effects: [{ type: "mergeLocally", current: event.current, submitted: state.submitted.source, base: state.accepted.source }],
-        };
-      }
-      return { state: conflict, effects: [{ type: "surfaceConflict" }] };
+      return {
+        state: conflict,
+        effects: [{ type: "mergeLocally", current: event.current, submitted: state.submitted.source, base: state.accepted.source }],
+      };
     }
 
     case "admissionFailed": {
@@ -288,17 +250,6 @@ export function reduceAdmission<S>(
       switch (state.kind) {
         case "clean": {
           if (observation.revision === state.accepted.revision) return { state, effects: [] };
-          return {
-            state: { ...base(state), kind: "clean", accepted: acceptedFrom(observation) },
-            effects: [{ type: "apply", source: observation.source, revision: observation.revision }],
-          };
-        }
-        case "admitted-awaiting-authority": {
-          const incorporates = observation.acceptedRequestDigests.includes(state.requestDigest);
-          if (!incorporates) return { state, effects: [] };
-          if (observation.revision === state.accepted.revision) {
-            return { state: { ...base(state), kind: "clean" }, effects: [] };
-          }
           return {
             state: { ...base(state), kind: "clean", accepted: acceptedFrom(observation) },
             effects: [{ type: "apply", source: observation.source, revision: observation.revision }],
@@ -333,7 +284,7 @@ export function reduceAdmission<S>(
       }
       // Keep the submitted (or newer local) source and resubmit it against the current revision.
       const accepted = state.current ? acceptedFrom(state.current) : state.accepted;
-      const rebased: Base<S> = { accepted, generation: state.generation, transport: state.transport };
+      const rebased: Base<S> = { accepted, generation: state.generation };
       const latest = state.latest ?? state.submitted;
       return submit({ ...rebased, kind: "clean" }, latest, options);
     }
@@ -347,11 +298,7 @@ export function reduceAdmission<S>(
 }
 
 function acceptedFrom<S>(observation: AdmissionObservation<S>): AdmissionAccepted<S> {
-  return {
-    source: observation.source,
-    revision: observation.revision,
-    ...(observation.admissionBasis ? { admissionBasis: observation.admissionBasis } : {}),
-  };
+  return { source: observation.source, revision: observation.revision };
 }
 
 export interface AdmissionClock {
@@ -365,8 +312,7 @@ export interface AdmissionRunnerCallbacks<S> {
   classify(error: unknown): { conflict: true; current?: AdmissionObservation<S> } | { conflict: false; error: AdmissionFailure };
   acknowledge(result: AdmissionResult<S>): void;
   apply(source: S, revision: string): void;
-  mergeLocally?(effect: Extract<AdmissionEffect<S>, { type: "mergeLocally" }>): void;
-  surfaceConflict(): void;
+  mergeLocally(effect: Extract<AdmissionEffect<S>, { type: "mergeLocally" }>): void;
   surfaceFailure(error: AdmissionFailure): void;
   changed(state: AdmissionState<S>): void;
 }
@@ -447,10 +393,7 @@ export class DocumentAdmissionController<S> {
         this.callbacks.apply(effect.source, effect.revision);
         return;
       case "mergeLocally":
-        this.callbacks.mergeLocally?.(effect);
-        return;
-      case "surfaceConflict":
-        this.callbacks.surfaceConflict();
+        this.callbacks.mergeLocally(effect);
         return;
       case "surfaceFailure":
         this.callbacks.surfaceFailure(effect.error);

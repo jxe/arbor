@@ -1,15 +1,18 @@
+import type { BigIntStats } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { CollectionFileDescriptor, Hash } from "@arbor/core";
 import {
   compareWireNames,
   decodeWireObject,
   encodeWireObject,
   hashObject,
+  type LazyTreeSnapshot,
   type ObjectHash,
   type TreeSnapshot,
   type WireDirectoryEntry,
   type WireObject,
+  type WireObjectSource,
 } from "@arbor/wire";
 import { IGNORED_WORKSPACE_DIRECTORIES } from "./discovery.ts";
 import { writeAtomic } from "./file-ops.ts";
@@ -40,12 +43,47 @@ function privateTransactionName(name: string): boolean {
   return name.includes(".arbor-write-") || name.includes(".arbor-txn-");
 }
 
+/**
+ * The per-workspace object index consulted by `snapshotDirectory`. A file hit
+ * is trusted only when the caller's stat tuple matches the stored row; the
+ * walk then skips reading that file and returns a loader that reads on demand.
+ * `directoryHash` is optional and only for callers that verify the produced
+ * object afterwards: it lets the walk adopt a cached subtree hash without
+ * recursing, which is never safe on its own because directory rows carry no
+ * validity tuple.
+ */
+export interface SnapshotObjectIndex {
+  fileHash(absolute: string, stat: BigIntStats): ObjectHash | undefined;
+  remember(absolute: string, kind: "file" | "directory", stat: BigIntStats | undefined, hash: ObjectHash): void;
+  directoryHash?(absolute: string): ObjectHash | undefined;
+}
+
+function markdownName(name: string): boolean {
+  return extname(name).toLowerCase() === ".md";
+}
+
+/** Load every object of a lazy snapshot into memory. */
+export async function resolveSnapshot(lazy: LazyTreeSnapshot): Promise<TreeSnapshot> {
+  const objects = new Map<ObjectHash, Uint8Array>();
+  const sources = [...lazy.objects.values()];
+  const concurrency = 16;
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, sources.length) }, async () => {
+    while (next < sources.length) {
+      const source = sources[next++]!;
+      objects.set(source.hash, await source.bytes());
+    }
+  }));
+  return { root: lazy.root, objects };
+}
+
 export async function snapshotDirectory(
   inputRoot: string,
   boundaries: ReadonlyMap<string, string> = new Map(),
   excludedRoots: readonly string[] = [],
   describeCollectionFile?: DescribeSnapshotCollectionFile,
-): Promise<TreeSnapshot> {
+  objectIndex?: SnapshotObjectIndex,
+): Promise<LazyTreeSnapshot> {
   const resolvedInputRoot = resolve(inputRoot);
   const root = await realpath(inputRoot);
   const normalizedBoundaries = new Map([...boundaries].map(([path, tree]) => [
@@ -60,13 +98,43 @@ export async function snapshotDirectory(
     return exclusions.some((excluded) => candidate === excluded || candidate.startsWith(`${excluded}${sep}`));
   };
   if (!(await stat(root)).isDirectory()) throw new Error(`Tree root is not a directory: ${root}`);
-  const objects = new Map<ObjectHash, Uint8Array>();
+  const objects = new Map<ObjectHash, WireObjectSource>();
 
   const store = (object: WireObject): ObjectHash => {
     const bytes = encodeWireObject(object);
     decodeWireObject(bytes);
     const hash = hashObject(bytes);
-    objects.set(hash, bytes);
+    objects.set(hash, { hash, kind: object.type, bytes: () => Promise.resolve(bytes) });
+    return hash;
+  };
+
+  const readFileObject = async (absolute: string): Promise<{ hash: ObjectHash; bytes: Uint8Array }> => {
+    const bytes = encodeWireObject({ type: "file", bytes: await readFile(absolute) });
+    return { hash: hashObject(bytes), bytes };
+  };
+
+  /** A file's object: cached bytes when read now, otherwise a verified on-demand loader. */
+  const fileSource = async (absolute: string, name: string): Promise<ObjectHash> => {
+    const info = objectIndex ? await stat(absolute, { bigint: true }) : undefined;
+    const cached = info && !markdownName(name) ? objectIndex!.fileHash(absolute, info) : undefined;
+    if (cached) {
+      let loaded: Promise<Uint8Array> | undefined;
+      objects.set(cached, {
+        hash: cached,
+        kind: "file",
+        bytes: () => loaded ??= readFileObject(absolute).then(({ hash, bytes }) => {
+          if (hash !== cached) {
+            loaded = undefined;
+            throw new Error(`File changed after its snapshot was taken: ${absolute}`);
+          }
+          return bytes;
+        }),
+      });
+      return cached;
+    }
+    const { hash, bytes } = await readFileObject(absolute);
+    objects.set(hash, { hash, kind: "file", bytes: () => Promise.resolve(bytes) });
+    if (info) objectIndex!.remember(absolute, "file", info, hash);
     return hash;
   };
 
@@ -86,10 +154,10 @@ export async function snapshotDirectory(
         entries.push({ name: entry.name, tree: boundary });
         seen.add(entry.name);
       } else if (entry.isDirectory()) {
-        entries.push({ name: entry.name, hash: await walk(absolute) });
+        entries.push({ name: entry.name, hash: objectIndex?.directoryHash?.(absolute) ?? await walk(absolute) });
         seen.add(entry.name);
       } else if (entry.isFile()) {
-        const source = store({ type: "file", bytes: await readFile(absolute) });
+        const source = await fileSource(absolute, entry.name);
         const description = describeCollectionFile && ["_store.csv", "_store.json", "_store.jsonl"].includes(entry.name)
           ? await describeCollectionFile(directory, entry.name)
           : null;
@@ -120,11 +188,13 @@ export async function snapshotDirectory(
         ? { name, tree }
         : { name, hash: await walkVirtual(join(directory, name)) });
     }
-    return store({
+    const hash = store({
       type: "directory",
       entries: entries.sort((a, b) => compareWireNames(a.name, b.name)),
       ...(childrenSource ? { childrenSource } : {}),
     });
+    objectIndex?.remember(directory, "directory", undefined, hash);
+    return hash;
   };
 
   const walkVirtual = async (directory: string): Promise<ObjectHash> => {

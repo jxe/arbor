@@ -40,6 +40,24 @@ export interface TreeSnapshot {
   objects: Map<ObjectHash, Uint8Array>;
 }
 
+/**
+ * An object whose canonical bytes may not be in memory yet. Directory and
+ * Markdown objects resolve from cached bytes; other files may read on demand.
+ * The loader must return bytes whose hash equals `hash`.
+ */
+export interface WireObjectSource {
+  hash: ObjectHash;
+  /** The object's kind when the producer knows it without loading the bytes. */
+  kind?: "file" | "directory";
+  bytes(): Promise<Uint8Array>;
+}
+
+/** A tree graph whose object bytes are loaded through `WireObjectSource`. */
+export interface LazyTreeSnapshot {
+  root: ObjectHash;
+  objects: Map<ObjectHash, WireObjectSource>;
+}
+
 export function hashObject(bytes: Uint8Array): ObjectHash {
   return `sha256:${sha256(bytes)}`;
 }

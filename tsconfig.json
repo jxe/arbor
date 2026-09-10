@@ -18,8 +18,6 @@
       "@arbor/canopy": ["packages/canopy/src/index.ts"],
       "@arbor/canopy-client": ["packages/canopy-client/src/index.ts"],
       "@arbor/arborsync-client": ["packages/arborsync-client/src/index.ts"],
-      "@arbor/arborsync-client/api": ["packages/arborsync-client/src/api.ts"],
-      "@arbor/arborsync-client/configuration": ["packages/arborsync-client/src/configuration.ts"],
       "@arbor/core": ["packages/core/src/index.ts"],
       "@arbor/core/hash": ["packages/core/src/hash.ts"],
       "@arbor/core/logical-path": ["packages/core/src/logical-path.ts"],
@@ -40,5 +38,5 @@
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts", "migrations/**/*.ts"],
-  "exclude": ["migrations/001-if-match-and-model-hash/**/*.ts"]
+  "exclude": ["migrations/001-if-match-and-model-hash/**/*.ts", "packages/render/**"]
 }

@@ -1,20 +1,12 @@
-import { existsSync } from "node:fs";
-import { readFile, realpath } from "node:fs/promises";
-import { extname, isAbsolute, join } from "node:path";
-import type {
-  ArborErrorCode,
-  ArborError,
-  MutationRequest,
-  NodeRef,
-} from "@arbor/core";
+import { realpath } from "node:fs/promises";
+import { extname } from "node:path";
+import type { ArborErrorCode, ArborError } from "@arbor/core";
 import { PathEscapeError, encodeSSEFrame } from "@arbor/core";
-import { decodeNodeRef } from "@arbor/core/node-model";
-import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";
 import { ResyncRequiredError } from "./events.ts";
-import { fsErrorCode } from "./fs-errors.ts";
 import { ArborSyncDaemon } from "./service.ts";
-import { ProtocolError, RevisionConflictError, type Workspace } from "./workspace.ts";
+import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
+import { ProtocolError, type Workspace } from "./workspace.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -29,6 +21,20 @@ const MIME: Record<string, string> = {
   ".heic": "image/heic",
   ".woff2": "font/woff2",
 };
+
+/**
+ * The page served at every app route until Plan B rebuilds Arbor web on the
+ * working tree. Static hosting of tree files at OS-shaped routes stays.
+ */
+const WEB_PLACEHOLDER = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Arbor</title></head>
+<body style="font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 36rem; line-height: 1.5;">
+<h1>Arbor web is being rebuilt (Plan B)</h1>
+<p>The daemon's editor path was removed; the web editor returns as a working-tree client. Use the Arbor app or the CLI in the meantime.</p>
+</body>
+</html>
+`;
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
@@ -110,276 +116,12 @@ function assertSameOrigin(request: Request, url: URL): void {
   if (request.method === "GET" || request.method === "HEAD") return;
   const origin = request.headers.get("origin");
   if (origin && origin !== url.origin) {
-    throw new ProtocolError("invalid-request", "Cross-origin workspace mutations are not allowed", 400, { path: url.pathname });
+    throw new ProtocolError("invalid-request", "Cross-origin requests are not allowed", 400, { path: url.pathname });
   }
-}
-
-function queryRef(url: URL): NodeRef {
-  const path = url.searchParams.get("path");
-  const tree = url.searchParams.get("tree");
-  if (!tree) throw new ProtocolError("invalid-request", "An explicit tree scope is required", 400);
-  if (path === null) throw new ProtocolError("invalid-reference", "A node reference requires path", 400);
-  if (url.searchParams.has("pageID") || url.searchParams.has("pathHint")) {
-    throw new ProtocolError("invalid-reference", "PageID and pathHint node references are no longer supported", 400);
-  }
-  try {
-    return decodeNodeRef({ tree, path, stableKey: url.searchParams.get("stableKey") || null });
-  } catch (error) {
-    throw new ProtocolError("invalid-reference", error instanceof Error ? error.message : "Invalid node reference", 400);
-  }
-}
-
-function decodeMutation(value: unknown): MutationRequest {
-  if (!isRecord(value)) {
-    throw new ProtocolError("invalid-reference", "Expected a mutation object", 400);
-  }
-  const input = value as Partial<MutationRequest>;
-  if (
-    typeof input.mutationID !== "string"
-    || !input.mutationID
-    || !Array.isArray(input.operations)
-    || input.operations.length === 0
-  ) {
-    throw new ProtocolError("invalid-reference", "Expected a mutationID and a non-empty operations array", 400);
-  }
-  for (const operation of input.operations) {
-    validateOperation(operation);
-  }
-  const contentCount = input.operations.filter((operation) =>
-    operation.op === "writeProperties" || operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
-    || operation.op === "ensureDocumentIdentity"
-  ).length;
-  if (contentCount > 0 && (contentCount !== 1 || input.operations.length !== 1)) {
-    throw new ProtocolError(
-      "unsupported-operation",
-      "A content mutation contains exactly one operation and cannot be mixed with structural operations",
-      422,
-    );
-  }
-  return input as MutationRequest;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function validateRef(value: unknown, field: string): asserts value is NodeRef {
-  try {
-    decodeNodeRef(value);
-  } catch (error) {
-    throw new ProtocolError(
-      "invalid-reference",
-      `${field}: ${error instanceof Error ? error.message : "invalid node reference"}`,
-      400,
-    );
-  }
-}
-
-
-function validateRefs(value: unknown, field: string): asserts value is NodeRef[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new ProtocolError("invalid-reference", `${field} must be a non-empty reference array`, 400);
-  }
-  value.forEach((ref, index) => validateRef(ref, `${field}[${index}]`));
-}
-
-function optionalString(value: unknown, field: string): void {
-  if (value !== undefined && typeof value !== "string") {
-    throw new ProtocolError("invalid-reference", `${field} must be a string when supplied`, 400);
-  }
-}
-
-function isJSONValue(value: unknown, depth = 0): boolean {
-  if (depth > 100) return false;
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every((item) => isJSONValue(item, depth + 1));
-  return isRecord(value) && Object.values(value).every((item) => isJSONValue(item, depth + 1));
-}
-
-function validateSourceEdits(value: unknown): void {
-  if (value === undefined) return;
-  if (!Array.isArray(value) || value.length === 0 || value.length > 100_000) {
-    throw new ProtocolError("invalid-reference", "writeMarkdown.sourceEdits must be a non-empty bounded array", 400);
-  }
-  let priorEnd = 0;
-  let replacementBytes = 0;
-  for (const [index, edit] of value.entries()) {
-    if (
-      !isRecord(edit)
-      || !Number.isSafeInteger(edit.offset)
-      || !Number.isSafeInteger(edit.length)
-      || (edit.offset as number) < priorEnd
-      || (edit.length as number) < 0
-      || typeof edit.replacement !== "string"
-      || (edit.expected !== undefined && typeof edit.expected !== "string")
-    ) {
-      throw new ProtocolError("invalid-reference", `writeMarkdown.sourceEdits[${index}] is invalid or overlaps`, 400);
-    }
-    const end = (edit.offset as number) + (edit.length as number);
-    if (!Number.isSafeInteger(end)) {
-      throw new ProtocolError("invalid-reference", `writeMarkdown.sourceEdits[${index}] range overflows`, 400);
-    }
-    priorEnd = end;
-    replacementBytes += new TextEncoder().encode(edit.replacement).length;
-    if (!Number.isSafeInteger(replacementBytes) || replacementBytes > 64 * 1024 * 1024) {
-      throw new ProtocolError("invalid-reference", "writeMarkdown.sourceEdits replacement bytes exceed the request quota", 400);
-    }
-  }
-}
-
-function validateOperation(value: unknown): void {
-  if (!isRecord(value) || typeof value.op !== "string" || !value.op) {
-    throw new ProtocolError("invalid-reference", "Every operation requires an op discriminator", 400);
-  }
-  switch (value.op) {
-    case "writeProperties":
-      validateRef(value.ref, "writeProperties.ref");
-      if (typeof value.basePropertiesRevision !== "string" || !value.basePropertiesRevision || !isRecord(value.properties) || !isJSONValue(value.properties)) {
-        throw new ProtocolError("invalid-request", "writeProperties requires basePropertiesRevision and a complete JSON property map", 400);
-      }
-      return;
-    case "writeText":
-      validateRef(value.ref, "writeText.ref");
-      if (typeof value.baseContentRevision !== "string" || typeof value.source !== "string") {
-        throw new ProtocolError("invalid-request", "writeText requires baseContentRevision and source", 400);
-      }
-      return;
-    case "writeMarkdown":
-      validateRef(value.ref, "writeMarkdown.ref");
-      if (typeof value.baseContentRevision !== "string" || typeof value.source !== "string") {
-        throw new ProtocolError("invalid-reference", "writeMarkdown requires baseContentRevision and source", 400);
-      }
-      if ("blocks" in value || "frontmatterPatch" in value) {
-        throw new ProtocolError("invalid-reference", "writeMarkdown accepts exact source, not blocks or frontmatterPatch", 400);
-      }
-      validateSourceEdits(value.sourceEdits);
-      return;
-    case "createDirectory":
-      if (typeof value.tree !== "string" || !value.tree || typeof value.path !== "string" || !value.path) {
-        throw new ProtocolError("invalid-reference", "createDirectory requires path", 400);
-      }
-      return;
-    case "createMarkdown":
-      if (
-        typeof value.tree !== "string"
-        || !value.tree
-        || typeof value.path !== "string"
-        || !value.path
-        || (value.source !== undefined && typeof value.source !== "string")
-        || "blocks" in value
-      ) {
-        throw new ProtocolError("invalid-reference", "createMarkdown requires path and optional source", 400);
-      }
-      return;
-    case "rename":
-      validateRef(value.ref, "rename.ref");
-      if (typeof value.name !== "string" || !value.name) {
-        throw new ProtocolError("invalid-reference", "rename requires a non-empty name", 400);
-      }
-      return;
-    case "move":
-      validateRefs(value.refs, "move.refs");
-      validateRef(value.destination, "move.destination");
-      if ("placement" in value || "beforePath" in value || "beforeBlockID" in value || "baseDirectoryRevision" in value) {
-        throw new ProtocolError("invalid-reference", "move ordering is authored by a separate Markdown source write", 400);
-      }
-      return;
-    case "copy":
-      validateRefs(value.refs, "copy.refs");
-      validateRef(value.destination, "copy.destination");
-      return;
-    case "trash":
-    case "restore":
-      validateRefs(value.refs, `${value.op}.refs`);
-      return;
-    case "restoreRecovery":
-      validateRef(value.ref, "restoreRecovery.ref");
-      if (typeof value.hash !== "string" || !value.hash) {
-        throw new ProtocolError("invalid-reference", "restoreRecovery requires a recovery hash", 400);
-      }
-      optionalString(value.baseContentRevision, "restoreRecovery.baseContentRevision");
-      return;
-    case "ensureDocumentIdentity":
-      validateRef(value.ref, "ensureDocumentIdentity.ref");
-      if (typeof value.baseContentRevision !== "string") {
-        throw new ProtocolError("invalid-reference", "ensureDocumentIdentity requires baseContentRevision", 400);
-      }
-      return;
-    default:
-      throw new ProtocolError("unsupported-operation", `Unsupported operation: ${value.op}`, 422);
-  }
-}
-
-async function decodeAsset(request: Request): Promise<{
-  mutationID: string;
-  directory: NodeRef;
-  filename: string;
-  bytes: Uint8Array;
-}> {
-  const form = await request.formData();
-  const rawMetadata = form.get("metadata");
-  const file = form.get("file");
-  if (typeof rawMetadata !== "string" || !(file instanceof File)) {
-    throw new ProtocolError("invalid-reference", "Asset metadata and file are required", 400);
-  }
-  let metadata: { mutationID?: unknown; directory?: unknown; filename?: unknown };
-  try { metadata = JSON.parse(rawMetadata) as typeof metadata; }
-  catch { throw new ProtocolError("invalid-reference", "Asset metadata is not valid JSON", 400); }
-  if (
-    typeof metadata.mutationID !== "string"
-    || !metadata.mutationID
-    || !metadata.directory
-    || typeof metadata.directory !== "object"
-  ) throw new ProtocolError("invalid-reference", "Asset metadata is incomplete", 400);
-  validateRef(metadata.directory, "asset.directory");
-  return {
-    mutationID: metadata.mutationID,
-    directory: metadata.directory as NodeRef,
-    filename: typeof metadata.filename === "string" && metadata.filename ? metadata.filename : file.name,
-    bytes: new Uint8Array(await file.arrayBuffer()),
-  };
-}
-
-async function decodeImport(request: Request): Promise<{
-  mutationID: string;
-  destination: NodeRef;
-  entries: FsImportEntry[];
-}> {
-  const form = await request.formData();
-  const rawMetadata = form.get("metadata");
-  if (typeof rawMetadata !== "string") {
-    throw new ProtocolError("invalid-reference", "Import metadata is required", 400);
-  }
-  let metadata: {
-    mutationID?: unknown;
-    destination?: unknown;
-    entries?: Array<{ path?: unknown; kind?: unknown; field?: unknown }>;
-  };
-  try { metadata = JSON.parse(rawMetadata) as typeof metadata; }
-  catch { throw new ProtocolError("invalid-reference", "Import metadata is not valid JSON", 400); }
-  if (
-    typeof metadata.mutationID !== "string"
-    || !metadata.mutationID
-    || !metadata.destination
-    || typeof metadata.destination !== "object"
-    || !Array.isArray(metadata.entries)
-  ) throw new ProtocolError("invalid-reference", "Import metadata is incomplete", 400);
-  validateRef(metadata.destination, "import.destination");
-  const entries: FsImportEntry[] = [];
-  for (const item of metadata.entries) {
-    if (typeof item.path !== "string" || (item.kind !== "file" && item.kind !== "directory")) {
-      throw new ProtocolError("invalid-reference", "Import entry is invalid", 400);
-    }
-    if (item.kind === "directory") {
-      entries.push({ path: item.path, kind: "directory" });
-      continue;
-    }
-    const file = typeof item.field === "string" ? form.get(item.field) : null;
-    if (!(file instanceof File)) throw new ProtocolError("invalid-reference", `Missing bytes for ${item.path}`, 400);
-    entries.push({ path: item.path, kind: "file", bytes: new Uint8Array(await file.arrayBuffer()) });
-  }
-  return { mutationID: metadata.mutationID, destination: metadata.destination as NodeRef, entries };
 }
 
 export interface ArborSyncServerOptions {
@@ -402,7 +144,6 @@ function startArborSyncServer(
     runtimeKind?: "persistent" | "foreground" | "cloud";
   } = {},
 ) {
-  const renderRoot = join(import.meta.dir, "../../render/dist");
   const instanceID = options.instanceID ?? crypto.randomUUID();
   const server = Bun.serve({
     port: options.port ?? 4317,
@@ -456,15 +197,36 @@ function startArborSyncServer(
             check: body.check === true,
           }));
         }
-        if (request.method === "POST" && url.pathname === "/v1/sessions") {
-          const body = await request.json() as { path?: unknown };
-          if (typeof body.path !== "string" || !isAbsolute(body.path)) {
-            throw new ProtocolError("invalid-request", "A local session requires an absolute path", 400);
-          }
-          return json(await service.openSession(body.path), 201);
-        }
         if (request.method === "GET" && url.pathname === "/v1/trees") {
           return json(await service.treeList());
+        }
+        if (request.method === "GET" && url.pathname === "/v1/bootstrap") {
+          const tree = url.searchParams.get("tree");
+          if (!tree) throw new ProtocolError("invalid-request", "bootstrap requires explicit tree scope", 400);
+          return json(await service.bootstrapTree(tree));
+        }
+        if (request.method === "GET" && url.pathname === "/v1/credential") {
+          // Deliberate loopback exposure (see docs/local-system.md).
+          const configurationTree = url.searchParams.get("configurationTree") ?? undefined;
+          return json({ token: await service.credentialToken(configurationTree) });
+        }
+        if (request.method === "GET" && url.pathname.startsWith("/v1/objects/")) {
+          const hash = decodeURIComponent(url.pathname.slice("/v1/objects/".length));
+          if (!OBJECT_HASH_PATTERN.test(hash)) throw new ProtocolError("invalid-request", "Object hashes are sha256:<64 hex>", 400);
+          const tree = url.searchParams.get("tree");
+          if (!tree) throw new ProtocolError("invalid-request", "objects requires explicit tree scope", 400);
+          const origin = url.searchParams.get("origin") ?? undefined;
+          if (origin !== undefined && !/^https?:\/\//.test(origin)) throw new ProtocolError("invalid-request", "origin must be an http(s) URL", 400);
+          const bytes = await service.objectBytes(tree, hash, origin);
+          if (!bytes) throw new ProtocolError("not-found", `Object is not available: ${hash}`, 404, { tree });
+          return new Response(Buffer.from(bytes), {
+            headers: {
+              "content-type": "application/cbor",
+              "content-length": String(bytes.byteLength),
+              etag: `"${hash}"`,
+              "cache-control": "private, immutable, max-age=31536000",
+            },
+          });
         }
         if (request.method === "GET" && url.pathname === "/v1/conflicts") {
           const tree = url.searchParams.get("tree");
@@ -526,38 +288,6 @@ function startArborSyncServer(
           await service.forgetLocalAccount();
           return json({ forgotten: true });
         }
-        if (request.method === "GET" && url.pathname === "/v1/node") {
-          const admissionBasis = url.searchParams.get("admissionBasis");
-          if (admissionBasis !== null && admissionBasis !== "true") {
-            throw new ProtocolError("invalid-request", "admissionBasis must be true when requested", 400);
-          }
-          return json(await service.snapshot(queryRef(url), admissionBasis === "true"));
-        }
-        if (request.method === "GET" && url.pathname === "/v1/file") {
-          return fileResponse(request, await service.file(queryRef(url)), { noStore: true });
-        }
-        if (request.method === "GET" && url.pathname === "/v1/children") {
-          return json(await service.children(queryRef(url), url.searchParams.get("cursor")));
-        }
-        if (request.method === "GET" && url.pathname === "/v1/search") {
-          const tree = url.searchParams.get("tree");
-          if (!tree) throw new ProtocolError("invalid-request", "search requires explicit tree scope", 400);
-          return json(await service.searchPage(
-            tree,
-            url.searchParams.get("q") ?? "",
-            url.searchParams.get("cursor"),
-          ));
-        }
-        if (request.method === "GET" && url.pathname === "/v1/backlinks") {
-          return json(await service.backlinksPage(queryRef(url), url.searchParams.get("cursor")));
-        }
-        if (request.method === "GET" && url.pathname === "/v1/recovery") {
-          return json(await service.recoveryPage(
-            queryRef(url),
-            url.searchParams.get("recursive") === "true",
-            url.searchParams.get("cursor"),
-          ));
-        }
         if (request.method === "GET" && url.pathname === "/v1/events") {
           const query = url.searchParams.get("after");
           const header = request.headers.get("last-event-id");
@@ -581,56 +311,17 @@ function startArborSyncServer(
             headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
           });
         }
-        if (request.method === "POST" && url.pathname === "/v1/mutations") {
-          return json(await service.executeMutation(decodeMutation(await request.json())));
-        }
-        if (request.method === "POST" && url.pathname === "/v1/documents/admit") {
-          const body = await request.json() as Record<string, unknown>;
-          validateRef(body.ref, "documents.admit.ref");
-          if (
-            typeof body.admissionBasis !== "string"
-            || (body.editorID !== undefined && typeof body.editorID !== "string")
-            || typeof body.baseContentRevision !== "string"
-            || typeof body.source !== "string"
-            || Object.keys(body).some((key) => !["ref", "editorID", "admissionBasis", "baseContentRevision", "source", "sourceEdits"].includes(key))
-          ) throw new ProtocolError("invalid-request", "Document admission requires ref, admissionBasis, baseContentRevision, and source", 400);
-          validateSourceEdits(body.sourceEdits);
-          return json(await service.admitDocumentCandidate(body as {
-            ref: NodeRef;
-            editorID?: string;
-            admissionBasis: string;
-            baseContentRevision: string;
-            source: string;
-            sourceEdits?: import("@arbor/core").SourceEdit[];
-          }));
-        }
-        if (request.method === "POST" && url.pathname === "/v1/assets") {
-          const input = await decodeAsset(request);
-          return json(await service.assetV1(input.mutationID, input.directory, input.filename, input.bytes));
-        }
-        if (request.method === "POST" && url.pathname === "/v1/imports") {
-          const input = await decodeImport(request);
-          return json(await service.importV1(input.mutationID, input.destination, input.entries));
-        }
-
         if (url.pathname.startsWith("/v/") || url.pathname.startsWith("/v1/")) {
           return errorResponse("unsupported-operation", "Route or method is not part of REST v1", 405);
         }
         if (request.method !== "GET" && request.method !== "HEAD") {
           return errorResponse("unsupported-operation", "Method not allowed", 405);
         }
-        const isAppRoute = url.pathname === "/" || url.pathname === "/render" || url.pathname.startsWith("/render/");
-        if (!isAppRoute) {
-          const bundled = join(renderRoot, url.pathname.slice(1));
-          if (existsSync(bundled)) {
-            return new Response(await readFile(bundled), { headers: { "content-type": MIME[extname(bundled)] ?? "application/octet-stream" } });
-          }
-        }
         // The logical route is the file API: an ordinary file's OS-shaped
         // path serves its bytes (with ?raw overriding to a document's stored
-        // body), dispatched into the owning root or the local filesystem;
-        // the /render spelling is accepted so authored relative references
-        // keep resolving under the app's route prefix.
+        // body), dispatched into the owning root; the /render spelling is
+        // accepted so authored relative references keep resolving under the
+        // app's route prefix.
         const logicalPath = url.pathname.replace(/^\/render(?=\/|$)/, "") || "/";
         const raw = url.searchParams.has("raw");
         let surface = await service.fileSurface(decodeURIComponent(logicalPath), raw).catch(() => null);
@@ -651,9 +342,7 @@ function startArborSyncServer(
         if (surface) {
           return fileResponse(request, surface, { raw });
         }
-        const index = join(renderRoot, "index.html");
-        if (!existsSync(index)) return new Response("Arbor web is not built. Run `bun run build:web`.", { status: 503 });
-        return new Response(await readFile(index), { headers: { "content-type": MIME[".html"] ?? "text/html" } });
+        return new Response(WEB_PLACEHOLDER, { headers: { "content-type": MIME[".html"] ?? "text/html" } });
       } catch (error) {
         if (error instanceof ProtocolError) {
           const { retryable = false, tree, path, ...typedDetails } = error.details;
@@ -666,26 +355,6 @@ function startArborSyncServer(
         }
         if (error instanceof ResyncRequiredError) {
           return errorResponse("resync-required", error.message, 409, { retryable: true });
-        }
-        if (error instanceof RevisionConflictError) {
-          const current = workspace ? await workspace.snapshot({ tree: workspace.tree, path: error.current.path, stableKey: null }) : undefined;
-          return errorResponse("stale-content-revision", error.message, 409, {
-            tree: workspace?.tree,
-            path: error.current.path,
-            details: { kind: "workspace-revision", current },
-          });
-        }
-        if (error instanceof FsConflictError) {
-          const mapped = fsErrorCode(error);
-          const current = workspace && error.details.current
-            ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path, stableKey: null }).catch(() => undefined)
-            : undefined;
-          return errorResponse(mapped.code, error.message, mapped.status, {
-            path: error.details.path,
-            retryable: mapped.retryable ?? false,
-            tree: workspace?.tree,
-            details: { kind: "workspace-revision", current },
-          });
         }
         if (error instanceof PathEscapeError) return errorResponse("unsafe-path", error.message, 400);
         console.error(
@@ -721,7 +390,7 @@ export async function serveArborSync(
   }
 }
 
-/** Serve Arbor web's remote/account surfaces without inventing a local workspace. */
+/** Serve the control surface (placements, accounts, bootstrap) without inventing a local workspace. */
 export async function serveArborSyncControl(options: Omit<ArborSyncServerOptions, "faultInjector"> = {}) {
   // Remote browsing must not invent a filesystem session, but it still owns
   // background reconciliation for the user's explicitly tracked placements.

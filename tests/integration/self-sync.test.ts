@@ -1,4 +1,3 @@
-import { nodeDocument } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,16 +7,17 @@ import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import { serveCanopy } from "@arbor/canopy";
 import { canonicalArborLocator, generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { compareWireNames, decodeWireObject, encodeWireObject, hashObject, WireClient } from "@arbor/wire";
+import { type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireObject, encodeWireObject, hashObject, WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import {
-  acknowledgePendingEditorAdmissions,
-  appendPendingEditorAdmission,
-  pendingEditorAdmissions,
+  appendPendingTreeSuccessor,
+  pendingFromSnapshot,
   pendingTreeUpdate,
   savePendingTreeUpdate,
+  treeConflict,
+  updatesFromPending,
 } from "@arbor/canopy-client";
-import { snapshotDirectory } from "@arbor/fs";
+import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 
 const token = "self-sync-owner";
 let sandbox: string;
@@ -141,7 +141,7 @@ beforeAll(async () => {
     },
   });
   await owner.submitUpdate(configuration.descriptor.tree.id, configuration.descriptor.tree.update, reserved);
-  await owner.submitUpdate(tree, null, await snapshotDirectory(treeA));
+  await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeA)));
 
   deviceB = generateArborID("dv");
   const pairing = await owner.createPairing();
@@ -176,92 +176,8 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
+
 describe("private self-sync", () => {
-  test("adds an admission basis only to explicit editor reads", async () => {
-    const author = await launch(stateA, treeA);
-    try {
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      const ref = { tree, path: "/", stableKey: null } as const;
-      const ordinary = await author.client.node(ref);
-      const opened = await author.client.editorNode(ref);
-      expect(ordinary.admissionBasis).toBeUndefined();
-      expect(nodeDocument(opened)?.source).toBe("# Tree A\n");
-      expect(opened.admissionBasis).toBeString();
-    } finally {
-      await author.close();
-    }
-  });
-
-  test("adds an admission basis after healing a renamed document by stable identity", async () => {
-    const author = await launch(stateA, treeA);
-    try {
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      const staleRef = { tree, path: "/admission-before-rename", stableKey: null } as const;
-      await author.client.mutateStructural([{
-        op: "createMarkdown",
-        tree,
-        path: staleRef.path,
-      }], "create-admission-rename-page");
-      const created = await author.client.node(staleRef);
-      const identified = await author.client.ensureDocumentIdentity(
-        staleRef,
-        created.capabilities.content!.revision,
-      );
-      await author.client.mutateStructural([{
-        op: "rename",
-        ref: identified.ref,
-        name: "admission-after-rename",
-      }], "rename-admission-page");
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-
-      const healed = await author.client.editorNode({
-        ...identified.ref,
-        path: staleRef.path,
-      });
-
-      expect(healed.ref.path).toBe("/admission-after-rename");
-      expect(healed.ref.stableKey).toBe(identified.ref.stableKey);
-      expect(healed.admissionBasis).toBeString();
-    } finally {
-      await author.close();
-    }
-  });
-
-  test("preserves divergent mirror bytes without submitting or overwriting them", async () => {
-    const author = await launch(stateA, treeA);
-    try {
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      const ref = { tree, path: "/note", stableKey: null } as const;
-      const opened = await author.client.editorNode(ref);
-      const acceptedSource = nodeDocument(opened)!.source;
-      expect(opened.admissionBasis).toBeString();
-      const historyBefore = host.canopy.acceptedUpdates(tree).length;
-      const divergentSource = "# Stale materialized editor state\n";
-
-      // Model a delayed watcher view of bytes written during synchronization.
-      // Once an editor owns the tree, this is a mirror observation rather than
-      // a second authoring channel.
-      await writeFile(join(treeA, "note.md"), divergentSource);
-      await Bun.sleep(150);
-      await author.running.service.synchronizeNow();
-
-      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(divergentSource);
-      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore);
-      expect(await pendingTreeUpdate(tree)).toBeUndefined();
-      expect((await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync).toBe("conflict");
-
-      await writeFile(join(treeA, "note.md"), acceptedSource);
-      await author.running.service.synchronizeNow();
-    } finally {
-      await author.close();
-    }
-  });
-
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
     expect((await first.client.trees()).snapshot.some((descriptor) => descriptor.id === tree)).toBe(true);
@@ -272,1109 +188,51 @@ describe("private self-sync", () => {
     expect(await readFile(join(treeB, "note.md"), "utf8")).toBe(await readFile(join(treeA, "note.md"), "utf8"));
     await second.close();
 
+    // The folder is the daemon's only local source: an edit on disk becomes
+    // one filesystem candidate on the next pass.
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const note = await author.client.node({ tree, path: "/note", stableKey: null });
-    const source = nodeDocument(note)!.source.replace("Common", "From A");
-    const updateBodies: any[] = [];
-    const systemFetch = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        updateBodies.push(JSON.parse(init.body));
-      }
-      return systemFetch(input, init);
-    }) as typeof fetch;
-    try {
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: note.capabilities.content?.revision!,
-        source,
-        sourceEdits: [{ offset: 2, length: 6, replacement: "From A", expected: "Common" }],
-      });
-      await waitFor(async () => updateBodies.some((body) => body.updates?.[0]?.deltas?.length === 1));
-    } finally {
-      globalThis.fetch = systemFetch;
-    }
-    const deltaBody = updateBodies.find((body) => body.updates?.[0]?.deltas?.length === 1)!.updates[0];
-    expect(deltaBody.deltas[0].instructions).toContainEqual({ insert: Buffer.from("From A").toString("base64") });
-    expect(deltaBody.objects).not.toContainEqual(expect.objectContaining({ hash: deltaBody.deltas[0].result }));
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const source = (await readFile(join(treeA, "note.md"), "utf8")).replace("Common", "From A");
+    await writeFile(join(treeA, "note.md"), source);
+    await author.running.service.synchronizeNow();
+    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
+      && (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    expect(host.canopy.acceptedUpdates(tree).at(-1)?.kind).toBe("accepted");
     await author.close();
 
     const reader = await launch(stateB, treeB);
     await waitFor(async () => (await readFile(join(treeB, "note.md"), "utf8")).includes("From A"));
-    expect(await reader.client.node({ tree, path: "/note", stableKey: null }).then((node) => nodeDocument(node)?.bodySource)).toContain("From A");
+    expect(await readFile(join(treeB, "note.md"), "utf8")).toBe(source);
     await reader.close();
 
     const fallback = await launch(stateA, treeA);
     await waitFor(async () => (await fallback.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const beforeFallback = await fallback.client.node({ tree, path: "/note", stableKey: null });
-    const fallbackBodies: any[] = [];
-    const fallbackFetch = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        fallbackBodies.push(JSON.parse(init.body));
-      }
-      return fallbackFetch(input, init);
-    }) as typeof fetch;
-    try {
-      await fallback.client.mutateContent({
-        op: "writeMarkdown",
-        ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: beforeFallback.capabilities.content?.revision!,
-        source: "# Complete-object fallback\n",
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(beforeFallback)!.source),
-          replacement: "# Complete-object fallback\n",
-          expected: nodeDocument(beforeFallback)!.source,
-        }],
-      });
-      await waitFor(async () => fallbackBodies.some((body) => Array.isArray(body.updates?.[0]?.objects) && body.updates[0].objects.length > 0));
-    } finally {
-      globalThis.fetch = fallbackFetch;
-    }
-    const fallbackBody = fallbackBodies.find((body) => Array.isArray(body.updates?.[0]?.objects) && body.updates[0].objects.length > 0)!.updates[0];
-    expect(fallbackBody.deltas).toEqual([]);
+    await writeFile(join(treeA, "note.md"), "# Complete-object fallback\n");
     await fallback.running.service.synchronizeNow();
+    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2);
     await fallback.close();
   }, 20_000);
-
-  test("rebases a later local save on the just-accepted local generation", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const before = await author.client.node({ tree, path: "/note", stableKey: null });
-    const firstSource = "# Rapid generation one\n";
-    const secondSource = "# Rapid generation two\n";
-    const updateBodies: any[] = [];
-    const systemFetch = globalThis.fetch;
-    let releaseFirst!: () => void;
-    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    let observeFirst!: () => void;
-    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
-    let blockNextUpdate = true;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        updateBodies.push(JSON.parse(init.body));
-        if (blockNextUpdate) {
-          blockNextUpdate = false;
-          observeFirst();
-          await firstReleased;
-        }
-      }
-      return systemFetch(input, init);
-    }) as typeof fetch;
-    try {
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: before.capabilities.content?.revision!,
-        source: firstSource,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(before)!.source),
-          replacement: firstSource,
-          expected: nodeDocument(before)!.source,
-        }],
-      });
-      await firstObserved;
-      const afterFirst = await author.client.node({ tree, path: "/note", stableKey: null });
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: afterFirst.capabilities.content?.revision!,
-        source: secondSource,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(afterFirst)!.source),
-          replacement: secondSource,
-          expected: nodeDocument(afterFirst)!.source,
-        }],
-      });
-      releaseFirst();
-      await waitFor(async () => updateBodies.length >= 2
-        && (await author.running.service.trees.descriptors())
-          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    } finally {
-      releaseFirst();
-      globalThis.fetch = systemFetch;
-    }
-
-    expect(updateBodies[1].base).toBe(updateBodies[0].acceptedUpdate ?? updateBodies[1].base);
-    expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
-    const after = await author.client.node({ tree, path: "/note", stableKey: null });
-    const restoredSource = "# Complete-object fallback\n";
-    await author.client.mutateContent({
-      op: "writeMarkdown",
-      ref: { tree, path: "/note", stableKey: null },
-      baseContentRevision: after.capabilities.content?.revision!,
-      source: restoredSource,
-      sourceEdits: [{
-        offset: 0,
-        length: Buffer.byteLength(nodeDocument(after)!.source),
-        replacement: restoredSource,
-        expected: nodeDocument(after)!.source,
-      }],
-    });
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    await author.close();
-  });
-
-  test("repeats a merged prefix when local files advance instead of reapplying them against its stale base", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    const before = await author.client.node(ref);
-    const firstSource = "# Moving local generation one\n";
-    const secondSource = "# Moving local generation two\n";
-    const daemonBodies: any[] = [];
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
-    const systemFetch = globalThis.fetch;
-    let releaseFirst!: () => void;
-    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    let observeFirst!: () => void;
-    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
-    let blockDaemonUpdate = true;
-    let recordDaemon = true;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (recordDaemon && url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        daemonBodies.push(JSON.parse(init.body));
-        if (blockDaemonUpdate) {
-          blockDaemonUpdate = false;
-          observeFirst();
-          await firstReleased;
-        }
-      }
-      return systemFetch(input, init);
-    }) as typeof fetch;
-
-    try {
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref,
-        baseContentRevision: before.capabilities.content!.revision,
-        source: firstSource,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(before)!.source),
-          replacement: firstSource,
-          expected: nodeDocument(before)!.source,
-        }],
-      });
-      await firstObserved;
-
-      // Advance Canopy while Arbor Sync's first local candidate is in flight,
-      // forcing that candidate to be accepted through a merge.
-      const owner = new WireClient(host.url, token);
-      const remote = await readAccepted(owner, tree);
-      const remoteRoot = decodeWireObject(remote.snapshot.objects.get(remote.snapshot.root)!);
-      if (remoteRoot.type !== "directory") throw new Error("Expected a directory root");
-      const remoteFile = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("remote sibling\n") });
-      const remoteDirectory = encodeWireObject({
-        ...remoteRoot,
-        entries: [...remoteRoot.entries, { name: "remote-during-moving-local.txt", hash: hashObject(remoteFile) }]
-          .sort((left, right) => compareWireNames(left.name, right.name)),
-      });
-      remote.snapshot.objects.set(hashObject(remoteFile), remoteFile);
-      remote.snapshot.objects.set(hashObject(remoteDirectory), remoteDirectory);
-      recordDaemon = false;
-      const remoteAccepted = await owner.submitUpdate(tree, remote.descriptor.tree.update, {
-        root: hashObject(remoteDirectory),
-        objects: remote.snapshot.objects,
-      });
-      recordDaemon = true;
-      if (remoteAccepted.outcome !== "accepted") throw new Error("Expected the remote sibling update to be accepted");
-
-      const afterFirst = await author.client.node(ref);
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref,
-        baseContentRevision: afterFirst.capabilities.content!.revision,
-        source: secondSource,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(afterFirst)!.source),
-          replacement: secondSource,
-          expected: nodeDocument(afterFirst)!.source,
-        }],
-      });
-      releaseFirst();
-
-      await waitFor(async () => daemonBodies.length >= 2, 10_000);
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "conflict", 10_000);
-      expect(daemonBodies[0].updates).toHaveLength(1);
-      expect(daemonBodies[1].base).toBe(daemonBodies[0].base);
-      expect(daemonBodies[1].updates[0]).toEqual(daemonBodies[0].updates[0]);
-      expect(daemonBodies[1].updates).toHaveLength(2);
-      expect(host.canopy.acceptedUpdates(tree).slice(historyBefore).map((update) => update.kind))
-        .toEqual(["accepted", "merged"]);
-      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
-
-      // The successor cannot be applied cleanly, so its exact latest bytes
-      // remain Mine in durable review rather than becoming another merge.
-      const review = await author.client.conflict(tree);
-      expect(review.items.length).toBeGreaterThan(0);
-      expect(review.items.every((item) => item.base && item.current && item.mine && item.draft)).toBe(true);
-      await author.client.resolveConflict(tree, review.identity, Object.fromEntries(
-        review.items.map((item) => [item.path, { choice: "current" as const }]),
-      ));
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      expect(await readFile(join(treeA, "remote-during-moving-local.txt"), "utf8")).toBe("remote sibling\n");
-
-      await rm(join(treeA, "remote-during-moving-local.txt"));
-      const after = await author.client.node(ref);
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref,
-        baseContentRevision: after.capabilities.content!.revision,
-        source: "# Complete-object fallback\n",
-      });
-      await author.running.service.synchronizeNow();
-    } finally {
-      recordDaemon = true;
-      releaseFirst();
-      globalThis.fetch = systemFetch;
-      await author.close();
-    }
-  }, 20_000);
-
-  test("retains a generation admitted during an in-flight request as one successor, never a concurrent longer prefix", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    const opened = await author.client.editorNode(ref);
-    const openedSource = nodeDocument(opened)!.source;
-    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
-    const updateBodies: any[] = [];
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const systemFetch = globalThis.fetch;
-    let releaseFirst!: () => void;
-    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    let observeFirst!: () => void;
-    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
-    let blockNextUpdate = true;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        updateBodies.push(JSON.parse(init.body));
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        try {
-          if (blockNextUpdate) {
-            blockNextUpdate = false;
-            observeFirst();
-            await firstReleased;
-          }
-          return await systemFetch(input, init);
-        } finally {
-          inFlight -= 1;
-        }
-      }
-      return systemFetch(input, init);
-    }) as typeof fetch;
-
-    const firstSource = `${openedSource}\nFirst admitted generation.\n`;
-    const secondSource = `${firstSource}Second admitted generation.\n`;
-    try {
-      const first = await author.client.admitDocumentCandidate(
-        ref,
-        opened.admissionBasis,
-        opened.capabilities.content!.revision,
-        firstSource,
-        [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nFirst admitted generation.\n" }],
-      );
-      expect(first.admissionRequestDigest).toStartWith("sha256:");
-      // The admission is durable before any network request; publication follows the trailing delay.
-      expect(updateBodies).toHaveLength(0);
-      await firstObserved;
-      if (!first.admissionBasis) throw new Error("Admitted document omitted its next admission basis");
-      const second = await author.client.admitDocumentCandidate(
-        ref,
-        first.admissionBasis,
-        first.capabilities.content!.revision,
-        secondSource,
-        [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second admitted generation.\n" }],
-      );
-      expect(second.admissionRequestDigest).toStartWith("sha256:");
-      await Bun.sleep(400);
-      // While the first request is in flight the second generation is a retained successor.
-      expect(updateBodies).toHaveLength(1);
-      expect(author.running.service.treeSyncStateFor(tree).kind).toBe("submitting-pending");
-      releaseFirst();
-      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
-        && (await author.running.service.trees.descriptors())
-          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-
-      const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
-      expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
-      expect(maxInFlight).toBe(1);
-      expect(updateBodies).toHaveLength(2);
-      expect(updateBodies[0].updates).toHaveLength(1);
-      // The successor extends the immutable transmitted prefix exactly; Canopy trims it.
-      expect(updateBodies[1].base).toBe(updateBodies[0].base);
-      expect(updateBodies[1].updates.slice(0, 1)).toEqual(updateBodies[0].updates);
-      expect(updateBodies[1].updates).toHaveLength(2);
-      expect(accepted[1]!.previousRoot).toBe(accepted[0]!.root);
-      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
-      const materialized = await author.client.node(ref);
-      expect(materialized.acceptedRequestDigests).toContain(first.admissionRequestDigest!);
-      expect(materialized.acceptedRequestDigests).toContain(second.admissionRequestDigest!);
-
-      const after = await author.client.node(ref);
-      const restoredSource = "# Complete-object fallback\n";
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref,
-        baseContentRevision: after.capabilities.content!.revision,
-        source: restoredSource,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(after)!.source),
-          replacement: restoredSource,
-          expected: nodeDocument(after)!.source,
-        }],
-      });
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    } finally {
-      releaseFirst();
-      globalThis.fetch = systemFetch;
-      await author.close();
-    }
-  }, 10_000);
-
-  test("a burst of admissions before the publication delay becomes one request with one element", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    const opened = await author.client.editorNode(ref);
-    const openedSource = nodeDocument(opened)!.source;
-    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
-    const updateBodies: any[] = [];
-    const systemFetch = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        updateBodies.push(JSON.parse(init.body));
-      }
-      return systemFetch(input, init);
-    }) as typeof fetch;
-
-    try {
-      let current = opened;
-      let source = openedSource;
-      const digests: `sha256:${string}`[] = [];
-      for (let index = 1; index <= 5; index++) {
-        const next = `${source}Burst ${index}.\n`;
-        current = await author.client.admitDocumentCandidate(
-          ref,
-          current.admissionBasis!,
-          current.capabilities.content!.revision,
-          next,
-          [{ offset: Buffer.byteLength(source), length: 0, replacement: `Burst ${index}.\n` }],
-        );
-        digests.push(current.admissionRequestDigest!);
-        source = next;
-      }
-      expect(updateBodies).toHaveLength(0);
-      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
-        && (await author.running.service.trees.descriptors())
-          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      // Unsent intermediate generations were compacted before request preparation.
-      expect(updateBodies).toHaveLength(1);
-      expect(updateBodies[0].updates).toHaveLength(1);
-      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
-      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(source);
-      // Only the final generation's digest is a request identity; the editor waits for its latest.
-      const materialized = await author.client.node(ref);
-      expect(materialized.acceptedRequestDigests).toContain(digests.at(-1)!);
-
-      const after = await author.client.node(ref);
-      const restoredSource = "# Complete-object fallback\n";
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref,
-        baseContentRevision: after.capabilities.content!.revision,
-        source: restoredSource,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(after)!.source),
-          replacement: restoredSource,
-          expected: nodeDocument(after)!.source,
-        }],
-      });
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    } finally {
-      globalThis.fetch = systemFetch;
-      await author.close();
-    }
-  }, 10_000);
-
-  test("keeps interleaved editor sessions as sibling Canopy candidates", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const noteRef = { tree, path: "/note", stableKey: null } as const;
-    const rootRef = { tree, path: "/", stableKey: null } as const;
-    const note = await author.client.editorNode(noteRef);
-    const root = await author.client.editorNode(rootRef);
-    const noteSource = nodeDocument(note)!.source;
-    const rootSource = nodeDocument(root)!.source;
-    if (!note.admissionBasis || !root.admissionBasis) {
-      throw new Error("Placed documents omitted their editor admission bases");
-    }
-
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
-    const updateBodies: any[] = [];
-    const systemFetch = globalThis.fetch;
-    let releaseFirst!: () => void;
-    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    let observeFirst!: () => void;
-    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
-    let firstUpdateObserved = false;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        updateBodies.push(JSON.parse(init.body));
-        if (!firstUpdateObserved) {
-          firstUpdateObserved = true;
-          observeFirst();
-        }
-        await firstReleased;
-      }
-      return systemFetch(input, init);
-    }) as typeof fetch;
-
-    const firstNoteSource = `${noteSource}\nFirst editor epoch.\n`;
-    const secondNoteSource = `${firstNoteSource}Return to first editor epoch.\n`;
-    const admittedRoot = `${rootSource}\nSecond editor epoch.\n`;
-    try {
-      const firstNote = await author.client.admitDocumentCandidate(
-        noteRef,
-        note.admissionBasis,
-        note.capabilities.content!.revision,
-        firstNoteSource,
-        [{ offset: Buffer.byteLength(noteSource), length: 0, replacement: "\nFirst editor epoch.\n" }],
-        "note-editor",
-      );
-      await firstObserved;
-      await author.client.admitDocumentCandidate(
-        rootRef,
-        root.admissionBasis,
-        root.capabilities.content!.revision,
-        admittedRoot,
-        [{ offset: Buffer.byteLength(rootSource), length: 0, replacement: "\nSecond editor epoch.\n" }],
-        "root-editor",
-      );
-      if (!firstNote.admissionBasis) throw new Error("First editor epoch omitted its next admission basis");
-      await author.client.admitDocumentCandidate(
-        noteRef,
-        firstNote.admissionBasis,
-        firstNote.capabilities.content!.revision,
-        secondNoteSource,
-        [{ offset: Buffer.byteLength(firstNoteSource), length: 0, replacement: "Return to first editor epoch.\n" }],
-        "note-editor",
-      );
-      await Bun.sleep(100);
-      expect(updateBodies[0].updates).toHaveLength(1);
-      expect(updateBodies).toHaveLength(1);
-      releaseFirst();
-
-      await waitFor(async () => host.canopy.acceptedUpdates(tree).length >= historyBefore + 3);
-      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")) === secondNoteSource
-        && (await readFile(join(treeA, "_index.md"), "utf8")) === admittedRoot);
-      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 3);
-      const noteContinuation = updateBodies.find((body) => body.updates.length === 2)!;
-      expect(noteContinuation.updates[0]).toEqual(updateBodies[0].updates[0]);
-      expect(updateBodies.some((body) => body.updates.length === 1
-        && body.updates[0].candidate !== updateBodies[0].updates[0].candidate
-      )).toBe(true);
-      const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
-      expect(accepted.map((update) => update.kind)).toEqual(["accepted", "merged", "merged"]);
-
-    } finally {
-      releaseFirst();
-      globalThis.fetch = systemFetch;
-      await author.close();
-    }
-  }, 10_000);
-
-  test("starts a fresh editor epoch after its accepted prefix materializes", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    const opened = await author.client.editorNode(ref);
-    const openedSource = nodeDocument(opened)!.source;
-    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-
-    const historyBefore = host.canopy.acceptedUpdates(tree).length;
-    const updateBodies: any[] = [];
-    const systemFetch = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
-        updateBodies.push(JSON.parse(init.body));
-      }
-      return systemFetch(input, init);
-    }) as typeof fetch;
-
-    const firstSource = `${openedSource}\nFirst accepted before materialization.\n`;
-    const secondSource = `${firstSource}Second generation after refresh.\n`;
-    try {
-      await author.client.admitDocumentCandidate(
-        ref,
-        opened.admissionBasis,
-        opened.capabilities.content!.revision,
-        firstSource,
-        [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nFirst accepted before materialization.\n" }],
-      );
-      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
-        && (await readFile(join(treeA, "note.md"), "utf8")) === firstSource
-        && (await pendingEditorAdmissions(tree)).length === 0);
-
-      const refreshed = await author.client.editorNode(ref);
-      expect(nodeDocument(refreshed)!.source).toBe(firstSource);
-      if (!refreshed.admissionBasis) throw new Error("Refreshed document omitted its admission basis");
-      await author.client.admitDocumentCandidate(
-        ref,
-        refreshed.admissionBasis,
-        refreshed.capabilities.content!.revision,
-        secondSource,
-        [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second generation after refresh.\n" }],
-      );
-      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
-        && (await readFile(join(treeA, "note.md"), "utf8")) === secondSource
-        && (await pendingEditorAdmissions(tree)).length === 0
-        && (await author.running.service.trees.descriptors())
-          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-
-      const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
-      expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
-      expect(updateBodies.map((body) => body.updates?.length)).toEqual([1, 1]);
-      expect(updateBodies[1].base).toBe(accepted[0]!.id);
-      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
-
-      const after = await author.client.node(ref);
-      const restoredSource = "# Complete-object fallback\n";
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref,
-        baseContentRevision: after.capabilities.content!.revision,
-        source: restoredSource,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(after)!.source),
-          replacement: restoredSource,
-          expected: nodeDocument(after)!.source,
-        }],
-      });
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    } finally {
-      globalThis.fetch = systemFetch;
-      await author.close();
-    }
-  });
-
-  test("never snapshots a tree while an editor mutation is only prepared", async () => {
-    let blockPreparedWrite = false;
-    let releasePrepared!: () => void;
-    let observePrepared!: () => void;
-    const preparedReleased = new Promise<void>((resolve) => { releasePrepared = resolve; });
-    const preparedObserved = new Promise<void>((resolve) => { observePrepared = resolve; });
-    const author = await launch(stateA, treeA, {
-      faultInjector: async (stage) => {
-        if (stage !== "write:prepared" || !blockPreparedWrite) return;
-        blockPreparedWrite = false;
-        observePrepared();
-        await preparedReleased;
-      },
-    });
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const before = await author.client.node({ tree, path: "/note", stableKey: null });
-    const source = "# Coherent editor candidate\n";
-    blockPreparedWrite = true;
-    const mutation = author.client.mutateContent({
-      op: "writeMarkdown",
-      ref: { tree, path: "/note", stableKey: null },
-      baseContentRevision: before.capabilities.content?.revision!,
-      source,
-      sourceEdits: [{
-        offset: 0,
-        length: Buffer.byteLength(nodeDocument(before)!.source),
-        replacement: source,
-        expected: nodeDocument(before)!.source,
-      }],
-    });
-    await preparedObserved;
-
-    let synchronized = false;
-    const synchronization = author.running.service.synchronizeNow().then(() => { synchronized = true; });
-    await Bun.sleep(100);
-    expect(synchronized).toBe(false);
-    expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(nodeDocument(before)!.source);
-
-    releasePrepared();
-    try {
-      await mutation;
-      await synchronization;
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(source);
-      expect(String((await new WireClient(host.url, token).descriptor(tree)).tree.root))
-        .toBe(String((await snapshotDirectory(treeA)).root));
-      const after = await author.client.node({ tree, path: "/note", stableKey: null });
-      const restored = "# Complete-object fallback\n";
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: after.capabilities.content?.revision!,
-        source: restored,
-        sourceEdits: [{
-          offset: 0,
-          length: Buffer.byteLength(nodeDocument(after)!.source),
-          replacement: restored,
-          expected: nodeDocument(after)!.source,
-        }],
-      });
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    } finally {
-      releasePrepared();
-      await author.close();
-    }
-  });
-
-  test("reviews an approximate merge of a stale Native document candidate", async () => {
-    const author = await launch(stateA, treeA);
-    try {
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      const ref = { tree, path: "/note", stableKey: null } as const;
-      const opened = await author.client.editorNode(ref);
-      const openedSource = nodeDocument(opened)!.source;
-      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-
-      const owner = new WireClient(host.url, token);
-      const current = await readAccepted(owner, tree);
-      const root = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
-      if (root.type !== "directory") throw new Error("Expected a directory root");
-      const noteEntry = root.entries.find((entry) => entry.name === "note.md");
-      if (!noteEntry?.hash) throw new Error("Expected note.md");
-      const remoteFile = encodeWireObject({
-        type: "file",
-        bytes: new TextEncoder().encode(`${openedSource}\nRemote while open.\n`),
-      });
-      const remoteRoot = encodeWireObject({
-        ...root,
-        entries: root.entries.map((entry) => entry.name === "note.md"
-          ? { name: entry.name, hash: hashObject(remoteFile) }
-          : entry),
-      });
-      current.snapshot.objects.set(hashObject(remoteFile), remoteFile);
-      current.snapshot.objects.set(hashObject(remoteRoot), remoteRoot);
-      const remote = await owner.submitUpdate(tree, current.descriptor.tree.update, {
-        root: hashObject(remoteRoot),
-        objects: current.snapshot.objects,
-      });
-      if (remote.outcome !== "accepted") throw new Error("Expected remote document update acceptance");
-
-      const requests: Array<{ url: string; body?: any }> = [];
-      const systemFetch = globalThis.fetch;
-      globalThis.fetch = (async (input, init) => {
-        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        requests.push({ url, ...(typeof init?.body === "string" ? { body: JSON.parse(init.body) } : {}) });
-        return systemFetch(input, init);
-      }) as typeof fetch;
-      let accepted;
-      try {
-        accepted = await author.client.admitDocumentCandidate(
-          ref,
-          opened.admissionBasis,
-          opened.capabilities.content!.revision,
-          `${openedSource}\nNative while open.\n`,
-          [{
-            offset: Buffer.byteLength(openedSource),
-            length: 0,
-            replacement: "\nNative while open.\n",
-          }],
-        );
-        await waitFor(async () => {
-          const descriptor = (await author.client.trees()).snapshot.find((candidate) => candidate.id === tree);
-          return descriptor?.sync === "conflict" && descriptor.reviewableConflict === true;
-        });
-      } finally {
-        globalThis.fetch = systemFetch;
-      }
-      const acceptedSource = nodeDocument(accepted!)!.source;
-      expect(acceptedSource).toContain("Native while open.");
-      expect(requests.some(({ url }) => url.includes("/source-candidates"))).toBe(false);
-      expect(requests.some(({ url }) => url.includes(`/.arbor/trees/${tree}/snapshots/`))).toBe(false);
-      expect(requests.find(({ url, body }) => url.includes(`/.arbor/trees/${tree}/updates`) && typeof body?.updates?.[0]?.candidate === "string")?.body)
-        .toMatchObject({ base: current.descriptor.tree.update, updates: [expect.objectContaining({ ifMatch: "modelHash" })] });
-      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toContain("Native while open.");
-      const review = await author.client.conflict(tree);
-      expect(review.items[0]).toMatchObject({
-        path: "/note.md",
-        reasons: ["accepted-merge-needs-review"],
-      });
-      const reviewedSource = `${openedSource}\nRemote while open.\nNative while open.\n`;
-      await author.client.resolveConflict(tree, review.identity, {
-        "/note.md": { choice: "edit", text: reviewedSource },
-      });
-      await waitFor(async () => await readFile(join(treeA, "note.md"), "utf8") === reviewedSource);
-      await waitFor(async () => (await pendingEditorAdmissions(tree)).length === 0);
-      expect(await pendingEditorAdmissions(tree)).toEqual([]);
-
-      const restored = await author.client.node(ref);
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref,
-        baseContentRevision: restored.capabilities.content!.revision,
-        source: "# Complete-object fallback\n",
-      });
-      await author.running.service.synchronizeNow();
-    } finally {
-      await author.close();
-    }
-  });
-
-  test("retires a recovered acknowledged admission and catches up without a full snapshot", async () => {
-    const prepared = await launch(stateA, treeA);
-    await waitFor(async () => (await prepared.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const placement = prepared.running.service.trees.placementFor(tree)!;
-    await prepared.close();
-
-    process.env.ARBOR_DATA_HOME = stateA;
-    const admission = await appendPendingEditorAdmission(tree, () => ({
-      id: "recovered-acknowledged-admission",
-      ref: { tree, path: "/note", stableKey: null },
-      request: {
-        base: placement.update!,
-        candidate: placement.ref!,
-        ifMatch: "modelHash",
-        objects: [],
-        deltas: [],
-      },
-      source: "already accepted\n",
-      contentRevision: "sha256:recovered",
-      admissionBasis: "recovered",
-    }));
-    await acknowledgePendingEditorAdmissions(tree, admission.id, [admission.request.candidate]);
-
-    const owner = new WireClient(host.url, token);
-    const current = await readAccepted(owner, tree);
-    const root = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
-    if (root.type !== "directory") throw new Error("Expected a directory root");
-    const file = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("caught up incrementally\n") });
-    const nextRoot = encodeWireObject({
-      ...root,
-      entries: [...root.entries, { name: "recovered-catchup.txt", hash: hashObject(file) }]
-        .sort((left, right) => compareWireNames(left.name, right.name)),
-    });
-    current.snapshot.objects.set(hashObject(file), file);
-    current.snapshot.objects.set(hashObject(nextRoot), nextRoot);
-    await owner.submitUpdate(tree, current.descriptor.tree.update, {
-      root: hashObject(nextRoot),
-      objects: current.snapshot.objects,
-    });
-
-    const requests: string[] = [];
-    const systemFetch = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      requests.push(url);
-      return systemFetch(input, init);
-    }) as typeof fetch;
-    let recovered: Awaited<ReturnType<typeof launch>> | undefined;
-    try {
-      recovered = await launch(stateA, treeA);
-      await waitFor(() => readFile(join(treeA, "recovered-catchup.txt"), "utf8")
-        .then((source) => source === "caught up incrementally\n")
-        .catch(() => false));
-      await waitFor(async () => (await pendingEditorAdmissions(tree)).length === 0);
-      await waitFor(async () => (await recovered!.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    } finally {
-      globalThis.fetch = systemFetch;
-      await recovered?.close();
-    }
-    expect(requests.some((url) => url.includes(`/.arbor/trees/${tree}/snapshots/`))).toBe(false);
-    expect(await pendingEditorAdmissions(tree)).toEqual([]);
-  });
-
-  test("reviews an accepted offline merge before materializing it", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    const admit = async (suffix: string) => {
-      const opened = await author.client.editorNode(ref);
-      const source = nodeDocument(opened)!.source;
-      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-      return author.client.admitDocumentCandidate(
-        ref,
-        opened.admissionBasis,
-        opened.capabilities.content!.revision,
-        `${source}${suffix}`,
-        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
-      );
-    };
-    try {
-      await admit("First online admission.\n");
-      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("First online admission."));
-
-      host.server.stop(true);
-      await host.canopy[Symbol.asyncDispose]();
-      await admit("Offline admission.\n");
-      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toInclude("Offline admission.");
-
-      host = await serveCanopy({
-        dataRoot: hostState,
-        accounts: [{ handle: "owner", token, communityWriter: true }],
-        publicOrigin: `http://127.0.0.1:${hostPort}`,
-        hostname: "127.0.0.1",
-        port: hostPort,
-      });
-      // A remote edit lands before the daemon resubmits, so the offline
-      // admission returns as a merged result rather than an exact acceptance.
-      const owner = new WireClient(host.url, token);
-      const accepted = await readAccepted(owner, tree);
-      const remoteRoot = await mkdtemp(join(sandbox, "remote-"));
-      await writeFile(join(remoteRoot, "_index.md"), await readFile(join(treeA, "_index.md"), "utf8"));
-      await writeFile(join(remoteRoot, "note.md"), `${await readFile(join(treeA, "note.md"), "utf8")}Remote addition.\n`);
-      await owner.submitUpdate(tree, accepted.descriptor.tree.update, await snapshotDirectory(remoteRoot));
-
-      await author.running.service.synchronizeNow();
-      await waitFor(async () => {
-        const descriptor = (await author.client.trees()).snapshot.find((candidate) => candidate.id === tree);
-        return descriptor?.sync === "conflict" && descriptor.reviewableConflict === true;
-      });
-      const unchangedDisk = await readFile(join(treeA, "note.md"), "utf8");
-      expect(unchangedDisk).not.toInclude("Offline admission.");
-      expect(unchangedDisk).not.toInclude("Remote addition.");
-      const review = await author.client.conflict(tree);
-      expect(review.items).toEqual([expect.objectContaining({
-        path: "/note.md",
-        reasons: ["accepted-merge-needs-review"],
-        offersBoth: false,
-      })]);
-      expect(review.items[0]?.current.kind).toBe("text");
-      expect(review.items[0]?.mine.kind).toBe("text");
-      const reviewedSource = `${unchangedDisk}Remote addition.\nOffline admission.\n`;
-      await author.client.resolveConflict(tree, review.identity, {
-        "/note.md": { choice: "edit", text: reviewedSource },
-      });
-      await waitFor(async () => await readFile(join(treeA, "note.md"), "utf8") === reviewedSource);
-
-      await admit("Admission after the merge.\n");
-      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Admission after the merge."), 10_000);
-      expect((await author.running.service.trees.descriptors()).find((descriptor) => descriptor.id === tree)?.sync).toBe("idle");
-    } finally {
-      await author.close();
-    }
-  });
-
-  test("reviews an accepted offline merge found by watch-driven reconnection", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    const admit = async (suffix: string) => {
-      const opened = await author.client.editorNode(ref);
-      const source = nodeDocument(opened)!.source;
-      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-      return author.client.admitDocumentCandidate(
-        ref,
-        opened.admissionBasis,
-        opened.capabilities.content!.revision,
-        `${source}${suffix}`,
-        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
-      );
-    };
-    try {
-      await admit("First watch-run admission.\n");
-      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("First watch-run admission."));
-
-      host.server.stop(true);
-      await host.canopy[Symbol.asyncDispose]();
-      await admit("Watch-run offline admission.\n");
-      expect(await readFile(join(treeA, "note.md"), "utf8")).not.toInclude("Watch-run offline admission.");
-
-      host = await serveCanopy({
-        dataRoot: hostState,
-        accounts: [{ handle: "owner", token, communityWriter: true }],
-        publicOrigin: `http://127.0.0.1:${hostPort}`,
-        hostname: "127.0.0.1",
-        port: hostPort,
-      });
-      // A remote edit lands before the daemon resubmits, so the offline
-      // admission returns as a merged result rather than an exact acceptance.
-      const owner = new WireClient(host.url, token);
-      const accepted = await readAccepted(owner, tree);
-      const remoteRoot = await mkdtemp(join(sandbox, "watch-remote-"));
-      await writeFile(join(remoteRoot, "_index.md"), await readFile(join(treeA, "_index.md"), "utf8"));
-      await writeFile(join(remoteRoot, "note.md"), `${await readFile(join(treeA, "note.md"), "utf8")}Watch-run remote addition.\n`);
-      await owner.submitUpdate(tree, accepted.descriptor.tree.update, await snapshotDirectory(remoteRoot));
-
-      // No explicit synchronization: the daemon reconnects on its own.
-      await waitFor(async () => {
-        const descriptor = (await author.client.trees()).snapshot.find((candidate) => candidate.id === tree);
-        return descriptor?.sync === "conflict" && descriptor.reviewableConflict === true;
-      }, 30_000);
-      const unchangedDisk = await readFile(join(treeA, "note.md"), "utf8");
-      expect(unchangedDisk).not.toInclude("Watch-run offline admission.");
-      expect(unchangedDisk).not.toInclude("Watch-run remote addition.");
-      const review = await author.client.conflict(tree);
-      expect(review.items[0]).toMatchObject({
-        path: "/note.md",
-        reasons: ["accepted-merge-needs-review"],
-        offersBoth: false,
-      });
-      const reviewedSource = `${unchangedDisk}Watch-run remote addition.\nWatch-run offline admission.\n`;
-      await author.client.resolveConflict(tree, review.identity, {
-        "/note.md": { choice: "edit", text: reviewedSource },
-      });
-      await waitFor(async () => await readFile(join(treeA, "note.md"), "utf8") === reviewedSource);
-
-      await admit("Watch-run admission after the merge.\n");
-      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Watch-run admission after the merge."), 10_000);
-      expect((await author.running.service.trees.descriptors()).find((descriptor) => descriptor.id === tree)?.sync).toBe("idle");
-    } finally {
-      await author.close();
-    }
-  });
-
-  test("acknowledges an admission that returns to the accepted bytes and publishes the epoch behind it", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    try {
-      const historyBefore = host.canopy.acceptedUpdates(tree).length;
-      const opened = await author.client.editorNode(ref);
-      const source = nodeDocument(opened)!.source;
-      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-      // A whole-source admission of the accepted bytes is durable but needs no request.
-      const unchanged = await author.client.admitDocumentCandidate(
-        ref,
-        opened.admissionBasis,
-        opened.capabilities.content!.revision,
-        source,
-        undefined,
-        "no-op-editor",
-      );
-      expect(nodeDocument(unchanged)!.source).toBe(source);
-
-      const later = await author.client.editorNode(ref);
-      if (!later.admissionBasis) throw new Error("Document omitted its admission basis after a no-op admission");
-      const suffix = "Published behind a no-op epoch.\n";
-      await author.client.admitDocumentCandidate(
-        ref,
-        later.admissionBasis,
-        later.capabilities.content!.revision,
-        `${source}${suffix}`,
-        [{ offset: Buffer.byteLength(source), length: 0, replacement: suffix }],
-        "later-editor",
-      );
-      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Published behind a no-op epoch."), 10_000);
-      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      expect(await pendingEditorAdmissions(tree)).toEqual([]);
-    } finally {
-      await author.close();
-    }
-  });
-
-  test("keeps an admitted Native candidate durable while Canopy is offline", async () => {
-    const author = await launch(stateA, treeA);
-    await waitFor(async () => (await author.running.service.trees.descriptors())
-      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const ref = { tree, path: "/note", stableKey: null } as const;
-    const opened = await author.client.editorNode(ref);
-    const openedSource = nodeDocument(opened)!.source;
-    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
-
-    host.server.stop(true);
-    await host.canopy[Symbol.asyncDispose]();
-    const source = `${openedSource}\nNative admitted offline.\n`;
-    const admitted = await Promise.race([
-      author.client.admitDocumentCandidate(
-        ref,
-        opened.admissionBasis,
-        opened.capabilities.content!.revision,
-        source,
-        [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nNative admitted offline.\n" }],
-      ),
-      Bun.sleep(1_000).then(() => { throw new Error("Offline editor admission waited for Canopy"); }),
-    ]);
-    expect(nodeDocument(admitted)!.source).toBe(source);
-    expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(openedSource);
-    await author.close();
-
-    host = await serveCanopy({
-      dataRoot: hostState,
-      accounts: [{ handle: "owner", token, communityWriter: true }],
-      publicOrigin: `http://127.0.0.1:${hostPort}`,
-      hostname: "127.0.0.1",
-      port: hostPort,
-    });
-    const resumed = await launch(stateA, treeA);
-    await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Native admitted offline."));
-    const restored = await resumed.client.node(ref);
-    await resumed.client.mutateContent({
-      op: "writeMarkdown",
-      ref,
-      baseContentRevision: restored.capabilities.content!.revision,
-      source: "# Complete-object fallback\n",
-    });
-    await resumed.running.service.synchronizeNow();
-    await resumed.close();
-  });
 
   test("preserves both sides when devices diverge offline", async () => {
     const commonRef = host.canopy.get(tree)!.ref;
     host.server.stop(true);
     await host.canopy[Symbol.asyncDispose]();
 
+    // A daemon pass with Canopy unreachable retains the local head durably
+    // instead of failing or waiting for the server.
     const offline = await launch(stateA, treeA);
-    const offlineNode = await offline.client.node({ tree, path: "/note", stableKey: null });
-    const offlineSource = nodeDocument(offlineNode)!.source.replace("Complete-object", "Locally durable");
-    const savedOffline = await Promise.race([
-      offline.client.mutateContent({
-        op: "writeMarkdown",
-        ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: offlineNode.capabilities.content?.revision!,
-        source: offlineSource,
-        sourceEdits: [{ offset: 2, length: 15, replacement: "Locally durable", expected: "Complete-object" }],
-      }),
-      Bun.sleep(1_000).then(() => { throw new Error("Local save waited for the unavailable server"); }),
+    const offlineSource = (await readFile(join(treeA, "note.md"), "utf8")).replace("Complete-object", "Locally durable");
+    await writeFile(join(treeA, "note.md"), offlineSource);
+    await Promise.race([
+      offline.running.service.synchronizeNow().catch(() => {}),
+      Bun.sleep(5_000).then(() => { throw new Error("An offline pass waited for the unavailable server"); }),
     ]);
-    expect(savedOffline.effects[0]?.contentRevision).toBeDefined();
     expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(offlineSource);
+    expect((await offline.running.service.trees.descriptors()).find((descriptor) => descriptor.id === tree)?.sync).toBe("offline");
     await offline.close();
 
     await writeFile(join(treeA, "note.md"), "# Offline A\n");
@@ -1480,10 +338,11 @@ describe("private self-sync", () => {
     // setup pass, the remote update below must arrive without another poll.
     await reader.running.service.synchronizeNow();
     await waitFor(idle);
-    const observed = await reader.client.openNodeView({ tree, path: "/note", stableKey: null });
+    const observedThrough = (await reader.client.trees()).observedThrough;
+    const abort = new AbortController();
     const syncInvalidation = (async () => {
-      for await (const update of observed.updates) {
-        if (update.kind === "event" && update.event.change.origin === "sync") return update.event;
+      for await (const event of reader.client.observe(observedThrough, abort.signal)) {
+        if (event.tree === tree && event.change.origin === "sync") return event;
       }
       throw new Error("The local observation stream ended before sync invalidation");
     })();
@@ -1520,9 +379,114 @@ describe("private self-sync", () => {
       Bun.sleep(2_000).then(() => { throw new Error("Timed out waiting for sync invalidation"); }),
     ]);
     expect(invalidation.change.ref.path).toBe("/");
-    observed.close();
+    abort.abort();
     await reader.close();
   });
+
+  test("A same-credential peer that resubmits and extends the daemon's pending chain is replayed, not merged", async () => {
+    // Establish the local accepted base, then leave a durable two-element
+    // pending chain whose final root is exactly what is on disk, as if two
+    // filesystem generations were authored while Canopy was unreachable.
+    const warm = await launch(stateA, treeA);
+    await waitFor(async () => (await warm.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const base = warm.running.service.trees.placementFor(tree)?.update;
+    await warm.close();
+    if (!base) throw new Error("Expected an accepted placement update for the author");
+    process.env.ARBOR_DATA_HOME = stateA;
+    await writeFile(join(treeA, "chain-one.txt"), "chain one\n");
+    let pending = pendingFromSnapshot(base, await resolveSnapshot(await snapshotDirectory(treeA)));
+    await writeFile(join(treeA, "chain-two.txt"), "chain two\n");
+    const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA));
+    pending = appendPendingTreeSuccessor(pending, chainEnd);
+    await savePendingTreeUpdate(tree, pending);
+    const chain = updatesFromPending(pending);
+    const chainLength = chain.length;
+    expect(chainLength).toBe(2);
+
+    // The peer's successor adds one file on top of the chain's final root.
+    const chainRoot = decodeWireObject(chainEnd.objects.get(chainEnd.root)!);
+    if (chainRoot.type !== "directory") throw new Error("Expected a directory root");
+    const extraFile = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("peer successor\n") });
+    const successorRoot = encodeWireObject({
+      type: "directory",
+      entries: [...chainRoot.entries, { name: "peer-successor.txt", hash: hashObject(extraFile) }]
+        .sort((left, right) => compareWireNames(left.name, right.name)),
+    });
+    const successorObjects = new Map(chainEnd.objects);
+    successorObjects.set(hashObject(extraFile), extraFile);
+    successorObjects.set(hashObject(successorRoot), successorRoot);
+    const successor: CandidateUpdate = {
+      candidate: hashObject(successorRoot),
+      ifMatch: "modelHash",
+      objects: [...successorObjects].map(([hash, bytes]) => ({ hash, bytes })),
+      deltas: [],
+    };
+
+    // Hold the daemon's own resubmission of the chain (recognizable by its
+    // length) until the peer has extended it, so the replay order is fixed.
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const systemFetch = globalThis.fetch;
+    const daemonBodies: any[] = [];
+    const daemonResponses: any[] = [];
+    let releaseDaemon!: () => void;
+    const daemonReleased = new Promise<void>((resolve) => { releaseDaemon = resolve; });
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        const body = JSON.parse(init.body);
+        if (body.base === pending.base && body.updates?.length === chainLength) {
+          daemonBodies.push(body);
+          await daemonReleased;
+          const response = await systemFetch(input, init);
+          daemonResponses.push(await response.clone().json());
+          return response;
+        }
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+
+    const author = await launch(stateA, treeA);
+    const idle = async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle";
+    try {
+      await waitFor(async () => daemonBodies.length === 1, 10_000);
+
+      const peer = new WireClient(host.url, token);
+      const peerResponse = await peer.submitUpdates(tree, {
+        base: pending.base,
+        updates: [...chain.map((update) => decodeCandidateUpdateJSON(update)), successor],
+      });
+      expect(peerResponse.results).toHaveLength(chainLength + 1);
+      const successorAccepted = peerResponse.results.at(-1)!;
+      expect(successorAccepted.outcome).toBe("accepted");
+      expect(successorAccepted.update.root).toBe(successor.candidate);
+      expect(host.canopy.acceptedUpdates(tree).length).toBe(historyBefore + chainLength + 1);
+
+      releaseDaemon();
+      await author.running.service.synchronizeNow();
+      await waitFor(() => readFile(join(treeA, "peer-successor.txt"), "utf8")
+        .then((value) => value === "peer successor\n")
+        .catch(() => false), 2_000);
+      await waitFor(idle);
+
+      // Canopy replayed the daemon's prefix by digest: no merge, no new update.
+      expect(host.canopy.acceptedUpdates(tree).length).toBe(historyBefore + chainLength + 1);
+      expect(await pendingTreeUpdate(tree)).toBeUndefined();
+      expect(await treeConflict(tree)).toBeUndefined();
+      expect((await author.running.service.trees.descriptors()).find(({ id }) => id === tree)?.sync).toBe("idle");
+      expect(author.running.service.trees.placementFor(tree)?.update).toBe(successorAccepted.update.id);
+      expect(daemonBodies).toHaveLength(1);
+      expect(daemonResponses).toHaveLength(1);
+      expect(daemonResponses[0].results.map((result: any) => result.requestDigest))
+        .toEqual(peerResponse.results.slice(0, chainLength).map((result) => result.requestDigest));
+      expect(daemonResponses[0].results.every((result: any) => !result.reconciliation)).toBe(true);
+    } finally {
+      releaseDaemon();
+      globalThis.fetch = systemFetch;
+      await author.close();
+    }
+  }, 20_000);
 
   test("discards a stale pending update when local state already matches Canopy", async () => {
     process.env.ARBOR_DATA_HOME = stateA;

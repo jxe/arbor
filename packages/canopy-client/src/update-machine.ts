@@ -1,21 +1,21 @@
 /**
- * Direct Canopy synchronization: the state machine a durable replica or Arbor
- * Sync itself runs against Arbor Wire (Reliability 005, machine B).
+ * Working-tree updates: the state machine a working tree runs against Arbor
+ * Wire to turn its local heads into accepted updates (spec/09).
  *
  * The reducer is pure and language-neutral: roots, updates, cursors, and
- * request digests are opaque tokens. Every durable store (Arbor Sync's
- * per-tree sync state, the native `DurableSyncControl`) maps onto these
- * states; the runner persists what each state says it retains and executes
- * the effects the reducer returns.
+ * request digests are opaque tokens. Every durable store (the daemon's
+ * per-tree sync state, the native `UpdateControl`) maps onto these states;
+ * the runner persists what each state says it retains and executes the
+ * effects the reducer returns. The Swift twin is `UpdateMachine` in
+ * `ArborWorkingTree`; both execute `working-tree-updates` in
+ * `conformance/client-state-machines.json`. This module moves to
+ * `@arbor/working-tree` in Plan B.
  */
 
 /** Trailing delay before unsent durable local work is published. */
 export const PUBLICATION_DELAY_MS = 250;
 /** Maximum delay from the first unsent durable head to its publication. */
 export const PUBLICATION_MAX_DELAY_MS = 1_000;
-
-/** Who may create a local candidate from disk right now (Arbor Sync only). */
-export type SyncRole = "source" | "editor-mirror";
 
 export interface AcceptedBase {
   root: string;
@@ -59,11 +59,10 @@ export type Availability = { kind: "transport" } | { kind: "authentication"; rea
 
 interface Base {
   base?: AcceptedBase;
-  role: SyncRole;
   transportAvailable: boolean;
 }
 
-export type SyncState =
+export type UpdateState =
   | (Base & { kind: "unplaced" })
   | (Base & { kind: "current"; base: AcceptedBase })
   | (Base & { kind: "locally-pending"; base: AcceptedBase; head: LocalHead; preparing?: boolean })
@@ -84,9 +83,8 @@ export type SyncState =
   })
   | (Base & { kind: "terminal"; reason: string });
 
-export type SyncEvent =
+export type UpdateEvent =
   | { type: "bootstrapInstalled"; root: string; update: string; cursor?: string }
-  | { type: "setRole"; role: SyncRole }
   | { type: "localHead"; root: string; origin: LocalHeadOrigin }
   | { type: "publishDelayElapsed" }
   | { type: "maxDelayElapsed" }
@@ -105,7 +103,7 @@ export type SyncEvent =
   | { type: "resolveConflict"; choice: "local" | "remote" | "draft" }
   | { type: "conflictResolutionFailed" };
 
-export type SyncEffect =
+export type UpdateEffect =
   | { type: "schedule"; timer: "trailing" | "max"; delay: number }
   | { type: "cancelTimers" }
   /** Persist one exact request from `base` to `candidate`; `extends` names the transmitted prefix it appends to. */
@@ -115,35 +113,33 @@ export type SyncEffect =
   | { type: "apply"; result: AuthorityResult }
   /** Clean catch-up: apply a contiguous transition batch or pull the current snapshot, then dispatch `applied`. */
   | { type: "catchUp"; cursor?: string }
-  /** A filesystem observation arrived while disk is an editor mirror: reconcile disk to accepted state, create no candidate. */
-  | { type: "discardMirrorHead"; root: string }
   | { type: "persistConflictResolution"; request: PreparedRequest; conflict: ConflictEvidence; choice: "local" | "remote" | "draft" }
   | { type: "surfaceConflict"; conflict: ConflictEvidence }
   | { type: "stop"; reason: string };
 
-export interface SyncOptions {
+export interface UpdateOptions {
   publicationDelayMs?: number;
   publicationMaxDelayMs?: number;
 }
 
-export interface SyncTransition {
-  state: SyncState;
-  effects: SyncEffect[];
+export interface UpdateTransition {
+  state: UpdateState;
+  effects: UpdateEffect[];
 }
 
-export function initialSyncState(role: SyncRole = "source", transportAvailable = true): SyncState {
-  return { kind: "unplaced", role, transportAvailable };
+export function initialUpdateState(transportAvailable = true): UpdateState {
+  return { kind: "unplaced", transportAvailable };
 }
 
 function ctx(state: Base): Base {
-  return { ...(state.base ? { base: state.base } : {}), role: state.role, transportAvailable: state.transportAvailable };
+  return { ...(state.base ? { base: state.base } : {}), transportAvailable: state.transportAvailable };
 }
 
 function head(root: string, origin: LocalHeadOrigin): LocalHead {
   return { root, origin };
 }
 
-function pendingFrom(state: Base & { base: AcceptedBase }, latest: LocalHead, options: SyncOptions): SyncTransition {
+function pendingFrom(state: Base & { base: AcceptedBase }, latest: LocalHead, options: UpdateOptions): UpdateTransition {
   if (!state.transportAvailable) {
     return {
       state: { ...ctx(state), kind: "offline", base: state.base, availability: { kind: "transport" }, transmitted: false, head: latest },
@@ -159,7 +155,7 @@ function pendingFrom(state: Base & { base: AcceptedBase }, latest: LocalHead, op
   };
 }
 
-function prepare(state: Base & { base: AcceptedBase; head: LocalHead }): SyncTransition {
+function prepare(state: Base & { base: AcceptedBase; head: LocalHead }): UpdateTransition {
   if (state.head.root === state.base.root) {
     return { state: { ...ctx(state), kind: "current", base: state.base }, effects: [{ type: "cancelTimers" }] };
   }
@@ -169,7 +165,7 @@ function prepare(state: Base & { base: AcceptedBase; head: LocalHead }): SyncTra
   };
 }
 
-export function reduceSync(state: SyncState, event: SyncEvent, options: SyncOptions = {}): SyncTransition {
+export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: UpdateOptions = {}): UpdateTransition {
   if (state.kind === "terminal") return { state, effects: [] };
 
   switch (event.type) {
@@ -181,13 +177,7 @@ export function reduceSync(state: SyncState, event: SyncEvent, options: SyncOpti
       };
     }
 
-    case "setRole":
-      return { state: { ...state, role: event.role }, effects: [] };
-
     case "localHead": {
-      if (event.origin === "filesystem" && state.role === "editor-mirror") {
-        return { state, effects: [{ type: "discardMirrorHead", root: event.root }] };
-      }
       const latest = head(event.root, event.origin);
       switch (state.kind) {
         case "unplaced":
@@ -413,7 +403,7 @@ export function reduceSync(state: SyncState, event: SyncEvent, options: SyncOpti
       return { state: { ...ctx(state), kind: "terminal", reason: event.reason }, effects: [{ type: "cancelTimers" }, { type: "stop", reason: event.reason }] };
 
     case "transportAvailable": {
-      const next = { ...state, transportAvailable: event.available } as SyncState;
+      const next = { ...state, transportAvailable: event.available } as UpdateState;
       if (!event.available) {
         if (state.kind === "locally-pending") {
           return {
@@ -453,7 +443,7 @@ export function reduceSync(state: SyncState, event: SyncEvent, options: SyncOpti
 }
 
 /** Reconnection: retry the exact retained request, or append the latest head to an ambiguous prefix once. */
-function resume(state: Extract<SyncState, { kind: "offline" }>): SyncTransition {
+function resume(state: Extract<UpdateState, { kind: "offline" }>): UpdateTransition {
   if (state.request) {
     if (state.transmitted && state.head && state.head.root !== state.request.candidate) {
       // Ambiguous-recovery transition: the only place a longer append-only request is issued.
@@ -484,6 +474,6 @@ function resume(state: Extract<SyncState, { kind: "offline" }>): SyncTransition 
 }
 
 /** Whether the machine holds a request whose outcome may already be known to the authority. */
-export function syncRequestMayHaveReachedAuthority(state: SyncState): boolean {
+export function updateRequestMayHaveReachedAuthority(state: UpdateState): boolean {
   return state.kind === "submitting" || state.kind === "submitting-pending" || (state.kind === "offline" && state.transmitted);
 }

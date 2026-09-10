@@ -1,12 +1,10 @@
-import { nodeDocument, nodeKind } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { serveArborSyncControl, serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient, type MutationRequest, type WorkspaceEvent } from "@arbor/arborsync-client";
-import { stableJSONString, canonicalStableKey, pageIDStableKey, sha256 } from "@arbor/core";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import type { Workspace } from "@arbor/arborsync";
 
 let root: string;
@@ -16,19 +14,12 @@ let client: ArborSyncRESTClient;
 let close: () => Promise<void>;
 let activeWorkspace: Workspace;
 let scope: string;
-let durableWriteRequest: MutationRequest;
-let durableWriteReceipt: Awaited<ReturnType<ArborSyncRESTClient["mutate"]>>;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-server-"));
   state = await mkdtemp(join(tmpdir(), "arbor-server-state-"));
   process.env.ARBOR_DATA_HOME = state;
   await writeFile(join(root, "page.md"), "Hello API\n");
-  await writeFile(join(root, "target.md"), "---\nid: target\n---\nTarget\n");
-  await writeFile(join(root, "source.md"), "---\nid: source\n---\nSee [Target](/target#target).\n");
-  await writeFile(join(root, "titled.md"), "# 🌲 **Authored Page**\n");
-  await writeFile(join(root, "duplicate-a.md"), "---\nid: duplicate-id\n---\nA\n");
-  await writeFile(join(root, "duplicate-b.md"), "---\nid: duplicate-id\n---\nB\n");
   await mkdir(join(root, "data"));
   const database = new Database(join(root, "data", "_store.sqlite3"));
   database.exec("create table items (id text primary key, title text not null); insert into items values ('one', 'One')");
@@ -37,7 +28,7 @@ beforeAll(async () => {
   activeWorkspace = running.workspace;
   scope = activeWorkspace.tree;
   base = running.url;
-  client = new ArborSyncRESTClient({ baseURL: base, retryDelay: async () => {} });
+  client = new ArborSyncRESTClient({ baseURL: base });
   close = async () => {
     running.server.stop(true);
     await running.workspace[Symbol.asyncDispose]();
@@ -80,482 +71,39 @@ describe("arborsync REST v1", () => {
     expect(await invalid.json()).toMatchObject({ error: "invalid-request" });
   });
 
-  test("idempotently activates a browsing session on the persistent control daemon", async () => {
-    const running = await serveArborSyncControl({ port: 0 });
-    try {
-      const controlClient = new ArborSyncRESTClient({ baseURL: running.url });
-      const first = await controlClient.openSession(root);
-      const repeated = await controlClient.openSession(root);
-      expect(first.ref.tree).not.toBe("local");
-      expect(repeated.ref.tree).toBe(first.ref.tree);
-      expect(repeated.ref.path).toBe("/");
-    } finally {
-      running.server.stop(true);
-      await running.service[Symbol.asyncDispose]();
-    }
-  });
-
-  test("rejects malformed admission-basis node-read requests", async () => {
-    const response = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage&admissionBasis=false`);
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      error: "invalid-request",
-      message: "admissionBasis must be true when requested",
-    });
-  });
-
-  test("serves remote/account surfaces without a local browsing session", async () => {
-    const running = await serveArborSyncControl({ port: 0 });
-    try {
-      const controlClient = new ArborSyncRESTClient({ baseURL: running.url });
-      expect((await controlClient.node({ tree: "system", path: "/diagnostics", stableKey: null })).ref.tree).toBe("system");
-      const response = await fetch(`${running.url}/v1/node?path=%2F`);
-      expect(response.status).toBe(400);
-      expect((await response.json() as any).error).toBe("invalid-request");
-    } finally {
-      running.server.stop(true);
-      await running.service[Symbol.asyncDispose]();
-    }
-  });
-
-  test("reads and idempotently writes a Markdown node", async () => {
-    const pathOnly = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage`);
-    expect(pathOnly.status).toBe(200);
-    expect(await pathOnly.json()).toMatchObject({ ref: { tree: scope, path: "/page", stableKey: null } });
-
-    const legacy = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage&pageID=page`);
-    expect(legacy.status).toBe(400);
-    expect(await legacy.json()).toMatchObject({ error: "invalid-request", message: expect.stringContaining("PageID") });
-
-    const node = await client.node({ tree: scope, path: "/page", stableKey: null });
-    const source = nodeDocument(node)!.source.replace("Hello API", "Changed through REST v1");
-    const request: MutationRequest = {
-      mutationID: "write-page-1",
-      operations: [{
-        op: "writeMarkdown",
-        ref: { tree: scope, path: "/page", stableKey: null },
-        baseContentRevision: node.capabilities.content?.revision!,
-        source,
-      }],
-    };
-    const first = await client.mutate(request);
-    const retry = await client.mutate(request);
-    expect(retry).toEqual(first);
-    const saved = await client.node({ tree: scope, path: "/page", stableKey: null });
-    expect(nodeDocument(saved)?.source).toBe(source);
-    expect(nodeDocument(saved)?.bodySource).toContain("Changed through REST v1");
-    durableWriteRequest = request;
-    durableWriteReceipt = first;
-  });
-
-  test("summarizes Markdown children with their authored H1 display title", async () => {
-    const children = await client.children({ tree: scope, path: "/", stableKey: null });
-    const titled = children.items.find((item) => item.ref.path === "/titled");
-    expect(titled?.properties.title).toBe("🌲 Authored Page");
-  });
-
-  test("writes node properties without changing Markdown content and writes stable SQLite rows", async () => {
-    const page = await client.node({ tree: scope, path: "/page", stableKey: null });
-    const body = nodeDocument(page)!.bodySource;
-    const pageReceipt = await client.writeProperties(
-      page.ref,
-      page.capabilities.properties!.revision,
-      { title: "Property title", optional: null },
-      "write-page-properties-1",
-    );
-    const savedPage = await client.node(page.ref);
-    expect(savedPage.properties).toEqual({ title: "Property title", optional: null });
-    expect(nodeDocument(savedPage)?.bodySource).toBe(body);
-    expect(pageReceipt.effects[0]?.propertiesRevision).toBe(savedPage.capabilities.properties?.revision);
-    expect(pageReceipt.effects[0]?.changedProperties).toEqual(["optional", "title"]);
-
-    const rows = await client.children({ tree: scope, path: "/data/items", stableKey: null });
-    const row = rows.items[0]!;
-    expect(row.capabilities.properties?.writable).toBe(true);
-    expect(row.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
-    const rowReceipt = await client.writeProperties(
-      { ...row.ref, path: "/data/items/stale-readable-path" },
-      row.capabilities.properties!.revision,
-      { id: "one", title: "One updated" },
-      "write-row-properties-1",
-    );
-    const savedRow = await client.node(row.ref);
-    expect(savedRow.properties.title).toBe("One updated");
-    expect(rowReceipt.effects[0]?.ref.path).toBe("/data/items/one");
-    expect(rowReceipt.effects[0]?.propertiesRevision).toBe(savedRow.capabilities.properties?.revision);
-    expect(rowReceipt.effects[0]?.changedProperties).toEqual(["title"]);
-  });
-
-  test("rejects mutation ID reuse with changed intent", async () => {
-    await expect(client.mutate({
-      mutationID: "write-page-1",
-      operations: [{ op: "createDirectory", tree: scope, path: "/wrong" }],
-    })).rejects.toThrow("already used for a different request");
-  });
-
-  test("verifies guarded UTF-8 source edits before recording a content intent", async () => {
-    const before = await client.node({ tree: scope, path: "/page", stableKey: null });
-    const original = nodeDocument(before)!.source;
-    const originalBytes = Buffer.from(original);
-    const target = Buffer.from("REST");
-    const offset = originalBytes.indexOf(target);
-    expect(offset).toBeGreaterThanOrEqual(0);
-    const source = original.replace("REST", "UTF-8 🌳");
-    const edit = { offset, length: target.length, replacement: "UTF-8 🌳", expected: "REST" };
-
-    await expect(client.mutate({
-      mutationID: "bad-source-edit-result",
-      operations: [{
-        op: "writeMarkdown",
-        ref: { tree: scope, path: "/page", stableKey: null },
-        baseContentRevision: before.capabilities.content?.revision!,
-        source: `${source}wrong`,
-        sourceEdits: [edit],
-      }],
-    })).rejects.toThrow("sourceEdits do not produce");
-    expect(nodeDocument(await client.node({ tree: scope, path: "/page", stableKey: null }))?.source).toBe(original);
-
-    await client.mutate({
-      mutationID: "valid-source-edit",
-      operations: [{
-        op: "writeMarkdown",
-        ref: { tree: scope, path: "/page", stableKey: null },
-        baseContentRevision: before.capabilities.content?.revision!,
-        source,
-        sourceEdits: [edit],
-      }],
-    });
-    expect(nodeDocument(await client.node({ tree: scope, path: "/page", stableKey: null }))?.source).toBe(source);
-  });
-
-  test("rejects malformed and empty mutation batches at the protocol boundary", async () => {
-    const fixture = JSON.parse(await readFile(
-      join(import.meta.dir, "../fixtures/arborsync/malformed-mutation.json"),
-      "utf8",
-    ));
-    for (const body of [
-      fixture,
-      { mutationID: "old-write-shape", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", blocks: [] }] },
-      { mutationID: "bad-ref", operations: [{ op: "rename", ref: { path: "/renamed", pageID: "both" }, name: "nope" }] },
-      { mutationID: "bad-move", operations: [{ op: "move", refs: [], destination: { path: "/" } }] },
-      { mutationID: "bad-source-edits", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", source: "x", sourceEdits: [] }] },
-      { mutationID: "overlapping-source-edits", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", source: "x", sourceEdits: [{ offset: 2, length: 2, replacement: "a" }, { offset: 3, length: 1, replacement: "b" }] }] },
-      { mutationID: "bad-properties-revision", operations: [{ op: "writeProperties", ref: { tree: scope, path: "/page", stableKey: null }, basePropertiesRevision: "", properties: {} }] },
-      { mutationID: "bad-properties-map", operations: [{ op: "writeProperties", ref: { tree: scope, path: "/page", stableKey: null }, basePropertiesRevision: "sha256:old", properties: [] }] },
+  test("no longer serves the editor path: node, mutation, and admission routes are gone", async () => {
+    for (const route of [
+      `/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage`,
+      `/v1/children?tree=${encodeURIComponent(scope)}&path=%2F`,
+      `/v1/search?tree=${encodeURIComponent(scope)}&q=hello`,
+      `/v1/file?tree=${encodeURIComponent(scope)}&path=%2Fpage.md`,
     ]) {
-      const response = await fetch(`${base}/v1/mutations`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      expect(response.status).toBe(400);
-      expect((await response.json() as any).error).toBe("invalid-request");
+      const response = await fetch(`${base}${route}`);
+      expect(response.status, route).toBe(405);
+      expect(await response.json()).toMatchObject({ error: "unsupported-operation", retryable: false });
     }
-    const unsupported = await fetch(`${base}/v1/mutations`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mutationID: "future-op", operations: [{ op: "future" }] }),
-    });
-    expect(unsupported.status).toBe(422);
-    expect((await unsupported.json() as any).error).toBe("unsupported-operation");
-  });
-
-  test("resolves renamed Markdown pages by stable key", async () => {
-    await client.mutateStructural([{ op: "rename", ref: { tree: scope, path: "/page", stableKey: null }, name: "renamed" }], "rename-page");
-    const renamed = await client.node({ tree: scope, path: "/renamed", stableKey: null });
-    const after = await client.node({ tree: scope, path: "/page", stableKey: renamed.ref.stableKey });
-    expect(after.ref.path).toBe("/renamed");
-  });
-
-  test("reports duplicate page IDs deterministically", async () => {
-    await expect(client.node({ tree: scope, path: "/duplicate-a", stableKey: pageIDStableKey("duplicate-id") })).rejects.toThrow("multiple owners");
-  });
-
-  test("returns indexed backlinks by path or durable target identity", async () => {
-    const byPath = await client.backlinks({ tree: scope, path: "/target", stableKey: null });
-    expect(byPath.target.stableKey).toBe(pageIDStableKey("target"));
-    expect(byPath.entries).toEqual([
-      expect.objectContaining({
-        ref: expect.objectContaining({ path: "/source", stableKey: pageIDStableKey("source") }),
-        title: "source",
-        context: "See [Target](/target#target).",
-      }),
-    ]);
-    const byID = await client.backlinks({ tree: scope, path: "/stale", stableKey: pageIDStableKey("target") });
-    expect(byID.entries).toEqual(byPath.entries);
-  });
-
-  test("lists pages before search text and reports incoming-link counts", async () => {
-    const initial = await client.search(scope, "");
-    expect(initial.results.length).toBeGreaterThan(0);
-    expect(initial.results.every((result) => result.modifiedAt > 0)).toBe(true);
-
-    const filtered = await client.search(scope, "Target");
-    expect(filtered.results.every((result) => result.modifiedAt > 0)).toBe(true);
-    expect(filtered.results.find((result) => result.ref.path === "/target")?.backlinkCount).toBe(1);
-    const unlinked = await client.search(scope, "duplicate");
-    expect(unlinked.results.find((result) => result.ref.path === "/duplicate-a")?.backlinkCount).toBe(0);
-    const titled = await client.search(scope, "Authored");
-    expect(titled.results.find((result) => result.ref.path === "/titled")?.title).toBe("🌲 Authored Page");
-  });
-
-  test("commits structural batches atomically and rejects obsolete ordering fields", async () => {
-    const receipt = await client.mutateStructural([
-      { op: "createDirectory", tree: scope, path: "/folder" },
-      { op: "createMarkdown", tree: scope, path: "/other" },
-    ], "create-batch");
-    expect(receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.ref.path)).toEqual(["/folder", "/other"]);
-
-    const response = await fetch(`${base}/v1/mutations`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        mutationID: "obsolete-ordering",
-        operations: [{
-          op: "move",
-          refs: [{ path: "/other" }],
-          destination: { path: "/" },
-          beforeBlockID: "vanished-block",
-        }],
-      }),
-    });
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: "invalid-request" });
-  });
-
-  test("rejects mixed and multiple-content batches before recording intent", async () => {
-    const before = await client.node({ tree: scope, path: "/renamed", stableKey: null });
-    const source = nodeDocument(before)!.source.replace(nodeDocument(before)!.bodySource, "Must not materialize\n");
-    const content = {
-      op: "writeMarkdown",
-      ref: before.ref,
-      baseContentRevision: before.capabilities.content?.revision!,
-      source,
-    };
-    const mixedFixture = JSON.parse(await readFile(
-      join(import.meta.dir, "../fixtures/arborsync/mixed-mutation.json"),
-      "utf8",
-    ));
-    mixedFixture.operations[0].ref = before.ref;
-    mixedFixture.operations[0].baseContentRevision = before.capabilities.content?.revision!;
-    mixedFixture.operations[0].source = source;
-    mixedFixture.operations[1].path = "/mixed-success";
-    mixedFixture.operations[1].tree = scope;
-    for (const [mutationID, operations] of [
-      [mixedFixture.mutationID, mixedFixture.operations],
-      ["multiple-content", [content, {
-        op: "writeMarkdown",
-        ref: before.ref,
-        baseContentRevision: before.capabilities.content?.revision!,
-        source,
-      }]],
-    ] as const) {
-      const response = await fetch(`${base}/v1/mutations`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mutationID, operations }),
-      });
-      expect(response.status).toBe(422);
-      expect(await response.json()).toMatchObject({
-        error: "unsupported-operation",
-      });
+    for (const route of ["/v1/mutations", "/v1/documents/admit", "/v1/assets", "/v1/imports"]) {
+      const response = await fetch(`${base}${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      expect(response.status, route).toBe(405);
+      expect(await response.json()).toMatchObject({ error: "unsupported-operation" });
     }
-    expect((await client.node({ tree: scope, path: "/renamed", stableKey: null })).capabilities.content?.revision).toBe(before.capabilities.content?.revision);
-    await expect(client.node({ tree: scope, path: "/mixed-success", stableKey: null })).rejects.toMatchObject({ status: 404 });
-    expect((await client.search(scope, "Must not materialize")).results).toHaveLength(0);
-    expect(() => client.prepareStructuralMutation([])).toThrow("at least one operation");
   });
 
-  test("retries a lost mutation response with the same request", async () => {
-    let dropped = false;
-    const lossy = new ArborSyncRESTClient({
-      baseURL: base,
-      retryDelay: async () => {},
-      fetch: async (input, init) => {
-        const response = await fetch(input, init);
-        if (!dropped && String(input).endsWith("/v1/mutations") && init?.method === "POST") {
-          dropped = true;
-          await response.arrayBuffer();
-          throw new TypeError("simulated lost response");
-        }
-        return response;
-      },
-    });
-    const receipt = await lossy.mutateStructural([{ op: "createDirectory", tree: scope, path: "/after-loss" }], "lost-response");
-    expect(receipt.mutationID).toBe("lost-response");
-    expect((await client.node({ tree: scope, path: "/after-loss", stableKey: null })).ref.path).toBe("/after-loss");
-  });
-
-  test("replays events after a snapshot cursor and rejects another epoch", async () => {
-    const snapshot = await client.node({ tree: scope, path: "/", stableKey: null });
-    await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/eventful" }], "eventful");
-    const abort = new AbortController();
-    let replayed: WorkspaceEvent | null = null;
-    for await (const event of client.observe(snapshot.observedThrough, abort.signal)) {
-      if (event.change.mutationID === "eventful") {
-        replayed = event;
-        abort.abort();
-        break;
-      }
-    }
-    expect(replayed?.change.ref.path).toBe("/eventful");
-
-    const terminal = await fetch(`${base}/v1/events?after=${encodeURIComponent(`another-epoch:0`)}`);
-    expect(terminal.status).toBe(200);
-    expect(await terminal.text()).toContain("event: resync-required");
-  });
-
-  test("starts an observed view without waiting for or requesting children", async () => {
-    let childRequests = 0;
-    const observing = new ArborSyncRESTClient({
-      baseURL: base,
-      retryDelay: async () => {},
-      fetch: async (input, init) => {
-        if (String(input).includes("/v1/children?")) childRequests += 1;
-        return fetch(input, init);
-      },
-    });
-    const view = await observing.openNodeView({ tree: scope, path: "/", stableKey: null });
-    expect(childRequests).toBe(0);
-    await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/during-view-load" }], "during-view-load");
+  test("serves the control surface without a local browsing session", async () => {
+    const running = await serveArborSyncControl({ port: 0 });
     try {
-      for await (const update of view.updates) {
-        if (update.kind === "event" && update.event.change.mutationID === "during-view-load") {
-          expect(update.event.change.ref.path).toBe("/during-view-load");
-          break;
-        }
-      }
+      const controlClient = new ArborSyncRESTClient({ baseURL: running.url });
+      expect(await controlClient.status()).toMatchObject({ runtimeKind: "persistent" });
+      expect((await controlClient.trees()).snapshot).toBeArray();
+      const response = await fetch(`${running.url}/v1/node?tree=system&path=%2Fdiagnostics`);
+      expect(response.status).toBe(405);
     } finally {
-      view.close();
+      running.server.stop(true);
+      await running.service[Symbol.asyncDispose]();
     }
   });
 
-  test("observed views turn resync-required into a refreshed snapshot", async () => {
-    let rejectFirstObservation = true;
-    const observing = new ArborSyncRESTClient({
-      baseURL: base,
-      retryDelay: async () => {},
-      fetch: async (input, init) => {
-        if (rejectFirstObservation && String(input).includes("/v1/events?")) {
-          rejectFirstObservation = false;
-          return Response.json({
-            error: "resync-required",
-            message: "synthetic expired cursor",
-            retryable: true,
-          }, { status: 409 });
-        }
-        return fetch(input, init);
-      },
-    });
-    const view = await observing.openNodeView({ tree: scope, path: "/renamed", stableKey: null });
-    try {
-      for await (const update of view.updates) {
-        if (update.kind === "resync") {
-          expect(update.snapshot.ref.path).toBe("/renamed");
-          expect(update.snapshot.observedThrough).toContain(":");
-          break;
-        }
-      }
-    } finally {
-      view.close();
-    }
-  });
-
-  test("imports a multipart directory manifest atomically", async () => {
-    const receipt = await client.import({ tree: scope, path: "/folder", stableKey: null }, [
-      { path: "drop", kind: "directory" },
-      { path: "drop/readme.md", kind: "file", file: new File(["Imported\n"], "readme.md", { type: "text/markdown" }) },
-    ], "import-drop");
-    expect(receipt.effects.some((effect) => effect.ref.path === "/folder/drop")).toBe(true);
-    expect(nodeDocument(await client.node({ tree: scope, path: "/folder/drop/readme", stableKey: null }))?.bodySource).toBe("Imported\n");
-  });
-
-  test("retries an asset transfer with the same mutation identity", async () => {
-    let dropped = false;
-    const lossy = new ArborSyncRESTClient({
-      baseURL: base,
-      retryDelay: async () => {},
-      fetch: async (input, init) => {
-        const response = await fetch(input, init);
-        if (!dropped && String(input).endsWith("/v1/assets") && init?.method === "POST") {
-          dropped = true;
-          await response.arrayBuffer();
-          throw new TypeError("simulated lost asset response");
-        }
-        return response;
-      },
-    });
-    const file = new File(["asset bytes"], "diagram.txt", { type: "text/plain" });
-    const first = await lossy.asset({ tree: scope, path: "/folder", stableKey: null }, file, "asset-after-loss");
-    const retry = await client.asset({ tree: scope, path: "/folder", stableKey: null }, file, "asset-after-loss");
-    expect(retry.receipt).toEqual(first.receipt);
-    expect(nodeKind(await client.node({ tree: scope, path: first.path, stableKey: null }))).toBe("file");
-  });
-
-  test("covers copy, trash, restore, and recovery restoration through logical operations", async () => {
-    const copied = await client.mutateStructural([{
-      op: "copy",
-      refs: [{ tree: scope, path: "/renamed", stableKey: null }],
-      destination: { tree: scope, path: "/folder", stableKey: null },
-    }], "copy-page");
-    const copyPath = copied.effects.find((effect) => effect.kind === "created")!.ref.path;
-    const copiedNode = await client.node({ tree: scope, path: copyPath, stableKey: null });
-    expect(nodeKind(copiedNode)).toBe("markdown");
-    expect(copiedNode.ref.stableKey).not.toBe((await client.node({ tree: scope, path: "/renamed", stableKey: null })).ref.stableKey);
-
-    const trashed = await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: copyPath, stableKey: null }] }], "trash-copy");
-    const trashPath = `/Trash${copyPath}`;
-    expect(trashed.effects).toContainEqual(expect.objectContaining({ kind: "deleted", ref: expect.objectContaining({ path: copyPath }) }));
-    await expect(client.node({ tree: scope, path: copyPath, stableKey: null })).rejects.toMatchObject({ status: 404 });
-    const restored = await client.mutateStructural([{ op: "restore", refs: [{ tree: scope, path: trashPath, stableKey: null }] }], "restore-copy");
-    expect(nodeKind(await client.node({ tree: scope, path: restored.effects[0]!.ref.path, stableKey: null }))).toBe("markdown");
-
-    const before = await client.node({ tree: scope, path: "/renamed", stableKey: null });
-    const pageRef = before.ref;
-    const recoverySourceText = nodeDocument(before)!.source.replace(nodeDocument(before)!.bodySource, "Recovery source\n");
-    await client.mutateContent({
-      op: "writeMarkdown",
-      ref: pageRef,
-      baseContentRevision: before.capabilities.content?.revision!,
-      source: recoverySourceText,
-    }, "recovery-source");
-    const recoverySource = await client.node(pageRef);
-    await client.mutateContent({
-      op: "writeMarkdown",
-      ref: pageRef,
-      baseContentRevision: recoverySource.capabilities.content?.revision!,
-      source: nodeDocument(recoverySource)!.frontmatterSource ?? "",
-    }, "purge-for-recovery");
-    const empty = await client.node(pageRef);
-    const recovery = await client.recovery(pageRef);
-    const entry = recovery.entries.find(
-      (candidate) => candidate.kind === "block" && candidate.markdown.includes("Recovery source"),
-    );
-    expect(entry).toBeDefined();
-    if (!entry || entry.kind !== "block") throw new Error("Expected a block recovery entry");
-    await client.mutateContent({
-      op: "restoreRecovery",
-      ref: pageRef,
-      hash: entry.hash,
-      baseContentRevision: empty.capabilities.content?.revision,
-    }, "restore-recovery");
-    expect(nodeDocument(await client.node(pageRef))?.bodySource).toContain("Recovery source");
-
-    await client.mutateStructural([{ op: "createMarkdown", tree: scope, path: "/discarded" }], "create-discarded");
-    await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: "/discarded", stableKey: null }] }], "trash-discarded");
-    const subtree = await client.recovery({ tree: scope, path: "/", stableKey: null }, { recursive: true });
-    expect(subtree.entries).not.toContainEqual(expect.objectContaining({
-      kind: "block",
-      ref: expect.objectContaining({ path: "/renamed" }),
-    }));
-    expect(subtree.entries).toContainEqual(expect.objectContaining({
-      kind: "trash",
-      ref: expect.objectContaining({ path: "/Trash/discarded" }),
-      originalPath: "/discarded",
-    }));
-  });
-
-  test("removes the unversioned and collection APIs and serves the Arbor web shell", async () => {
+  test("removes the unversioned, collection, and node APIs and serves the rebuild notice at app routes", async () => {
     const legacy = await fetch(`${base}/v/tree/renamed`);
     expect(legacy.status).toBe(405);
     expect((await legacy.json() as any).error).toBe("unsupported-operation");
@@ -567,6 +115,7 @@ describe("arborsync REST v1", () => {
     const shell = await fetch(`${base}/render/renamed`);
     expect(shell.status).toBe(200);
     expect(shell.headers.get("content-type")).toContain("text/html");
+    expect(await shell.text()).toContain("Arbor web is being rebuilt (Plan B)");
   });
 
   test("serves ordinary-file bytes at OS-shaped logical routes with ETag, range, and ?raw", async () => {
@@ -604,83 +153,349 @@ describe("arborsync REST v1", () => {
     expect(await raw.text()).toContain("Raw surface");
   });
 
-  test("asset receipts carry the tree-rooted markdown destination", async () => {
-    const form = new FormData();
-    form.set("metadata", JSON.stringify({ mutationID: "asset-rooted-1", directory: { tree: scope, path: "/", stableKey: null } }));
-    form.set("file", new File([new TextEncoder().encode("img")], "leaf.png", { type: "image/png" }));
-    const response = await fetch(`${base}/v1/assets`, { method: "POST", body: form });
+});
+
+describe("arborsync object route", () => {
+  const validHash = (hex: string) => `sha256:${hex.repeat(64 / hex.length)}`;
+
+  async function indexedSnapshot() {
+    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
+    const { hashObject, decodeWireObject } = await import("@arbor/wire");
+    const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, activeWorkspace.objectIndex()));
+    return { snapshot, hashObject, decodeWireObject };
+  }
+
+  test("serves a file object from the index with an immutable ETag", async () => {
+    const bytes = new TextEncoder().encode("object-route-file-bytes");
+    await writeFile(join(root, "object-route.bin"), bytes);
+    const { snapshot, hashObject } = await indexedSnapshot();
+    const { encodeWireObject } = await import("@arbor/wire");
+    const hash = hashObject(encodeWireObject({ type: "file", bytes }));
+    expect(snapshot.objects.has(hash)).toBe(true);
+
+    const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(scope)}`);
     expect(response.status).toBe(200);
-    const result = await response.json() as { path: string; markdownPath: string };
-    expect(result.markdownPath).toBe(result.path);
-    expect(result.markdownPath).toStartWith("/Assets/");
-
-    // The stored spelling stays tree-rooted; fetching bytes uses the
-    // OS-shaped route through the owning root.
-    const served = await fetch(`${base}${root}${result.path}`);
-    expect(served.status).toBe(200);
-    expect(await served.text()).toBe("img");
-
-    const exact = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent(result.path)}&stableKey=`);
-    expect(exact.status).toBe(200);
-    expect(exact.headers.get("content-type")).toBe("image/png");
-    expect(exact.headers.get("cache-control")).toBe("no-store");
-    expect(await exact.text()).toBe("img");
-
-    const document = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent("/page")}&stableKey=`);
-    expect(document.status).toBe(404);
+    expect(response.headers.get("content-type")).toBe("application/cbor");
+    expect(response.headers.get("etag")).toBe(`"${hash}"`);
+    expect(response.headers.get("cache-control")).toBe("private, immutable, max-age=31536000");
+    const served = new Uint8Array(await response.arrayBuffer());
+    expect(hashObject(served)).toBe(hash);
+    expect(await client.object(scope, hash)).toEqual(served);
   });
 
-  test("returns the durable original receipt after an arborsync restart", async () => {
-    await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/recovered-effect" }], "materialization-setup");
-    const recoveredRequest: MutationRequest = {
-      mutationID: "materialized-before-crash",
-      operations: [{ op: "createDirectory", tree: scope, path: "/recovered-effect" }],
-    };
-    const recoveredHash = sha256(stableJSONString(recoveredRequest));
-    await activeWorkspace.mutations.prepare(recoveredRequest.mutationID, recoveredHash, recoveredRequest);
-    await activeWorkspace.mutations.markMaterialized(recoveredRequest.mutationID, recoveredHash, [{
-      kind: "created",
-      ref: { tree: scope, path: "/recovered-effect", stableKey: null },
-    }]);
-    const written = await client.node({ tree: scope, path: "/renamed", stableKey: null });
-    const recoveredWriteRequest: MutationRequest = {
-      mutationID: "write-replaced-before-receipt",
-      operations: [{
-        op: "writeMarkdown",
-        ref: written.ref,
-        baseContentRevision: "sha256:pre-crash-base",
-        source: nodeDocument(written)!.source,
-      }],
-    };
-    const recoveredWriteHash = sha256(stableJSONString(recoveredWriteRequest));
-    await activeWorkspace.mutations.prepare(recoveredWriteRequest.mutationID, recoveredWriteHash, recoveredWriteRequest);
-    await activeWorkspace.mutations.markExpected(recoveredWriteRequest.mutationID, recoveredWriteHash, [{
-      kind: "updated",
-      ref: written.ref,
-      contentRevision: written.capabilities.content?.revision,
-    }]);
+  test("serves a directory object re-encoded from its children rows", async () => {
+    await mkdir(join(root, "object-dir"), { recursive: true });
+    await writeFile(join(root, "object-dir", "leaf.md"), "leaf\n");
+    await writeFile(join(root, "object-dir", "leaf.bin"), "binary-leaf");
+    const { snapshot, hashObject, decodeWireObject } = await indexedSnapshot();
+    const rootObject = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+    if (rootObject.type !== "directory") throw new Error("Expected a directory");
+    const directoryHash = rootObject.entries.find((entry) => entry.name === "object-dir")!.hash!;
+    for (const hash of [directoryHash, snapshot.root]) {
+      const served = await client.object(scope, hash);
+      expect(hashObject(served)).toBe(hash);
+      expect(decodeWireObject(served).type).toBe("directory");
+    }
+  });
 
-    await close();
-    const restarted = await serveArborSync(root, { port: 0 });
-    activeWorkspace = restarted.workspace;
-    scope = activeWorkspace.tree;
-    base = restarted.url;
-    client = new ArborSyncRESTClient({ baseURL: base, retryDelay: async () => {} });
-    close = async () => {
-      restarted.server.stop(true);
-      await restarted.workspace[Symbol.asyncDispose]();
-    };
+  test("serves objects held only by the stored pending update body", async () => {
+    const { encodeWireObject, hashObject } = await import("@arbor/wire");
+    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
+    const bytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("pending-only-object") });
+    const hash = hashObject(bytes);
+    await savePendingTreeUpdate(scope, pendingFromSnapshot(null, { root: hash, objects: new Map([[hash, bytes]]) }));
+    try {
+      expect(await client.object(scope, hash)).toEqual(bytes);
+    } finally {
+      await clearPendingTreeUpdate(scope);
+    }
+    const gone = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(scope)}`);
+    expect(gone.status).toBe(404);
+  });
 
-    expect(await client.mutate(durableWriteRequest)).toEqual(durableWriteReceipt);
-    expect((await client.mutate(recoveredRequest)).effects).toEqual([{ kind: "created", ref: { tree: activeWorkspace.tree, path: "/recovered-effect", stableKey: null } }]);
-    expect((await client.mutate(recoveredWriteRequest)).effects).toMatchObject([{
-      kind: "updated",
-      ref: expect.objectContaining({ path: "/renamed" }),
-      contentRevision: written.capabilities.content?.revision,
-    }]);
-    const oldCursor = durableWriteReceipt.observedThrough;
-    const response = await fetch(`${base}/v1/events?after=${encodeURIComponent(oldCursor)}`);
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain("event: resync-required");
+  test("fetches through to Canopy for an unplaced tree named by origin", async () => {
+    const { serveCanopy } = await import("@arbor/canopy");
+    const { WireClient, encodeWireObject, hashObject } = await import("@arbor/wire");
+    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
+    const canopyRoot = await mkdtemp(join(tmpdir(), "arbor-object-canopy-"));
+    const token = "object-route-owner";
+    const canopy = await serveCanopy({
+      dataRoot: join(canopyRoot, "canopy"),
+      accounts: [{ handle: "owner", token, communityWriter: true }],
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    try {
+      const owner = new WireClient(canopy.url, token);
+      const account = await owner.account();
+      const communityTree = account.account.community.id;
+      const community = await owner.descriptor(communityTree);
+      const source = join(canopyRoot, "community");
+      await mkdir(source, { recursive: true });
+      await writeFile(join(source, "_index.md"), "---\ntype: group\n---\n# Community\n");
+      const remoteOnly = new TextEncoder().encode("only-on-canopy");
+      await writeFile(join(source, "remote-only.bin"), remoteOnly);
+      const boundaries = new Map([[join(source, "~owner"), account.account.profileTree!]]);
+      await owner.submitUpdate(communityTree, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, boundaries)));
+      // The local copy is gone; the daemon has no placement for this tree.
+      await rm(join(source, "remote-only.bin"));
+      const hash = hashObject(encodeWireObject({ type: "file", bytes: remoteOnly }));
+
+      const served = await client.object(communityTree, hash, canopy.url);
+      expect(hashObject(served)).toBe(hash);
+      const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(canopy.url)}`);
+      expect(response.headers.get("etag")).toBe(`"${hash}"`);
+
+      // Fetched bytes are retained by hash, so a repeat needs no origin.
+      expect(await client.object(communityTree, hash)).toEqual(served);
+      const unknown = await fetch(`${base}/v1/objects/${validHash("1e")}?tree=${encodeURIComponent(communityTree)}&origin=${encodeURIComponent(canopy.url)}`);
+      expect(unknown.status).toBe(404);
+    } finally {
+      canopy.server.stop(true);
+      await canopy.canopy[Symbol.asyncDispose]();
+      await rm(canopyRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("answers 404 for unavailable objects and 400 for malformed hashes", async () => {
+    const missing = await fetch(`${base}/v1/objects/${validHash("0f")}?tree=${encodeURIComponent(scope)}`);
+    expect(missing.status).toBe(404);
+    expect((await missing.json() as any).error).toBe("not-found");
+
+    const malformed = await fetch(`${base}/v1/objects/sha256:nothex?tree=${encodeURIComponent(scope)}`);
+    expect(malformed.status).toBe(400);
+    expect((await malformed.json() as any).error).toBe("invalid-request");
+
+    const unscoped = await fetch(`${base}/v1/objects/${validHash("0f")}`);
+    expect(unscoped.status).toBe(400);
+  });
+});
+
+describe("arborsync bootstrap and credential routes", () => {
+  const token = "bootstrap-route-owner";
+  let sandbox: string;
+  let home: string;
+  let previousHome: string | undefined;
+  let treeDir: string;
+  let tree: string;
+  let canopy: Awaited<ReturnType<typeof import("@arbor/canopy")["serveCanopy"]>>;
+  let daemon: Awaited<ReturnType<typeof serveArborSync>>;
+  let placedClient: ArborSyncRESTClient;
+  let placedBase: string;
+
+  beforeAll(async () => {
+    const { serveCanopy } = await import("@arbor/canopy");
+    const { WireClient } = await import("@arbor/wire");
+    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
+    const { generateArborID, canonicalArborLocator } = await import("@arbor/core");
+    const { CommunityConfigStore, saveCurrentDeviceID } = await import("@arbor/stores");
+    const { readAccountConfigGraph, snapshotAccountConfig } = await import("../../packages/canopy/src/account-policy.ts");
+
+    sandbox = await mkdtemp(join(tmpdir(), "arbor-bootstrap-route-"));
+    home = join(sandbox, "home");
+    treeDir = join(sandbox, "tree");
+    await mkdir(join(home, "devices"), { recursive: true });
+    await mkdir(join(treeDir, "sub"), { recursive: true });
+    await writeFile(join(treeDir, "_index.md"), "# Bootstrap tree\n");
+    await writeFile(join(treeDir, "note.md"), "A note\n");
+    await writeFile(join(treeDir, "photo.bin"), new Uint8Array([1, 2, 3, 4, 5]));
+    await writeFile(join(treeDir, "sub", "child.md"), "Child\n");
+    await writeFile(join(treeDir, "sub", "data.bin"), new Uint8Array([9, 8, 7]));
+
+    canopy = await serveCanopy({
+      dataRoot: join(sandbox, "canopy"),
+      accounts: [{ handle: "owner", token, communityWriter: true }],
+      publicOrigin: "http://127.0.0.1:0",
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    const owner = new WireClient(canopy.url, token);
+    const account = await owner.account();
+    const configurationTree = account.account.configuration.id;
+    const configuration = await owner.descriptor(configurationTree);
+    const configurationSnapshot = await owner.snapshot(configurationTree, configuration.tree.root);
+    const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
+    const device = graph.account.admins[0]!;
+    tree = generateArborID("tr");
+    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
+      account: graph.account,
+      trees: { version: 1, trees: { ...graph.trees.trees, [tree]: { canonicalPath: "/~owner/bootstrap", access: [] } } },
+      devices: {
+        ...graph.devices,
+        [device]: { ...graph.devices[device]!, placements: {
+          ...graph.devices[device]!.placements,
+          [tree]: { server: new URL(canopy.url).origin, path: treeDir },
+        } },
+      },
+    }));
+    await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
+
+    const accepted = await owner.descriptor(configurationTree);
+    const acceptedSnapshot = await owner.snapshot(configurationTree, accepted.tree.root);
+    const acceptedGraph = readAccountConfigGraph({ root: acceptedSnapshot.root, objects: acceptedSnapshot.objects }, configurationTree);
+    for (const [path, source] of Object.entries(acceptedGraph.sources)) await writeFile(join(home, path), source);
+    previousHome = process.env.ARBOR_DATA_HOME;
+    process.env.ARBOR_DATA_HOME = home;
+    await saveCurrentDeviceID(device);
+    await new CommunityConfigStore().set(canopy.url, token, {
+      id: account.account.id,
+      handle: account.account.handle!,
+      profileTree: account.account.profileTree,
+      profileURL: account.account.profileURL,
+      communityTree: account.account.community.id,
+      communityURL: canonicalArborLocator(account.account.community.canonical!),
+      configurationTree,
+      configurationRef: accepted.tree.root,
+      configurationUpdate: accepted.tree.update,
+    });
+    // A long fallback interval keeps the daemon from racing the stored-state tests below.
+    daemon = await serveArborSync(treeDir, { port: 0, syncIntervalMs: 60_000 });
+    placedBase = daemon.url;
+    placedClient = new ArborSyncRESTClient({ baseURL: placedBase, retryDelay: async () => {} });
+    await placedClient.synchronizeNow();
+    const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree);
+    if (!descriptor?.root || !descriptor.update) throw new Error("Placed tree did not record its accepted base");
+  });
+
+  afterAll(async () => {
+    daemon.server.stop(true);
+    await daemon.service[Symbol.asyncDispose]();
+    canopy.server.stop(true);
+    await canopy.canopy[Symbol.asyncDispose]();
+    if (previousHome === undefined) delete process.env.ARBOR_DATA_HOME;
+    else process.env.ARBOR_DATA_HOME = previousHome;
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  async function folderSnapshot() {
+    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
+    return resolveSnapshot(await snapshotDirectory(treeDir));
+  }
+
+  test("bootstraps a clean placed tree with a sparse spine and a file map", async () => {
+    const { decodeSparseSnapshotBundle, decodeWireObject, hashObject, encodeWireObject } = await import("@arbor/wire");
+    const bootstrap = await placedClient.bootstrap(tree);
+    const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!;
+    expect(bootstrap.tree.id).toBe(tree);
+    expect(bootstrap.blocked).toBeUndefined();
+    expect(bootstrap.pending).toBeUndefined();
+    expect(bootstrap.accepted).toEqual({ root: descriptor.root!, update: descriptor.update!, cursor: descriptor.update! });
+    expect(typeof bootstrap.observedThrough).toBe("string");
+
+    const spine = decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64"));
+    expect(spine.has(bootstrap.accepted.root as never)).toBe(true);
+    const kinds = [...spine.values()].map((bytes) => decodeWireObject(bytes));
+    expect(kinds.filter((object) => object.type === "directory")).toHaveLength(2);
+    const markdown = kinds.filter((object) => object.type === "file").map((object) => new TextDecoder().decode(object.bytes)).sort();
+    expect(markdown).toEqual(["# Bootstrap tree\n", "A note\n", "Child\n"]);
+
+    expect(Object.keys(bootstrap.files).sort()).toEqual(["/photo.bin", "/sub/data.bin"]);
+    expect(bootstrap.files["/photo.bin"]).toMatchObject({ size: 5, mtime: expect.any(Number) });
+    expect(bootstrap.files["/sub/data.bin"]!.size).toBe(3);
+
+    // Payload-less entries in the spine are exactly the listed files, resolvable through the object route.
+    const photoHash = hashObject(encodeWireObject({ type: "file", bytes: new Uint8Array([1, 2, 3, 4, 5]) }));
+    expect(spine.has(photoHash)).toBe(false);
+    const root = decodeWireObject(spine.get(bootstrap.accepted.root as never)!);
+    if (root.type !== "directory") throw new Error("Expected a directory root");
+    expect(root.entries.find((entry) => entry.name === "photo.bin")?.hash).toBe(photoHash);
+    expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
+  });
+
+  test("returns the stored pending update verbatim with client-computable request digests", async () => {
+    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate, updatesFromPending } = await import("@arbor/canopy-client");
+    const { decodeUpdateRequestJSON, updateRequestDigests } = await import("@arbor/wire");
+    const snapshot = await folderSnapshot();
+    const accepted = (await placedClient.bootstrap(tree)).accepted;
+    const pending = pendingFromSnapshot(accepted.update, snapshot);
+    await savePendingTreeUpdate(tree, pending);
+    try {
+      const bootstrap = await placedClient.bootstrap(tree);
+      expect(bootstrap.blocked).toBeUndefined();
+      expect(bootstrap.pending?.base).toBe(accepted.update);
+      expect(bootstrap.pending?.updates).toEqual(updatesFromPending(pending) as never);
+      const request = decodeUpdateRequestJSON({ base: bootstrap.pending!.base, updates: bootstrap.pending!.updates });
+      expect(bootstrap.pending?.requestDigests).toEqual(updateRequestDigests(tree, request));
+      expect(bootstrap.pending?.requestDigests).toHaveLength(1);
+      expect(bootstrap.accepted).toEqual(accepted);
+    } finally {
+      await clearPendingTreeUpdate(tree);
+    }
+  });
+
+  test("blocks with conflict but still serves the spine", async () => {
+    const { saveTreeConflict, clearTreeConflict } = await import("@arbor/canopy-client");
+    const { decodeSparseSnapshotBundle } = await import("@arbor/wire");
+    const accepted = (await placedClient.bootstrap(tree)).accepted;
+    await saveTreeConflict(tree, {
+      error: "conflict",
+      message: "fixture conflict",
+      retryable: false,
+      tree,
+      details: {
+        kind: "server-update",
+        completed: [],
+        failedIndex: 0,
+        current: { id: accepted.update, tree, root: accepted.root as never, previousRoot: null, kind: "initial", acceptedAt: 0, subject: null },
+        base: accepted.root as never,
+        candidate: accepted.root as never,
+        draft: { root: accepted.root as never, objects: [], deltas: [] },
+        conflicts: [],
+      },
+    });
+    try {
+      const bootstrap = await placedClient.bootstrap(tree);
+      expect(bootstrap.blocked).toBe("conflict");
+      expect(bootstrap.pending).toBeUndefined();
+      expect(bootstrap.accepted).toEqual(accepted);
+      expect(decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64")).size).toBe(5);
+      expect(Object.keys(bootstrap.files)).toHaveLength(2);
+    } finally {
+      await clearTreeConflict(tree);
+    }
+  });
+
+  test("blocks as unsettled when the stored pending update does not end at the folder", async () => {
+    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
+    const { encodeWireObject, hashObject } = await import("@arbor/wire");
+    const snapshot = await folderSnapshot();
+    const accepted = (await placedClient.bootstrap(tree)).accepted;
+    // Stale base: the chain no longer starts at the accepted update.
+    await savePendingTreeUpdate(tree, pendingFromSnapshot("stale-update", snapshot));
+    try {
+      expect((await placedClient.bootstrap(tree)).blocked).toBe("unsettled");
+    } finally {
+      await clearPendingTreeUpdate(tree);
+    }
+    // Right base, but the last candidate is not the folder root.
+    const bytes = encodeWireObject({ type: "directory", entries: [] });
+    await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, { root: hashObject(bytes), objects: new Map([[hashObject(bytes), bytes]]) }));
+    try {
+      const bootstrap = await placedClient.bootstrap(tree);
+      expect(bootstrap.blocked).toBe("unsettled");
+      expect(bootstrap.pending).toBeUndefined();
+    } finally {
+      await clearPendingTreeUpdate(tree);
+    }
+    expect((await placedClient.bootstrap(tree)).blocked).toBeUndefined();
+  });
+
+  test("answers 404 for an unplaced tree and 400 without tree scope", async () => {
+    const missing = await fetch(`${placedBase}/v1/bootstrap?tree=tr_${"b".repeat(26)}`);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ error: "not-found" });
+    const unscoped = await fetch(`${placedBase}/v1/bootstrap`);
+    expect(unscoped.status).toBe(400);
+    expect(await placedClient.bootstrap(scope).catch((error) => error.status)).toBe(404);
+  });
+
+  test("serves the shared account credential over loopback and 404s when absent", async () => {
+    expect(await placedClient.credential()).toEqual({ token });
+    const absent = await fetch(`${placedBase}/v1/credential?configurationTree=tr_${"c".repeat(26)}`);
+    expect(absent.status).toBe(404);
+    expect(await absent.json()).toMatchObject({ error: "not-found" });
+    const malformed = await fetch(`${placedBase}/v1/credential?configurationTree=nope`);
+    expect(malformed.status).toBe(400);
   });
 });

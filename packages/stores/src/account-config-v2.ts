@@ -2,7 +2,8 @@ import { watch, type FSWatcher } from "node:fs";
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AccessRule, Diagnostic, TreeID } from "@arbor/core";
-import { isAlias, isMap, isSeq, parseDocument, type Node } from "yaml";
+import { writeAtomic } from "@arbor/fs";
+import { isAlias, isMap, isSeq, parseDocument, type Document, type Node } from "yaml";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 export interface CanopyAccountConfiguration {
@@ -183,6 +184,44 @@ export function accountsRoot(): string {
 
 export function accountCheckoutPath(configurationTree: string): string {
   return join(accountsRoot(), configurationTreeID(configurationTree));
+}
+
+/**
+ * Edit one file of an account-configuration checkout on disk.
+ *
+ * Contract (shared with the Mac app's Swift twin, `ArborAccountConfigurationYAML`):
+ * - The file lives at `accountCheckoutPath(configurationTree)/<filename>` and is
+ *   read as strict UTF-8.
+ * - It is parsed as a single YAML document with unique keys and source tokens
+ *   retained, so an edit rewrites only the nodes it touches; comments, ordering,
+ *   and unrelated formatting survive.
+ * - `change` mutates the document in place; the result is serialized without
+ *   line folding (`lineWidth: 0`).
+ * - `validate` runs against the serialized source before anything is written;
+ *   when it throws, the file on disk is untouched.
+ * - The new source replaces the file atomically (temporary file + rename), so
+ *   the daemon's checkout watcher only ever observes complete files.
+ * - Nothing here talks to the daemon. The checkout is a placed folder: Arbor Sync
+ *   watches it and pushes the edit like any other placement, and callers that
+ *   need it pushed before they exit ask the daemon to synchronize afterwards.
+ *
+ * Returns the source that was written.
+ */
+export async function editAccountConfigurationFile(
+  configurationTree: string,
+  filename: string,
+  change: (document: Document) => void | Promise<void>,
+  validate?: (source: string) => void,
+): Promise<string> {
+  const path = join(accountCheckoutPath(configurationTree), filename);
+  const previous = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
+  const document = parseDocument(previous, { uniqueKeys: true, keepSourceTokens: true });
+  if (document.errors.length) throw new Error(`${filename} is invalid: ${document.errors[0]!.message}`);
+  await change(document);
+  const source = document.toString({ lineWidth: 0 });
+  validate?.(source);
+  await writeAtomic(path, source);
+  return source;
 }
 
 function currentDeviceStatePath(configurationTree: string): string {

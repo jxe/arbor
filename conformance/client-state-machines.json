@@ -2,14 +2,14 @@
   "version": 1,
   "description": "Language-neutral transition scenarios for the two Arbor client state machines. Sources, revisions, roots, updates, cursors, and digests are fixture tokens, not real hashes. Every step names the expected state after the event, the effect types it must emit in order, and optional retained fields checked by dotted path.",
   "machines": {
-    "arborsync-document-admission": {
-      "states": ["clean", "dirty", "submitting", "submitting-dirty", "admitted-awaiting-authority", "conflict", "failed", "closed"],
+    "document-admission": {
+      "states": ["clean", "dirty", "submitting", "submitting-dirty", "conflict", "failed", "closed"],
       "events": ["edit", "debounceElapsed", "flush", "admitted", "admissionConflicted", "admissionFailed", "observed", "retry", "resolveConflict", "close"],
-      "effects": ["schedule", "cancelTimer", "admit", "acknowledge", "apply", "mergeLocally", "surfaceConflict", "surfaceFailure", "stop"],
+      "effects": ["schedule", "cancelTimer", "admit", "acknowledge", "apply", "mergeLocally", "surfaceFailure", "stop"],
       "scenarios": [
         {
           "name": "fifteen edits before the debounce make one admission carrying the final source",
-          "initial": { "accepted": { "source": "s0", "revision": "r0", "admissionBasis": "b0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"], "expect": { "generation": 1 } },
             { "event": { "type": "edit", "source": "s2" }, "state": "dirty", "effects": ["schedule"] },
@@ -27,12 +27,12 @@
             { "event": { "type": "edit", "source": "s14" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "edit", "source": "s15" }, "state": "dirty", "effects": ["schedule"], "expect": { "generation": 15, "latest.source": "s15" } },
             { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"], "expect": { "submitted.source": "s15", "submitted.generation": 15 } },
-            { "event": { "type": "admitted", "generation": 15, "result": { "source": "s15", "revision": "r1", "admissionBasis": "b1", "requestDigest": "d1" } }, "state": "admitted-awaiting-authority", "effects": ["acknowledge"], "expect": { "accepted.revision": "r1", "requestDigest": "d1" } }
+            { "event": { "type": "admitted", "generation": 15, "result": { "source": "s15", "revision": "r1" } }, "state": "clean", "effects": ["acknowledge"], "expect": { "accepted.revision": "r1" } }
           ]
         },
         {
           "name": "edit, timer fires, edit while the request is in flight: one immutable request plus one successor",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"] },
@@ -40,13 +40,13 @@
             { "event": { "type": "edit", "source": "s3" }, "state": "submitting-dirty", "effects": [], "expect": { "submitted.source": "s1", "latest.source": "s3" } },
             { "event": { "type": "debounceElapsed" }, "state": "submitting-dirty", "effects": [] },
             { "event": { "type": "flush" }, "state": "submitting-dirty", "effects": [] },
-            { "event": { "type": "admitted", "generation": 1, "result": { "source": "s1", "revision": "r1", "requestDigest": "d1" } }, "state": "submitting", "effects": ["acknowledge", "admit"], "expect": { "accepted.revision": "r1", "submitted.source": "s3" } },
-            { "event": { "type": "admitted", "generation": 3, "result": { "source": "s3", "revision": "r2", "requestDigest": "d2" } }, "state": "admitted-awaiting-authority", "effects": ["acknowledge"], "expect": { "requestDigest": "d2" } }
+            { "event": { "type": "admitted", "generation": 1, "result": { "source": "s1", "revision": "r1" } }, "state": "submitting", "effects": ["acknowledge", "admit"], "expect": { "accepted.revision": "r1", "submitted.source": "s3" } },
+            { "event": { "type": "admitted", "generation": 3, "result": { "source": "s3", "revision": "r2" } }, "state": "clean", "effects": ["acknowledge"] }
           ]
         },
         {
           "name": "flush before the timer forces one request and a durable completion",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "local" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "flush" }, "state": "submitting", "effects": ["cancelTimer", "admit"] },
@@ -55,7 +55,7 @@
         },
         {
           "name": "an edit back to the accepted bytes performs no request",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "edit", "source": "s0" }, "state": "dirty", "effects": ["schedule"] },
@@ -64,55 +64,34 @@
         },
         {
           "name": "a stale observation captured before a newer generation is ignored",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
-            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx", "acceptedRequestDigests": [] }, "anchor": { "generation": 0, "revision": "r0" } }, "state": "dirty", "effects": [] },
+            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx" }, "anchor": { "generation": 0, "revision": "r0" } }, "state": "dirty", "effects": [] },
             { "event": { "type": "flush" }, "state": "submitting", "effects": ["cancelTimer", "admit"] },
-            { "event": { "type": "admitted", "generation": 1, "result": { "source": "s1", "revision": "r1", "requestDigest": "d1" } }, "state": "admitted-awaiting-authority", "effects": ["acknowledge"] },
-            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx", "acceptedRequestDigests": [] }, "anchor": { "generation": 0, "revision": "r0" } }, "state": "admitted-awaiting-authority", "effects": [] }
-          ]
-        },
-        {
-          "name": "the editor waits for its own digest before applying an authoritative prefix, and applies once it appears",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
-          "steps": [
-            { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
-            { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"] },
-            { "event": { "type": "admitted", "generation": 1, "result": { "source": "s1", "revision": "r1", "requestDigest": "d1" } }, "state": "admitted-awaiting-authority", "effects": ["acknowledge"] },
-            { "event": { "type": "observed", "observation": { "source": "sp", "revision": "rp", "acceptedRequestDigests": ["d0"] } }, "state": "admitted-awaiting-authority", "effects": [] },
-            { "event": { "type": "observed", "observation": { "source": "sa", "revision": "ra", "acceptedRequestDigests": ["d0", "d1"] } }, "state": "clean", "effects": ["apply"], "expect": { "accepted.revision": "ra", "accepted.source": "sa" } }
-          ]
-        },
-        {
-          "name": "an observation acknowledging the digest at the same revision clears the fence without replacing the editor",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
-          "steps": [
-            { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
-            { "event": { "type": "flush" }, "state": "submitting", "effects": ["cancelTimer", "admit"] },
-            { "event": { "type": "admitted", "generation": 1, "result": { "source": "s1", "revision": "r1", "requestDigest": "d1" } }, "state": "admitted-awaiting-authority", "effects": ["acknowledge"] },
-            { "event": { "type": "observed", "observation": { "source": "s1", "revision": "r1", "acceptedRequestDigests": ["d1"] } }, "state": "clean", "effects": [] }
+            { "event": { "type": "admitted", "generation": 1, "result": { "source": "s1", "revision": "r1" } }, "state": "clean", "effects": ["acknowledge"] },
+            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx" }, "anchor": { "generation": 0, "revision": "r0" } }, "state": "clean", "effects": [] }
           ]
         },
         {
           "name": "a clean editor applies an external revision",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
-            { "event": { "type": "observed", "observation": { "source": "s0", "revision": "r0", "acceptedRequestDigests": [] } }, "state": "clean", "effects": [] },
-            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx", "acceptedRequestDigests": [] } }, "state": "clean", "effects": ["apply"], "expect": { "accepted.revision": "rx" } }
+            { "event": { "type": "observed", "observation": { "source": "s0", "revision": "r0" } }, "state": "clean", "effects": [] },
+            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx" } }, "state": "clean", "effects": ["apply"], "expect": { "accepted.revision": "rx" } }
           ]
         },
         {
           "name": "an external revision while local intent is coalescing makes that intent durable immediately instead of replacing it",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
-            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx", "acceptedRequestDigests": [] } }, "state": "submitting", "effects": ["cancelTimer", "admit"], "expect": { "submitted.source": "s1" } }
+            { "event": { "type": "observed", "observation": { "source": "sx", "revision": "rx" } }, "state": "submitting", "effects": ["cancelTimer", "admit"], "expect": { "submitted.source": "s1" } }
           ]
         },
         {
           "name": "a retryable failure retains the exact pending source and never reports saved",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"] },
@@ -123,29 +102,29 @@
           ]
         },
         {
-          "name": "a Canopy-backed conflict retains evidence, allows further edits, and never merges locally",
-          "initial": { "accepted": { "source": "s0", "revision": "r0", "admissionBasis": "b0" }, "transport": "canopy" },
+          "name": "a rejected admission retains evidence, allows further edits, and keep-submitted resubmits the latest source",
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"] },
-            { "event": { "type": "admissionConflicted", "generation": 1, "current": { "source": "sc", "revision": "rc", "acceptedRequestDigests": [] } }, "state": "conflict", "effects": ["surfaceConflict"], "expect": { "submitted.source": "s1", "current.revision": "rc", "accepted.source": "s0" } },
+            { "event": { "type": "admissionConflicted", "generation": 1, "current": { "source": "sc", "revision": "rc" } }, "state": "conflict", "effects": ["mergeLocally"], "expect": { "submitted.source": "s1", "current.revision": "rc", "accepted.source": "s0" } },
             { "event": { "type": "edit", "source": "s2" }, "state": "conflict", "effects": [], "expect": { "latest.source": "s2", "submitted.source": "s1" } },
             { "event": { "type": "resolveConflict", "choice": "keep-submitted" }, "state": "submitting", "effects": ["admit"], "expect": { "submitted.source": "s2", "accepted.revision": "rc" } }
           ]
         },
         {
           "name": "a local conflict may run the explicit local merge helper; using the current version applies it",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "local" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "flush" }, "state": "submitting", "effects": ["cancelTimer", "admit"] },
-            { "event": { "type": "admissionConflicted", "generation": 1, "current": { "source": "sc", "revision": "rc", "acceptedRequestDigests": [] } }, "state": "conflict", "effects": ["mergeLocally"] },
+            { "event": { "type": "admissionConflicted", "generation": 1, "current": { "source": "sc", "revision": "rc" } }, "state": "conflict", "effects": ["mergeLocally"] },
             { "event": { "type": "resolveConflict", "choice": "use-current" }, "state": "clean", "effects": ["apply"], "expect": { "accepted.revision": "rc" } }
           ]
         },
         {
           "name": "flush with a successor submits exactly one coalesced successor before completing",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "flush" }, "state": "submitting", "effects": ["cancelTimer", "admit"] },
@@ -157,7 +136,7 @@
         },
         {
           "name": "close cancels the timer and stops",
-          "initial": { "accepted": { "source": "s0", "revision": "r0" }, "transport": "canopy" },
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "close" }, "state": "closed", "effects": ["cancelTimer", "stop"] },
             { "event": { "type": "edit", "source": "s1" }, "state": "closed", "effects": [] }
@@ -165,14 +144,14 @@
         }
       ]
     },
-    "direct-canopy-synchronization": {
+    "working-tree-updates": {
       "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "conflict", "conflict-preparing", "offline", "terminal"],
-      "events": ["bootstrapInstalled", "setRole", "localHead", "publishDelayElapsed", "maxDelayElapsed", "requestPersisted", "submitStarted", "accepted", "watch", "watchGap", "conflicted", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed", "resolveConflict", "conflictResolutionFailed"],
-      "effects": ["schedule", "cancelTimers", "persistRequest", "persistConflictResolution", "submit", "apply", "catchUp", "discardMirrorHead", "surfaceConflict", "stop"],
+      "events": ["bootstrapInstalled", "localHead", "publishDelayElapsed", "maxDelayElapsed", "requestPersisted", "submitStarted", "accepted", "watch", "watchGap", "conflicted", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed", "resolveConflict", "conflictResolutionFailed"],
+      "effects": ["schedule", "cancelTimers", "persistRequest", "persistConflictResolution", "submit", "apply", "catchUp", "surfaceConflict", "stop"],
       "scenarios": [
         {
           "name": "bootstrap installation is the only entry into current; earlier events are ignored",
-          "initial": { "kind": "unplaced", "role": "source", "transportAvailable": true },
+          "initial": { "kind": "unplaced", "transportAvailable": true },
           "steps": [
             { "event": { "type": "localHead", "root": "h1", "origin": "editor" }, "state": "unplaced", "effects": [] },
             { "event": { "type": "bootstrapInstalled", "root": "A", "update": "uA", "cursor": "cA" }, "state": "current", "effects": [], "expect": { "base.root": "A", "base.update": "uA" } },
@@ -182,7 +161,7 @@
         },
         {
           "name": "fifteen durable heads before the delay become one persisted request carrying the final head",
-          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "localHead", "root": "h1", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "head.root": "h1" } },
             { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule"] },
@@ -208,7 +187,7 @@
         },
         {
           "name": "a head during submission is one replaceable successor, never a concurrent request",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "head.root": "h2" } },
             { "event": { "type": "localHead", "root": "h3", "origin": "editor" }, "state": "submitting-pending", "effects": [], "expect": { "request.candidate": "h1", "head.root": "h3" } },
@@ -220,7 +199,7 @@
         },
         {
           "name": "response and watch arrive in either order; the second is deduplicated",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["q1"], "transitions": true }, "state": "accepted-pending-apply", "effects": ["apply"] },
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": [] },
@@ -230,7 +209,7 @@
         },
         {
           "name": "a lost response is recovered by exact replay of the immutable request",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true, "request.id": "q1" } },
             { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [] },
@@ -241,7 +220,7 @@
         },
         {
           "name": "an offline burst retains only the latest durable head and appends it once to the ambiguous prefix on reconnection",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true } },
             { "event": { "type": "transportAvailable", "available": false }, "state": "offline", "effects": [] },
@@ -255,7 +234,7 @@
         },
         {
           "name": "an offline replica with unsent work publishes immediately on reconnection",
-          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "role": "source", "transportAvailable": false },
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": false },
           "steps": [
             { "event": { "type": "localHead", "root": "h1", "origin": "editor" }, "state": "offline", "effects": [], "expect": { "transmitted": false, "head.root": "h1" } },
             { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "offline", "effects": [], "expect": { "head.root": "h2" } },
@@ -265,7 +244,7 @@
         },
         {
           "name": "a clean offline replica catches up when transport returns",
-          "initial": { "kind": "offline", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "availability": { "kind": "transport" }, "transmitted": false, "role": "source", "transportAvailable": false },
+          "initial": { "kind": "offline", "base": { "root": "A", "update": "uA", "cursor": "cA" }, "availability": { "kind": "transport" }, "transmitted": false, "transportAvailable": false },
           "steps": [
             { "event": { "type": "transportAvailable", "available": true }, "state": "accepted-pending-apply", "effects": ["catchUp"] },
             { "event": { "type": "applied" }, "state": "current", "effects": [] }
@@ -273,7 +252,7 @@
         },
         {
           "name": "restart in prepared resubmits the persisted request exactly",
-          "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "prepared", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "submitStarted", "id": "q1" }, "state": "submitting", "effects": [] },
             { "event": { "type": "transportFailed", "id": "q1" }, "state": "offline", "effects": [], "expect": { "transmitted": true } }
@@ -281,7 +260,7 @@
         },
         {
           "name": "restart in accepted-pending-apply completes the same apply idempotently",
-          "initial": { "kind": "accepted-pending-apply", "base": { "root": "A", "update": "uA" }, "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "accepted-pending-apply", "base": { "root": "A", "update": "uA" }, "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": [] },
             { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "h1" } }
@@ -289,7 +268,7 @@
         },
         {
           "name": "a merged result applies the authority result, then submits the retained head against the new base",
-          "initial": { "kind": "submitting-pending", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "head": { "root": "h2", "origin": "editor" }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting-pending", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "head": { "root": "h2", "origin": "editor" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "accepted", "id": "q1", "result": { "kind": "merged", "root": "M1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "head.root": "h2" } },
             { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "M1", "head.root": "h2" } },
@@ -298,42 +277,8 @@
           ]
         },
         {
-          "name": "accepted editor state materializes while a later editor admission exists: disk observations remain mirror acknowledgements",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "editor-mirror", "transportAvailable": true },
-          "steps": [
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "submitting-pending", "effects": [] },
-            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "h1", "update": "u1", "digests": ["q1"] } }, "state": "accepted-pending-apply", "effects": ["apply"] },
-            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "head.root": "h2" } },
-            { "event": { "type": "localHead", "root": "h1", "origin": "filesystem" }, "state": "locally-pending", "effects": ["discardMirrorHead"], "expect": { "head.root": "h2" } }
-          ]
-        },
-        {
-          "name": "an editor admission retires, then its delayed watcher observation arrives in the grace period: disk remains a mirror",
-          "initial": { "kind": "current", "base": { "root": "h1", "update": "u1" }, "role": "editor-mirror", "transportAvailable": true },
-          "steps": [
-            { "event": { "type": "localHead", "root": "h1", "origin": "filesystem" }, "state": "current", "effects": ["discardMirrorHead"] },
-            { "event": { "type": "localHead", "root": "hx", "origin": "filesystem" }, "state": "current", "effects": ["discardMirrorHead"] }
-          ]
-        },
-        {
-          "name": "the grace expires, then genuinely different external bytes appear: disk becomes a source and creates one ordinary candidate",
-          "initial": { "kind": "current", "base": { "root": "h1", "update": "u1" }, "role": "editor-mirror", "transportAvailable": true },
-          "steps": [
-            { "event": { "type": "setRole", "role": "source" }, "state": "current", "effects": [] },
-            { "event": { "type": "localHead", "root": "hx", "origin": "filesystem" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "head.root": "hx", "head.origin": "filesystem" } },
-            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"] }
-          ]
-        },
-        {
-          "name": "an explicit Local Arbor API mutation during editor-mirror keeps its provenance and is authored intent",
-          "initial": { "kind": "current", "base": { "root": "h1", "update": "u1" }, "role": "editor-mirror", "transportAvailable": true },
-          "steps": [
-            { "event": { "type": "localHead", "root": "h2", "origin": "api" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "head.origin": "api" } }
-          ]
-        },
-        {
           "name": "a malformed result is terminal without materialization or base advancement",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "validationFailed", "reason": "returned root does not rehash" }, "state": "terminal", "effects": ["cancelTimers", "stop"], "expect": { "base.root": "A" } },
             { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "terminal", "effects": [] }
@@ -341,7 +286,7 @@
         },
         {
           "name": "conflict plus later local work preserves all evidence and the latest head",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "conflicted", "id": "q1", "conflict": { "current": { "root": "R", "update": "uR" }, "draft": "D", "localRoot": "h1" } }, "state": "conflict", "effects": ["surfaceConflict"], "expect": { "conflict.current.root": "R", "conflict.localRoot": "h1", "request.id": "q1" } },
             { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "conflict", "effects": [], "expect": { "head.root": "h2", "conflict.draft": "D" } },
@@ -350,7 +295,7 @@
         },
         {
           "name": "explicit conflict resolution prepares the failed element and untouched suffix at the verified current base",
-          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q3", "base": "uA", "candidate": "h3", "digests": ["q1", "q2", "q3"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h3", "failedIndex": 1 }, "head": { "root": "h4", "origin": "editor" }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q3", "base": "uA", "candidate": "h3", "digests": ["q1", "q2", "q3"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h3", "failedIndex": 1 }, "head": { "root": "h4", "origin": "editor" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "resolveConflict", "choice": "local" }, "state": "conflict-preparing", "effects": ["persistConflictResolution"], "expect": { "base.root": "A", "conflict.failedIndex": 1, "head.root": "h4" } },
             { "event": { "type": "requestPersisted", "request": { "id": "r3", "base": "uR", "candidate": "r3", "digests": ["r1", "r2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "base.root": "R", "request.base": "uR", "head.root": "h4" } }
@@ -358,7 +303,7 @@
         },
         {
           "name": "failed conflict resolution returns to the same retained conflict",
-          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h1" }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h1" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "resolveConflict", "choice": "remote" }, "state": "conflict-preparing", "effects": ["persistConflictResolution"] },
             { "event": { "type": "conflictResolutionFailed" }, "state": "conflict", "effects": ["surfaceConflict"], "expect": { "request.id": "q1", "conflict.current.root": "R" } }
@@ -366,14 +311,14 @@
         },
         {
           "name": "a watch arriving under unsent local work publishes now and never overwrites the head",
-          "initial": { "kind": "locally-pending", "base": { "root": "A", "update": "uA" }, "head": { "root": "h1", "origin": "editor" }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "locally-pending", "base": { "root": "A", "update": "uA" }, "head": { "root": "h1", "origin": "editor" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "watch", "cursor": "cB", "root": "B", "update": "uB", "digests": ["other"], "transitions": true }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "head.root": "h1", "base.root": "A" } }
           ]
         },
         {
           "name": "authentication failure does not retry automatically; refreshed credentials resume the exact request",
-          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "authenticationFailed", "reason": "device-revoked" }, "state": "offline", "effects": [], "expect": { "availability.kind": "authentication", "transmitted": true } },
             { "event": { "type": "transportAvailable", "available": true }, "state": "offline", "effects": [] },
@@ -382,10 +327,35 @@
         },
         {
           "name": "a head equal to the accepted root publishes nothing",
-          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "role": "source", "transportAvailable": true },
+          "initial": { "kind": "current", "base": { "root": "A", "update": "uA" }, "transportAvailable": true },
           "steps": [
             { "event": { "type": "localHead", "root": "A", "origin": "filesystem" }, "state": "locally-pending", "effects": ["schedule", "schedule"] },
             { "event": { "type": "publishDelayElapsed" }, "state": "current", "effects": ["cancelTimers"] }
+          ]
+        }
+,
+        {
+          "name": "restart in prepared with an adopted foreign prefix resubmits it exactly; a later head is one successor",
+          "initial": {"kind": "prepared", "base": {"root": "A", "update": "uA"}, "request": {"id": "q1", "base": "uA", "candidate": "h1", "digests": ["f1", "q1"]}, "transportAvailable": true},
+          "steps": [
+            { "event": {"type": "submitStarted", "id": "q1"}, "state": "submitting", "effects": [], "expect": {"request.digests": ["f1", "q1"], "request.candidate": "h1"} },
+            { "event": {"type": "localHead", "root": "h2", "origin": "editor"}, "state": "submitting-pending", "effects": [], "expect": {"request.digests": ["f1", "q1"], "head.root": "h2"} },
+            { "event": {"type": "localHead", "root": "h3", "origin": "editor"}, "state": "submitting-pending", "effects": [], "expect": {"request.candidate": "h1", "head.root": "h3"} },
+            { "event": {"type": "accepted", "id": "q1", "result": {"kind": "accepted", "root": "h1", "update": "u1", "digests": ["f1", "q1"]}}, "state": "accepted-pending-apply", "effects": ["apply"], "expect": {"head.root": "h3"} },
+            { "event": {"type": "applied"}, "state": "locally-pending", "effects": ["schedule"], "expect": {"base.update": "u1", "head.root": "h3"} },
+            { "event": {"type": "publishDelayElapsed"}, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": {"preparing": true} },
+            { "event": {"type": "requestPersisted", "request": {"id": "q2", "base": "u1", "candidate": "h3", "digests": ["q2"]}}, "state": "prepared", "effects": ["submit"], "expect": {"request.digests": ["q2"], "request.base": "u1"} }
+          ]
+        },
+        {
+          "name": "watch delivers an adopted digest before the response",
+          "initial": {"kind": "prepared", "base": {"root": "A", "update": "uA"}, "request": {"id": "q1", "base": "uA", "candidate": "h1", "digests": ["f1", "q1"]}, "transportAvailable": true},
+          "steps": [
+            { "event": {"type": "submitStarted", "id": "q1"}, "state": "submitting", "effects": [] },
+            { "event": {"type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["f1"], "transitions": true}, "state": "accepted-pending-apply", "effects": ["apply"], "expect": {"result.update": "u1", "request.digests": ["f1", "q1"]} },
+            { "event": {"type": "accepted", "id": "q1", "result": {"kind": "accepted", "root": "h1", "update": "u1", "digests": ["f1", "q1"]}}, "state": "accepted-pending-apply", "effects": [] },
+            { "event": {"type": "applied"}, "state": "current", "effects": [], "expect": {"base.root": "h1", "base.update": "u1"} },
+            { "event": {"type": "watch", "cursor": "c1", "root": "h1", "update": "u1", "digests": ["f1", "q1"], "transitions": true}, "state": "current", "effects": [] }
           ]
         }
       ]

@@ -1,9 +1,6 @@
-import { stat } from "node:fs/promises";
 import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
-  BacklinkEntry,
-  BacklinksPage,
   ChildrenPage,
   ContentWorkspaceOperation,
   MutationEffect,
@@ -12,11 +9,8 @@ import type {
   NodeRef,
   NodeResponse,
   NodeWriteRequest,
-  RecoveryEntry,
-  RecoveryPage,
   LocalTreeDescriptor,
   TreeID,
-  SearchPage,
   StructuralWorkspaceOperation,
   WorkspaceOperation,
 } from "@arbor/core";
@@ -25,6 +19,7 @@ import {
   canonicalNodePath,
   applySourceEdits,
   isPageID,
+  nodePathFromPhysical,
   pageIDFromStableKey,
   pageIDStableKey,
   resolveLogicalURL,
@@ -41,6 +36,8 @@ import {
   type FsMutationRequest,
   type FsWriteResult,
   MutationJournal,
+  type SnapshotObjectIndex,
+  snapshotDirectory,
   type WorkspaceDiscovery,
   WorkspaceFS,
 } from "@arbor/fs";
@@ -48,13 +45,12 @@ import { mintPageID, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import {
   ProjectionProviderError,
   type ProjectionWriteTarget,
-  WorkspaceIndex,
+  ObjectIndex,
   workspaceState,
 } from "@arbor/stores";
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
-import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import { ProtocolError, RevisionConflictError } from "./protocol-error.ts";
 import { generateTreeTypes, generatedTypeDeclarationPath } from "./generated-types.ts";
 
@@ -62,7 +58,7 @@ export { ProtocolError, RevisionConflictError } from "./protocol-error.ts";
 import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
 import { writeFilesystemProperties } from "./filesystem-property-write.ts";
 import { NodeProviderRouter } from "./node-provider-router.ts";
-import { resolveTreePath } from "@arbor/core/path";
+import { resolveTreePath, toTreePath } from "@arbor/core/path";
 
 
 const EMPTY_REVISION = revisionOf("");
@@ -80,7 +76,11 @@ export interface WorkspaceOptions {
   treeDescriptor?: Partial<LocalTreeDescriptor>;
   /** Reader-local child placements which are not content owned by this tree. */
   excludedRoots?: readonly string[];
+  /** Interval for the uncached object-index revalidation walk; 0 disables it. */
+  objectRevalidationMs?: number;
 }
+
+const DEFAULT_OBJECT_REVALIDATION_MS = 30 * 60_000;
 
 export interface ConfirmedSourcePatch {
   baseSource: string;
@@ -97,7 +97,7 @@ export class Workspace implements AsyncDisposable {
   readonly fs: WorkspaceFS;
   readonly mutations: MutationJournal;
   private stateDirectory: string;
-  private index: WorkspaceIndex;
+  private index: ObjectIndex;
   private surface: FilesystemNodeSurface;
   private provider: NodeProviderRouter;
   private idOwners = new Map<string, string>();
@@ -111,8 +111,10 @@ export class Workspace implements AsyncDisposable {
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribeFS: () => void;
   private faultInjector?: WorkspaceOptions["faultInjector"];
+  private objectRevalidationTimer?: ReturnType<typeof setInterval>;
+  private objectRevalidation?: Promise<void>;
 
-  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, index: WorkspaceIndex, options: WorkspaceOptions) {
+  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, index: ObjectIndex, options: WorkspaceOptions) {
     this.root = root;
     this.events = options.events ?? new EventBus();
     this.tree = options.tree ?? `rt_${sha256(root).slice(0, 10)}`;
@@ -127,6 +129,11 @@ export class Workspace implements AsyncDisposable {
     this.index = index;
     this.faultInjector = options.faultInjector;
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
+    const revalidationMs = options.objectRevalidationMs ?? DEFAULT_OBJECT_REVALIDATION_MS;
+    if (revalidationMs > 0) {
+      this.objectRevalidationTimer = setInterval(() => { void this.revalidateObjectIndex().catch(() => {}); }, revalidationMs);
+      this.objectRevalidationTimer.unref?.();
+    }
     this.surface = new FilesystemNodeSurface({
       tree: this.tree,
       enclosingTree: () => this.descriptor(),
@@ -168,18 +175,64 @@ export class Workspace implements AsyncDisposable {
       excludedRoots: options.excludedRoots,
     });
     const discovery = fs.startupDiscovery();
-    const index = new WorkspaceIndex(fs.root, join(stateDirectory, "index.sqlite"));
+    const index = new ObjectIndex(join(stateDirectory, "index.sqlite"));
     const workspace = new Workspace(fs.root, stateDirectory, fs, index, {
       ...options,
       tree: options.tree ?? state.identity.rootID,
       displayName: options.displayName ?? await rootDisplayName(fs.root),
     });
     workspace.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    const startupTasks: Promise<unknown>[] = [index.rebuild(discovery)];
-    if (workspace.discovery === "recursive") startupTasks.push(workspace.generateTypes(discovery));
-    await Promise.all(startupTasks);
+    if (workspace.discovery === "recursive") await workspace.generateTypes(discovery);
     await workspace.finishRecoveredMutations();
+    // The object index is never authority; the first walk after open audits it.
+    void workspace.revalidateObjectIndex().catch(() => {});
     return workspace;
+  }
+
+  /** The object-store rows that `snapshotDirectory` reads and writes for this root. */
+  objectIndex(): SnapshotObjectIndex {
+    return {
+      fileHash: (absolute, info) => this.index.objectRow(absolute, info)?.hash,
+      remember: (absolute, kind, info, hash) => this.index.rememberObject(absolute, kind, info, hash),
+    };
+  }
+
+  /** Direct access for hash lookups by the object cache. */
+  objectRows(): Pick<ObjectIndex, "lookupHash" | "forgetObject" | "storedObjectHash"> {
+    return this.index;
+  }
+
+  /**
+   * Recompute every file hash with an uncached walk, report each row that
+   * disagrees as a diagnostic event, and rewrite the row. Concurrent calls
+   * share one walk.
+   */
+  revalidateObjectIndex(): Promise<void> {
+    return this.objectRevalidation ??= (async () => {
+      const audited = new Set<string>();
+      const auditor: SnapshotObjectIndex = {
+        fileHash: () => undefined,
+        remember: (absolute, kind, info, hash) => {
+          if (kind !== "file") return;
+          audited.add(absolute);
+          const stored = this.index.storedObjectHash(absolute);
+          if (stored && stored.kind === "file" && stored.hash !== hash) {
+            this.events.emit({
+              tree: this.tree,
+              kind: "diagnostic",
+              ref: this.mutationRef(nodePathFromPhysical(toTreePath(this.root, absolute))),
+              origin: "sync",
+            });
+          }
+          this.index.rememberObject(absolute, "file", info, hash);
+        },
+      };
+      // Boundaries only shape directory objects, so the plain walk audits file rows exactly.
+      await snapshotDirectory(this.root, new Map(), this.excludedRoots, undefined, auditor);
+      for (const path of this.index.storedObjectPaths("file")) {
+        if (!audited.has(path)) this.index.forgetObject(path);
+      }
+    })().finally(() => { this.objectRevalidation = undefined; });
   }
 
   descriptor(): LocalTreeDescriptor {
@@ -207,7 +260,7 @@ export class Workspace implements AsyncDisposable {
     if (this.discovery === "recursive") return;
     const discovery = await this.fs.discoverRecursively();
     this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    await Promise.all([this.index.rebuild(discovery), this.generateTypes(discovery)]);
+    await this.generateTypes(discovery);
     this.discovery = "recursive";
   }
 
@@ -217,9 +270,7 @@ export class Workspace implements AsyncDisposable {
     this.excludedRoots = next;
     const discovery = await this.fs.setExcludedRoots(next);
     this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    if (this.discovery === "recursive") {
-      await Promise.all([this.index.rebuild(discovery), this.generateTypes(discovery)]);
-    }
+    if (this.discovery === "recursive") await this.generateTypes(discovery);
   }
 
   async refreshDisplayName(): Promise<string> {
@@ -242,108 +293,6 @@ export class Workspace implements AsyncDisposable {
       }
       throw error;
     }
-  }
-
-  async searchPage(query: string, cursor?: string | null): Promise<SearchPage> {
-    const observedThrough = this.events.currentCursor();
-    const offset = decodePageCursor(cursor, `search:${query}`);
-    const results = this.index.search(query, 30, offset).map((result) => {
-      const pageID = this.pathPageIDs.get(result.path);
-      return {
-        ...result,
-        backlinkCount: this.index.backlinkCount(result.path, pageID, this.tree, true),
-        ref: {
-          tree: this.tree,
-          path: result.path,
-          stableKey: pageID ? pageIDStableKey(pageID) : null,
-        },
-      };
-    });
-    return {
-      results,
-      nextCursor: results.length === 30 ? encodePageCursor(`search:${query}`, offset + results.length) : null,
-      observedThrough,
-    };
-  }
-
-  async backlinksPage(ref: NodeRef, cursor?: string | null): Promise<BacklinksPage> {
-    const observedThrough = this.events.currentCursor();
-    const path = await this.resolveRef(ref);
-    const target = await this.expandedNode(path);
-    const pageID = isPageID(target.document?.frontmatter.id)
-      ? target.document.frontmatter.id
-      : this.pathPageIDs.get(path);
-    const offset = decodePageCursor(cursor, `backlinks:${path}:${pageID ?? ""}`);
-    const entries = this.index.backlinks(path, pageID, this.tree, true, 30, offset).map((entry) => {
-      const sourcePageID = this.pathPageIDs.get(entry.path);
-      return {
-        ref: {
-          tree: this.tree,
-          path: entry.path,
-          stableKey: sourcePageID ? pageIDStableKey(sourcePageID) : null,
-        },
-        title: entry.title,
-        context: entry.context,
-      };
-    });
-    return {
-      target: { tree: this.tree, path, stableKey: pageID ? pageIDStableKey(pageID) : null },
-      entries,
-      nextCursor: entries.length === 30
-        ? encodePageCursor(`backlinks:${path}:${pageID ?? ""}`, offset + entries.length)
-        : null,
-      observedThrough,
-    };
-  }
-
-  backlinksTo(target: { tree: string; path: string; pageID?: string }, limit = 30): BacklinkEntry[] {
-    return this.index.backlinks(target.path, target.pageID, target.tree, false, limit, 0).map((entry) => {
-      const sourcePageID = this.pathPageIDs.get(entry.path);
-      return {
-        ref: {
-          tree: this.tree,
-          path: entry.path,
-          stableKey: sourcePageID ? pageIDStableKey(sourcePageID) : null,
-        },
-        title: entry.title,
-        context: entry.context,
-      };
-    });
-  }
-
-  backlinkCountTo(target: { tree: string; path: string; pageID?: string }): number {
-    return this.index.backlinkCount(target.path, target.pageID, target.tree, false);
-  }
-
-  async recoveryPage(
-    ref: NodeRef,
-    recursive = false,
-    cursor?: string | null,
-  ): Promise<RecoveryPage> {
-    const observedThrough = this.events.currentCursor();
-    const path = await this.resolveRef(ref);
-    const snapshot = await this.expandedNode(path);
-    if (recursive && snapshot.kind !== "directory") {
-      throw new ProtocolError("invalid-reference", "Recursive recovery requires a directory", 400, { path });
-    }
-    const key = `recovery:${path}:${recursive ? "subtree" : "node"}`;
-    const offset = decodePageCursor(cursor, key);
-    const allEntries = recursive
-      ? await this.subtreeRecoveryEntries(path)
-      : await this.blockRecoveryEntries(path);
-    allEntries.sort((a, b) => b.changedAt - a.changedAt || a.ref.path.localeCompare(b.ref.path));
-    const entries = allEntries.slice(offset, offset + 100);
-    const nextOffset = offset + entries.length;
-    return {
-      ref: {
-        tree: this.tree,
-        path,
-        stableKey: isPageID(snapshot.document?.frontmatter.id) ? pageIDStableKey(snapshot.document.frontmatter.id) : null,
-      },
-      entries,
-      nextCursor: nextOffset < allEntries.length ? encodePageCursor(key, nextOffset) : null,
-      observedThrough,
-    };
   }
 
   async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
@@ -376,7 +325,6 @@ export class Workspace implements AsyncDisposable {
     }
 
     await this.protocolFault("protocol:preparation");
-    const linkHealingSources = await this.linkHealingSources(request.operations);
     let materializationFaulted = false;
     const effects = await this.performProtocolOperations(
       request.operations,
@@ -390,8 +338,7 @@ export class Workspace implements AsyncDisposable {
         await this.mutations.markExpected(request.mutationID, requestHash, expected);
       },
     );
-    await this.refreshDerivedViews(request.operations, effects);
-    await this.proactivelyHealLinks(linkHealingSources, effects);
+    await this.refreshDerivedViews(request.operations);
     await this.mutations.markMaterialized(request.mutationID, requestHash, effects);
     if (!materializationFaulted) await this.protocolFault("protocol:materialized");
     return this.completeMaterialized(request.mutationID, requestHash, effects, "api");
@@ -439,14 +386,11 @@ export class Workspace implements AsyncDisposable {
 
   /**
    * A successful mutation receipt is also the read-after-write boundary for
-   * search, backlinks, PageID resolution, and generated collection types.
-   * Filesystem notifications remain important for external edits, but local
-   * API callers must not race the asynchronous watcher after acknowledgement.
+   * PageID resolution and generated collection types. Filesystem
+   * notifications remain important for external edits, but local callers
+   * must not race the asynchronous watcher after acknowledgement.
    */
-  private async refreshDerivedViews(
-    operations: WorkspaceOperation[],
-    effects: MutationEffect[],
-  ): Promise<void> {
+  private async refreshDerivedViews(operations: WorkspaceOperation[]): Promise<void> {
     const contentOnly = operations.every((operation) =>
       operation.op === "writeMarkdown"
       || operation.op === "writeProperties"
@@ -454,20 +398,10 @@ export class Workspace implements AsyncDisposable {
       || operation.op === "restoreRecovery"
       || operation.op === "ensureDocumentIdentity"
     );
-    if (contentOnly) {
-      for (const effect of effects) {
-        const resolved = await this.fs.resolve(effect.ref.path);
-        if (resolved.kind === "missing") continue;
-        const absolute = resolved.kind === "directory" || resolved.kind === "markdown"
-          ? resolved.bodyPath
-          : resolved.absolutePath;
-        if (absolute) await this.index.updateAbsolute(absolute);
-      }
-      return;
-    }
+    if (contentOnly) return;
     const discovery = await this.fs.discoverRecursively();
     this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    await Promise.all([this.index.rebuild(discovery), this.generateTypes(discovery)]);
+    await this.generateTypes(discovery);
   }
 
   async importV1(
@@ -545,8 +479,6 @@ export class Workspace implements AsyncDisposable {
     return this.surface.expandedNode(inputPath);
   }
 
-  search(query: string, limit = 30) { return this.index.search(query, limit); }
-
   private async write(
     inputPath: string,
     request: NodeWriteRequest,
@@ -612,73 +544,6 @@ export class Workspace implements AsyncDisposable {
       return { bytes: read.bytes, revision: read.byteRevision, path: read.node.path };
     }
     return null;
-  }
-
-  /** Physical Wire path for the Markdown body represented by one logical document route. */
-  async wireDocumentPath(inputPath: string): Promise<string> {
-    const read = await this.fs.read(inputPath);
-    const physical = read.node.kind === "file" ? read.node.absolutePath : read.node.bodyPath;
-    if (!physical || !read.bytes) throw new Error(`Document has no stored file body: ${inputPath}`);
-    const path = relative(this.root, physical);
-    if (!path || path === ".." || path.startsWith("../") || path.startsWith("..\\")) {
-      throw new Error(`Document body escapes its tree: ${inputPath}`);
-    }
-    return `/${path.split("\\").join("/")}`;
-  }
-
-  recovery(inputPath: string) { return this.fs.recovery(inputPath); }
-
-  private async blockRecoveryEntries(path: string): Promise<RecoveryEntry[]> {
-    const pageID = this.pathPageIDs.get(path);
-    const ref = { tree: this.tree, path, stableKey: pageID ? pageIDStableKey(pageID) : null };
-    return (await this.recovery(path)).map((entry) => ({
-      kind: "block" as const,
-      ref,
-      ...entry,
-    }));
-  }
-
-  private async subtreeRecoveryEntries(path: string): Promise<RecoveryEntry[]> {
-    const entries: RecoveryEntry[] = [];
-    const visitDocuments = async (currentPath: string): Promise<void> => {
-      const resolved = await this.fs.resolve(currentPath);
-      if (resolved.kind === "missing" || resolved.materialization === "placeholder") return;
-      if (resolved.kind === "markdown" || resolved.kind === "directory") {
-        entries.push(...await this.blockRecoveryEntries(currentPath));
-      }
-      if (resolved.kind !== "directory") return;
-      for (const child of await this.fs.list(currentPath)) {
-        await visitDocuments(child.path);
-      }
-    };
-    await visitDocuments(path);
-
-    const trashBase = path === "/" ? "/Trash" : `/Trash${path}`;
-    const trashNode = await this.fs.resolve(trashBase);
-    if (trashNode.kind !== "directory") return entries;
-    const visitTrash = async (currentPath: string): Promise<void> => {
-      const resolved = await this.fs.resolve(currentPath);
-      if (resolved.kind === "missing") return;
-      const info = await stat(resolved.absolutePath).catch(() => null);
-      const pageID = this.pathPageIDs.get(currentPath);
-      entries.push({
-        kind: "trash",
-        ref: { tree: this.tree, path: currentPath, stableKey: pageID ? pageIDStableKey(pageID) : null },
-        originalPath: currentPath.slice("/Trash".length) || "/",
-        nodeKind: resolved.kind === "markdown" || resolved.kind === "directory" || resolved.kind === "file"
-          ? resolved.kind
-          : "file",
-        changedAt: (info?.mtimeMs ?? 0) / 1_000,
-      });
-      if (resolved.kind !== "directory") return;
-      for (const child of await this.fs.list(currentPath)) {
-        await visitTrash(child.path);
-      }
-    };
-    for (const child of await this.fs.list(trashBase)) {
-      await visitTrash(child.path);
-    }
-    return entries;
   }
 
   private async restoreBlock(
@@ -1083,6 +948,8 @@ export class Workspace implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    if (this.objectRevalidationTimer) clearInterval(this.objectRevalidationTimer);
+    if (this.objectRevalidation) await this.objectRevalidation.catch(() => {});
     for (const timer of this.healingTimers.values()) clearTimeout(timer);
     this.unsubscribeFS();
     this.index.close();
@@ -1120,26 +987,17 @@ export class Workspace implements AsyncDisposable {
   private async handleFsEvent(event: FsEvent): Promise<void> {
     if (event.path === "/") this.displayName = await rootDisplayName(this.root);
     const publish = event.origin !== "local-api";
-    const updateIndex = async (path: string) => {
-      const resolved = await this.fs.resolve(path);
-      const absolute = resolved.kind === "directory" ? resolved.bodyPath : resolved.kind === "markdown" ? resolved.bodyPath : resolved.absolutePath;
-      if (absolute) await this.index.updateAbsolute(absolute);
-      else if (event.previousPath) {
-        const oldBody = resolveTreePath(this.root, `${event.previousPath}.md`);
-        await this.index.updateAbsolute(oldBody);
-      }
-    };
+    if (event.type !== "batch" && event.type !== "diagnostic") this.forgetObjectRows(event.path, event.previousPath);
     if (event.type === "batch") {
+      for (const change of event.changes ?? []) this.forgetObjectRows(change.path, change.previousPath);
       try {
         const discovery = await this.fs.discoverRecursively();
         this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-        await Promise.all([
-          this.index.rebuild(discovery),
-          this.generateTypes(discovery),
-        ]);
+        await this.generateTypes(discovery);
       } catch {}
-    } else if (event.type === "moved" || event.type === "deleted") await this.index.rebuild().catch(() => {});
-    else if (event.type !== "diagnostic") await updateIndex(event.path).catch(() => {});
+      // A batch means the watcher overflowed or gapped; audit the object rows.
+      void this.revalidateObjectIndex().catch(() => {});
+    }
     if (!publish) return;
     if (event.type === "batch") {
       for (const change of event.changes ?? []) {
@@ -1163,36 +1021,20 @@ export class Workspace implements AsyncDisposable {
     });
   }
 
-  private async linkHealingSources(operations: readonly WorkspaceOperation[]): Promise<Set<string>> {
-    const sources = new Set<string>();
-    for (const operation of operations) {
-      const refs = operation.op === "rename"
-        ? [operation.ref]
-        : operation.op === "move" ? operation.refs : [];
-      for (const ref of refs) {
-        const path = await this.resolveRef(ref);
-        const pageID = pageIDFromStableKey(ref.stableKey) ?? this.pathPageIDs.get(path);
-        let offset = 0;
-        for (;;) {
-          const page = this.index.backlinks(path, pageID, this.tree, true, 100, offset);
-          for (const entry of page) sources.add(entry.path);
-          if (page.length < 100) break;
-          offset += page.length;
-        }
-      }
+  /** Drop object rows for the spellings a logical path may occupy on disk. */
+  private forgetObjectRows(...paths: Array<string | undefined>): void {
+    for (const path of paths) {
+      if (!path) continue;
+      let absolute: string;
+      try { absolute = resolveTreePath(this.root, path); } catch { continue; }
+      // A watcher event can arrive after dispose closed the index; a missed
+      // forget is harmless because the stat tuple no longer matches.
+      try {
+        this.index.forgetObject(absolute);
+        this.index.forgetObject(`${absolute}.md`);
+        this.index.forgetObject(join(absolute, "_index.md"));
+      } catch {}
     }
-    return sources;
-  }
-
-  private async proactivelyHealLinks(sources: ReadonlySet<string>, effects: readonly MutationEffect[]): Promise<void> {
-    const movedPaths = new Map(effects.flatMap((effect) =>
-      effect.previousPath ? [[effect.previousPath, effect.ref.path] as const] : [],
-    ));
-    const paths = new Set([...sources].map((path) => movedPaths.get(path) ?? path));
-    for (const effect of effects) if (effect.previousPath) paths.add(effect.ref.path);
-    await Promise.all([...paths].map(async (path) => {
-      try { await this.expandedNode(path); } catch {}
-    }));
   }
 
   private scheduleLinkHealing(treePath: string, revision: string, document: NonNullable<ExpandedNode["document"]>): void {

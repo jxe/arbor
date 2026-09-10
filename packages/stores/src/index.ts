@@ -13,5 +13,4 @@ export * from "./wire-collection-file.ts";
 export * from "./projection-provider-host.ts";
 export * from "./providers/discovery.ts";
 export * from "./providers/types.ts";
-export * from "./indexer.ts";
-export * from "./visits.ts";
+export * from "./object-index.ts";

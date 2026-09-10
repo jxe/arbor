@@ -1,0 +1,32 @@
+{
+  "tree": {
+    "id": "tr_notes7f3q2ab7c",
+    "configurationTree": "tr_cfg7f3q2ab7cdefg",
+    "kind": "ordinary",
+    "access": "write",
+    "name": "notes",
+    "osPath": "/Users/joe/notes",
+    "canonical": {
+      "path": "/~joe/notes",
+      "endpoint": "https://notes.example",
+      "parentTree": null
+    },
+    "placement": "placed",
+    "sync": "idle",
+    "root": "sha256:5dd2bd834c92a156958f27eeebe8c0c9a05410bcbc5a874b6d636c98b10bea20",
+    "update": "upd_0001"
+  },
+  "accepted": {
+    "root": "sha256:5dd2bd834c92a156958f27eeebe8c0c9a05410bcbc5a874b6d636c98b10bea20",
+    "update": "upd_0001",
+    "cursor": "upd_0001"
+  },
+  "spine": "omdvYmplY3RzgljVomR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjY5ZmFjMTAzZWNiMDM0Y2JmOTM5MTZhNWUwM2E1ZDMxOGU5ZjdjY2NjNWUyYTZjZjhhOTBjOWY2NTg1OTY2Y2RkbmFtZWlfaW5kZXgubWSiZGhhc2h4R3NoYTI1NjpmMDVmY2FiZjcyOTE3ZGM0NWIxNjQyMzAxZDg0ODQxNGJhZTE5MzYzYjEyMzJlNDUzOWU4YjY3MTM0NzI3MmJlZG5hbWVpcGhvdG8uYmluWBqiZHR5cGVkZmlsZWVieXRlc0gjIE5vdGVzCmd2ZXJzaW9uAQ==",
+  "files": {
+    "/photo.bin": {
+      "size": 5,
+      "mtime": 1725192000000
+    }
+  },
+  "observedThrough": "1f8b3c6d-observed:7"
+}

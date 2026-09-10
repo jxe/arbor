@@ -18,9 +18,6 @@ import {
   applyTransitionPayload,
   decodeUpdateConflictJSON,
 } from "@arbor/wire";
-import type { FrozenEditorAdmission } from "./editor-admission.ts";
-import type { Hash } from "@arbor/core";
-import type { AcceptedUpdate } from "@arbor/wire";
 
 /** The durable pending update is exactly the wire request body it will become. */
 export type PendingTreeUpdate = CandidateUpdateJSON & {
@@ -32,7 +29,7 @@ export type PendingTreeUpdate = CandidateUpdateJSON & {
    * preceding submitted candidate.
    */
   successors?: CandidateUpdateJSON[];
-  /** Explicit Local Arbor API intent remains authoritative during an editor epoch. */
+  /** Retained for state files written by the deleted editor path; never set by the daemon now. */
   origin?: "local-api";
 };
 
@@ -49,9 +46,6 @@ interface TreeSyncState {
   conflict?: StoredTreeConflict;
   conflictMaterial?: StoredTreeConflictMaterial;
   accepted?: AcceptedTreeObjects;
-  editorAdmissions?: FrozenEditorAdmission[];
-  /** Recent Canopy request digests whose accepted state was materialized locally. */
-  acceptedRequestDigests?: Hash[];
 }
 
 export interface TreeConflictMaterial {
@@ -68,8 +62,6 @@ interface StoredTreeConflictMaterial {
   mine: TreeSnapshotJSON;
   draft: TreeSnapshotJSON;
 }
-
-const MAX_ACCEPTED_REQUEST_DIGESTS = 256;
 
 function safeTreeID(tree: string): string {
   return Buffer.from(tree).toString("base64url");
@@ -91,7 +83,17 @@ function serialized<T>(tree: string, task: () => Promise<T>): Promise<T> {
 
 async function load(tree: string): Promise<TreeSyncState> {
   try {
-    return JSON.parse(await readFile(pathFor(tree), "utf8")) as TreeSyncState;
+    // Older state files carry keys the deleted editor path wrote
+    // (`editorAdmissions`, `acceptedRequestDigests`); only the known keys are
+    // read, and the next save drops the rest.
+    const stored = JSON.parse(await readFile(pathFor(tree), "utf8")) as TreeSyncState;
+    const { pending, conflict, conflictMaterial, accepted } = stored;
+    return {
+      ...(pending ? { pending } : {}),
+      ...(conflict ? { conflict } : {}),
+      ...(conflictMaterial ? { conflictMaterial } : {}),
+      ...(accepted ? { accepted } : {}),
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw error;
@@ -108,8 +110,6 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
     && !state.conflict
     && !state.conflictMaterial
     && !state.accepted
-    && !state.editorAdmissions?.length
-    && !state.acceptedRequestDigests?.length
   ) {
     await rm(destination, { force: true });
     return;
@@ -181,132 +181,6 @@ export function pendingTreeUpdate(tree: string): Promise<PendingTreeUpdate | und
 
 export function acceptedTreeObjects(tree: string): Promise<AcceptedTreeObjects | undefined> {
   return serialized(tree, async () => (await load(tree)).accepted);
-}
-
-/** Recent materialized request digests let reconnecting editor sessions recover their own fence. */
-export function acceptedRequestDigests(tree: string): Promise<Hash[]> {
-  return serialized(tree, async () => [...((await load(tree)).acceptedRequestDigests ?? [])]);
-}
-
-export function rememberAcceptedRequestDigests(tree: string, digests: readonly Hash[]): Promise<void> {
-  if (!digests.length) return Promise.resolve();
-  return serialized(tree, async () => {
-    const state = await load(tree);
-    const accepted = [...new Set([...(state.acceptedRequestDigests ?? []), ...digests])]
-      .slice(-MAX_ACCEPTED_REQUEST_DIGESTS);
-    await save(tree, { ...state, acceptedRequestDigests: accepted });
-  });
-}
-
-/** Ordered, durable editor candidates that have not yet received an authority decision. */
-export function pendingEditorAdmissions(tree: string): Promise<FrozenEditorAdmission[]> {
-  return serialized(tree, async () => [...((await load(tree)).editorAdmissions ?? [])]);
-}
-
-/**
- * Build and append one durable generation while holding the tree journal lock.
- * The builder sees the exact preceding local order, so two simultaneous editor
- * requests cannot both fork the same pending head before either is persisted.
- */
-export function appendPendingEditorAdmission(
-  tree: string,
-  build: (admissions: readonly FrozenEditorAdmission[]) => FrozenEditorAdmission,
-): Promise<FrozenEditorAdmission> {
-  return serialized(tree, async () => {
-    const state = await load(tree);
-    let admissions = [...(state.editorAdmissions ?? [])];
-    const acknowledged = admissions.length > 0 && admissions.every((candidate) => candidate.acknowledged);
-    const standalone = acknowledged ? build([]) : undefined;
-    const startsNewEpoch = standalone !== undefined && admissions.every((candidate) => candidate.id !== standalone.id);
-    let admission = startsNewEpoch ? standalone : build(admissions);
-    if (startsNewEpoch) admissions = [];
-    const existing = admissions.find((candidate) => candidate.id === admission.id && candidate.request.candidate === admission.request.candidate);
-    if (existing) return existing;
-    // Compaction before request preparation: a generation from the same
-    // editor that no request has carried yet is replaced by this newer one,
-    // so one candidate represents one intentional accepted-history boundary.
-    // Anything transmitted is immutable and stays as the prefix.
-    let unsent = admissions.length;
-    while (unsent > 0) {
-      const candidate = admissions[unsent - 1]!;
-      if (candidate.transmitted || candidate.acknowledged || candidate.editorID !== admission.editorID || candidate.id !== admission.id) break;
-      unsent -= 1;
-    }
-    if (unsent < admissions.length) {
-      admissions = admissions.slice(0, unsent);
-      admission = build(admissions);
-    }
-    admissions.push(admission);
-    await save(tree, { ...state, editorAdmissions: admissions });
-    return admission;
-  });
-}
-
-/** Persist that a request carrying these elements is about to be sent; they can no longer be compacted. */
-export function markEditorAdmissionsTransmitted(
-  tree: string,
-  id: string,
-  candidates: readonly string[],
-): Promise<void> {
-  return serialized(tree, async () => {
-    const state = await load(tree);
-    const admissions = [...(state.editorAdmissions ?? [])];
-    for (const candidate of candidates) {
-      const index = admissions.findIndex((admission) => admission.id === id && admission.request.candidate === candidate);
-      if (index >= 0) admissions[index] = { ...admissions[index]!, transmitted: true };
-    }
-    await save(tree, { ...state, editorAdmissions: admissions });
-  });
-}
-
-/** Mark an accepted prefix but retain it so a later in-flight generation can repeat the same epoch prefix. */
-export function acknowledgePendingEditorAdmissions(
-  tree: string,
-  id: string,
-  candidates: readonly string[],
-  accepted: readonly AcceptedUpdate[] = [],
-): Promise<void> {
-  return serialized(tree, async () => {
-    const state = await load(tree);
-    const admissions = [...(state.editorAdmissions ?? [])];
-    for (const [decisionIndex, candidate] of candidates.entries()) {
-      const index = admissions.findIndex((admission) => admission.id === id && admission.request.candidate === candidate);
-      if (index >= 0) admissions[index] = {
-        ...admissions[index]!,
-        acknowledged: true,
-        ...(accepted[decisionIndex] ? { accepted: accepted[decisionIndex] } : {}),
-      };
-    }
-    await save(tree, { ...state, editorAdmissions: admissions });
-  });
-}
-
-export function clearPendingEditorAdmissions(tree: string): Promise<void> {
-  return serialized(tree, async () => {
-    const state = await load(tree);
-    delete state.editorAdmissions;
-    await save(tree, state);
-  });
-}
-
-/**
- * Retire one materialized acknowledged prefix without deleting a newer
- * admission that may have arrived while the authority response was in flight.
- */
-export function retireAcknowledgedEditorAdmissions(
-  tree: string,
-  acknowledged: readonly Pick<FrozenEditorAdmission, "id" | "request">[],
-): Promise<void> {
-  return serialized(tree, async () => {
-    const state = await load(tree);
-    const keys = new Set(acknowledged.map((admission) => `${admission.id}:${admission.request.candidate}`));
-    const remaining = (state.editorAdmissions ?? []).filter((admission) =>
-      !admission.acknowledged || !keys.has(`${admission.id}:${admission.request.candidate}`)
-    );
-    if (remaining.length) state.editorAdmissions = remaining;
-    else delete state.editorAdmissions;
-    await save(tree, state);
-  });
 }
 
 export async function saveAcceptedTreeObjects(tree: string, snapshot: TreeSnapshot): Promise<void> {
