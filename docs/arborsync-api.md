@@ -3,6 +3,11 @@
 
 The current version is Arbor Sync REST v1.
 
+Arbor Sync makes placed folders content-addressable and keeps each one equal
+to Canopy's accepted root in both directions. Everything below is either that
+store's read surface (objects, bootstrap, credential) or the control surface
+for placements, accounts, and conflicts.
+
 Arbor Sync binds to loopback and rejects cross-origin browser requests. JSON is
 UTF-8. It rejects non-loopback `Host` headers so DNS rebinding cannot turn an
 attacker-controlled origin into a local file reader. Request URLs never contain
