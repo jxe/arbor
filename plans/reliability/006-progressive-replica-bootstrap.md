@@ -1,8 +1,18 @@
-# Reliability 006: Preview and resume initial replica bootstrap
+# Reliability 006: Preview and resume initial working-tree bootstrap
+
+> **Rescoped by [Native 022](../native/022-run-the-mac-app-as-a-working-tree-client.md)**:
+> the client is `WorkingTree` (package `ArborWorkingTree`), placement is
+> `WorkingTreePlacementService.place`, and steady-state synchronization is
+> `UpdateCoordinator`. This plan applies to iOS placement and to visits, where
+> the complete accepted snapshot still comes from Canopy in one body. On the
+> Mac the bootstrap is loopback from the daemon (`GET /v1/bootstrap`: a sparse
+> spine of directories and Markdown with every other file by hash) and is not
+> progressive; nothing here changes it. "Replica" below reads as "working
+> tree"; `Replicas/` is `WorkingTrees/`.
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. Keep
-> the initial download separate from a usable `ArborReplica`: a verified
+> the initial download separate from a usable `WorkingTree`: a verified
 > root-page preview may appear early, but editing, offline-ready status, and
 > normal synchronization begin only after the complete accepted snapshot has
 > been validated and atomically installed. [Reliability
@@ -39,9 +49,10 @@
 - **Depends on**: the current retained accepted-snapshot route and immutable
   object store; Step 2 deliberately widens tree-scoped object reads to retained
   accepted roots for preview and future Canopy-owned history
-- **Coordinates with**: Reliability 005; this plan owns the bootstrap
-  submachine and Reliability 005 owns the direct Canopy machine after the
-  `bootstrapInstalled` handoff
+- **Coordinates with**: Reliability 005 and Native 022; this plan owns the
+  bootstrap submachine for iOS placement and visits, and `UpdateCoordinator`
+  owns the update machine after the `bootstrapInstalled` handoff. The Mac's
+  loopback bootstrap is out of scope.
 - **Category**: startup latency, transfer recovery, durability, and native UX
 - **Planned at**: commit `9b7da49`, 2026-09-07
 

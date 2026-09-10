@@ -15,6 +15,15 @@
 > verify behavior from source and tests rather than assuming a commit contains
 > every foundation listed here.
 
+> **Rescope, 2026-09-09 (Native 022 Phase 7):** the daemon's editor conflict
+> path is gone. Arbor Sync no longer admits editor generations, emits
+> `accepted-merge-needs-review`, or holds an editor review; its
+> `/v1/conflicts` and `/v1/conflicts/resolve` review only the filesystem head
+> the daemon itself submitted, with `unattemptedCount` always `0`. Every
+> app-edit conflict is the working tree's own (`UpdateCoordinator` against
+> Canopy), so the remaining steps below apply to the native working-tree
+> client only; do not reintroduce daemon-side review for app edits.
+>
 > **Incremental status, 2026-09-08:** native Arbor now reconstructs and durably
 > caches the four complete graphs, presents actual content with per-path
 > Current/Mine/Both/Edit choices, assembles the reviewed failed element, and

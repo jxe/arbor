@@ -16,6 +16,8 @@ leaving them among active projects and themes.
   reorganization plans under their historical identifiers.
 - [`smaller-projects/`](smaller-projects/README.md) preserves completed
   smaller projects under their historical identifiers.
+- [`speed/`](speed/README.md) preserves completed and superseded speed plans
+  under their historical identifiers.
 - [`applications/`](applications/README.md) points from completed application
   phases to their durable outcome records.
 - [`interfaces/`](interfaces/README.md) preserves completed and explicitly

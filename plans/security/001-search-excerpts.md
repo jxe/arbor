@@ -20,6 +20,19 @@
 - **Category**: security
 - **Planned at**: commit `4247481`, 2026-07-31
 
+## Rescope (Native 022 Phase 7, 2026-09-09)
+
+The daemon's search route (`GET /v1/search`) and its FTS5 index
+(`packages/stores/src/indexer.ts`, tables `files`/`docs`/`links`) were deleted
+with the editor path; `packages/stores/src/object-index.ts` keeps only the
+object rows, and Arbor web is out of service until Native 022 Plan B. The
+"Current state" excerpts below describe the deleted code and are kept as the
+historical rationale. The requirement stands: search excerpts are inert data
+and highlights are rendered as elements, never as HTML strings. It applies now
+to the native search index (`ArborApp`'s search over its working tree) and,
+when Plan B rebuilds the web editor on `@arbor/working-tree`, to the client
+text index it introduces. Rewrite the steps against that code before executing.
+
 ## Why this matters
 
 The workspace search index builds each result excerpt with SQLite FTS5's

@@ -12,7 +12,8 @@
 
 ## Status
 
-- **Priority**: P2
+- **State**: SUPERSEDED by [Native 022](../../native/022-run-the-mac-app-as-a-working-tree-client.md); retired in its Phase 7 (2026-09-09). The daemon's search and backlink index (`files`, `docs`, `links`) was removed with the editor path; only the `objects` table remains as `ObjectIndex` in `packages/stores/src/object-index.ts`, revalidated by stat tuples rather than rebuilt.
+- **Priority**: was P2
 - **Effort**: M
 - **Risk**: MED — the FTS5 table is an external-content table, so index rows
   must be deleted with the *old* content or the index silently desynchronizes
