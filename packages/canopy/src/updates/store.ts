@@ -108,6 +108,13 @@ export class AcceptedUpdateStore {
     ).all(tree) as unknown[]).map((row) => this.row(row)!);
   }
 
+  /** Distinct roots of the tree's retained accepted updates, most recently accepted first. */
+  roots(tree: string): ObjectHash[] {
+    return (this.db.query(
+      "SELECT root FROM accepted_updates WHERE tree_id = ? GROUP BY root ORDER BY MAX(rowid) DESC",
+    ).all(tree) as Array<{ root: ObjectHash }>).map(({ root }) => root);
+  }
+
   /** Whether this exact root belongs to any retained accepted update of the tree. */
   hasRoot(tree: string, root: ObjectHash): boolean {
     return this.db.query(

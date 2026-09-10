@@ -13,7 +13,7 @@ import {
   type WireDirectoryEntry,
   type WireObject,
 } from "@arbor/wire";
-import { snapshotDirectory } from "@arbor/fs";
+import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 
 interface ExpectedMerge {
   conflicts: UpdateConflict[];
@@ -86,7 +86,7 @@ async function jsonCollectionFileSnapshot(rows: unknown[]): Promise<TreeSnapshot
       export const primaryKey = ["id"];
     `);
     await writeFile(join(directory, "_store.json"), `${JSON.stringify(rows, null, 2)}\n`);
-    return await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionFileDescriptor(root, name));
+    return await resolveSnapshot(await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionFileDescriptor(root, name)));
   } finally {
     await collections[Symbol.asyncDispose]();
     await rm(directory, { recursive: true, force: true });

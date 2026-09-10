@@ -8,7 +8,7 @@ import { ArborSyncDaemon } from "@arbor/arborsync";
 import { CanopyAccountStore, ProfileIdentityStore } from "@arbor/stores";
 import { WireClient } from "@arbor/wire";
 import { readAccountConfigGraphV2, snapshotAccountConfigV2 } from "../../../packages/canopy/src/account-policy-v2.ts";
-import { snapshotDirectory } from "@arbor/fs";
+import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 
 const ownerToken = "owner-device-credential";
@@ -57,7 +57,7 @@ beforeAll(async () => {
     { profile: `arbor://${aliceProfileTree}/`, handle: "alice" },
     { profile: `arbor://${bobProfileTree}/`, handle: "bob" },
   ]);
-  const next = await snapshotDirectory(source, new Map([[join(source, "~owner"), account.account.profileTree!]]));
+  const next = await resolveSnapshot(await snapshotDirectory(source, new Map([[join(source, "~owner"), account.account.profileTree!]])));
   await owner.submitUpdate(
     community.tree.id,
     community.tree.update,
@@ -84,7 +84,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const declaredTree = generateArborID("tr");
     const administratorID = generateArborID("dv");
     const administratorCredential = "locally-generated-bob-credential";
-    const profile = await snapshotDirectory(await profileFolder("bob", "person"));
+    const profile = await resolveSnapshot(await snapshotDirectory(await profileFolder("bob", "person")));
     const configuration = snapshotAccountConfigV2({
       account: { canopy: origin, profile: profileTree },
       trees: {
@@ -161,7 +161,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const treeSource = join(sandbox, "bob-notes");
     await mkdir(treeSource, { recursive: true });
     await writeFile(join(treeSource, "_index.md"), "# Bob's notes\n");
-    const activated = await administrator.submitUpdate(declaredTree, null, await snapshotDirectory(treeSource));
+    const activated = await administrator.submitUpdate(declaredTree, null, await resolveSnapshot(await snapshotDirectory(treeSource)));
     expect(activated.outcome).toBe("accepted");
     expect((await administrator.descriptor(declaredTree)).tree.canonical?.path).toBe("/~bob/notes");
   });
@@ -185,10 +185,9 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     await mkdir(profilePath, { recursive: true });
     process.env.ARBOR_DATA_HOME = home;
     await new ProfileIdentityStore().create(profilePath);
-    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    const service = await ArborSyncDaemon.open(profilePath, {}, { autoSync: false });
     const configurationTrees: string[] = [];
     try {
-      await service.openSession(profilePath);
       const localProfileTree = service.session.tree;
       const ownerAccount = running.canopy.accountByHandle("owner")!;
       const community = await owner.descriptor(running.canopy.community().id);
@@ -202,7 +201,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       const nested = new Map(running.canopy.list()
         .filter((tree) => tree.parentTree === community.tree.id && tree.canonicalPath)
         .map((tree) => [join(source, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
-      await owner.submitUpdate(community.tree.id, community.tree.update, await snapshotDirectory(source, nested));
+      await owner.submitUpdate(community.tree.id, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested)));
       expect(running.canopy.isReservedHandle("orphan")).toBe(false);
 
       await service.claimCanopyAccount(`${new URL(running.url).origin}/~charlie`, profilePath, "Charlie");
@@ -232,7 +231,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       const secondNested = new Map(running.canopy.list()
         .filter((tree) => tree.parentTree === communityAfterClaim.tree.id && tree.canonicalPath)
         .map((tree) => [join(secondSource, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
-      await owner.submitUpdate(communityAfterClaim.tree.id, communityAfterClaim.tree.update, await snapshotDirectory(secondSource, secondNested));
+      await owner.submitUpdate(communityAfterClaim.tree.id, communityAfterClaim.tree.update, await resolveSnapshot(await snapshotDirectory(secondSource, secondNested)));
       const retainedPlacements = `${configurationTree}: {}\n`;
       await writeFile(join(home, "placements.yaml"), retainedPlacements);
 
@@ -258,7 +257,7 @@ describe("profile invariants derived from root frontmatter", () => {
     const nested = new Map(running.canopy.list()
       .filter((candidate) => candidate.parentTree === tree && candidate.canonicalPath)
       .map((candidate) => [join(source, candidate.canonicalPath!.split("/").filter(Boolean).at(-1)!), candidate.id]));
-    return owner.submitUpdate(tree, current.tree.update, await snapshotDirectory(source, nested));
+    return owner.submitUpdate(tree, current.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested)));
   }
 
   test("a person profile listing members does not expand as a group ACL subject", async () => {
@@ -307,9 +306,9 @@ describe("self-certifying profile account proof", () => {
         { profile: `arbor://${targetAdminAccount.account.profileTree!}/`, handle: "target-admin" },
         { profile: `arbor://${identity.profileTree}/`, handle: "guest" },
       ]);
-      const targetCommunitySnapshot = await snapshotDirectory(targetCommunitySource, new Map([
+      const targetCommunitySnapshot = await resolveSnapshot(await snapshotDirectory(targetCommunitySource, new Map([
         [join(targetCommunitySource, "~target-admin"), targetAdminAccount.account.profileTree!],
-      ]));
+      ])));
       await targetAdmin.submitUpdate(targetCommunity.tree.id, targetCommunity.tree.update, targetCommunitySnapshot);
 
       const profileTree = identity.profileTree;

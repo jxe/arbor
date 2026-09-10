@@ -11,7 +11,7 @@ import {
   readAccountConfigGraph,
   snapshotAccountConfig,
 } from "../../../packages/canopy/src/account-policy.ts";
-import { snapshotDirectory } from "@arbor/fs";
+import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 
 const token = "owner-test-credential";
 let dataRoot: string;
@@ -85,8 +85,8 @@ async function readWatchFrames(url: string, count: number) {
 async function snapshotWithCollectionFiles(path: string) {
   const stores = new ProjectionProviderHost();
   try {
-    return await snapshotDirectory(path, new Map(), [], (directory, sourceName) =>
-      stores.collectionFileDescriptor(directory, sourceName));
+    return await resolveSnapshot(await snapshotDirectory(path, new Map(), [], (directory, sourceName) =>
+      stores.collectionFileDescriptor(directory, sourceName)));
   } finally {
     await stores[Symbol.asyncDispose]();
   }
@@ -201,7 +201,7 @@ describe("governed account-configuration Canopy server", () => {
     expect((await client.descriptor(account.account.configuration.id)).observedThrough).toBeTruthy();
   });
 
-  test("serves deterministic current and historical snapshots without widening object reads", async () => {
+  test("serves deterministic current and historical snapshots and retained-root objects", async () => {
     const baseline = await currentConfig();
     const treeID = baseline.current.tree.id;
     const snapshotURL = (root: string, tree = treeID) => `${running.url}/.arbor/trees/${tree}/snapshots/${root}`;
@@ -257,8 +257,16 @@ describe("governed account-configuration Canopy server", () => {
     expect(repeated.headers.get("etag")).toBe(first.headers.get("etag"));
 
     const historicalOnly = [...advancedSnapshot.objects.keys()].find((hash) => !baseline.snapshot.objects.has(hash))!;
+    const objectURL = `${running.url}/.arbor/trees/${treeID}/objects/${historicalOnly}`;
     expect((await fetch(snapshotURL(advanced.update.root), { headers: authenticated })).status).toBe(200);
-    expect((await fetch(`${running.url}/.arbor/trees/${treeID}/objects/${historicalOnly}`, { headers: authenticated })).status).toBe(404);
+    const historicalObject = await fetch(objectURL, { headers: authenticated });
+    const historicalBytes = new Uint8Array(await historicalObject.arrayBuffer());
+    expect(historicalObject.status).toBe(200);
+    expect(`sha256:${sha256(historicalBytes)}`).toBe(historicalOnly);
+    expect(Array.from(historicalBytes)).toEqual(Array.from(advancedSnapshot.objects.get(historicalOnly)!));
+    expect((await fetch(objectURL)).status).toBe(404);
+    expect((await fetch(objectURL, { headers: { authorization: "Bearer revoked-or-unknown" } })).status).toBe(404);
+    expect((await fetch(`${running.url}/.arbor/trees/${communityTree}/objects/${historicalOnly}`, { headers: authenticated })).status).toBe(404);
 
     const publicTree = baseline.account.account.community.id;
     const publicRoot = (await client.descriptor(publicTree)).tree.root;
@@ -285,6 +293,7 @@ describe("governed account-configuration Canopy server", () => {
     const pruned = await fetch(snapshotURL(advanced.update.root), { headers: authenticated });
     expect(pruned.status).toBe(404);
     expect(await pruned.text()).toBe("Not found");
+    expect((await fetch(objectURL, { headers: authenticated })).status).toBe(404);
   });
 
   test("replays consecutive accepted updates as one ordered transition batch", async () => {
@@ -383,7 +392,7 @@ describe("governed account-configuration Canopy server", () => {
 
     await mkdir(treePath);
     await writeFile(join(treePath, "note.md"), "---\nid: x7f3q2\n---\n\n# Activated\n");
-    const initial = await snapshotDirectory(treePath);
+    const initial = await resolveSnapshot(await snapshotDirectory(treePath));
     const activated = await client.submitUpdate(treeID, null, initial);
     expect(activated.outcome).toBe("accepted");
     expect(activated.update).toMatchObject({ tree: treeID, root: initial.root, previousRoot: null, kind: "initial" });
@@ -424,7 +433,7 @@ describe("governed account-configuration Canopy server", () => {
     await client.submitUpdate(
       treeID,
       beforeRename.tree.update,
-      await snapshotDirectory(treePath),
+      await resolveSnapshot(await snapshotDirectory(treePath)),
     );
     const healed = await fetch(`${running.url}${keyedOldPath}`, {
       headers: { "Arbor-Access-Link": linkSecret },
@@ -535,7 +544,7 @@ describe("governed account-configuration Canopy server", () => {
     const changedPath = join(dataRoot, "incompatible-tree");
     await mkdir(changedPath);
     await writeFile(join(changedPath, "note.md"), "Different\n");
-    await expect(client.submitUpdate(treeID, null, await snapshotDirectory(changedPath))).rejects.toThrow("conflict");
+    await expect(client.submitUpdate(treeID, null, await resolveSnapshot(await snapshotDirectory(changedPath)))).rejects.toThrow("conflict");
 
     const account = await client.account();
     expect(account.observedThrough).not.toBe(accepted.update.id);
@@ -578,7 +587,7 @@ describe("governed account-configuration Canopy server", () => {
     if (declared.outcome !== "accepted" && declared.outcome !== "merged") throw new Error("Expected an accepted update");
     await mkdir(treePath);
     await writeFile(join(treePath, "note.md"), "# Log order\n");
-    await client.submitUpdate(treeID, null, await snapshotDirectory(treePath));
+    await client.submitUpdate(treeID, null, await resolveSnapshot(await snapshotDirectory(treePath)));
     const afterActivation = await currentConfig();
     const third = await submitConfiguration(afterActivation.current, relabel(afterActivation.graph, "Log order three"));
     if (third.outcome !== "accepted" && third.outcome !== "merged") throw new Error("Expected an accepted update");
