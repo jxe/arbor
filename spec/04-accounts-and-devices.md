@@ -286,9 +286,13 @@ There is no top-level wrapper or format version. Grouping by configuration
 `TreeID`, rather than origin, permits several accounts at one Canopy and
 survives a Canopy-domain change. A value may later widen to a mapping such as
 `{ tree: tr_notes, projection: ... }` when a placement-specific option is
-needed. Arbor-managed replicas are still real local paths, normally beneath
-private state, and follow the same one-path-to-one-tree rule. This reference
-layout does not make OS paths portable or synchronized.
+needed. An Arbor-managed working tree that keeps its own state on disk (iOS)
+is still a real local path, normally beneath private state, and follows the
+same one-path-to-one-tree rule. A working tree that borrows a placed folder's
+object store instead of holding one (the Mac app opening a folder the daemon
+has placed) has no path of its own and is not a placement: the folder is the
+placement, and that working tree is one more client of the same tree. This
+reference layout does not make OS paths portable or synchronized.
 
 ## 5. Device pairing
 
@@ -310,7 +314,11 @@ credential.
 One physical installation paired with two accounts has two `DeviceID`s and two
 credentials. Native clients present this literally as one QR for one account;
 the person repeats the account-local flow to add another. There is no
-multi-account pairing transaction or global device identity.
+multi-account pairing transaction or global device identity. Several local
+clients on one installation MAY share that installation's device credential:
+to Canopy they are one device, and their request digests share one scope,
+which is what makes adoption
+([working-tree updates §2.2](09-client-synchronization.md#22-entry)) sound.
 
 ## 6. Declaring and activating a tree
 
@@ -347,8 +355,8 @@ reservation.
 
 ## 7. Governed account tree
 
-For storage, immutable objects, snapshots, accepted updates, merging, replicas,
-and observation, the account-configuration tree is an ordinary private,
+For storage, immutable objects, snapshots, accepted updates, merging, working
+trees, and observation, the account-configuration tree is an ordinary private,
 noncanonical Arbor tree whose updates carry `ifMatch: "modelHash"` with
 `onConflict: "merge"`. It additionally has the closed, code-defined server-side
 policy `account-config-v2`; all other trees use `ordinary`. This is not a

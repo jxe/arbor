@@ -1,49 +1,52 @@
-# Arbor Sync document admission
+# Client state machines: document admission and working-tree updates
 
-An editor that talks to Local Arbor REST runs one state machine between its
-undo history and the daemon. This document is the reference for that
-machine: its states, the data each retains, its transitions, and the rules a
-new editor host must follow. The direct Canopy machine that Arbor Sync and a
-durable replica run against Arbor Wire is specified separately in
-[client synchronization](../spec/09-client-synchronization.md); this page
-only says where the two meet.
+Two state machines sit between an editor and accepted Canopy history. The
+**document admission machine** runs between an editor's undo history and its
+working tree's document session; this document is its reference: its states,
+the data each retains, its transitions, and the rules a new editor host must
+follow. The
+**update machine** runs inside a working tree against Arbor Wire and is
+specified in [working-tree updates](../spec/09-client-synchronization.md);
+section 8 below describes its runner, the update coordinator, and what it
+adds around the reducer: adoption, the durable head, recovery, holds, and the
+adopted-prefix rule.
 
 The reference implementations are `DocumentAdmissionMachine` in `ArborKit`
-(Swift) and `reduceAdmission` in `@arbor/core` (TypeScript, re-exported by `@arbor/arborsync-client`). Both
-are pure reducers that execute every scenario in
+(Swift) and `reduceAdmission` in `@arbor/core` (TypeScript). Both are pure
+reducers that execute every `document-admission` scenario in
 [`conformance/client-state-machines.json`](../conformance/client-state-machines.json);
-the editor hosts (`ArborDocumentBinding`, `EditorCoordinator`) run the
-effects.
+the editor host (`ArborDocumentBinding` today; the Plan B web editor later)
+runs the effects.
 
 ## 1. Three layers, three clocks
 
 - **Local editor history** may keep every movement. Undo grouping is the
   editor's own clock (the web editor groups at 750 ms) and never influences
   what is sent.
-- **Locally durable authored intent** is what Arbor Sync holds once an
+- **Locally durable authored intent** is what the working tree holds once an
   admission succeeds. The machine coalesces a burst of edits into one
   admission behind a trailing 250 ms debounce, and never has two admissions
   in flight for one document session.
-- **Accepted Canopy history** is produced later by the direct machine. An
-  admission returns a credential-scoped Wire request digest; the editor keeps
-  its live tree until an accepted observation incorporates that digest.
+- **Accepted Canopy history** is produced later by the update machine, which
+  publishes the working tree's durable heads. Admission is complete when the
+  working tree holds the bytes; the editor does not wait for Canopy.
 
 A rapid sequence of 15 Option-arrow moves is therefore 15 undo entries, one
 admission, and normally one accepted Canopy update.
 
 ## 2. States and retained data
 
-Every state carries the accepted `{ source, revision, admissionBasis? }`, the
-monotonic editor `generation`, and the transport kind (`canopy` or `local`).
+Every state carries the accepted `{ source, revision }` and the monotonic
+editor `generation`. There is one transport: the working tree's document
+session.
 
 | State | Retained data | Meaning |
 |---|---|---|
-| `clean` | accepted source/revision, optional basis | No authored generation is newer than the locally durable acknowledgement. |
+| `clean` | accepted source/revision | No authored generation is newer than the locally durable acknowledgement. |
 | `dirty` | latest source and generation; a timer is armed | Edits are coalescing; no request contains them yet. |
 | `submitting` | the immutable submitted source/generation | Exactly one admission is in flight. |
 | `submitting-dirty` | the immutable submission plus one replaceable latest source | Edits arrived during the request; they are one successor, not another request. |
-| `admitted-awaiting-authority` | admitted source/revision/basis and the request digest | Locally durable; the editor retains its tree until an observation carries its digest. |
-| `conflict` | the submitted source, the current observation when known, any newer local source | Arbor Sync rejected admission; nothing is discarded. |
+| `conflict` | the submitted source, the current observation when known, any newer local source | The working tree rejected admission; nothing is discarded. |
 | `failed` | the exact pending source and an error classification, any newer source | Transport or provider failure; the UI must not say saved. |
 | `closed` | nothing | Terminal after a drain or an explicit failed close. |
 
@@ -60,19 +63,18 @@ result)`, `admissionConflicted(generation, current?)`,
 `retry`, `resolveConflict(use-current | keep-submitted)`, `close`.
 
 Effects the host runs: `schedule(delay)`, `cancelTimer`, `admit(generation,
-source, baseRevision, admissionBasis?)`, `acknowledge(result)`,
-`apply(source, revision)`, `mergeLocally(...)`, `surfaceConflict`,
-`surfaceFailure(error)`, `stop`.
+source, baseRevision)`, `acknowledge(result)`, `apply(source, revision)`,
+`mergeLocally(current?, submitted, base)`, `surfaceFailure(error)`, `stop`.
 
 ```text
-clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting ──admitted──▶ admitted-awaiting-authority
-  ▲               │                                 │  ▲                          │
-  │               └──edit (resets timer)            │  └── admitted with a         │ observed carrying
-  │                                          edit   │      retained successor:      │ the digest
-  │                                                 ▼      acknowledge, then admit  ▼
-  │                                        submitting-dirty ───────────────────────▶ clean (apply)
+clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting ──admitted──▶ clean (acknowledge)
+  ▲               │                                 │  ▲
+  │               └──edit (resets timer)            │  └── admitted with a retained successor:
+  │                                          edit   │      acknowledge, then admit
+  │                                                 ▼
+  │                                        submitting-dirty
   │                                                 │
-  └────────── admitted without a digest ◀───────────┘
+  └──────── observed (newer revision): apply ◀──────┤
                                                     ├──admissionConflicted──▶ conflict ──resolveConflict──▶ clean | submitting
                                                     └──admissionFailed─────▶ failed ────retry/flush──────▶ submitting
 ```
@@ -80,9 +82,8 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 ## 4. Transition rules
 
 1. **`edit` never performs I/O.** It increments the generation, replaces the
-   latest source, and arms the trailing debounce (from `clean`, `dirty`, or
-   `admitted-awaiting-authority`). During a request it only replaces the
-   successor. In `conflict` or `failed` it is retained as the newer local
+   latest source, and arms the trailing debounce (from `clean` or `dirty`).
+   During a request it only replaces the successor. In `conflict` or `failed` it is retained as the newer local
    source.
 2. **One admission in flight, one successor.** `debounceElapsed` or `flush`
    moves `dirty` to `submitting`. Edits during the request accumulate into one
@@ -91,11 +92,11 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 3. **Empty change is a local success.** If the latest source equals the
    accepted source when a request would start, the machine returns to `clean`
    without a request.
-4. **The digest fence.** A successful admission with a request digest enters
-   `admitted-awaiting-authority`. Observations are applied only when their
-   accepted-digest set contains that digest; an observation at the accepted
-   revision that carries it clears the fence without replacing the editor. A
-   new edit supersedes the fence: the editor then waits for its next digest.
+4. **Admission is durability.** A successful admission returns to `clean`
+   at the admitted revision. The working tree is the editor's authority:
+   read-your-writes holds, so an observation of an older accepted prefix
+   never replaces a newer admitted generation (the host reads through the
+   session and the revision matches).
 5. **Stale reads are discarded.** A host captures `anchor = { generation,
    revision }` before an asynchronous read and passes it with `observed`. If
    either moved, the observation is ignored. Hosts must also hold an
@@ -103,11 +104,10 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 6. **External change under coalescing intent** (`observed` while `dirty`)
    cancels the timer and admits now, so the authority, not the editor,
    reconciles.
-7. **Conflicts are transport-specific.** A Canopy-backed conflict surfaces
-   evidence and never runs a client merge. A `local` transport may run the
-   host's explicit merge helper (the web editor's block merge for untracked
-   documents); the transport becomes `canopy` the moment an admission
-   returns a basis.
+7. **A rejected admission emits `mergeLocally`.** The working tree rejected
+   the write at its base revision; the host may run its explicit merge
+   helper or surface the retained conflict for review (native Arbor surfaces
+   it). Canopy-side conflicts belong to the update machine, not to admission.
 8. **Failures keep the exact pending source.** `retry` or `flush` resubmits
    the newest retained source; the UI shows failure until then.
 9. **Lifecycle.** `flush` cancels the timer, starts the latest admission,
@@ -122,8 +122,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 
 - Serialize the editor tree to the exact source the machine will submit, and
   compute the guarded UTF-8 patch from the last acknowledged exact source.
-- Run `admit` through the session (`/v1/documents/admit` when the accepted
-  snapshot carried an `admissionBasis`, an ordinary guarded write otherwise)
+- Run `admit` through the session as a guarded write at the accepted revision
   and classify the outcome as `admitted`, `admissionConflicted`, or
   `admissionFailed`. An exact-source race (the provider already holds the
   submitted bytes) is `admitted`.
@@ -132,31 +131,23 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
   the provider returned a transformation.
 - On `apply`, replace the editor with authoritative content while preserving
   selection where the codec allows.
-- Feed the same `observed` event from watch notifications and from the
-  provider's read-your-writes snapshot; the reducer decides.
+- Feed the same `observed` event from working-tree notifications and from the
+  session's read-your-writes snapshot; the reducer decides.
 
 ## 6. Where the machines meet
 
-Arbor Sync answers `admit` with `admissionRequestDigest` once the generation
-is durable. Its direct machine (spec [client synchronization
-§2](../spec/09-client-synchronization.md#2-direct-canopy-synchronization))
-compacts unsent generations from one editor before request preparation,
-publishes behind a trailing delay, and materializes only accepted state. When
-that state is written, Arbor Sync emits the incorporated digests with the
-`updated` event and keeps recent ones on later node snapshots, which is how
-a reconnecting editor recovers its fence.
+An editor runs the admission machine against its own working tree: admission
+is working-tree durability, and the working tree's update machine (spec
+[working-tree updates §2](../spec/09-client-synchronization.md#2-the-update-machine))
+publishes durable heads behind a trailing delay and materializes only accepted
+state. Arbor Sync admits no editor generations; its folder is always a
+source (the reducers have no filesystem role), and every daemon request is
+one filesystem head. When the daemon materializes accepted Canopy state it
+emits the incorporated request digests with its tree-wide `updated` event,
+which a working-tree client under the same credential uses as evidence for a
+request it adopted from the daemon.
 
-On daemon restart, an acknowledged admission may still be the exact graph on
-disk while the placement metadata names its older accepted base. If that graph
-matches the final acknowledged candidate, it is the daemon's own editor mirror,
-not an unknown filesystem edit. Re-anchor it directly when Canopy accepted that
-exact root. If Canopy instead reports a Markdown merge with approximate
-placements, retain the candidate and authority decision, leave disk untouched,
-and stop for explicit review. Older journals without the authority-decision
-field take the same conservative review path after a transmitted admission.
-Only a different local graph is an unexplained divergence.
-
-The same prefix rule applies to filesystem-authored work that moves during a
+The prefix rule applies to filesystem-authored work that moves during a
 request. If Canopy merged the transmitted candidate while newer local bytes
 were already durable, Arbor Sync must not turn those bytes into a fresh request
 against the original stale base. It persists a longer request containing the
@@ -166,11 +157,10 @@ that transition conflicts, Arbor Sync retains Base, Current, Mine, and Draft
 immediately because its base may be a submitted candidate rather than a
 snapshot-addressable accepted root.
 
-Choose this machine when a local daemon owns authored persistence. Choose the
-direct machine when the client owns a durable replica. Do not combine them or
-skip local durability.
+Every editor runs both: admission into its working tree first, publication by
+the update machine second. Do not combine them or skip local durability.
 
-When a plural Wire update string stops at a conflict, the direct machine does
+When a plural Wire update string stops at a conflict, the update machine does
 not turn the complete final local root into one replacement request. The
 successful prefix is already authority history, the element at `failedIndex`
 is the only element under review, and the suffix has not yet been attempted.
@@ -196,18 +186,77 @@ accepted update and local candidate, and durably records the reviewed result
 before clearing the conflict. On a stale-identity response, discard the open
 review and fetch it again.
 
-An accepted merge with approximate Markdown placements is also a review
-boundary even though Canopy returned success rather than `409`. Arbor Sync
-returns `accepted-merge-needs-review`, uses the latest accepted tree as Current
-and Draft, and preserves the exact editor candidate as Mine. `Both` is disabled
-because the automatically combined authority text is precisely the result that
-needs review. Choosing Mine or Edit creates a new exact candidate against the
-latest accepted update; choosing Current acknowledges authority without another
-write.
-
 Persist review material before depending on it for recovery. A restart must
 not turn remembered status into fabricated evidence, and losing connectivity
 after the first successful review fetch must not make the four graphs vanish.
 If `unattemptedCount` is nonzero, keep the suffix untouched and disable submit;
 the failed element and later update-string elements are distinct authored
 history boundaries.
+
+## 8. The update machine and its coordinator
+
+The update machine is the pure reducer `UpdateMachine` (`ArborWorkingTree`)
+and `reduceUpdate` (`@arbor/canopy-client`, moving to `@arbor/working-tree`
+in Plan B). Both execute the `working-tree-updates` scenarios in
+[`conformance/client-state-machines.json`](../conformance/client-state-machines.json).
+Its transitions are the spec's; this section is about the runner around it.
+
+`UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and a Wire
+transport and keeps `UpdateControl` (`sync/control.json` under the tree's
+state root, schema 2; schema 1 files from placed iOS devices decode with the
+new fields absent). The control retains:
+
+- **The durable head** `UpdateHead { base, root, generation, objects }`,
+  written by `syncImmediately` before the reducer sees `localHead`. Its
+  objects are the tree's own bytes (inline state plus overlay) the base does
+  not retain; above roughly 32 MiB they spill to `sync/objects/<hash>` and are
+  referenced by hash. The head is cleared when an attempt supersedes it or the
+  tree returns to current.
+- **The attempt** `UpdateAttempt`: one exact request body with every envelope
+  it carries, its element digests, and `adoptedCount`. The transport is handed
+  the body and nothing else. Overlay collection between prepare and resend
+  therefore cannot change a resubmission; a test wipes the overlay and asserts
+  byte-identical bodies.
+- **The conflict**, **the next base**, and **the hold**.
+
+**Sparse bodies.** A candidate's objects are the local graph (validated as a
+sparse spine) minus every hash reachable from the base through directory
+objects; file hashes are collected from directory entries without fetching
+files. The immediate-delta fast path reads the base file through the object
+store and falls back to the full object on a miss. Reconciliation and
+watch-transition replay run on a sparse basis: the local graph plus every
+delta base, fetched once each, replayed in `.sparseFiles` mode and bridged
+back with the tree's own file metadata.
+
+**Adoption.** `adoptInFlight(base:updates:requestDigests:objects:)` installs
+another working tree's persisted request (the daemon's, at a dirty
+bootstrap) as the first attempt. It refuses while an attempt or conflict is
+retained, packs the supplied envelopes into the elements, recomputes the
+digests, and requires them to equal the supplied ones. The machine enters
+`prepared`; a later admission is the retained successor, and an offline
+admission is appended once by the ordinary reconnection extension.
+
+**Recovery.** On entry, a retained conflict maps to `conflict`, a retained
+attempt to `prepared`, and a head with no attempt becomes a one-element
+attempt (its objects make it self-contained) and also maps to `prepared`.
+When an accepted result arrives for a candidate the tree no longer holds and
+the tree has no pending work (it was re-seeded from Canopy while the durable
+record carried the work), the coordinator applies the decision, clears the
+attempt and next base, and pulls the current snapshot; it never re-submits
+the seed.
+
+**Holds.** `setSubmissionHold(_:)` pauses submission: heads and attempts stay
+durable, `presentation` reports `conflict` with the reason, and nothing is
+sent until the hold is lifted and `syncOnce` runs.
+
+**Adopted-prefix rule.** When a conflict's `failedIndex` lies inside the
+adopted prefix, the coordinator does not open its own review: it raises a
+hold whose `foreignConflict` flag is set ("The folder's change conflicts;
+review it in Sync Status."), keeps the attempt, and dispatches `conflicted` to
+the reducer. The app routes that flag to the daemon's review flow; the
+client's conflict sheet is reserved for elements it authored.
+
+**Watching.** `CanopyWatchRunner` (`CanopyClient`) follows one tree's watch
+stream, feeds every event to the coordinator, reconnects with backoff, and
+recovers an expired cursor through `recoverWatchGap`. iOS, the Mac, and
+visits share it.

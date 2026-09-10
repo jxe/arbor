@@ -124,9 +124,9 @@ credential for the account through which it is acting.
 Possession of a hash is not authorization. Every object or snapshot read is
 scoped through one named tree and its current ACL.
 
-The generic object route additionally requires reachability from the named
-tree's current root. The accepted-snapshot route instead requires that its root
-belong to one of the named tree's retained accepted updates. It deliberately
+The generic object route additionally requires reachability from any retained
+accepted root of the named tree. The accepted-snapshot route instead requires
+that its root belong to one of the named tree's retained accepted updates. It deliberately
 provides non-enumerable known-root historical reads: the server exposes neither
 a history listing nor accepted-update metadata, and unknown, unretained,
 wrong-tree, and unauthorized roots are indistinguishable `404`s.

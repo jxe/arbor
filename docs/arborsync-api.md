@@ -8,6 +8,24 @@ UTF-8. It rejects non-loopback `Host` headers so DNS rebinding cannot turn an
 attacker-controlled origin into a local file reader. Request URLs never contain
 credentials or access-link secrets.
 
+**REST v1 is a control surface, not an editor path.** The daemon is the
+placed folder's synchronization client plus the loopback services a
+working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
+`GET /v1/accounts`, `GET /v1/resolve`, `GET /v1/conflicts` and
+`POST /v1/conflicts/resolve`, `POST /v1/sync`, `POST /v1/placements/move`,
+`GET /v1/bootstrap` and `GET /v1/credential` (§3b),
+`GET /v1/objects/{hash}` (§3a), the account bootstrap routes (§4), and
+`GET /v1/events` (§5). The Swift package `ArborSyncClient` launches or
+attaches to the control-mode daemon (`arborsync --control`) and uses exactly
+these routes. The former node, children, search, backlinks, recovery, file,
+mutation, document-admission, asset, and import routes were deleted with the
+daemon's editor path (Native 022 Phase 7): editors run the document admission
+and update machines against their own working tree. Those paths now answer
+`405 unsupported-operation` like any unknown `/v1/` route. **The web editor is
+unavailable until Plan B** rebuilds it as a working-tree client; app routes
+serve a short notice instead of the bundle, while static hosting of tree files
+at OS-shaped routes (§6) continues.
+
 ## 1. Shared values
 
 REST v1 reuses the portable model, read, locator, access, update, and
@@ -20,7 +38,9 @@ observation values defined across the specification. In particular,
 REST v1 adds the following local values:
 
 ```ts
-type TreeRef = "local" | "system" | TreeID;
+// Only actual Arbor TreeIDs name a scope; the former `local` and `system`
+// scopes went with the editor path.
+type TreeRef = TreeID;
 
 type Diagnostic = {
   code: string;
@@ -57,19 +77,15 @@ type LocatorResolution = {
   `ProfileIdentity` are single definitions in `@arbor/core` (Swift:
   `ArborWire` and `ArborSyncClient` share `WireCanonicalDescriptor`); a
   local descriptor adds only what a local daemon knows.
-- `local` and `system` are explicit local-only scopes, not pretend trees, and
-  never cross Arbor Wire. Wherever a wire value says `TreeID`—`NodeRef.tree`,
-  `ArborError.tree`, `ObservationEvent.tree`—REST v1 accepts a `TreeRef`.
-- Only actual Arbor `TreeID`s receive descriptors; `GET /v1/trees` returns
-  `LocalTreeDescriptor`s. Hosted ordinary trees have non-null canonical data and
-  the private account-configuration tree has `canonical: null`.
-- `LocatorResolution.enclosingTree` is present for Arbor trees and omitted for
-  `local` and `system`; on the wire it is always present.
+- `GET /v1/trees` returns `LocalTreeDescriptor`s. Hosted ordinary trees have
+  non-null canonical data and the private account-configuration tree has
+  `canonical: null`.
+- `LocatorResolution.enclosingTree` is present whenever the daemon knows the
+  tree locally; on the wire it is always present.
 
-Every `NodeRef`, structural or content operation, result, event, effect, and
-relevant error names its tree explicitly. Omitted-tree defaults are invalid.
-Clients derive writability from effective access and historical state;
-resolution does not duplicate a `writable` flag.
+Every `NodeRef`, event, effect, and relevant error names its tree explicitly.
+Omitted-tree defaults are invalid. Clients derive writability from effective
+access and historical state; resolution does not duplicate a `writable` flag.
 
 ## 2. Access and errors
 
@@ -93,9 +109,10 @@ and fields but never reinterpret malformed required data.
 ```text
 GET  /v1/status
 POST /v1/sync
-POST /v1/sessions
+POST /v1/placements/move
 GET  /v1/trees
 GET  /v1/accounts
+POST /v1/me
 GET  /v1/resolve?locator={ArborLocator}
 ```
 
@@ -114,9 +131,9 @@ Canopy remains visibly errored without blocking healthy accounts.
 Completion means that the pass ran, not that every tree is ready: clients that
 need a readiness boundary must inspect the exact `GET /v1/trees` descriptors
 and reject missing, offline, conflicting, errored, or still-syncing targets.
-`POST /v1/sessions` accepts one absolute local root and activates
-the daemon's filesystem watching and durable node identity for that browsing
-session; repeated activation of the same root is idempotent.
+`POST /v1/placements/move` (`{ source, destination, check? }`)
+relocates one placed root on disk and in `placements.yaml` after an explicit
+synchronization boundary; `check: true` validates without moving.
 New TreeIDs are minted by the client (`generateArborID` in `@arbor/core`,
 `generateArborID(prefix:)` in `CanopyClient`): `tr_` plus 26 lowercase base32
 characters encoding 128 random bits. Minting edits no file and reserves no
@@ -127,8 +144,7 @@ When `sync` is `conflict`, `reviewableConflict: true` means the daemon can
 produce durable content evidence through the conflict endpoint. Clients must
 not infer that a conflict is resolvable merely from its status label.
 It includes placed trees, pathless replicas, known remote placements, and the
-implicit authenticated account-configuration tree. It never invents a
-descriptor for `local` or `system`.
+implicit authenticated account-configuration tree.
 
 `GET /v1/accounts` returns `{ accounts: LocalAccountSummary[], identity }`, a
 safe list keyed by configuration TreeID. Each
@@ -153,289 +169,126 @@ It creates no profile identity or tree placement. The pairing route accepts
 `{ configurationTree? }`; the field is mandatory when more than one account
 exists. There is no handle-shaped account-claim route.
 
-Resolution returns `LocatorResolution`. A remote unplaced result is read
-transiently using its explicit tree and server; it does not create a virtual
-tree, placement, or directory.
+Resolution returns `LocatorResolution`. A local path resolves only when it
+lies inside a placed or session root (else `404 not-found`); an `arbor://tree/`
+locator names a known tree directly; an `http(s)` or community `arbor://`
+locator is resolved by that Canopy through the matching account client, and
+`enclosingTree` is the local descriptor when the tree is placed here. Nothing
+is placed, visited, or cached by resolution.
 
-## 4. Node reads
-
-```text
-GET /v1/node?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}][&admissionBasis=true]
-GET /v1/file?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}]
-GET /v1/children?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}][&cursor={cursor}]
-GET /v1/search?tree={TreeRef}&q={query}[&cursor={cursor}]
-GET /v1/backlinks?tree={TreeRef}&path={path}[&stableKey={key}][&cursor={cursor}]
-GET /v1/recovery?tree={TreeRef}&path={path}[&stableKey={key}][&recursive=true][&cursor={cursor}]
-```
-
-Every node-addressed route requires `tree` and `path`, even where `tree` is
-`local` or `system`. An omitted or empty `stableKey` means JSON `null`; a
-non-empty value is canonical identity-key JSON percent-encoded by the client.
-The removed PageID/path-hint union is invalid. JSON `NodeRef` values still
-require an explicit `stableKey` field, including `null`. Logical paths are
-decoded exactly once. Revision reads are immutable and read-only.
-Mutable JSON reads include `observedThrough`; lists and bare arrays use explicit
-snapshot/page envelopes. `GET /v1/file` returns exact bytes and does not need an
-independent cursor because its guarding content revision is obtained from the
-node snapshot. A node snapshot contains `ref`, properties, capabilities,
-optional exact-source content, materialization, diagnostics, and observation
-state. Child pages contain `NodeSummary` values and are fetched explicitly;
-`GET /v1/node` never hydrates or drains children.
-
-Logical-node rules come from the [data model](../spec/01-tree-operations.md); exact
-directory source, `_index.md`, frontmatter, and child-placement rules come from
-the portable [directory projection](../spec/02-directory-format.md).
-Children are also the table/row browsing API: child summaries carry projected
-row properties and schema capability without a collection-specific endpoint.
-Children, search, backlinks, recovery entries, mounted boundaries, events, and
-effects all retain explicit tree scope.
-
-An empty search query returns the tree's indexed pages in most-recently-modified
-order, so clients can use Search as a page browser before the user types.
-Each search result includes `modifiedAt`, the source modification time in Unix
-epoch seconds, and `backlinkCount`, the number of distinct known pages that
-currently link to it. The count includes links from other locally known trees
-while every result reference retains its owning tree.
-Markdown search-result titles use the authored first H1 (including its leading
-emoji) and fall back to the logical filename only when the page has no H1.
-
-For collection-file backings, `_store.csv`, `_store.json`, and `_store.jsonl` rows
-receive durable references only when `schema.ts` declares a valid primary key.
-Their child pages use a cursor bound to the exact source/schema revision and
-advance by stable key. Missing, invalid, or duplicate declared keys leave the
-affected rows explicitly identity-less and read-only; the server never
-substitutes a row offset as durable identity. Markdown rows may derive the same
-identity from a schema-declared `id` property.
-
-## 5. Model-sampling values
-
-Node reads return these provider-neutral sampling values. They build on the
-portable `NodeRef`, `Hash`, and `JSONValue` plus the local `Diagnostic`, but are a local API
-surface, not another stored graph or a wire operation. The language-neutral
-vectors in [`conformance/node-model.json`](../conformance/node-model.json)
-freeze their positive and negative cases.
-
-```ts
-type IdentityRule = {
-  properties: string[];
-};
-
-type ChildBackingSummary =
-  | { type: "expanded-files" }
-  | {
-      type: "collection-file";
-      format: "csv" | "json" | "jsonl";
-      childSetHash: Hash;
-    }
-  | { type: "database"; driver: "sqlite"; scope: "children" | "subtree" }
-  | { type: "external-store"; driver: string };
-
-type NodeCapabilities = {
-  properties?: { revision: string; schema?: Hash; writable: boolean };
-  content?: {
-    revision: string;
-    mediaType: string;
-    format?: "markdown" | "mdx" | "tsx" | "json";
-    writable: boolean;
-  };
-  children?: {
-    revision: string;
-    schema?: Hash;
-    backing?: ChildBackingSummary;
-    total?: number;
-    writable: boolean;
-  };
-  executable?: {
-    version: Hash;
-    state: "runnable" | "diagnostic" | "inactive";
-  };
-};
-
-type NodeContent = {
-  source: string;
-  representation?: {
-    state: "stored" | "implicit";
-    origin?: "sibling" | "index";
-  };
-};
-
-type NodeSummary = {
-  ref: NodeRef;
-  name: string;
-  revision: string;
-  properties: Record<string, JSONValue>;
-  capabilities: NodeCapabilities;
-  materialization: "available" | "placeholder";
-  diagnostics: Diagnostic[];
-};
-
-type NodeSnapshot = NodeSummary & {
-  content?: NodeContent;
-  observedThrough: EventCursor;
-  admissionBasis?: string;
-  admissionRequestDigest?: Hash;
-  acceptedRequestDigests?: Hash[];
-};
-
-type ChildrenPage = {
-  parent: NodeRef;
-  items: NodeSummary[];
-  nextCursor: string | null;
-  observedThrough: EventCursor;
-};
-```
-
-`ref` is the sole tree/path/identity carrier; snapshots and summaries do not
-repeat `tree`, `path`, `kind`, `pageID`, or collection-specific fields.
-Properties and content remain independent, and an omitted content payload does
-not negate a content capability—for example, clients normally fetch large file
-bytes separately. Capability names and states are fail-closed: an unknown
-capability or format may be retained or ignored for forward compatibility but
-never grants editing, execution, traversal, or file access.
-
-An ordinary node read does not calculate or return `admissionBasis`. An editor
-opens its selected document with `admissionBasis=true`; for a writable document
-whose materialized tree exactly matches an accepted Canopy update, the returned
-`admissionBasis` is opaque context for a later editor admission.
-`POST /v1/documents/admit` returns `admissionRequestDigest`, the
-credential-scoped digest that Canopy will echo when it accepts or merges that
-generation. A sync-origin observation may attach `acceptedRequestDigests` to
-identify the requests incorporated by the newly materialized state. These are
-causal metadata, not content revisions: a merge can preserve the request digest
-while producing different source and root hashes.
-Recent accepted digests also appear on later node reads, allowing an editor
-that reconnects after the observation to resolve its own pending fence.
-It contains the accepted Wire spine needed to freeze a normal update without
-first writing the candidate into the shared tree. Clients retain it with that
-exact source and return it unchanged; they do not decode or synthesize it.
-Child summaries never request admission context or hydrate their omitted
-content merely to render navigation chrome.
-
-Clients may derive a parsed Markdown document from exact `NodeContent.source`;
-that derived representation is not a second authored value. Markdown property
-and content operations are addressed separately even when their capability
-revisions name the same exact source bytes. A `ChildBackingSummary`
-describes the observed placement; it does not make backing or projection
-topology part of node identity. The exact synchronized collection-file form is
-the directory-level `CollectionFileDescriptor` defined by
-[tree snapshots](../spec/01-tree-operations.md#112-reading-an-accepted-snapshot);
-SQLite remains a distinct database backing.
-
-Each open editor session supplies a stable opaque `editorID` with
-`POST /v1/documents/admit`. The identifier distinguishes generations from one
-editor—which extend that editor's immutable pending string—from independent
-editors which may have observed the same `admissionBasis`. Arbor Sync retains
-independent candidates from their common accepted base and lets Canopy perform
-the representation-specific three-way merge. `editorID` is local admission
-coordination, not document identity, TreeID, device identity, or a portable
-Canopy field. Older clients may omit it and receive the former basis-derived
-behavior.
-
-The REST routes carry `NodeRef` without inventing a second locator shape. Node
-reads take it as the `tree`, `path`, and `stableKey` query parameters described
-in [§4](#4-node-reads); JSON mutation and transfer requests embed the three
-fields directly. The removed `pageID | pathHint` request union is invalid on
-every route. The local-only `local` and `system` scopes use the same three-field
-shape even though those sentinel scopes never cross Arbor Wire.
-
-## 6. Authored mutations
+### 3a. Objects
 
 ```text
-POST /v1/mutations
-POST /v1/documents/admit
-POST /v1/assets
-POST /v1/imports
+GET /v1/objects/{hash}?tree={TreeID}[&origin={url}]
 ```
 
-`/v1/mutations` accepts `{ mutationID, operations }`. `mutationID` is a stable
-client-generated idempotency identity for one exact serialized intent.
-Operations include ordinary property, content, and structural actions:
-`writeProperties`, `writeText`, `writeMarkdown`, `create`, `move`, `copy`,
-`trash`, and `restore`. Each operation includes explicit tree-scoped references
-and the appropriate content or directory base revision.
+Serves one canonical wire object (`application/cbor`) by its `sha256:<64 hex>`
+hash. The response carries `ETag: "<hash>"` and
+`Cache-Control: private, immutable, max-age=31536000`; clients may cache it
+forever because the body is content-addressed. A malformed hash or missing
+`tree` is `400 invalid-request`; an object the daemon cannot produce is
+`404 not-found`.
 
-`writeText` is the exact guarded UTF-8 operation for ordinary files such as the
-configuration YAML:
+The daemon looks the object up in this order:
+
+1. The placed workspace's object index (`objects` table, see
+   `local-system.md`): a file row re-reads the file and re-encodes it as a wire
+   file object; a directory row re-encodes the directory from its children
+   rows, walking the subtree only where a child row is missing or invalid.
+2. The tree's stored pending update body, including transmitted successors.
+3. Canopy, through the tree's account client, or through an anonymous client
+   for `origin` when the tree has no local placement (a visit). Fetched bytes
+   are retained in a bounded in-memory LRU (64 MiB by default) keyed by hash.
+
+The index is an optimization, never authority. A file row is valid only while
+its complete stat tuple (size, mtime, ctime, inode, device) still matches;
+directory rows are trusted only because the produced object is verified. Every
+served body is hash-verified before it leaves the daemon: a mismatch from the
+index path deletes the row and falls through to the next source, so a stale
+row can at worst produce a 404 or a slower answer, never wrong bytes.
+
+### 3b. Bootstrap and credential
+
+```text
+GET /v1/bootstrap?tree={TreeID}
+GET /v1/credential[?configurationTree={TreeID}]
+```
+
+`GET /v1/bootstrap` gives a loopback client everything it needs to open a
+placed tree as its own working tree, without walking the folder or fetching
+every object. The tree must have a local placement (else `404 not-found`) and
+an accepted base already recorded by synchronization (else `409 conflict`
+with `details.kind: "unsynchronized"`). The response is:
 
 ```ts
-type WriteText = {
-  op: "writeText";
-  ref: { tree: TreeRef; path: LogicalPath };
-  baseContentRevision: string;
-  source: string;
-};
+{
+  tree: LocalTreeDescriptor,
+  accepted: { root: Hash, update: string, cursor: string },   // cursor === update
+  spine: string,          // base64 sparse CBOR snapshot bundle
+  files: Record<string /* wire path */, { size: number, mtime: number }>,
+  pending?: { base: string | null, updates: CandidateUpdateJSON[], requestDigests: Hash[] },
+  blocked?: "conflict" | "unsettled",
+  observedThrough: string,
+}
 ```
 
-Arbor Sync rejects `writeText` for non-UTF-8 content, protected private state,
-historical reads, and stale revisions. A successful edit of account YAML is an
-ordinary file edit locally; configuration governance is applied when the
-candidate account-tree update is synchronized.
+`accepted` is the daemon's recorded base: the last accepted root and update
+for the placement. `cursor` is the Wire watch cursor a client seeds its own
+watch from, which is the update id.
 
-Markdown writes submit the complete operational source and its exact
-`baseContentRevision`. Optional ordered nonoverlapping UTF-8 source edits may
-prove editor provenance, but the complete source remains authoritative.
-Native and other session editors use `/v1/documents/admit` when their snapshot
-carried `admissionBasis`. Its body contains `{ ref, admissionBasis,
-editorID?, baseContentRevision, source, sourceEdits? }`. Arbor Sync verifies the guarded
-edits against the basis, builds and durably freezes one element of an ordinary
-Wire `UpdateRequest`, and acknowledges the private candidate with its
-`admissionRequestDigest` without changing the materialized shared file. A
-later generation from the same editor replaces that element while no request
-has carried it; once an element has been transmitted it is immutable and later
-generations extend the epoch string behind it. Arbor Sync publishes through
-the [direct synchronization machine](../spec/09-client-synchronization.md):
-one request per tree after a trailing delay, one retained successor, exact
-retry after a restart or offline interval. Only Canopy's accepted result is
-materialized, and the `updated` event and later node snapshots carry the
-incorporated request digests an editor waits for. Editors run the
-[document admission machine](client-state-machines.md) on their side of this
-route.
-Each editor session retains its own latest digest and does not replace its live
-document from sync observations until `acceptedRequestDigests` includes that
-digest. Other editors on the same machine wait on their own digests and may
-advance independently. Arbor Sync reports causal facts; it does not choose one
-machine-wide editor refresh boundary. The endpoint is local adapter plumbing;
-it adds no Canopy route or update form.
-`writeProperties` is the representation-independent direct-edit operation:
+**The sparse spine.** `spine` is a snapshot bundle in the exact CBOR shape of
+the immutable Canopy snapshot bundle (`{ version: 1, objects: [...] }`,
+objects sorted by hash, no duplicates), but it deliberately does not satisfy
+the complete-graph check: it holds every directory object and every file
+object whose entry name ends in `.md`, walked from the current folder root and
+stopping at nested tree boundaries. Every other file's object is left out and
+listed in `files` instead, keyed by wire path (`/photo.bin`,
+`/sub/data.bin`) with its byte size and modification time (milliseconds since
+the epoch). A client resolves those objects on demand through `/v1/objects`.
+`files` exists because a `WireDirectoryEntry` carries only a name and a hash:
+a sparse bundle alone cannot tell a deliberately omitted file from a missing
+directory. A client therefore cross-checks every payload-less entry against
+`files` and fails the bootstrap loudly when one is absent, so a daemon bug can
+never silently collapse a subtree into one lazy "file". The spine always
+describes the folder as it is now, even when the response is blocked.
 
-```ts
-type WriteProperties = {
-  op: "writeProperties";
-  ref: { tree: TreeRef; path: LogicalPath; stableKey: string | null };
-  basePropertiesRevision: string;
-  properties: Record<string, JSONValue>;
-};
-```
+**Pending, verbatim.** When the daemon holds a stored update string for the
+tree (`pending` in its sync state), it is returned verbatim, as the exact
+`{ base, updates }` request body it will send to Canopy, only when
+`base` equals the accepted update and the last element's `candidate` equals
+the current folder root, that is, when the string still ends exactly at the
+folder. `requestDigests` are the per-element request digests
+(`updateRequestDigests` in `@arbor/wire`); they exclude object envelopes, so a
+client that adopts the string as its own first in-flight request may re-pack
+objects and still match what Canopy will accept and trim by digest. A stored
+string that does not meet both conditions is not returned; the response is
+`blocked: "unsettled"` instead.
 
-Its semantics—complete map, omitted keys as deletions, explicit `null` as a
-value, immutable identity properties, and exact Markdown body preservation—are
-specified once in the
-[directory format](../spec/02-directory-format.md#3-properties-markdown-content-and-identity);
-collection-file and database row writes follow [child backings](../spec/06-child-backings.md).
-Identity-less rows and collection-file membership remain read-only. Named
-executable mutations remain the surface for authorization, multi-row work,
-cascades, and business invariants.
-Structural operations guard the relevant directory revisions. Multipart assets
-and imports contain explicit destination `NodeRef`s and are idempotent under the
-same mutation identity rules.
+**Blocked.** `blocked` tells a client why it must not treat the folder as a
+clean base, in priority order:
 
-A successful receipt includes the mutation identity, committed tree-scoped
-result/effects, and `observedThrough`. A property effect includes the exact
-`changedProperties` names when the provider can prove them; omission requires
-observers to invalidate conservatively. Acknowledgement means the authored
-intent and eventual receipt are crash-recoverable. An exact replay returns the
-same receipt. Reusing an ID for different bytes is `conflict`; ambiguous
-transport failure permits only exact replay.
+- `conflict`: the daemon holds a durable synchronization conflict for the
+  tree. Open read-only from the spine and route the user to the conflict
+  review endpoint.
+- `unsettled`: the folder root differs from the accepted root and no stored
+  string ends at it (the daemon has not yet built or has outrun its request).
+  Ask for `POST /v1/sync` and retry.
 
-Steady-state placement, ACL, canonical-boundary, profile/community,
-administrator, and device-revocation changes are not special arborsync mutations.
-Human clients and the CLI perform source-preserving transformations of
-`account.yaml`, `trees.yaml`, or the authorized device file. REST v1 therefore
-has no `connectCommunity`, `disconnectCommunity`, `createGroupProfile`,
-`promoteTree`, `placeTree`, `removeTreePlacement`, `setTreeAccess`, local device
-list/revoke proxy, or `/v1/remote` route.
+When `blocked` is absent and `pending` is absent, the folder equals the
+accepted root: a clean bootstrap.
 
-## 7. Bootstrap and local recovery
+**Credential.** `GET /v1/credential` returns `{ token }`, the Canopy account
+credential stored for `configurationTree`, so that several local clients on one
+installation share the daemon's device identity and request-digest scope.
+Without the parameter it answers for the only connected account (or the
+legacy community configuration); with several accounts connected the parameter
+is required (`400 invalid-request`). A missing credential is `404 not-found`.
+Serving the token over loopback is deliberate and adds no authority: any
+local process running as the user can already read the credential store and
+write the placed folders the daemon synchronizes. `local-system.md` records
+the exposure.
+
+## 4. Account bootstrap, forget, and conflict review
 
 Narrow operations remain for states that cannot yet be represented by editing
 an authenticated configuration tree:
@@ -456,6 +309,15 @@ creates or claims the server pairing while similarly keeping the raw
 new-device credential local. Local forget disconnects this data home without
 revoking the server device or deleting user files.
 
+Steady-state placement, ACL, canonical-boundary, profile/community,
+administrator, and device-revocation changes are not arborsync operations.
+Human clients and the CLI perform source-preserving transformations of
+`account.yaml`, `trees.yaml`, or the authorized device file, and
+`POST /v1/sync` lets them wait for the daemon's resulting pass. REST v1
+therefore has no `connectCommunity`, `disconnectCommunity`,
+`createGroupProfile`, `promoteTree`, `placeTree`, `removeTreePlacement`,
+`setTreeAccess`, local device list/revoke proxy, or `/v1/remote` route.
+
 Tree-level conflict review uses:
 
 ```text
@@ -469,26 +331,21 @@ paths and reasons plus hash-validated Base, Current, Mine, and Draft content.
 textual paths may also be edited. Resolution submits a choice for every path
 with the workspace identity. Arbor Sync rechecks the accepted Canopy update
 and the local candidate before recording the reviewed result as new durable
-intent. It never asks a REST client to merge object graphs.
-
-`accepted-merge-needs-review` is emitted when Canopy accepted a Markdown merge
-whose summary reports approximate placements. This is a review boundary despite
-the successful Wire response: Arbor Sync retains the exact candidate and the
-accepted decision and does not materialize the combined result first. Current
-and Draft are the latest accepted content, Mine is the exact editor candidate,
-and `Both` is unavailable. A legacy transmitted admission without the newer
-accepted-decision journal field follows the same conservative recovery path.
+intent. It never asks a REST client to merge object graphs. The daemon
+submits one filesystem head per request, so `unattemptedCount` is always `0`
+here; a working-tree client that retains a suffix behind the failed element
+reports its own count.
 
 A tree may report `sync: "conflict"` while review evidence is unavailable—for
 example, legacy in-memory state created before a durable conflict body was
 written. In that case the conflict endpoint returns an error and clients must
-not invent choices or clear state. A nonzero `unattemptedCount` similarly
-disables submission until ordered suffix replay is supported.
+not invent choices or clear state.
 
-## 8. Snapshot then observe
+## 5. Snapshot then observe
 
 All mutable snapshots establish an observation boundary. Clients first read a
-snapshot and then observe strictly after its cursor:
+snapshot (`GET /v1/trees` carries `observedThrough`) and then observe strictly
+after its cursor:
 
 ```ts
 type ObservationEvent<TKind extends string, TChange> = {
@@ -508,8 +365,12 @@ Last-Event-ID: {cursor}
 values is `invalid-request`. The stream is UTF-8 SSE. Frames are separated by a
 blank line; multiple `data:` lines join with newline; comments and keepalives
 are ignored. Every semantic frame satisfies `id === data.cursor` and
-`event === data.kind`. Events invalidate or describe domain-specific local
-changes but do not replace a confirming snapshot.
+`event === data.kind`. The daemon emits placement events (a tree-wide
+`updated` at `/` with `origin: "sync"` whenever it materializes accepted
+Canopy state, carrying the accepted request digests when a watch batch
+supplied them), external filesystem changes it observes in placed folders,
+status changes, conflict diagnostics, and account/credential changes. Events
+invalidate or describe local changes but do not replace a confirming snapshot.
 
 If a cursor is no longer replayable, arborsync sends one terminal
 `resync-required` event using the same envelope and closes. The client reads a
@@ -520,11 +381,28 @@ Local workspace events and server accepted-update events deliberately keep
 different `kind` and `change` payloads. Sharing the observation framing does
 not claim the domain events are identical.
 
-## 9. Reference fixtures
+## 6. Static hosting
+
+Any request outside `/v1/` is the file surface. An ordinary file's OS-shaped
+path (`GET /Users/joe/notes/photo.png`, also under the `/render` prefix so
+authored relative references keep resolving) serves its bytes with an `ETag`,
+`Accept-Ranges`, and `?raw` for a document's stored body, dispatched into the
+placed or session root that owns the path; a tree-rooted spelling resolves in
+the scope of the `Referer` document. Paths outside every root and every app
+route answer the Plan B notice. Nothing outside placed and session roots is
+readable through the daemon.
+
+## 7. Reference fixtures
 
 The TypeScript and Swift reference clients consume the REST JSON and SSE
-fixtures under [`tests/fixtures/arborsync`](../tests/fixtures/arborsync). Their shared
-tests cover explicit tree scope, write guards, exact replay, snapshot/SSE gap
-freedom, multiline data, keepalives, conflicting-cursor rejection, and terminal
+fixtures under [`tests/fixtures/arborsync`](../tests/fixtures/arborsync):
+`status.json`, `conflict-workspace.json`, `error.json` and `errors.json`,
+`cursors.json`, and the `events.sse` / `malformed-event.sse` frames. Their
+shared tests cover explicit tree scope, snapshot/SSE gap freedom, multiline
+data, keepalives, conflicting-cursor rejection, and terminal
 resynchronization. Another local implementation may expose the same underlying
 Arbor behavior through a different client/daemon boundary.
+The bootstrap and credential routes are fixed by `bootstrap.json` (a clean
+bootstrap with a sparse spine and one listed binary), `bootstrap-pending.json`
+(the same tree with a verbatim pending string and its request digests), and
+`credential.json`.

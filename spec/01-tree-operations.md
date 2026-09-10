@@ -23,7 +23,7 @@ type Arbor = Map<TreeID, Tree>;
 ```
 
 The same tree can be placed many times. Copies with the same `TreeID` are
-placements or replicas of one tree. The `TreeID` denotes the same logical tree
+placements or working trees of one tree. The `TreeID` denotes the same logical tree
 and history wherever Arbor is implemented. Even local, private, unpublished,
 and offline trees have these IDs, although no public service can find them yet.
 Each device, community, and application knows only the partial map it can
@@ -108,9 +108,17 @@ backing is expressed with its committed observation cursor instead.
 
 ### 1.1 Current tree, accepted snapshots, and watch
 
-A full replica reads the current tree descriptor, obtains that descriptor's
-content-addressed accepted snapshot, and then follows the watch endpoint after
-the descriptor's observation cursor.
+A working tree bootstraps by reading the current tree descriptor, obtaining
+that descriptor's content-addressed accepted snapshot, and then following the
+watch endpoint after the descriptor's observation cursor.
+
+A snapshot MAY be installed sparsely: directory objects and Markdown file
+objects present, every other file object referenced by hash only. A sparse
+install counts as the complete accepted snapshot only when every referenced
+hash is resolvable on demand and the client has validated the spine (the root
+is a present directory, every present object is reachable, and the graph is
+acyclic). A payload-less entry the client cannot classify as a file fails the
+install.
 
 ```text
 GET /.arbor/trees/{TreeID}
@@ -395,10 +403,10 @@ must hash to the requested value, and uses the same access-sensitive `Vary` and
 `Cache-Control` policy as an accepted snapshot.
 
 A new origin fetch remains authorized only when the object is reachable from
-the named tree's current readable root; historical snapshot access does not
-make this generic object route a historical-object oracle. A client may use it
-to refetch one missing or corrupt current object instead of downloading a
-complete snapshot. Because objects are immutable and addressed by their bytes,
+any retained accepted root of the named readable tree; objects reachable from
+no retained root of that tree are `404`, so this route is not a global object
+oracle. A client may use it to refetch one missing or corrupt object of a
+retained root instead of downloading a complete snapshot. Because objects are immutable and addressed by their bytes,
 successful responses can be cached and reused after verification.
 
 ## 2. Updates and writes
@@ -719,14 +727,22 @@ out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
 
 ### 3.1 One complete round trip
 
-This non-normative example shows how the preceding operations compose. The
-normative client behavior is the direct machine in
-[client synchronization](09-client-synchronization.md).
+This non-normative example shows how the preceding operations compose for a
+working tree: the node index, local overlay, and object store an editor edits
+directly. The normative client behavior is the update machine in
+[working-tree updates](09-client-synchronization.md).
 
-1. The client records a confirmed `{ root, update, cursor }` watchpoint. Each
-   authored generation becomes locally durable at once; unsent generations
-   are compacted so that one candidate represents one intentional
-   accepted-history boundary.
+0. The working tree is installed from an accepted snapshot. On a device that
+   shares an installation with the folder's daemon it installs a **sparse
+   spine** (directories and Markdown inline, other files by hash and lazily
+   fetched from the loopback object route) and, when the daemon holds a
+   pending request, **adopts** that request verbatim as its first attempt;
+   elsewhere it installs from Canopy. Either way it records the confirmed
+   `{ root, update, cursor }` watchpoint.
+1. Each authored generation is admitted into the working tree and becomes
+   locally durable at once (the document admission machine); unsent
+   generations are compacted so that one candidate represents one
+   intentional accepted-history boundary.
 2. After a short trailing delay it persists one exact request from the
    confirmed update to its latest durable head: a complete candidate graph
    omitting unchanged objects, using an `ObjectDelta` where that is smaller
@@ -747,10 +763,11 @@ normative client behavior is the direct machine in
    request, it issues one longer string that repeats the transmitted prefix
    exactly and appends the latest head once; the authority trims the accepted
    prefix. This is the only use of a longer overlapping request.
-7. A clean replica applies a contiguous transition batch in memory and durably
-   materializes only its final state. A replica with local changes submits its
-   own candidate. Missing history or any failed check falls back to a coherent
-   snapshot.
+7. A working tree at its accepted base applies a contiguous transition batch
+   in memory and durably materializes only its final state, fetching any
+   object it does not hold through its object store. A working tree with
+   local changes submits its own candidate. Missing history or any failed
+   check falls back to a coherent snapshot.
 
 A watch event acknowledges candidate intent, not submitted delta bytes: a
 merge may produce a different accepted representation. If an element is

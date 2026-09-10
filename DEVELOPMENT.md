@@ -4,12 +4,10 @@ This document describes how to work on the reference implementation. It is not a
 
 ## Requirements and setup
 
-The TypeScript workspace uses Bun 1.3.14. Browser tests use Playwright Chromium, and the cross-language client tests require Swift 6 on macOS.
+The TypeScript workspace uses Bun 1.3.14, and the cross-language client tests require Swift 6 on macOS. Arbor web (`packages/render`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
 
 ```sh
 bun install
-bunx playwright install chromium
-bun run build:web
 ```
 
 `bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, and `bun run canopyd`. `bun link` additionally exposes the `arbor`, `arborsync`, and `canopyd` binaries in the shell; the README quickstart uses that form.
@@ -101,7 +99,6 @@ bun run typecheck
 bun run test
 bun run test:protocol
 bun run build
-bun run test:e2e
 bun run test:performance
 swift test --package-path native/Packages/ArborSyncClient
 git diff --check

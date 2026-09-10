@@ -27,7 +27,6 @@ user service, create one local profile identity, and open the current folder:
 
 ```sh
 bun install
-bun run build:web
 bun link
 arbor daemon install
 arbor me create
@@ -43,7 +42,9 @@ refuses to replace an existing identity. Skip it if `arbor me` already reports
 one.
 
 `arbor open` accepts a local path, a canonical HTTPS or `arbor://` URL, or no
-locator for the current directory. Linux and Windows daemon supervision are
+locator for the current directory. Until Native 022 Plan B rebuilds Arbor web
+as a working-tree client, the browser route serves a short notice; edit in the
+Arbor app. Linux and Windows daemon supervision are
 not implemented yet; the [CLI reference](docs/cli.md) documents how commands
 select a running Arbor Sync and the isolated data home `arborsync` serves
 under `ARBOR_DATA_HOME`.

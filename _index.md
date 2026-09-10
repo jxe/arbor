@@ -29,8 +29,6 @@ id: 6r6ov1
 
 # Config files & tests
 
-[playwright.config.ts](playwright.config.ts)
-
 [package.json](package.json)
 
 [bun.lock](bun.lock)
