@@ -148,270 +148,6 @@ public struct Diagnostic: Codable, Sendable, Equatable {
     public var field: String?
 }
 
-public struct PropertiesCapability: Codable, Sendable, Equatable {
-    public var revision: String
-    public var schema: String?
-    public var writable: Bool
-}
-
-public struct ContentCapability: Codable, Sendable, Equatable {
-    public var revision: String
-    public var mediaType: String
-    public var format: String?
-    public var writable: Bool
-}
-
-public struct ChildBackingSummary: Codable, Sendable, Equatable {
-    public var type: String
-    public var format: String?
-    public var childSetHash: String?
-    public var scope: String?
-    public var driver: String?
-}
-
-public struct ChildrenCapability: Codable, Sendable, Equatable {
-    public var revision: String
-    public var schema: String?
-    public var backing: ChildBackingSummary?
-    public var total: Int?
-    public var writable: Bool
-}
-
-public struct ExecutableCapability: Codable, Sendable, Equatable {
-    public var version: String
-    public var state: String
-}
-
-public struct NodeCapabilities: Codable, Sendable, Equatable {
-    public var properties: PropertiesCapability?
-    public var content: ContentCapability?
-    public var children: ChildrenCapability?
-    public var executable: ExecutableCapability?
-}
-
-public struct NodeContentRepresentation: Codable, Sendable, Equatable {
-    public var state: String
-    public var origin: String?
-}
-
-public struct NodeContent: Codable, Sendable, Equatable {
-    public var source: String
-    public var representation: NodeContentRepresentation?
-}
-
-private enum LegacyNodeCodingKeys: String, CodingKey, CaseIterable {
-    case tree, path, kind, pageID, collection, document, children
-}
-
-private func rejectLegacyNodeFields(_ decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: LegacyNodeCodingKeys.self)
-    if let key = LegacyNodeCodingKeys.allCases.first(where: { container.contains($0) }) {
-        throw DecodingError.dataCorruptedError(
-            forKey: key,
-            in: container,
-            debugDescription: "\(key.stringValue) duplicates or violates the canonical node model"
-        )
-    }
-}
-
-public struct NodeSummary: Codable, Sendable, Equatable {
-    public var ref: NodeRef
-    public var name: String
-    public var revision: String
-    public var properties: [String: JSONValue]
-    public var capabilities: NodeCapabilities
-    public var materialization: String
-    public var diagnostics: [Diagnostic]
-
-    private enum CodingKeys: String, CodingKey {
-        case ref, name, revision, properties, capabilities, materialization, diagnostics
-    }
-
-    public init(from decoder: Decoder) throws {
-        try rejectLegacyNodeFields(decoder)
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        ref = try container.decode(NodeRef.self, forKey: .ref)
-        name = try container.decode(String.self, forKey: .name)
-        revision = try container.decode(String.self, forKey: .revision)
-        properties = try container.decode([String: JSONValue].self, forKey: .properties)
-        capabilities = try container.decode(NodeCapabilities.self, forKey: .capabilities)
-        materialization = try container.decode(String.self, forKey: .materialization)
-        diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
-    }
-}
-
-public struct NodeSnapshot: Codable, Sendable, Equatable {
-    public var ref: NodeRef
-    /// Placement context supplied by local/Canopy response adapters.
-    public var enclosingTree: LocalTreeDescriptor?
-    public var name: String
-    public var revision: String
-    public var properties: [String: JSONValue]
-    public var capabilities: NodeCapabilities
-    public var content: NodeContent?
-    public var materialization: String
-    public var diagnostics: [Diagnostic]
-    public var observedThrough: String
-    /// Opaque arborsync context returned unchanged when admitting an editor patch.
-    public var admissionBasis: String?
-    /// Credential-scoped Wire request digest for a locally durable editor admission.
-    public var admissionRequestDigest: String?
-    /// Authenticated Wire requests known to be incorporated by this observation.
-    public var acceptedRequestDigests: [String]?
-
-    private enum CodingKeys: String, CodingKey {
-        case ref, enclosingTree, name, revision, properties, capabilities, content, materialization, diagnostics, observedThrough, admissionBasis, admissionRequestDigest, acceptedRequestDigests
-    }
-
-    public init(from decoder: Decoder) throws {
-        try rejectLegacyNodeFields(decoder)
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        ref = try container.decode(NodeRef.self, forKey: .ref)
-        enclosingTree = try container.decodeIfPresent(LocalTreeDescriptor.self, forKey: .enclosingTree)
-        name = try container.decode(String.self, forKey: .name)
-        revision = try container.decode(String.self, forKey: .revision)
-        properties = try container.decode([String: JSONValue].self, forKey: .properties)
-        capabilities = try container.decode(NodeCapabilities.self, forKey: .capabilities)
-        content = try container.decodeIfPresent(NodeContent.self, forKey: .content)
-        materialization = try container.decode(String.self, forKey: .materialization)
-        diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
-        observedThrough = try container.decode(String.self, forKey: .observedThrough)
-        admissionBasis = try container.decodeIfPresent(String.self, forKey: .admissionBasis)
-        admissionRequestDigest = try container.decodeIfPresent(String.self, forKey: .admissionRequestDigest)
-        acceptedRequestDigests = try container.decodeIfPresent([String].self, forKey: .acceptedRequestDigests)
-    }
-}
-
-public struct ChildrenPage: Codable, Sendable, Equatable {
-    public var parent: NodeRef
-    public var items: [NodeSummary]
-    public var nextCursor: String?
-    public var observedThrough: String
-}
-
-public struct SearchResult: Codable, Sendable, Equatable {
-    public var ref: NodeRef
-    public var title: String
-    public var excerpt: String
-    public var score: Double
-    public var modifiedAt: Double?
-    public var backlinkCount: Int
-}
-
-public struct SearchPage: Codable, Sendable, Equatable {
-    public var results: [SearchResult]
-    public var nextCursor: String?
-    public var observedThrough: String
-}
-
-public struct BacklinkEntry: Codable, Sendable, Equatable {
-    public var ref: NodeRef
-    public var title: String
-    public var context: String
-}
-
-public struct BacklinksPage: Codable, Sendable, Equatable {
-    public var target: NodeRef
-    public var entries: [BacklinkEntry]
-    public var nextCursor: String?
-    public var observedThrough: String
-}
-
-public struct RecoveryEntry: Codable, Sendable, Equatable {
-    /// "block" or "trash".
-    public var kind: String
-    public var ref: NodeRef
-    public var hash: String?
-    public var markdown: String?
-    public var parent: String?
-    public var status: String?
-    public var originalPath: String?
-    public var nodeKind: String?
-    public var changedAt: Double
-}
-
-public struct RecoveryPage: Codable, Sendable, Equatable {
-    public var ref: NodeRef
-    public var entries: [RecoveryEntry]
-    public var nextCursor: String?
-    public var observedThrough: String
-}
-
-public struct WorkspaceOperation: Codable, Sendable, Equatable {
-    public var op: String
-    public var ref: NodeRef?
-    public var refs: [NodeRef]?
-    /// Scope for path-literal operations (createMarkdown/createDirectory).
-    public var tree: String?
-    public var path: String?
-    public var name: String?
-    public var destination: NodeRef?
-    public var basePropertiesRevision: String?
-    public var properties: [String: JSONValue]?
-    public var baseContentRevision: String?
-    public var source: String?
-    public var sourceEdits: [ProtocolSourceEdit]?
-    public var hash: String?
-
-    public init(
-        op: String,
-        ref: NodeRef? = nil,
-        refs: [NodeRef]? = nil,
-        tree: String? = nil,
-        path: String? = nil,
-        name: String? = nil,
-        destination: NodeRef? = nil,
-        basePropertiesRevision: String? = nil,
-        properties: [String: JSONValue]? = nil,
-        baseContentRevision: String? = nil,
-        source: String? = nil,
-        sourceEdits: [ProtocolSourceEdit]? = nil,
-        hash: String? = nil
-    ) {
-        self.op = op
-        self.ref = ref
-        self.refs = refs
-        self.tree = tree
-        self.path = path
-        self.name = name
-        self.destination = destination
-        self.basePropertiesRevision = basePropertiesRevision
-        self.properties = properties
-        self.baseContentRevision = baseContentRevision
-        self.source = source
-        self.sourceEdits = sourceEdits
-        self.hash = hash
-    }
-
-    public var isContentOperation: Bool {
-        op == "writeProperties" || op == "writeText" || op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
-    }
-}
-
-public struct ProtocolSourceEdit: Codable, Sendable, Equatable {
-    public var offset: Int
-    public var length: Int
-    public var replacement: String
-    public var expected: String?
-
-    public init(offset: Int, length: Int, replacement: String, expected: String? = nil) {
-        self.offset = offset
-        self.length = length
-        self.replacement = replacement
-        self.expected = expected
-    }
-}
-
-public struct MutationRequest: Codable, Sendable, Equatable {
-    public var mutationID: String
-    public var operations: [WorkspaceOperation]
-
-    public init(mutationID: String, operations: [WorkspaceOperation]) {
-        self.mutationID = mutationID
-        self.operations = operations
-    }
-}
-
 public struct MutationEffect: Codable, Sendable, Equatable {
     public var kind: String
     public var ref: NodeRef
@@ -421,12 +157,6 @@ public struct MutationEffect: Codable, Sendable, Equatable {
     /// Exact top-level property names when the provider can prove them.
     public var changedProperties: [String]?
     public var directoryRevision: String?
-}
-
-public struct MutationReceipt: Codable, Sendable, Equatable {
-    public var mutationID: String
-    public var observedThrough: String
-    public var effects: [MutationEffect]
 }
 
 public struct WorkspaceChange: Codable, Sendable, Equatable {
@@ -449,24 +179,6 @@ public struct WorkspaceEvent: Codable, Sendable, Equatable {
     public var tree: String
     public var kind: String
     public var change: WorkspaceChange
-}
-
-public enum ObservedNodeUpdate: Sendable, Equatable {
-    case event(WorkspaceEvent)
-    case resync(NodeSnapshot)
-}
-
-public struct ObservedNodeView: Sendable {
-    public var snapshot: NodeSnapshot
-    public var updates: AsyncThrowingStream<ObservedNodeUpdate, Error>
-
-    public init(
-        snapshot: NodeSnapshot,
-        updates: AsyncThrowingStream<ObservedNodeUpdate, Error>
-    ) {
-        self.snapshot = snapshot
-        self.updates = updates
-    }
 }
 
 public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
@@ -495,5 +207,132 @@ public struct ArborSyncErrorEnvelope: Codable, Sendable, Equatable {
             path: path,
             details: details
         )
+    }
+}
+
+// MARK: - Bootstrap and credential (`GET /v1/bootstrap`, `GET /v1/credential`)
+
+/// The daemon's recorded accepted base for a placement; `cursor` equals `update` and seeds a Wire watch.
+public struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
+    public var root: String
+    public var update: String
+    public var cursor: String
+
+    public init(root: String, update: String, cursor: String) {
+        self.root = root
+        self.update = update
+        self.cursor = cursor
+    }
+}
+
+/// One non-Markdown file the sparse spine references by hash only; its bytes come through `/v1/objects`.
+public struct TreeBootstrapFile: Codable, Sendable, Equatable {
+    public var size: Int
+    /// Milliseconds since the epoch.
+    public var mtime: Int64
+
+    public init(size: Int, mtime: Int64) {
+        self.size = size
+        self.mtime = mtime
+    }
+}
+
+/// The daemon's stored update string, verbatim, when it still ends at the folder exactly.
+public struct TreeBootstrapPending: Codable, Sendable, Equatable {
+    public var base: String?
+    public var updates: [WireCandidateUpdate]
+    /// Per-element request digests (`updateRequestDigests`); they exclude object envelopes.
+    public var requestDigests: [String]
+
+    public init(base: String?, updates: [WireCandidateUpdate], requestDigests: [String]) {
+        self.base = base
+        self.updates = updates
+        self.requestDigests = requestDigests
+    }
+
+    private enum CodingKeys: String, CodingKey { case base, updates, requestDigests }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        base = try values.decodeIfPresent(String.self, forKey: .base)
+        updates = try values.decode([WireCandidateUpdate].self, forKey: .updates)
+        requestDigests = try values.decode([String].self, forKey: .requestDigests)
+        guard updates.count == requestDigests.count else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .requestDigests,
+                in: values,
+                debugDescription: "pending.requestDigests must have one digest per update element"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(base, forKey: .base)
+        try container.encode(updates, forKey: .updates)
+        try container.encode(requestDigests, forKey: .requestDigests)
+    }
+}
+
+/// Why a bootstrap must not be treated as a clean base.
+public enum TreeBootstrapBlock: String, Codable, Sendable, Equatable {
+    case conflict
+    case unsettled
+    case editorPending = "editor-pending"
+}
+
+/// `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own
+/// working tree. Mirrors `TreeBootstrap` in `@arbor/arborsync-client`, with the base64 spine
+/// already decoded and validated in sparse mode.
+public struct TreeBootstrap: Sendable, Equatable {
+    public var tree: LocalTreeDescriptor
+    public var accepted: TreeBootstrapAccepted
+    /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
+    public var spine: WireSnapshot
+    /// Every payload-less file entry by wire path.
+    public var files: [String: TreeBootstrapFile]
+    public var pending: TreeBootstrapPending?
+    public var blocked: TreeBootstrapBlock?
+    public var observedThrough: String
+
+    public init(
+        tree: LocalTreeDescriptor,
+        accepted: TreeBootstrapAccepted,
+        spine: WireSnapshot,
+        files: [String: TreeBootstrapFile],
+        pending: TreeBootstrapPending? = nil,
+        blocked: TreeBootstrapBlock? = nil,
+        observedThrough: String
+    ) {
+        self.tree = tree
+        self.accepted = accepted
+        self.spine = spine
+        self.files = files
+        self.pending = pending
+        self.blocked = blocked
+        self.observedThrough = observedThrough
+    }
+}
+
+/// `GET /v1/credential`: the account credential a same-installation client shares with the daemon.
+public struct TreeCredential: Codable, Sendable, Equatable {
+    public var token: String
+
+    public init(token: String) { self.token = token }
+}
+
+public enum TreeBootstrapError: Error, LocalizedError, Sendable, Equatable {
+    /// The spine referenced a payload-less entry that `files` does not list, so the client
+    /// cannot tell a lazily omitted file from a missing directory.
+    case unlistedFile(path: String, hash: String)
+    case invalidSpine(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .unlistedFile(path, hash):
+            "Bootstrap spine references \(path) (\(hash)) without listing it in files"
+        case let .invalidSpine(detail):
+            "Bootstrap spine is invalid: \(detail)"
+        }
     }
 }

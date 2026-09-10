@@ -30,6 +30,15 @@ enum ArborSupportDirectories {
         directoryHint: .isDirectory
     )
     static let nativePlacement = root.appending(path: "Native Placement.json")
+    /// App-side visit history (macOS): the trees opened by locator without placing them.
+    static let visitedTrees = root.appending(path: "Visits.json")
+    /// Per-tree working-tree state: the durable iOS tree, or on the Mac only the
+    /// coordinator's `sync/update-control.json` beneath `WorkingTrees/<key>`.
+    static let workingTrees = root.appending(path: "WorkingTrees", directoryHint: .isDirectory)
+
+    static func workingTreeKey(_ tree: String) -> String {
+        tree.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? UUID().uuidString
+    }
 }
 
 struct NativePlacementRecord: Codable, Equatable, Sendable {

@@ -33,59 +33,28 @@ final class ArborSyncClientTests: XCTestCase {
 
     func testSharedFixturesDecodeWithoutAppDependencies() throws {
         let status = try decode(ArborSyncStatus.self, "status.json")
-        let node = try decode(NodeSnapshot.self, "node.json")
-        let mutation = try decode(MutationRequest.self, "mutation.json")
-        let receipt = try decode(MutationReceipt.self, "receipt.json")
         let error = try decode(ArborSyncErrorEnvelope.self, "error.json")
-        let children = try decode(ChildrenPage.self, "children.json")
-        let search = try decode(SearchPage.self, "search.json")
-        let backlinks = try decode(BacklinksPage.self, "backlinks.json")
-        let recovery = try decode(RecoveryPage.self, "recovery.json")
-        let operationRequests = try decode([MutationRequest].self, "operations.json")
         let errors = try decode([ArborSyncErrorEnvelope].self, "errors.json")
         let conflict = try decode(ArborSyncConflictWorkspace.self, "conflict-workspace.json")
-        let unknownNode = try decode(NodeSnapshot.self, "node-unknown-field.json")
-        let untracked = try decode(NodeSnapshot.self, "node-untracked.json")
-        let systemTree = try decode(NodeSnapshot.self, "node-system-tree.json")
+        let credential = try decode(TreeCredential.self, "credential.json")
+        let cursors = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: fixtures.appending(path: "cursors.json"))
+        ) as? [String: String])
         let mergeFixtureData = try Data(contentsOf: canopyFixtures.appending(path: "wire-merge.json"))
         let mergeFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: mergeFixtureData) as? [String: Any])
         let intentFixtureData = try Data(contentsOf: conformanceFixtures.appending(path: "wire-update-intent.json"))
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
+        // `bootstrap.json` and `bootstrap-pending.json` decode through the client in `LoopbackServicesTests`.
 
-        XCTAssertEqual(node.ref, NodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: pageIDStableKey("abc123")))
         XCTAssertEqual(status.instanceID, "instance-fixture-01")
         XCTAssertEqual(status.runtimeKind, "cloud")
         XCTAssertEqual(status.deviceID, "dv_fixturedevice23456723456723")
-        XCTAssertEqual(node.content?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
-        XCTAssertEqual(node.ref.tree, "tr_notes7f3q2ab7c")
-        XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
-        XCTAssertEqual(node.enclosingTree?.canonical?.arborURL, "arbor://notes.example/~joe/notes")
-        XCTAssertEqual(node.enclosingTree?.canonical?.httpURL, "https://notes.example/~joe/notes")
-        XCTAssertEqual(node.admissionRequestDigest, "sha256:" + String(repeating: "a", count: 64))
-        XCTAssertEqual(node.acceptedRequestDigests, ["sha256:" + String(repeating: "b", count: 64)])
-        XCTAssertEqual(untracked.ref.tree, "local")
-        XCTAssertNil(untracked.enclosingTree)
-        XCTAssertEqual(systemTree.ref.tree, "system")
-        XCTAssertFalse(systemTree.capabilities.content?.writable ?? true)
-        XCTAssertEqual(unknownNode.ref.tree, "tr_notes7f3q2ab7c")
-        XCTAssertEqual(mutation.operations.first?.op, "move")
-        XCTAssertEqual(receipt.effects.first?.previousPath, "/notes/today")
-        XCTAssertEqual(receipt.effects.first?.propertiesRevision, "sha256:properties")
         XCTAssertEqual(error.error, "future-error-code")
-        XCTAssertEqual(children.items.first?.ref.path, "/notes/today")
-        XCTAssertEqual(search.results.first?.ref.stableKey, pageIDStableKey("abc123"))
-        XCTAssertEqual(search.results.first?.backlinkCount, 2)
-        XCTAssertEqual(search.results.first?.modifiedAt, 1_725_192_000)
-        XCTAssertEqual(backlinks.entries.first?.ref.stableKey, pageIDStableKey("week01"))
-        XCTAssertEqual(recovery.entries.first?.status, "lost")
-        XCTAssertEqual(recovery.entries.last?.kind, "trash")
-        XCTAssertEqual(
-            operationRequests.flatMap(\.operations).map(\.op),
-            ["writeMarkdown", "writeProperties", "writeText", "createMarkdown", "createDirectory", "rename", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity"]
-        )
         XCTAssertEqual(errors.last?.error, "future-error-code")
         XCTAssertEqual(conflict.items.first?.draft.text, "both\n")
         XCTAssertEqual(conflict.items.first?.offersBoth, true)
+        XCTAssertFalse(credential.token.isEmpty)
+        XCTAssertEqual(cursors["current"]?.hasSuffix(":5"), true)
         XCTAssertEqual(mergeFixtures["version"] as? Int, 2)
         XCTAssertGreaterThanOrEqual((mergeFixtures["markdownCases"] as? [[String: Any]])?.count ?? 0, 10)
         XCTAssertEqual((mergeFixtures["pageMoveCases"] as? [[String: Any]])?.count, 4)
@@ -93,17 +62,8 @@ final class ArborSyncClientTests: XCTestCase {
             (intentFixtures["replayCases"] as? [[String: Any]])?.compactMap { $0["name"] as? String },
             ["same-intent-different-object-envelope", "different-candidate-has-different-digest"]
         )
-        XCTAssertEqual(unknownNode.ref.stableKey, pageIDStableKey("abc123"))
     }
 
-    func testMultipartMetadataFixturesRemainLanguageNeutralJSON() throws {
-        for name in ["asset-metadata.json", "import-metadata.json"] {
-            let value = try JSONSerialization.jsonObject(
-                with: Data(contentsOf: fixtures.appending(path: name))
-            ) as? [String: Any]
-            XCTAssertNotNil(value?["mutationID"] as? String)
-        }
-    }
 
     func testSharedSSEFixtureDecodes() throws {
         let source = try String(contentsOf: fixtures.appending(path: "events.sse"), encoding: .utf8)
@@ -144,216 +104,47 @@ final class ArborSyncClientTests: XCTestCase {
         )))
     }
 
-    func testCanonicalNodeDecodersRejectLegacySnapshotFields() throws {
-        let fixture = try Data(contentsOf: fixtures.appending(path: "node.json"))
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture) as? [String: Any])
-        object["tree"] = "tr_legacy"
-        let data = try JSONSerialization.data(withJSONObject: object)
-        XCTAssertThrowsError(try JSONDecoder().decode(NodeSnapshot.self, from: data))
 
-        let childrenFixture = try Data(contentsOf: fixtures.appending(path: "children.json"))
-        var page = try XCTUnwrap(JSONSerialization.jsonObject(with: childrenFixture) as? [String: Any])
-        var items = try XCTUnwrap(page["items"] as? [[String: Any]])
-        items[0]["kind"] = "markdown"
-        page["items"] = items
-        let childrenData = try JSONSerialization.data(withJSONObject: page)
-        XCTAssertThrowsError(try JSONDecoder().decode(ChildrenPage.self, from: childrenData))
-    }
-
-    func testLiveServerWhenProvided() async throws {
+    /// The protocol harness (`tests/protocol/conformance.ts`) exports a control-mode
+    /// daemon with one placed tree; this exercises the loopback services a
+    /// working-tree client uses against it.
+    func testLiveControlDaemonWhenProvided() async throws {
         guard
             let value = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"],
             let url = URL(string: value),
             let tree = ProcessInfo.processInfo.environment["ARBOR_TEST_TREE"]
         else { throw XCTSkip("ARBOR_TEST_URL is not set") }
 
-        let client = ArborSyncRESTClient(
-            baseURL: url,
-            mutationIDGenerator: { "swift-live-mutation" },
-            retryDelay: { _ in }
-        )
-        let before = try await client.node(.path("/page", tree: tree))
-        XCTAssertEqual(before.ref.path, "/page")
-        let view = try await client.openNodeView(.path("/", tree: tree))
-        let request = try await client.prepareStructuralMutation(
-            [WorkspaceOperation(op: "createDirectory", tree: tree, path: "/from-swift")],
-            mutationID: "swift-live-mutation"
-        )
-        let first = try await client.mutate(request)
-        let retry = try await client.mutate(request)
-        XCTAssertEqual(first, retry)
-        let created = try await client.node(.path("/from-swift", tree: tree))
-        XCTAssertEqual(created.ref.path, "/from-swift")
-        for try await update in view.updates {
-            guard case let .event(event) = update, event.change.mutationID == "swift-live-mutation" else {
-                continue
-            }
-            XCTAssertEqual(event.change.ref.path, "/from-swift")
-            break
-        }
-    }
-
-    func testMutationRetriesExactPreparedBodyAfterHTTP500() async throws {
-        let receipt = try Data(contentsOf: fixtures.appending(path: "receipt.json"))
-        await URLProtocolStub.state.install { _, attempt in
-            attempt == 1
-                ? (500, Data(#"{"error":"internal-error","message":"lost","retryable":true}"#.utf8))
-                : (200, receipt)
-        }
-        let client = ArborSyncRESTClient(
-            baseURL: URL(string: "https://arborsync.test")!,
-            session: stubSession(),
-            retryDelay: { _ in }
-        )
-        let request = MutationRequest(
-            mutationID: "22222222-2222-2222-2222-222222222222",
-            operations: [WorkspaceOperation(op: "createDirectory", tree: "tr_notes", path: "/retry")]
-        )
-        let result = try await client.mutate(request)
-        let snapshot = await URLProtocolStub.state.snapshot()
-        XCTAssertEqual(result.mutationID, request.mutationID)
-        XCTAssertEqual(snapshot.count, 2)
-        XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
-    }
-
-    func testDocumentCandidateReturnsOpaqueBasisAndGuardedEditsToArborSync() async throws {
-        let node = try Data(contentsOf: fixtures.appending(path: "node.json"))
-        await URLProtocolStub.state.install { _, _ in (200, node) }
-        let client = ArborSyncRESTClient(
-            baseURL: URL(string: "https://arborsync.test")!,
-            session: stubSession()
-        )
-
-        _ = try await client.admitDocumentCandidate(
-            ref: .path("/notes", tree: "tr_notes"),
-            editorID: "editor-native-1",
-            admissionBasis: "opaque-basis",
-            baseContentRevision: "sha256:opened",
-            source: "# Edited\n",
-            sourceEdits: [ProtocolSourceEdit(offset: 2, length: 5, replacement: "Edited", expected: "Notes")]
-        )
-
-        let captured = await URLProtocolStub.state.snapshot()
-        let request = try XCTUnwrap(captured.requests.first)
-        XCTAssertEqual(captured.count, 1)
-        XCTAssertEqual(request.method, "POST")
-        XCTAssertEqual(request.path, "/v1/documents/admit")
-        let body = try XCTUnwrap(captured.bodies.first)
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        XCTAssertEqual(object["editorID"] as? String, "editor-native-1")
-    }
-
-    func testEditorNodeExplicitlyRequestsAdmissionBasis() async throws {
-        let node = try Data(contentsOf: fixtures.appending(path: "node.json"))
-        await URLProtocolStub.state.install { _, _ in (200, node) }
-        let client = ArborSyncRESTClient(
-            baseURL: URL(string: "https://arborsync.test")!,
-            session: stubSession()
-        )
-
-        _ = try await client.node(.path("/notes", tree: "tr_notes"))
-        _ = try await client.editorNode(.path("/notes", tree: "tr_notes"))
-
-        let requests = await URLProtocolStub.state.snapshot().requests
-        XCTAssertEqual(requests.count, 2)
-        XCTAssertFalse(requests[0].query?.contains("admissionBasis") ?? true)
-        XCTAssertTrue(requests[1].query?.contains("admissionBasis=true") ?? false)
-    }
-
-    func testMutationConveniencesRejectMixedDurabilityDomains() async throws {
-        let client = ArborSyncRESTClient(baseURL: URL(string: "https://arborsync.test")!)
-        let content = WorkspaceOperation(
-            op: "writeMarkdown",
-            ref: .path("/page", tree: "tr_notes"),
-            baseContentRevision: "sha256:content",
-            source: "Updated\n"
-        )
+        let client = ArborSyncRESTClient(baseURL: url)
+        let status = try await client.status()
+        XCTAssertEqual(status.service, "arborsync")
+        XCTAssertEqual(status.protocolVersion, "v1")
+        let placed = try await client.trees().snapshot.first { $0.id == tree }
+        XCTAssertEqual(placed?.placement, "placed")
+        let bootstrap = try await client.bootstrap(tree: tree)
+        XCTAssertEqual(bootstrap.tree.id, tree)
+        XCTAssertEqual(bootstrap.spine.root, bootstrap.accepted.root)
+        XCTAssertNil(bootstrap.blocked)
+        XCTAssertFalse(bootstrap.files.isEmpty)
+        let credential = try await client.credential()
+        XCTAssertFalse(credential.isEmpty)
+        let root = try await client.object(tree: tree, hash: bootstrap.accepted.root)
+        XCTAssertFalse(root.isEmpty)
+        let missing = "sha256:" + String(repeating: "0", count: 64)
         do {
-            _ = try await client.prepareStructuralMutation([
-                WorkspaceOperation(op: "createDirectory", path: "/folder"),
-                content,
-            ])
-            XCTFail("Expected a domain error")
-        } catch let error as InvalidMutationDomainError {
-            XCTAssertTrue(error.message.contains("cannot contain content"))
-        }
-        let mixed = try decode(MutationRequest.self, "mixed-mutation.json")
-        do {
-            _ = try await client.mutate(mixed)
-            XCTFail("Expected a domain error")
-        } catch let error as InvalidMutationDomainError {
-            XCTAssertTrue(error.message.contains("exactly one operation"))
+            _ = try await client.object(tree: tree, hash: missing)
+            XCTFail("Expected a 404 for an unavailable object")
+        } catch let error as ArborSyncServerError {
+            XCTAssertEqual(error.status, 404)
         }
     }
 
-    func testWorkspaceOperationEncodesUTF8SourceEditProvenance() throws {
-        let operation = WorkspaceOperation(
-            op: "writeMarkdown",
-            ref: .path("/page", tree: "tr_notes"),
-            baseContentRevision: "sha256:base",
-            source: "Hello 🌳\n",
-            sourceEdits: [ProtocolSourceEdit(
-                offset: 6,
-                length: 0,
-                replacement: "🌳",
-                expected: ""
-            )]
-        )
-        let data = try JSONEncoder().encode(operation)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let edits = try XCTUnwrap(json["sourceEdits"] as? [[String: Any]])
-        XCTAssertEqual(edits.first?["offset"] as? Int, 6)
-        XCTAssertEqual(edits.first?["replacement"] as? String, "🌳")
-        XCTAssertEqual(try JSONDecoder().decode(WorkspaceOperation.self, from: data), operation)
-    }
 
-    func testMultipartRetriesTheSameEncodedRequest() async throws {
-        let receipt = try String(contentsOf: fixtures.appending(path: "receipt.json"), encoding: .utf8)
-        let response = Data(#"{"receipt":\#(receipt),"path":"/Assets/example.txt","markdownPath":"../Assets/example.txt"}"#.utf8)
-        await URLProtocolStub.state.install { _, attempt in
-            attempt == 1
-                ? (500, Data(#"{"error":"internal-error","message":"lost","retryable":true}"#.utf8))
-                : (200, response)
-        }
-        let client = ArborSyncRESTClient(
-            baseURL: URL(string: "https://arborsync.test")!,
-            session: stubSession(),
-            retryDelay: { _ in }
-        )
-        let result = try await client.asset(
-            directory: .path("/notes", tree: "tr_notes"),
-            filename: "example.txt",
-            contentType: "text/plain",
-            data: Data("bytes".utf8),
-            mutationID: "33333333-3333-3333-3333-333333333333"
-        )
-        let snapshot = await URLProtocolStub.state.snapshot()
-        XCTAssertEqual(result.path, "/Assets/example.txt")
-        XCTAssertEqual(snapshot.count, 2)
-        XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
-    }
 
-    func testFileReadsExactBytesFromExplicitReference() async throws {
-        let bytes = Data([0, 1, 2, 255])
-        await URLProtocolStub.state.install { request, _ in
-            request.url?.path == "/v1/file" ? (200, bytes) : (404, Data())
-        }
-        let client = ArborSyncRESTClient(
-            baseURL: URL(string: "https://arborsync.test")!,
-            session: stubSession()
-        )
 
-        let result = try await client.file(.init(
-            tree: "tr_notes",
-            path: "/Assets/photo.png",
-            stableKey: pageIDStableKey("pg_image")
-        ))
-        XCTAssertEqual(result.bytes, bytes)
-        let snapshot = await URLProtocolStub.state.snapshot()
-        let request = try XCTUnwrap(snapshot.requests.first)
-        XCTAssertEqual(request.path, "/v1/file")
-        XCTAssertEqual(request.query, "tree=tr_notes&path=/Assets/photo.png&stableKey=%5B%5B%22id%22,%22pg_image%22%5D%5D")
-    }
+
+
+
 
     func testLocalArborSyncKeepsOnlyPairingBootstrapRoute() async throws {
         let pairing = #"{"id":"pair_1","secret":"one-time-secret","confirmationCode":"123456","expiresAt":1787529660000}"#

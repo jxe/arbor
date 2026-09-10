@@ -1,5 +1,6 @@
 import ArborKit
 import ArborQuagmire
+import ArborWorkingTree
 import CanopyClient
 import Quagmire
 import SwiftUI
@@ -1356,9 +1357,9 @@ struct ArborHistoryView: View {
 }
 
 struct ArborSyncConflictView: View {
-    let workspace: ReplicaConflictWorkspace?
+    let workspace: UpdateConflictWorkspace?
     let load: () async -> Void
-    let resolve: ([String: ReplicaConflictResolution]) async -> Bool
+    let resolve: ([String: UpdateConflictResolution]) async -> Bool
     let close: () -> Void
     @State private var choices: [String: ArborConflictReviewChoice] = [:]
     @State private var edits: [String: String] = [:]
@@ -1437,11 +1438,11 @@ struct ArborSyncConflictView: View {
         return workspace.items.allSatisfy { choices[$0.path] != nil }
     }
 
-    private func choiceBinding(for item: ReplicaConflictItem) -> Binding<ArborConflictReviewChoice?> {
+    private func choiceBinding(for item: UpdateConflictItem) -> Binding<ArborConflictReviewChoice?> {
         Binding(get: { choices[item.path] }, set: { choices[item.path] = $0 })
     }
 
-    private func editBinding(for item: ReplicaConflictItem) -> Binding<String> {
+    private func editBinding(for item: UpdateConflictItem) -> Binding<String> {
         Binding(
             get: { edits[item.path] ?? item.draft.editableText ?? item.mine.editableText ?? item.current.editableText ?? "" },
             set: { edits[item.path] = $0 }
@@ -1457,7 +1458,7 @@ struct ArborSyncConflictView: View {
 
     private func submit() {
         guard let workspace, isComplete else { return }
-        var resolutions: [String: ReplicaConflictResolution] = [:]
+        var resolutions: [String: UpdateConflictResolution] = [:]
         for item in workspace.items {
             switch choices[item.path] {
             case .current: resolutions[item.path] = .current
@@ -1495,7 +1496,7 @@ struct ArborSyncConflictView: View {
         }
     }
 
-    private func reviewIntroduction(_ workspace: ReplicaConflictWorkspace) -> String {
+    private func reviewIntroduction(_ workspace: UpdateConflictWorkspace) -> String {
         if workspace.items.contains(where: { $0.reasons.contains("accepted-merge-needs-review") }) {
             return "Canopy combined concurrent changes, but the accepted result differs from your exact edit. Choose Current, Mine, or edit the result before Arbor writes it to disk."
         }

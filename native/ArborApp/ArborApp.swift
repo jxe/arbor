@@ -41,7 +41,7 @@ private struct ArborNavigationCommands: Commands {
                 if let commands, !commands.localTrees.isEmpty {
                     ForEach(commands.localTrees) { tree in
                         Button {
-                            commands.jumpToLocalTree(tree.path)
+                            commands.jumpToLocalTree(tree.id)
                         } label: {
                             if tree.isCurrent {
                                 Label(tree.title, systemImage: "checkmark")

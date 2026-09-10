@@ -22,11 +22,12 @@ struct ArborAppTests {
         ) == ["~alice", "arbor://community.example/~research", "~bob"])
     }
 
-    @Test("Save diagnostics distinguish an external daemon that is no longer reachable")
+    @Test("Bootstrap diagnostics distinguish an external daemon that is no longer reachable")
     func externalDaemonSaveDiagnostic() throws {
         let diagnostic = try #require(ArborSaveDiagnostic.describe(
             URLError(.cannotConnectToHost),
-            processKind: .external
+            processKind: .external,
+            context: .bootstrap
         ))
 
         #expect(diagnostic.kind == .daemonUnreachable)
@@ -37,11 +38,12 @@ struct ArborAppTests {
         #expect(diagnostic.synchronizationOverride == "Unavailable")
     }
 
-    @Test("Save diagnostics distinguish a supervised daemon from an external one")
+    @Test("Bootstrap diagnostics distinguish a supervised daemon from an external one")
     func supervisedDaemonSaveDiagnostic() throws {
         let diagnostic = try #require(ArborSaveDiagnostic.describe(
             URLError(.networkConnectionLost),
-            processKind: .supervised
+            processKind: .supervised,
+            context: .bootstrap
         ))
 
         #expect(diagnostic.kind == .daemonUnreachable)
@@ -49,16 +51,27 @@ struct ArborAppTests {
         #expect(diagnostic.explanation.contains("helper launched by this app"))
     }
 
-    @Test("Save diagnostics distinguish timeouts from refused connections")
+    @Test("Bootstrap diagnostics distinguish timeouts from refused connections")
     func timedOutSaveDiagnostic() throws {
         let diagnostic = try #require(ArborSaveDiagnostic.describe(
             URLError(.timedOut),
-            processKind: .external
+            processKind: .external,
+            context: .bootstrap
         ))
 
         #expect(diagnostic.kind == .daemonTimedOut)
         #expect(diagnostic.conditionLabel == "Local daemon timed out")
         #expect(diagnostic.bannerMessage.contains("did not respond"))
+    }
+
+    @Test("A document save never classifies a connection failure as a daemon outage")
+    func saveDiagnosticsNeverBlameTheDaemon() throws {
+        for error: Error in [URLError(.cannotConnectToHost), URLError(.timedOut), CocoaError(.fileWriteNoPermission)] {
+            let diagnostic = try #require(ArborSaveDiagnostic.describe(error, processKind: .supervised))
+            #expect(diagnostic.kind == .providerFailure)
+            #expect(diagnostic.synchronizationOverride == nil)
+            #expect(!diagnostic.bannerMessage.contains("daemon"))
+        }
     }
 
     @Test("Save diagnostics do not mislabel arbitrary provider failures as daemon outages")
@@ -197,6 +210,78 @@ struct ArborAppTests {
         try await store.clear()
         #expect(try await store.load() == nil)
     }
+
+#if os(macOS)
+    @Test("Visits are remembered most recent first, once per tree, and bounded")
+    func visitedTreeStoreRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "ArborVisits-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = VisitedTreeStore(url: root.appending(path: "Visits.json"))
+        let origin = try #require(URL(string: "https://arbor.example"))
+        func descriptor(_ id: String, path: String) -> WireTreeDescriptor {
+            WireTreeDescriptor(
+                id: id,
+                kind: "ordinary",
+                root: "sha256:\(String(repeating: "d", count: 64))",
+                access: "read",
+                canonical: WireCanonicalDescriptor(path: path, endpoint: "https://arbor.example"),
+                update: "up_\(id)"
+            )
+        }
+        #expect(try await store.loadAll().isEmpty)
+        try await store.record(VisitedTreeRecord(origin: origin, tree: descriptor("tr_one", path: "/~a/one"), locator: "https://arbor.example/~a/one"))
+        try await store.record(VisitedTreeRecord(origin: origin, tree: descriptor("tr_two", path: "/~a/two"), locator: "https://arbor.example/~a/two"))
+        try await store.record(VisitedTreeRecord(origin: origin, tree: descriptor("tr_one", path: "/~a/one"), locator: "https://arbor.example/~a/one"))
+        #expect(try await store.loadAll().map(\.tree.id) == ["tr_one", "tr_two"])
+        for index in 0..<(VisitedTreeStore.limit + 5) {
+            try await store.record(VisitedTreeRecord(origin: origin, tree: descriptor("tr_bulk\(index)", path: "/~a/b\(index)"), locator: "https://arbor.example/~a/b\(index)"))
+        }
+        #expect(try await store.loadAll().count == VisitedTreeStore.limit)
+        try await store.forget(tree: "tr_bulk54")
+        #expect(try await store.loadAll().first?.tree.id == "tr_bulk53")
+        try await store.clear()
+        #expect(try await store.loadAll().isEmpty)
+    }
+
+    @Test("Remote locators resolve to a Canopy origin and a canonical path")
+    func remoteLocatorParsing() throws {
+        let arbor = try #require(ArborRemoteLocator("arbor://community.example/~joe/notes"))
+        #expect(arbor.origin.absoluteString == "https://community.example")
+        #expect(arbor.path == "/~joe/notes")
+        #expect(arbor.rootLocator == "https://community.example/")
+        #expect(arbor.locator(path: "/~joe/notes") == "https://community.example/~joe/notes")
+        let http = try #require(ArborRemoteLocator("http://127.0.0.1:4400/~joe/a%20b?x=1#frag"))
+        #expect(http.origin.absoluteString == "http://127.0.0.1:4400")
+        #expect(http.path == "/~joe/a b")
+        #expect(http.locator(path: "/~joe/a b") == "http://127.0.0.1:4400/~joe/a%20b")
+        #expect(ArborRemoteLocator("https://arbor.example")?.path == "/")
+        #expect(ArborRemoteLocator("file:///Users/joe") == nil)
+        #expect(ArborRemoteLocator("~joe") == nil)
+    }
+
+    @Test("A visit sparsifies a complete snapshot to directories and Markdown")
+    func visitSnapshotSparsification() throws {
+        let markdown = try WireObjectCodec.object(.file(Data("# Note\n".utf8)))
+        let image = try WireObjectCodec.object(.file(Data([0x89, 0x50, 0x4E, 0x47])))
+        let nestedDirectory = try WireObjectCodec.object(.directory([
+            WireDirectoryEntry(name: "photo.png", hash: image.hash),
+        ]))
+        let root = try WireObjectCodec.object(.directory([
+            WireDirectoryEntry(name: "assets", hash: nestedDirectory.hash),
+            WireDirectoryEntry(name: "note.md", hash: markdown.hash),
+            WireDirectoryEntry(name: "cover.png", hash: image.hash),
+        ]))
+        let complete = WireSnapshot(root: root.hash, objects: [root, nestedDirectory, markdown, image])
+        let sparse = try ArborVisitSnapshot.sparsified(complete)
+        #expect(Set(sparse.spine.objects.map(\.hash)) == [root.hash, nestedDirectory.hash, markdown.hash])
+        #expect(sparse.files["/cover.png"]?.size == 4)
+        #expect(sparse.files["/assets/photo.png"]?.mediaType == "image/png")
+        let replacement = try ArborVisitSnapshot.replacement(complete, tree: "tr_visit", update: "up_visit", cursor: "up_visit")
+        #expect(replacement.root == root.hash)
+        #expect(replacement.nodes.map(\.path).sorted() == ["/", "/assets", "/assets/photo.png", "/cover.png", "/note"])
+    }
+#endif
 
     @Test("A legacy single iPhone placement migrates when another tree is placed")
     func legacyNativePlacementMigration() async throws {
@@ -578,21 +663,40 @@ struct ArborAppTests {
     }
 
 #if os(macOS)
-    @Test("The signed app can supervise its bundled arborsync helper")
-    func bundledHelperBoundary() async throws {
-        guard ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1" else { return }
-        let root = FileManager.default.temporaryDirectory
-            .appending(path: "ArborSandboxHelper-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+    /// Hosted smoke: `native/scripts/hosted-smoke.ts` starts a local Canopy,
+    /// claims an account into the test data home, places a disposable folder,
+    /// and runs this suite with `ARBOR_TEST_TREE` naming that tree. The signed
+    /// app supervises its bundled control-mode helper on the test port, opens
+    /// the tree through `/v1/bootstrap`, edits its own working tree, and the
+    /// edit reaches the folder through Canopy and the daemon.
+    @Test("The signed app opens a placed tree through its bundled control daemon and edits it")
+    func hostedPlacedTreeSmoke() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["ARBOR_TEST_BUNDLED_HELPER"] == "1",
+              let tree = environment["ARBOR_TEST_TREE"], !tree.isEmpty else { return }
         let workspace = ArborWorkspaceState()
-        try await workspace.openLocalWorkspace(root, remember: false)
+        try await workspace.openPlacedTree(tree)
+        #expect(workspace.openPlacedTreeID == tree)
+        #expect(workspace.capabilities == .full)
         let created = try #require(try await workspace.provider.perform(.createMarkdown(
             parent: workspace.home,
-            name: "sandboxed",
-            source: "# Sandboxed helper\n"
+            name: "hosted-smoke",
+            source: "# Hosted smoke\n"
         )))
-        #expect(created.title == "Sandboxed helper")
+        #expect(created.title == "Hosted smoke")
+        await workspace.syncNow()
+        await workspace.refreshLocalArborSyncOverview()
+        let folder = try #require(workspace.localArborSyncOverview?.trees.first { $0.id == tree }?.path)
+        let file = URL(fileURLWithPath: folder).appending(path: "hosted-smoke.md")
+        var landed = false
+        for _ in 0..<100 where !landed {
+            if let source = try? String(contentsOf: file, encoding: .utf8), source.contains("# Hosted smoke") {
+                landed = true
+            } else {
+                try await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        #expect(landed, "the app's edit did not reach \(file.path) through Canopy and the daemon")
         await workspace.shutdown()
     }
 #endif

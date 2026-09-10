@@ -741,15 +741,16 @@ struct ArborRootView: View {
         }
         .task {
 #if os(macOS)
-            // The hosted test app must not restore a real user bookmark: tests open
-            // their own temporary workspace and own that helper's full lifetime.
+            // The hosted test app must not restore the user's last placed tree:
+            // tests open the disposable tree their harness placed and own that
+            // helper's full lifetime.
             let environment = ProcessInfo.processInfo.environment
             if environment["ARBOR_TEST_BUNDLED_HELPER"] != "1" {
                 await workspace.restoreLocalWorkspaceIfAvailable()
-            } else if let path = environment["ARBOR_TEST_WORKSPACE"], !path.isEmpty {
-                // A hosted smoke run names its disposable workspace explicitly.
+            } else if let tree = environment["ARBOR_TEST_TREE"], !tree.isEmpty {
+                // A hosted smoke run names its disposable placed tree explicitly.
                 do {
-                    try await workspace.openLocalWorkspace(URL(fileURLWithPath: path, isDirectory: true), remember: false)
+                    try await workspace.openPlacedTree(tree)
                 } catch {
                     workspace.errorMessage = error.localizedDescription
                 }
@@ -1307,8 +1308,13 @@ struct ArborRootView: View {
             recordAudioLabel: voiceRecordingCommandLabel,
             share: { sharePresented = true },
             localTrees: localTreeMenuItems,
-            jumpToLocalTree: { path in
-                Task { await model.navigate(to: .local(path)) }
+            jumpToLocalTree: { tree in
+#if os(macOS)
+                Task {
+                    do { try await workspace.openPlacedTree(tree) }
+                    catch { workspace.errorMessage = ArborWorkspaceState.bootstrapFailureMessage(error, processKind: workspace.arborsyncProcessKind) }
+                }
+#endif
             },
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
@@ -1410,7 +1416,9 @@ struct ArborRootView: View {
                 id: tree.id,
                 title: title,
                 detail: detail,
-                condition: localTreeCondition(tree),
+                condition: tree.id == workspace.openPlacedTreeID
+                    ? openTreeCondition(workspace.syncPresentation, folder: tree)
+                    : localTreeCondition(tree),
                 reviewableConflict: tree.reviewableConflict
             )
         }
@@ -1428,6 +1436,22 @@ struct ArborRootView: View {
             $0.configurationTree == tree.id
         }
         return "\(account?.arborDisplayName ?? "Canopy account") settings"
+    }
+
+    /// The open tree's row describes this app's own working tree (its
+    /// coordinator), with the folder's daemon state alongside when it differs.
+    private func openTreeCondition(_ sync: WorkspaceSyncPresentation, folder tree: LocalArborSyncTreePresentation) -> String {
+        let own: String = switch sync.state {
+        case .current: "Up to date"
+        case .autoMerged, .approximatePlacement: "Merged"
+        case .locallyPending, .requestPending, .uploading, .downloading: "Syncing"
+        case .conflict: "Conflict"
+        case .authenticationFailure: "Not signed in"
+        case .revoked: "Credential revoked"
+        case .offline: "Offline"
+        }
+        let daemon = localTreeCondition(tree)
+        return daemon == own || daemon == "Up to date" ? own : "\(own) · folder \(daemon.lowercased())"
     }
 
     private func localTreeCondition(_ tree: LocalArborSyncTreePresentation) -> String {
@@ -1596,6 +1620,7 @@ struct ArborRootView: View {
         .animation(.easeInOut(duration: 0.2), value: workspace.syncConflict != nil)
 #if os(macOS)
         .navigationTitle("")
+        .navigationBarBackButtonHidden(true)
 #endif
         .toolbar {
 #if os(macOS)
@@ -1619,6 +1644,20 @@ struct ArborRootView: View {
                 .accessibilityLabel(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
             }
             .sharedBackgroundVisibility(.hidden)
+            if model.canGoBack {
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        Task { await model.goBack() }
+                    } label: {
+                        mutedMacToolbarIcon("chevron.left")
+                    }
+                    .buttonStyle(.plain)
+                    .mutedMacToolbarHover()
+                    .help("Back")
+                    .accessibilityLabel("Back")
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
             ToolbarItem(placement: .navigation) {
                 detailPathHeading(for: location)
             }
@@ -1843,7 +1882,7 @@ struct ArborRootView: View {
         case .createDirectory:
             Task { await model.perform(.createDirectory(parent: mutationParent, name: trimmed)) }
         case .openLocation:
-            Task { await model.navigate(to: destination(trimmed)) }
+            Task { await openLocation(trimmed) }
         default:
             break
         }
@@ -1857,38 +1896,53 @@ struct ArborRootView: View {
         }
     }
 
-    private func destination(_ value: String) -> WorkspaceLocation {
+    /// Open Location. On the Mac an `http(s)://` or `arbor://` locator visits
+    /// (or opens the placed tree it names); an absolute or `~` path opens the
+    /// placed tree containing it and navigates inside; anything else is a path
+    /// in the current tree. There is no filesystem browser: a folder that is
+    /// not a placed tree cannot be opened here.
+    private func openLocation(_ value: String) async {
 #if os(macOS)
         if let url = URL(string: value), ["http", "https", "arbor"].contains(url.scheme?.lowercased() ?? "") {
-            return .remote(locator: url.absoluteString, rootLocator: url.absoluteString)
+            do { try await workspace.openRemoteLocator(value) }
+            catch { workspace.errorMessage = error.localizedDescription }
+            return
         }
-        let expanded: String
-        if value == "~" {
-            expanded = FileManager.default.homeDirectoryForCurrentUser.path
-        } else if value.hasPrefix("~/") {
-            expanded = FileManager.default.homeDirectoryForCurrentUser.appending(path: String(value.dropFirst(2))).path
-        } else if value.hasPrefix("/") {
-            expanded = value
-        } else {
-            let base: String = switch model.currentLocation {
-            case let .localPath(path):
-                switch model.node?.surface {
-                case .directory, .directoryDocument, .collection:
-                    path
-                default:
-                    URL(fileURLWithPath: path).deletingLastPathComponent().path
-                }
-            default: workspace.launchLocation.path
+        if value == "~" || value.hasPrefix("~/") || value.hasPrefix("/") {
+            let expanded: String = if value == "~" {
+                FileManager.default.homeDirectoryForCurrentUser.path
+            } else if value.hasPrefix("~/") {
+                FileManager.default.homeDirectoryForCurrentUser.appending(path: String(value.dropFirst(2))).path
+            } else {
+                value
             }
-            expanded = URL(fileURLWithPath: base).appending(path: value).path
+            let standardized = URL(fileURLWithPath: expanded).standardizedFileURL.path
+            if workspace.localArborSyncOverview == nil { await workspace.refreshLocalArborSyncOverview() }
+            let placed = (workspace.localArborSyncOverview?.trees ?? [])
+                .compactMap { tree -> (LocalArborSyncTreePresentation, String)? in
+                    guard let root = tree.path.map({ URL(fileURLWithPath: $0).standardizedFileURL.path }),
+                          standardized == root || standardized.hasPrefix(root + "/") else { return nil }
+                    return (tree, root)
+                }
+                .max { $0.1.count < $1.1.count }
+            guard let (tree, root) = placed else {
+                workspace.errorMessage = "\(standardized) is not inside a placed tree. Place the folder with arbor place first."
+                return
+            }
+            do {
+                if workspace.openPlacedTreeID != tree.id { try await workspace.openPlacedTree(tree.id) }
+                let inside = standardized == root ? "/" : String(standardized.dropFirst(root.count))
+                await model.navigate(to: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: inside))
+            } catch {
+                workspace.errorMessage = ArborWorkspaceState.bootstrapFailureMessage(error, processKind: workspace.arborsyncProcessKind)
+            }
+            return
         }
-        return .local(expanded)
-#else
-        return .reference(WorkspaceReference(
+#endif
+        await model.navigate(to: .reference(WorkspaceReference(
             tree: model.currentReference.tree,
             path: value.hasPrefix("/") ? value : "/\(value)"
-        ))
-#endif
+        )))
     }
 
     @ViewBuilder

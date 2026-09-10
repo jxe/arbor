@@ -1,7 +1,8 @@
 import ArborSyncClient
 import ArborKit
+import ArborObjectStore
 import ArborQuagmire
-import ArborReplica
+import ArborWorkingTree
 import CanopyClient
 import ArborWire
 import CryptoKit
@@ -98,11 +99,12 @@ struct WorkspaceStructuralReceipt: Identifiable {
 @MainActor
 @Observable
 final class ArborWorkspaceState {
-    /// Wire format the replica store was placed under; bump when accepted-update
-    /// identity, request shapes, or canonical object encoding changes
-    /// incompatibly. "3": collection-file directory descriptors and required
-    /// transition arrays.
-    static let replicaWireFormat = "3"
+    /// Wire format the working tree was placed under; bump when accepted-update
+    /// identity, request shapes, canonical object encoding, or the durable
+    /// state layout changes incompatibly. "4": content references (schema 2
+    /// state, no inline file bytes), the `WorkingTrees/` layout, and
+    /// `update-control.json`.
+    static let workingTreeFormat = "4"
 
     private(set) var provider: any WorkspaceProvider
     private(set) var editorWorkspace: ArborEditorWorkspace
@@ -115,19 +117,24 @@ final class ArborWorkspaceState {
         state: .offline,
         detail: "Open a local tree to start arborsync"
     )
-    private(set) var syncConflict: ReplicaConflictPresentation?
-    private(set) var syncConflictWorkspace: ReplicaConflictWorkspace?
+    private(set) var syncConflict: UpdateConflictPresentation?
+    private(set) var syncConflictWorkspace: UpdateConflictWorkspace?
     private(set) var arborsyncProcessKind: ArborSyncProcessKind?
     private(set) var latestStructuralReceipt: WorkspaceStructuralReceipt?
     let linkPreviewService: LinkPreviewService
     var errorMessage: String?
 
-    private var syncCoordinator: ReplicaSyncCoordinator?
+    private var syncCoordinator: UpdateCoordinator?
     private var serverWatchTask: Task<Void, Never>?
 #if os(macOS)
     private var supervisor: ArborSyncProcessSupervisor?
     private var arborsyncClient: ArborSyncRESTClient?
-    private let bookmarks = SecurityScopedWorkspaceBookmarkStore()
+    private let visitedTreeStore = VisitedTreeStore()
+    private var visitFollowTask: Task<Void, Never>?
+    /// The placed tree open as this app's working tree, if any.
+    private(set) var openPlacedTreeID: String?
+    /// The root locator of the visit open, if any.
+    private(set) var openVisitLocator: String?
     private var attemptedWorkspaceRestore = false
     private var overviewRefreshTask: Task<Void, Never>?
     private var overviewWatchTask: Task<Void, Never>?
@@ -137,9 +144,9 @@ final class ArborWorkspaceState {
     private(set) var localArborSyncConflictTree: String?
     private(set) var localCanopyDevicesByConfigurationTree: [String: [LocalArborSyncDevicePresentation]] = [:]
 #endif
-#if os(iOS)
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
+#if os(iOS)
     private let nativePathMonitor = NWPathMonitor()
     private let nativePathMonitorQueue = DispatchQueue(label: "org.nxhx.Arbor.canopy-path")
     private var nativeTransportAvailable = false
@@ -195,24 +202,25 @@ final class ArborWorkspaceState {
         let client = ArborWireClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ArborWireReplicaTransport(client: client)
         let root = ArborSupportDirectories.root
-        let key = tree.id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? UUID().uuidString
-        let replicaRoot = root.appending(path: "Replicas/\(key)", directoryHint: .isDirectory)
-        // A replica records the wire format it was placed under. When the format
-        // changes (accepted-update ids, cursors, and request shapes are not
-        // continuous across such a change), the replica and its sync state cannot
-        // resume against the server and are re-placed from a fresh snapshot.
+        let key = ArborSupportDirectories.workingTreeKey(tree.id)
+        let replicaRoot = ArborSupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory)
+        // A working tree records the wire format it was placed under. When the
+        // format changes (accepted-update ids, cursors, and request shapes are
+        // not continuous across such a change), the tree and its update state
+        // cannot resume against the server and are re-placed from a fresh
+        // snapshot.
         let formatMarker = replicaRoot.appending(path: "wire-format")
         let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
         let syncStateRoot = root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
-        let replica: ArborReplica
-        if placedFormat == Self.replicaWireFormat,
+        let workingTree: WorkingTree
+        if placedFormat == Self.workingTreeFormat,
            FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
-            replica = try await ArborReplica.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
+            workingTree = try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
         } else {
             try? FileManager.default.removeItem(at: replicaRoot)
             try? FileManager.default.removeItem(at: syncStateRoot)
-            replica = try await ReplicaPlacementService.place(tree: tree, at: replicaRoot, transport: transport)
-            try Self.replicaWireFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
+            workingTree = try await WorkingTreePlacementService.place(tree: tree, at: replicaRoot, transport: transport)
+            try Self.workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
         }
         let initiallyAvailable: Bool
 #if os(iOS)
@@ -220,31 +228,20 @@ final class ArborWorkspaceState {
 #else
         initiallyAvailable = true
 #endif
-        let coordinator = try ReplicaSyncCoordinator(
-            replica: replica,
+        let coordinator = try UpdateCoordinator(
+            workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
             transportAvailable: initiallyAvailable
         )
-#if os(macOS)
-        if let supervisor { await supervisor.stop(); self.supervisor = nil }
-        arborsyncClient = nil
-        overviewRefreshTask?.cancel()
-        overviewRefreshTask = nil
-        overviewWatchTask?.cancel()
-        overviewWatchTask = nil
-        localArborSyncOverview = nil
-#endif
-        let nextProvider = ReplicaWorkspaceProvider(replica: replica) { [weak self] admission in
+        let nextProvider = WorkingTreeProvider(workingTree: workingTree) { [weak self] admission in
             await coordinator.syncImmediately(admission)
             await self?.refreshSyncPresentation(from: coordinator)
         }
-#if os(iOS)
         if remember {
             try await nativePlacementStore.save(NativePlacementRecord(origin: origin, configurationTree: configurationTree, tree: tree))
             nativePlacements = try await nativePlacementStore.loadAll()
         }
-#endif
         await switchProvider(
             nextProvider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
@@ -332,17 +329,15 @@ final class ArborWorkspaceState {
             }
             if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
             var accounts: [ArborShareAccount] = []
-            if let client = arborsyncClient {
-                for account in localArborSyncOverview?.accounts ?? [] {
-                    guard account.credentialAvailable,
-                          let origin = account.canopy,
-                          await isLocalAccountAdministrator(account, client: client) else { continue }
-                    accounts.append(ArborShareAccount(
-                        configurationTree: account.configurationTree,
-                        origin: origin,
-                        handle: account.handle
-                    ))
-                }
+            for account in localArborSyncOverview?.accounts ?? [] {
+                guard account.credentialAvailable,
+                      let origin = account.canopy,
+                      isLocalAccountAdministrator(account) else { continue }
+                accounts.append(ArborShareAccount(
+                    configurationTree: account.configurationTree,
+                    origin: origin,
+                    handle: account.handle
+                ))
             }
             return .promotable(path: folder.standardizedFileURL.path, accounts: accounts)
         }
@@ -365,21 +360,15 @@ final class ArborWorkspaceState {
         ).setAccess(tree: tree, target: target, access: access)
 #else
         guard access == "none" || access == "read" || access == "write",
-              let client = arborsyncClient,
               let overview = localArborSyncOverview,
               let placedTree = overview.trees.first(where: { $0.id == tree }),
               let configurationTree = placedTree.configurationTree else {
             throw ArborWireValidationError.invalidValue("The current tree has no editable account configuration")
         }
-        let ref = NodeRef(tree: configurationTree, path: "/trees.yaml", stableKey: nil)
-        let file = try await client.file(ref)
-        guard let source = String(data: file.bytes, encoding: .utf8) else {
-            throw ArborWireValidationError.invalidValue("trees.yaml is not UTF-8")
-        }
         let subject: ArborAccountAccessSubject = switch target {
         case .everyone: .everyone
         case .existing(let subject): subject
-        case .profile(let locator): .profile(tree: try await resolveLocalProfile(locator, client: client, overview: overview, configurationTree: configurationTree))
+        case .profile(let locator): .profile(tree: try await resolveLocalProfile(locator, overview: overview, configurationTree: configurationTree))
         }
         let account = overview.accounts.first { $0.configurationTree == configurationTree }
         try ArborAccountConfigurationYAML.validateAccessChange(
@@ -387,17 +376,20 @@ final class ArborWorkspaceState {
             access: access,
             currentProfileTree: account?.profileTree
         )
-        let next = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
-            guard var declaration = trees[tree] else {
-                throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
+        try await editAccountConfigurationFile(configurationTree, named: "trees.yaml") { source in
+            try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+                guard var declaration = trees[tree] else {
+                    throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
+                }
+                declaration.access.removeAll { $0.subject == subject }
+                if access != "none" {
+                    declaration.access.append(ArborAccountAccessRule(subject: subject, access: access))
+                }
+                trees[tree] = declaration
             }
-            declaration.access.removeAll { $0.subject == subject }
-            if access != "none" {
-                declaration.access.append(ArborAccountAccessRule(subject: subject, access: access))
-            }
-            trees[tree] = declaration
+        } validate: { next in
+            _ = try ArborAccountConfigurationYAML.trees(from: next)
         }
-        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
         await refreshLocalArborSyncOverview()
         return try await loadLocalTreeAccess(tree: tree)
 #endif
@@ -437,17 +429,55 @@ final class ArborWorkspaceState {
     }
 
 #if os(macOS)
-    private func isLocalAccountAdministrator(
-        _ account: LocalCanopyAccountDescriptor,
-        client: ArborSyncRESTClient
-    ) async -> Bool {
+    // MARK: Account configuration on disk
+    //
+    // The configuration tree is a placed folder at `~/.arbor/accounts/<cfg>/`.
+    // The app reads and edits its YAML there, exactly as the CLI does
+    // (`editAccountConfigurationFile` in `@arbor/stores`), and the daemon pushes
+    // the edit like any other placement. Nothing here goes through a daemon
+    // editor route.
+
+    private func accountCheckout(_ configurationTree: String) -> URL {
+        ArborAccountConfigurationYAML.checkoutURL(
+            dataHome: ArborSupportDirectories.dataHome,
+            configurationTree: configurationTree
+        )
+    }
+
+    private func readAccountConfigurationFile(_ configurationTree: String, named filename: String) throws -> String {
+        try ArborAccountConfigurationYAML.readFile(named: filename, in: accountCheckout(configurationTree))
+    }
+
+    /// Edit one account-configuration file on disk, then ask the daemon to push
+    /// the checkout now. Refused while the daemon reports the configuration
+    /// tree in conflict: a disk edit would only pile onto the review.
+    private func editAccountConfigurationFile(
+        _ configurationTree: String,
+        named filename: String,
+        change: (String) throws -> String,
+        validate: ((String) throws -> Void)? = nil
+    ) async throws {
+        if localArborSyncOverview?.trees.contains(where: { $0.id == configurationTree && $0.sync == "conflict" }) == true {
+            throw ArborWireValidationError.invalidValue(
+                "The account configuration has a conflict; review it in Sync Status before changing it"
+            )
+        }
+        try ArborAccountConfigurationYAML.editFile(
+            named: filename,
+            in: accountCheckout(configurationTree),
+            change: change,
+            validate: validate
+        )
+        if let client = arborsyncClient {
+            try await client.synchronize(configurationTree: configurationTree)
+        }
+    }
+
+    private func isLocalAccountAdministrator(_ account: LocalCanopyAccountDescriptor) -> Bool {
         guard let deviceID = account.deviceID,
-              let file = try? await client.file(.init(
-                tree: account.configurationTree,
-                path: "/devices.yaml",
-                stableKey: nil
-              )),
-              let source = String(data: file.bytes, encoding: .utf8) else { return false }
+              let source = try? readAccountConfigurationFile(account.configurationTree, named: "devices.yaml") else {
+            return false
+        }
         return (try? ArborAccountConfigurationYAML.isAdministrator(
             deviceID: deviceID,
             devicesSource: source
@@ -455,20 +485,12 @@ final class ArborWorkspaceState {
     }
 
     func localCanopyDevices(configurationTree: String) async throws -> [LocalArborSyncDevicePresentation] {
-        guard let client = arborsyncClient,
-              let account = localArborSyncOverview?.accounts.first(where: {
-                  $0.configurationTree == configurationTree
-              }) else {
+        guard let account = localArborSyncOverview?.accounts.first(where: {
+            $0.configurationTree == configurationTree
+        }) else {
             throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
         }
-        let file = try await client.file(.init(
-            tree: configurationTree,
-            path: "/devices.yaml",
-            stableKey: nil
-        ))
-        guard let source = String(data: file.bytes, encoding: .utf8) else {
-            throw ArborWireValidationError.invalidValue("devices.yaml is not UTF-8")
-        }
+        let source = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
         let devices = try ArborAccountConfigurationYAML.devices(from: source)
             .map { id, device in
                 LocalArborSyncDevicePresentation(
@@ -498,17 +520,12 @@ final class ArborWorkspaceState {
         deviceID: String,
         administrator: Bool
     ) async throws -> [LocalArborSyncDevicePresentation] {
-        guard let client = arborsyncClient,
-              let account = localArborSyncOverview?.accounts.first(where: {
-                  $0.configurationTree == configurationTree
-              }) else {
+        guard let account = localArborSyncOverview?.accounts.first(where: {
+            $0.configurationTree == configurationTree
+        }) else {
             throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
         }
-        let ref = NodeRef(tree: configurationTree, path: "/devices.yaml", stableKey: nil)
-        let file = try await client.file(ref)
-        guard let source = String(data: file.bytes, encoding: .utf8) else {
-            throw ArborWireValidationError.invalidValue("devices.yaml is not UTF-8")
-        }
+        let source = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
         let devices = try ArborAccountConfigurationYAML.devices(from: source)
         try ArborAccountConfigurationYAML.validateAdministratorChange(
             devices: devices,
@@ -516,14 +533,17 @@ final class ArborWorkspaceState {
             targetDeviceID: deviceID,
             administrator: administrator
         )
-        let next = try ArborAccountConfigurationYAML.replacingDevices(in: source) { devices in
-            guard var device = devices[deviceID] else {
-                throw ArborWireValidationError.invalidValue("The device is no longer active")
+        try await editAccountConfigurationFile(configurationTree, named: "devices.yaml") { current in
+            try ArborAccountConfigurationYAML.replacingDevices(in: current) { devices in
+                guard var device = devices[deviceID] else {
+                    throw ArborWireValidationError.invalidValue("The device is no longer active")
+                }
+                device.administrator = administrator ? true : nil
+                devices[deviceID] = device
             }
-            device.administrator = administrator ? true : nil
-            devices[deviceID] = device
+        } validate: { next in
+            _ = try ArborAccountConfigurationYAML.devices(from: next)
         }
-        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
         return try await localCanopyDevices(configurationTree: configurationTree)
     }
 
@@ -531,48 +551,38 @@ final class ArborWorkspaceState {
         configurationTree: String,
         deviceID: String
     ) async throws -> [LocalArborSyncDevicePresentation] {
-        guard let client = arborsyncClient,
-              let account = localArborSyncOverview?.accounts.first(where: {
-                  $0.configurationTree == configurationTree
-              }) else {
+        guard let account = localArborSyncOverview?.accounts.first(where: {
+            $0.configurationTree == configurationTree
+        }) else {
             throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
         }
-        let ref = NodeRef(tree: configurationTree, path: "/devices.yaml", stableKey: nil)
-        let file = try await client.file(ref)
-        guard let source = String(data: file.bytes, encoding: .utf8) else {
-            throw ArborWireValidationError.invalidValue("devices.yaml is not UTF-8")
-        }
+        let source = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
         let devices = try ArborAccountConfigurationYAML.devices(from: source)
         try ArborAccountConfigurationYAML.validateDeviceRemoval(
             devices: devices,
             currentDeviceID: account.deviceID,
             targetDeviceID: deviceID
         )
-        let next = try ArborAccountConfigurationYAML.replacingDevices(in: source) { devices in
-            devices[deviceID] = nil
+        try await editAccountConfigurationFile(configurationTree, named: "devices.yaml") { current in
+            try ArborAccountConfigurationYAML.replacingDevices(in: current) { devices in
+                devices[deviceID] = nil
+            }
+        } validate: { next in
+            _ = try ArborAccountConfigurationYAML.devices(from: next)
         }
-        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
         return try await localCanopyDevices(configurationTree: configurationTree)
     }
 
     private func loadLocalTreeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
-        guard let client = arborsyncClient,
-              let overview = localArborSyncOverview,
+        guard let overview = localArborSyncOverview,
               let placedTree = overview.trees.first(where: { $0.id == tree }),
               let configurationTree = placedTree.configurationTree,
               let account = overview.accounts.first(where: { $0.configurationTree == configurationTree }) else {
             throw ArborWireValidationError.invalidValue("The current tree has no editable account configuration")
         }
-        let treesRef = NodeRef(tree: configurationTree, path: "/trees.yaml", stableKey: nil)
-        let devicesRef = NodeRef(tree: configurationTree, path: "/devices.yaml", stableKey: nil)
-        async let treesFileRequest = client.file(treesRef)
-        async let devicesFileRequest = client.file(devicesRef)
-        let (treesFile, devicesFile) = try await (treesFileRequest, devicesFileRequest)
-        guard let treesSource = String(data: treesFile.bytes, encoding: .utf8),
-              let devicesSource = String(data: devicesFile.bytes, encoding: .utf8) else {
-            throw ArborWireValidationError.invalidValue("Account configuration YAML is not UTF-8")
-        }
+        let treesSource = try readAccountConfigurationFile(configurationTree, named: "trees.yaml")
+        let devicesSource = try readAccountConfigurationFile(configurationTree, named: "devices.yaml")
         let trees = try ArborAccountConfigurationYAML.trees(from: treesSource)
         guard let declaration = trees[tree] else {
             throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
@@ -601,9 +611,11 @@ final class ArborWorkspaceState {
         )
     }
 
+    /// A person or group as a profile TreeID: a bare TreeID, a `~handle` on the
+    /// account's own Canopy, or any Arbor locator resolved on the Wire at its
+    /// origin with the account credential when the origins match.
     private func resolveLocalProfile(
         _ input: String,
-        client: ArborSyncRESTClient,
         overview: LocalArborSyncOverview,
         configurationTree: String
     ) async throws -> String {
@@ -617,10 +629,32 @@ final class ArborWorkspaceState {
         } else {
             locator = value
         }
-        guard locator.contains("://") else {
+        guard let remote = ArborRemoteLocator(locator) else {
             throw ArborWireValidationError.invalidValue("Enter a person or group Arbor URL, handle, or TreeID")
         }
-        return try await client.resolve(locator).ref.tree
+        let client = wireClient(origin: remote.origin, overview: overview)
+        return try await client.resolve(path: remote.path).ref.tree
+    }
+
+    /// A Wire client at `origin`: with the daemon's credential for an account
+    /// at that origin, anonymous otherwise.
+    private func wireClient(origin: URL, overview: LocalArborSyncOverview?) -> ArborWireClient {
+        if let client = arborsyncClient,
+           let account = (overview ?? localArborSyncOverview)?.accounts.first(where: {
+               $0.credentialAvailable && $0.canopy.flatMap(URL.init(string:)).map { Self.sameOrigin($0, origin) } == true
+           }) {
+            return ArborWireClient(
+                origin: origin,
+                credentialProvider: ArborSyncCredentialProvider(client: client, configurationTree: account.configurationTree)
+            )
+        }
+        return ArborWireClient(origin: origin)
+    }
+
+    static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host()?.lowercased() == rhs.host()?.lowercased()
+            && lhs.port == rhs.port
     }
 
     func promoteLocalFolder(
@@ -629,8 +663,7 @@ final class ArborWorkspaceState {
         canonical: String,
         publicAccess: String
     ) async throws {
-        guard let client = arborsyncClient,
-              publicAccess == "none" || publicAccess == "read" || publicAccess == "write",
+        guard publicAccess == "none" || publicAccess == "read" || publicAccess == "write",
               let canonicalURL = URL(string: canonical),
               let accountOrigin = URL(string: account.origin),
               canonicalURL.scheme == accountOrigin.scheme,
@@ -641,86 +674,92 @@ final class ArborWorkspaceState {
             throw ArborWireValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
         }
         let tree = try generateArborID(prefix: "tr")
-        let ref = NodeRef(tree: account.configurationTree, path: "/trees.yaml", stableKey: nil)
-        let file = try await client.file(ref)
-        guard let source = String(data: file.bytes, encoding: .utf8) else {
-            throw ArborWireValidationError.invalidValue("trees.yaml is not UTF-8")
-        }
         let rules = publicAccess == "none" ? [] : [
             ArborAccountAccessRule(subject: .everyone, access: publicAccess)
         ]
-        let next = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
-            guard trees[tree] == nil else {
-                throw ArborWireValidationError.invalidValue("The new TreeID is already declared")
+        let folder = URL(fileURLWithPath: path).standardizedFileURL.path
+        // The placement first: a declared tree without a placement is only an
+        // empty hosted tree, while a placement for an undeclared tree is an
+        // error the daemon reports. Both are written on disk; nothing is pushed
+        // until the daemon synchronizes.
+        let placementsURL = ArborSupportDirectories.dataHome.appending(path: "placements.yaml")
+        let placementsSource = (try? String(contentsOf: placementsURL, encoding: .utf8)) ?? "{}\n"
+        let placements = try ArborLocalPlacementsYAML.adding(
+            configurationTree: account.configurationTree,
+            path: folder,
+            tree: tree,
+            to: placementsSource
+        )
+        try ArborAccountConfigurationYAML.editFile(
+            named: "trees.yaml",
+            in: accountCheckout(account.configurationTree)
+        ) { source in
+            try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+                guard trees[tree] == nil else {
+                    throw ArborWireValidationError.invalidValue("The new TreeID is already declared")
+                }
+                trees[tree] = ArborHostedTreeDeclaration(canonical: canonical, access: rules)
             }
-            trees[tree] = ArborHostedTreeDeclaration(canonical: canonical, access: rules)
+        } validate: { next in
+            _ = try ArborAccountConfigurationYAML.trees(from: next)
         }
-        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
         do {
-            let placementsURL = ArborSupportDirectories.dataHome.appending(path: "placements.yaml")
-            let placementsSource = (try? String(contentsOf: placementsURL, encoding: .utf8)) ?? "{}\n"
-            let placements = try ArborLocalPlacementsYAML.adding(
-                configurationTree: account.configurationTree,
-                path: URL(fileURLWithPath: path).standardizedFileURL.path,
-                tree: tree,
-                to: placementsSource
-            )
             try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
         } catch {
-            if let latest = try? await client.file(ref),
-               let latestSource = String(data: latest.bytes, encoding: .utf8),
-               let rollback = try? ArborAccountConfigurationYAML.replacingTrees(in: latestSource, with: { $0[tree] = nil }) {
-                _ = try? await client.writeText(ref, baseContentRevision: latest.revision, source: rollback)
+            try? ArborAccountConfigurationYAML.editFile(
+                named: "trees.yaml",
+                in: accountCheckout(account.configurationTree)
+            ) { latest in
+                try ArborAccountConfigurationYAML.replacingTrees(in: latest) { $0[tree] = nil }
             }
             throw error
         }
+        guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         try await client.synchronize(configurationTree: account.configurationTree)
         await refreshLocalArborSyncOverview()
         generation += 1
     }
 
-    func openLocalWorkspace(_ url: URL, remember: Bool = true) async throws {
-        try await editorWorkspace.flushAll()
-        await editorWorkspace.closeAll()
-        serverWatchTask?.cancel()
-        serverWatchTask = nil
-        if let supervisor { await supervisor.stop() }
-        overviewRefreshTask?.cancel()
-        overviewRefreshTask = nil
-        overviewWatchTask?.cancel()
-        overviewWatchTask = nil
+    /// Create a folder and promote it to a placed tree in one step.
+    func createLocalTree(
+        path: String,
+        account: ArborShareAccount,
+        canonical: String,
+        publicAccess: String
+    ) async throws {
+        let folder = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                throw ArborWireValidationError.invalidValue("\(folder.path) is a file, not a folder")
+            }
+        } else {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        try await promoteLocalFolder(path: folder.path, account: account, canonical: canonical, publicAccess: publicAccess)
+    }
+
+    // MARK: Control-mode daemon
+
+    /// Connect to the installation's control-mode daemon, launching one when
+    /// none is listening, and keep its loopback client.
+    @discardableResult
+    private func ensureArborSync() async throws -> ArborSyncControlRuntime {
         let usesTestHelper = ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1"
-        let launchPolicy: ArborSyncLaunchPolicy = .automatic
         // A signed test helper has an isolated data home and must never impersonate the
         // user's arborsync on its well-known port if the test host exits unexpectedly.
         let preferredPort = usesTestHelper ? 45_190 : 4_317
-        let nextSupervisor = ArborSyncProcessSupervisor(launchPolicy: launchPolicy)
+        let supervisor = self.supervisor ?? ArborSyncProcessSupervisor(launchPolicy: .automatic)
+        self.supervisor = supervisor
         do {
-            let runtime = try await nextSupervisor.start(workspace: url, preferredPort: preferredPort)
-            supervisor = nextSupervisor
-            arborsyncClient = ArborSyncRESTClient(baseURL: runtime.origin)
+            let runtime = try await supervisor.start(preferredPort: preferredPort)
+            arborsyncClient = runtime.client
             arborsyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
-            syncCoordinator = nil
-            syncConflict = nil
-            syncConflictWorkspace = nil
-            if remember { try await bookmarks.save(url) }
-            await switchProvider(
-                runtime.provider,
-                home: runtime.home,
-                launchLocation: runtime.launchLocation,
-                detail: runtime.attachedToExistingProcess
-                    ? "External Arbor Sync daemon · ~/.arbor"
-                    : "Arbor-managed Sync daemon · ~/.arbor"
-            )
-            syncPresentation = WorkspaceSyncPresentation(
-                state: .current,
-                detail: "All macOS writes are owned by arborsync"
-            )
-            prefetchLocalArborSyncOverview()
+            return runtime
         } catch {
-            await nextSupervisor.stop()
-            supervisor = nil
+            await supervisor.stop()
+            self.supervisor = nil
             arborsyncClient = nil
             arborsyncProcessKind = nil
             localArborSyncOverview = nil
@@ -728,50 +767,344 @@ final class ArborWorkspaceState {
         }
     }
 
-    func restoreLocalWorkspaceIfAvailable() async {
-        guard !attemptedWorkspaceRestore else { return }
-        attemptedWorkspaceRestore = true
-        do {
-            let url = try await bookmarks.load() ?? FileManager.default.homeDirectoryForCurrentUser
-            try await openLocalWorkspace(url, remember: false)
-        } catch {
-            let restoreError = error
-            do {
-                try await openLocalWorkspace(FileManager.default.homeDirectoryForCurrentUser, remember: false)
-                errorMessage = "The saved tree could not be reopened, so Arbor opened your home folder instead: \(restoreError.localizedDescription)"
-            } catch {
-                errorMessage = "Arbor could not start its filesystem provider: \(error.localizedDescription)"
+    /// Drop the tree that is open: its watch, its coordinator, or its visit follower.
+    private func closeOpenTree() async {
+        serverWatchTask?.cancel()
+        serverWatchTask = nil
+        visitFollowTask?.cancel()
+        visitFollowTask = nil
+        if let syncCoordinator { await syncCoordinator.close() }
+        syncCoordinator = nil
+        syncConflict = nil
+        syncConflictWorkspace = nil
+        openPlacedTreeID = nil
+        openVisitLocator = nil
+    }
+
+    // MARK: Placed trees
+
+    /// Open a tree the daemon has placed as this app's own working tree.
+    ///
+    /// `GET /v1/bootstrap` seeds an in-memory tree from the folder: a sparse
+    /// spine of directories and Markdown, with every other file a hash the
+    /// daemon's `/v1/objects` serves on demand. When the daemon still has a
+    /// pending request for the folder, the tree is seeded with that state
+    /// pending against the accepted base and the request is adopted verbatim
+    /// as the first in-flight attempt. A daemon conflict opens the tree
+    /// read-only with the daemon's review; an unsettled folder is asked to
+    /// synchronize and retried before it too opens read-only.
+    func openPlacedTree(_ treeID: String) async throws {
+        try await editorWorkspace.flushAll()
+        await closeOpenTree()
+        let runtime = try await ensureArborSync()
+        let client = runtime.client
+        let list = try await client.trees()
+        guard let placed = list.snapshot.first(where: { $0.id == treeID }) else {
+            throw ArborWireValidationError.invalidValue("Arbor Sync has no placement for \(treeID)")
+        }
+        guard placed.osPath != nil, placed.missing != true else {
+            throw ArborWireValidationError.invalidValue("\(placed.name) is not placed on this Mac")
+        }
+        var bootstrap = try await client.bootstrap(tree: treeID)
+        var attempt = 0
+        while bootstrap.blocked == .unsettled, attempt < 3 {
+            attempt += 1
+            try? await client.synchronize(configurationTree: placed.configurationTree)
+            try await Task.sleep(for: .milliseconds(250 * attempt))
+            bootstrap = try await client.bootstrap(tree: treeID)
+        }
+        let accounts = (try? await client.accounts()) ?? []
+        let account = accounts.first { $0.configurationTree == placed.configurationTree }
+        guard let originValue = placed.canonical?.endpoint ?? account?.canopy,
+              let origin = URL(string: originValue) else {
+            throw ArborWireValidationError.invalidValue("\(placed.name) has no Canopy origin")
+        }
+        let descriptor = try WireTreeDescriptor(
+            id: placed.id,
+            kind: placed.kind,
+            root: bootstrap.accepted.root,
+            access: placed.access,
+            canonical: placed.canonical,
+            update: bootstrap.accepted.update
+        ).validated()
+
+        let credentialProvider = ArborSyncCredentialProvider(client: client, configurationTree: placed.configurationTree)
+        let wireClient = ArborWireClient(origin: origin, credentialProvider: credentialProvider)
+        let transport = ArborWireReplicaTransport(client: wireClient)
+        let workingTree = try await WorkingTree.inMemory(
+            tree: TreeID(rawValue: treeID),
+            platform: DaemonObjectStore(client: client, tree: treeID)
+        )
+        let replacement = try SnapshotBridge.replacement(
+            snapshot: bootstrap.spine,
+            tree: TreeID(rawValue: treeID),
+            update: bootstrap.accepted.update,
+            cursor: bootstrap.accepted.cursor,
+            files: bootstrap.files.mapValues { SparseFileMetadata(size: $0.size) }
+        )
+        if bootstrap.spine.root == bootstrap.accepted.root {
+            try await workingTree.initializeFromSystem(replacement)
+        } else {
+            try await workingTree.initializePendingFromSystem(
+                replacement,
+                acceptedRoot: bootstrap.accepted.root,
+                acceptedUpdate: bootstrap.accepted.update,
+                acceptedCursor: bootstrap.accepted.cursor
+            )
+        }
+
+        let stateRoot = ArborSupportDirectories.workingTrees
+            .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
+        let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot)
+
+        let holdReason: String? = switch bootstrap.blocked {
+        case .conflict?: "Arbor Sync holds a conflict for this folder; review it in Sync Status"
+        case .unsettled?: "Arbor Sync has not settled this folder against Canopy yet; reconnect once it has synchronized"
+        case .editorPending?: "Arbor Sync is still admitting an earlier edit to this folder"
+        case nil: nil
+        }
+        if holdReason == nil, let pending = bootstrap.pending {
+            try await adoptPendingRequest(pending, bootstrap: bootstrap, tree: treeID, client: client, coordinator: coordinator)
+        }
+        if let holdReason { try await coordinator.setSubmissionHold(holdReason) }
+
+        let readOnly = holdReason != nil
+        let nextProvider = WorkingTreeProvider(workingTree: workingTree, readOnly: readOnly) { [weak self] admission in
+            await coordinator.syncImmediately(admission)
+            await self?.refreshSyncPresentation(from: coordinator)
+        }
+        try await nativePlacementStore.save(NativePlacementRecord(
+            origin: origin,
+            configurationTree: placed.configurationTree,
+            tree: descriptor
+        ))
+        nativePlacements = try await nativePlacementStore.loadAll()
+        let placeName = placed.canonical?.path ?? placed.name
+        await switchProvider(
+            nextProvider,
+            home: WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/"),
+            detail: readOnly
+                ? "Read-only working tree · \(placeName) · \(placed.osPath ?? "")"
+                : "Working tree · \(placeName) · \(placed.osPath ?? "")"
+        )
+        syncCoordinator = coordinator
+        openPlacedTreeID = treeID
+        syncPresentation = try await coordinator.presentation()
+        syncConflict = try await coordinator.conflict()
+        syncConflictWorkspace = nil
+        startServerWatch(client: wireClient, tree: descriptor, coordinator: coordinator)
+        if !readOnly {
+            Task { [weak self] in
+                _ = try? await coordinator.syncOnce()
+                await self?.refreshSyncPresentation(from: coordinator)
             }
+        }
+        prefetchLocalArborSyncOverview()
+        if bootstrap.blocked == .conflict {
+            await prepareLocalArborSyncConflictReview(tree: treeID)
         }
     }
 
-    func restartArborSync() async {
-        guard let supervisor else {
-            attemptedWorkspaceRestore = false
-            errorMessage = nil
-            await restoreLocalWorkspaceIfAvailable()
-            return
+    /// Adopt the daemon's stored request verbatim. Digests exclude object
+    /// envelopes, so every object the elements name is re-packed from the
+    /// daemon's object route: the pending body itself, the folder, or Canopy.
+    private func adoptPendingRequest(
+        _ pending: TreeBootstrapPending,
+        bootstrap: TreeBootstrap,
+        tree: String,
+        client: ArborSyncRESTClient,
+        coordinator: UpdateCoordinator
+    ) async throws {
+        guard pending.base == bootstrap.accepted.update else {
+            throw ArborWireValidationError.invalidValue("Arbor Sync's pending request does not chain from its accepted base")
+        }
+        var elements = pending.updates
+        var envelopes: [WireObjectEnvelope] = []
+        var packed = Set<String>()
+        for index in elements.indices {
+            let carried = elements[index].objects.filter { !$0.bytes.isEmpty }
+            elements[index].objects = carried
+            packed.formUnion(carried.map(\.hash))
+        }
+        for element in pending.updates {
+            var needed = element.objects.map(\.hash)
+            needed.append(contentsOf: element.deltas.map(\.result))
+            needed.append(element.candidate)
+            for hash in needed where packed.insert(hash).inserted {
+                envelopes.append(WireObjectEnvelope(hash: hash, bytes: try await client.object(tree: tree, hash: hash)))
+            }
         }
         do {
-            try await editorWorkspace.flushAll()
-            await editorWorkspace.closeAll()
-            let runtime = try await supervisor.restart()
-            arborsyncClient = ArborSyncRESTClient(baseURL: runtime.origin)
-            arborsyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
-            await switchProvider(
-                runtime.provider,
-                home: runtime.home,
-                launchLocation: runtime.launchLocation,
-                detail: runtime.attachedToExistingProcess
-                    ? "External Arbor Sync daemon · ~/.arbor"
-                    : "Arbor-managed Sync daemon · ~/.arbor"
+            try await coordinator.adoptInFlight(
+                base: WireUpdateBase(root: bootstrap.accepted.root, update: bootstrap.accepted.update),
+                updates: elements,
+                requestDigests: pending.requestDigests,
+                objects: envelopes
             )
-            syncPresentation = WorkspaceSyncPresentation(state: .current, detail: "Reconnected to arborsync")
-            prefetchLocalArborSyncOverview()
+        } catch UpdateError.adoptionBlocked {
+            // A retained attempt or conflict from an earlier run of this app is
+            // the request in flight; the machine resubmits or reviews that one.
+        }
+    }
+
+    // MARK: Visits
+
+    /// Open a remote tree by locator without placing it: a read-only in-memory
+    /// working tree with the daemon's object route as its platform store, the
+    /// same-origin account credential when the daemon holds one, anonymous
+    /// otherwise, following the tree's watch and re-pulling on a gap.
+    func openRemoteLocator(_ locator: String) async throws {
+        guard let remote = ArborRemoteLocator(locator) else {
+            throw ArborWireValidationError.invalidValue("Enter an http(s):// or arbor:// locator")
+        }
+        try await editorWorkspace.flushAll()
+        await closeOpenTree()
+        if arborsyncClient == nil { _ = try? await ensureArborSync() }
+        if localArborSyncOverview == nil, arborsyncClient != nil { await refreshLocalArborSyncOverview() }
+        if let placed = localArborSyncOverview?.trees.first(where: { candidate in
+            candidate.path != nil && candidate.missing != true
+                && candidate.canonicalPath.map { path in
+                    remote.path == path || remote.path.hasPrefix(path == "/" ? "/" : path + "/")
+                } == true
+                && (localArborSyncOverview?.accounts.first { $0.configurationTree == candidate.configurationTree }?.canopy)
+                    .flatMap(URL.init(string:)).map { Self.sameOrigin($0, remote.origin) } == true
+        }) {
+            // The locator names a tree placed on this Mac: open the working tree instead of visiting.
+            try await openPlacedTree(placed.id)
+            return
+        }
+        let client = wireClient(origin: remote.origin, overview: localArborSyncOverview)
+        let resolution = try await client.resolve(path: remote.path)
+        let tree = resolution.enclosingTree
+        let treeID = TreeID(rawValue: tree.id)
+        let snapshot = try await client.snapshot(tree: tree.id, root: tree.root)
+        let platform: any ObjectStore = if let daemon = arborsyncClient {
+            DaemonObjectStore(client: daemon, tree: tree.id, origin: remote.origin)
+        } else {
+            CanopyObjectStore(client: client, tree: tree.id)
+        }
+        let workingTree = try await WorkingTree.inMemory(tree: treeID, platform: platform)
+        try await workingTree.initializeFromSystem(try ArborVisitSnapshot.replacement(
+            snapshot,
+            tree: treeID,
+            update: tree.update,
+            cursor: resolution.observedThrough
+        ))
+        let provider = WorkingTreeProvider(workingTree: workingTree, readOnly: true)
+        let rootLocator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
+        try? await visitedTreeStore.record(VisitedTreeRecord(origin: remote.origin, tree: tree, locator: rootLocator))
+        await switchProvider(
+            provider,
+            home: WorkspaceReference(tree: treeID, path: "/"),
+            launchLocation: .reference(WorkspaceReference(
+                tree: treeID,
+                path: resolution.ref.path,
+                stableKey: resolution.ref.stableKey
+            )),
+            detail: "Visiting \(rootLocator) · read-only"
+        )
+        openVisitLocator = rootLocator
+        syncPresentation = WorkspaceSyncPresentation(
+            state: .current,
+            detail: "Read-only visit; following \(remote.origin.host() ?? remote.origin.absoluteString)",
+            acceptedRoot: tree.root,
+            localRoot: tree.root
+        )
+        visitFollowTask = ArborVisitFollower(client: client, tree: tree.id, workingTree: workingTree) { [weak self] in
+            await self?.noteVisitChanged(workingTree)
+        }.start(after: resolution.observedThrough)
+        prefetchLocalArborSyncOverview()
+    }
+
+    private func noteVisitChanged(_ workingTree: WorkingTree) async {
+        guard openVisitLocator != nil, let heads = try? await workingTree.heads() else { return }
+        syncPresentation = WorkspaceSyncPresentation(
+            state: .current,
+            detail: "Read-only visit; following the server",
+            acceptedRoot: heads.acceptedRoot,
+            localRoot: heads.materializedRoot,
+            remoteAdditions: true
+        )
+    }
+
+    /// The trees visited before, most recent first.
+    func recentVisits() async -> [LocalArborSyncVisitPresentation] {
+        ((try? await visitedTreeStore.loadAll()) ?? []).map(Self.visitPresentation)
+    }
+
+    private static func visitPresentation(_ visit: VisitedTreeRecord) -> LocalArborSyncVisitPresentation {
+        LocalArborSyncVisitPresentation(
+            id: visit.tree.id,
+            tree: visit.tree.id,
+            name: visit.tree.canonicalPath.map { path in
+                path.split(separator: "/").last.map(String.init) ?? path
+            } ?? visit.tree.id,
+            locator: visit.locator,
+            canonical: visit.tree.httpURL
+        )
+    }
+
+    // MARK: Restore and reconnect
+
+    /// Reconnect to the daemon and re-open the last placed tree, if any.
+    func restoreLocalWorkspaceIfAvailable() async {
+        guard !attemptedWorkspaceRestore else { return }
+        attemptedWorkspaceRestore = true
+        nativePlacements = (try? await nativePlacementStore.loadAll()) ?? []
+        do {
+            if let record = try await nativePlacementStore.load() {
+                try await openPlacedTree(record.tree.id)
+            } else {
+                try await ensureArborSync()
+                syncPresentation = WorkspaceSyncPresentation(
+                    state: .offline,
+                    detail: "Connected to arborsync; choose a local tree to open"
+                )
+                prefetchLocalArborSyncOverview()
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.bootstrapFailureMessage(error, processKind: arborsyncProcessKind)
+            if arborsyncClient != nil { prefetchLocalArborSyncOverview() }
+        }
+    }
+
+    /// Reconnect to the control-mode daemon and re-open whatever was open.
+    func restartArborSync() async {
+        do {
+            try await editorWorkspace.flushAll()
+            let supervisor = self.supervisor ?? ArborSyncProcessSupervisor(launchPolicy: .automatic)
+            self.supervisor = supervisor
+            overviewRefreshTask?.cancel()
+            overviewRefreshTask = nil
+            overviewWatchTask?.cancel()
+            overviewWatchTask = nil
+            if arborsyncClient != nil {
+                let runtime = try await supervisor.restartControl()
+                arborsyncClient = runtime.client
+                arborsyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
+            } else {
+                try await ensureArborSync()
+            }
+            errorMessage = nil
+            if let openPlacedTreeID {
+                try await openPlacedTree(openPlacedTreeID)
+            } else if let openVisitLocator {
+                try await openRemoteLocator(openVisitLocator)
+            } else {
+                syncPresentation = WorkspaceSyncPresentation(state: .offline, detail: "Reconnected to arborsync")
+                prefetchLocalArborSyncOverview()
+            }
+        } catch {
+            errorMessage = Self.bootstrapFailureMessage(error, processKind: arborsyncProcessKind)
             syncPresentation = WorkspaceSyncPresentation(state: .offline, detail: error.localizedDescription)
         }
+    }
+
+    static func bootstrapFailureMessage(_ error: Error, processKind: ArborSyncProcessKind?) -> String {
+        guard let diagnostic = ArborSaveDiagnostic.describe(error, processKind: processKind, context: .bootstrap) else {
+            return error.localizedDescription
+        }
+        return "\(diagnostic.bannerMessage) \(diagnostic.recovery)"
     }
 
     func arborsyncLogs() async -> String {
@@ -810,21 +1143,15 @@ final class ArborWorkspaceState {
         Task { await refreshLocalArborSyncOverview() }
     }
 
+    /// The daemon's view of this installation: `/v1/trees` and `/v1/accounts`
+    /// only. Visits are the app's own; the legacy singleton account on disk
+    /// still supplies device rows when no plural account exists.
     private func loadLocalArborSyncOverview() async throws -> LocalArborSyncOverview {
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
-        async let credentialRequest = client.node(.path("/credentials", tree: "system"))
         async let treeListRequest = client.trees()
         async let accountsRequest = client.accounts()
-        async let visitDirectoryRequest = client.node(.path("/visited", tree: "system"))
-        let (credentials, treeList, accounts, visitDirectory) = try await (
-            credentialRequest,
-            treeListRequest,
-            accountsRequest,
-            visitDirectoryRequest
-        )
-        // Legacy singleton compatibility. Plural account presentation comes from /v1/accounts.
-        let localConfiguration = try? loadLocalAccountConfiguration()
-        let connected = credentials.properties.string("communityAccount") == "connected"
+        let (treeList, accounts) = try await (treeListRequest, accountsRequest)
+        let localConfiguration = accounts.isEmpty ? try? loadLocalAccountConfiguration() : nil
         let configurationTree = treeList.snapshot.first { $0.kind == "account-configuration" }?.id
         let trees = treeList.snapshot.map {
             LocalArborSyncTreePresentation(
@@ -841,26 +1168,17 @@ final class ArborWorkspaceState {
                 missing: $0.missing == true
             )
         }
-        async let visitsRequest = loadLocalArborSyncVisits(
-            client: client,
-            children: try await client.allChildren(visitDirectory.ref)
-        )
-        let visits = try await visitsRequest
+        let visits = await recentVisits()
         return LocalArborSyncOverview(
-            origin: accounts.first?.canopy ?? (connected ? localConfiguration?.origin : nil),
-            handle: accounts.first?.handle ?? (connected ? localConfiguration?.handle : nil),
+            origin: accounts.first?.canopy ?? localConfiguration?.origin,
+            handle: accounts.first?.handle ?? localConfiguration?.handle,
             configurationTree: configurationTree,
-            credentialAvailable: accounts.contains(where: \.credentialAvailable)
-                || (connected && credentials.properties.bool("credentialAvailable") == true),
+            credentialAvailable: accounts.contains(where: \.credentialAvailable),
             accounts: accounts,
             trees: trees,
             visits: visits,
-            devices: connected ? localConfiguration?.devices ?? [] : [],
-            observedThrough: latestObservationCursor([
-                credentials.observedThrough,
-                treeList.observedThrough,
-                visitDirectory.observedThrough,
-            ])
+            devices: localConfiguration?.devices ?? [],
+            observedThrough: treeList.observedThrough
         )
     }
 
@@ -952,32 +1270,6 @@ final class ArborWorkspaceState {
         } ?? ""
     }
 
-    private func loadLocalArborSyncVisits(client: ArborSyncRESTClient, children: [NodeSummary]) async throws -> [LocalArborSyncVisitPresentation] {
-        let values = try await withThrowingTaskGroup(of: (Int, LocalArborSyncVisitPresentation?).self) { group in
-            for (index, child) in children.enumerated() {
-                group.addTask {
-                    let node = try await client.node(child.ref)
-                    let fields = node.properties
-                    guard
-                          let id = fields.string("id"),
-                          let tree = fields.string("tree"),
-                          let locator = fields.string("locator") else { return (index, nil) }
-                    return (index, LocalArborSyncVisitPresentation(
-                        id: id,
-                        tree: tree,
-                        name: node.name,
-                        locator: locator,
-                        canonical: fields.string("canonical")
-                    ))
-                }
-            }
-            var loaded: [(Int, LocalArborSyncVisitPresentation?)] = []
-            for try await value in group { loaded.append(value) }
-            return loaded
-        }
-        return values.sorted { $0.0 < $1.0 }.compactMap(\.1)
-    }
-
     private func startLocalOverviewWatch(after cursor: String) {
         guard overviewWatchTask == nil, let client = arborsyncClient else { return }
         overviewWatchTask = Task { @MainActor [weak self] in
@@ -1025,10 +1317,10 @@ final class ArborWorkspaceState {
             guard review.tree == tree else {
                 throw ArborSyncSupervisorError.incompatibleService("Arbor Sync returned a different conflict")
             }
-            syncConflictWorkspace = ReplicaConflictWorkspace(
+            syncConflictWorkspace = UpdateConflictWorkspace(
                 identity: review.identity,
                 items: review.items.map { item in
-                    ReplicaConflictItem(
+                    UpdateConflictItem(
                         path: item.path,
                         reasons: item.reasons,
                         base: Self.replicaConflictContent(item.base),
@@ -1048,7 +1340,7 @@ final class ArborWorkspaceState {
         }
     }
 
-    func resolveLocalArborSyncConflict(_ resolutions: [String: ReplicaConflictResolution]) async -> Bool {
+    func resolveLocalArborSyncConflict(_ resolutions: [String: UpdateConflictResolution]) async -> Bool {
         guard let client = arborsyncClient,
               let tree = localArborSyncConflictTree,
               let review = syncConflictWorkspace else { return false }
@@ -1065,6 +1357,11 @@ final class ArborWorkspaceState {
             syncConflictWorkspace = nil
             localArborSyncConflictTree = nil
             await refreshLocalArborSyncOverview()
+            if openPlacedTreeID == tree {
+                // The folder is settled again: re-open it writable from a fresh bootstrap.
+                do { try await openPlacedTree(tree) }
+                catch { errorMessage = Self.bootstrapFailureMessage(error, processKind: arborsyncProcessKind) }
+            }
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -1073,7 +1370,7 @@ final class ArborWorkspaceState {
         }
     }
 
-    private static func replicaConflictContent(_ value: ArborSyncConflictContent) -> ReplicaConflictContent {
+    private static func replicaConflictContent(_ value: ArborSyncConflictContent) -> UpdateConflictContent {
         switch value.kind {
         case "text": .text(value.text ?? "")
         case "binary": .binary(Data(base64Encoded: value.bytes ?? "") ?? Data())
@@ -1213,12 +1510,20 @@ final class ArborWorkspaceState {
         }
     }
 
-    private func refreshSyncPresentation(from coordinator: ReplicaSyncCoordinator) async {
+    private func refreshSyncPresentation(from coordinator: UpdateCoordinator) async {
         guard syncCoordinator === coordinator else { return }
         syncPresentation = (try? await coordinator.presentation())
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
         syncConflict = try? await coordinator.conflict()
         if syncConflict == nil { syncConflictWorkspace = nil }
+#if os(macOS)
+        // A conflict inside the adopted prefix belongs to the folder's daemon:
+        // its review happens in the daemon's flow, never in this client's sheet.
+        if let hold = await coordinator.submissionHold, hold.foreignConflict,
+           let openPlacedTreeID, localArborSyncConflictTree == nil {
+            await prepareLocalArborSyncConflictReview(tree: openPlacedTreeID)
+        }
+#endif
     }
 
     func prepareSyncConflictReview() async {
@@ -1230,7 +1535,7 @@ final class ArborWorkspaceState {
         }
     }
 
-    func resolveSyncConflict(_ resolutions: [String: ReplicaConflictResolution]) async -> Bool {
+    func resolveSyncConflict(_ resolutions: [String: UpdateConflictResolution]) async -> Bool {
         guard let syncCoordinator else { return false }
         do {
             try await syncCoordinator.resolveConflict(resolutions)
@@ -1283,10 +1588,14 @@ final class ArborWorkspaceState {
         serverWatchTask?.cancel()
         serverWatchTask = nil
 #if os(macOS)
+        visitFollowTask?.cancel()
+        visitFollowTask = nil
         overviewRefreshTask?.cancel()
         overviewWatchTask?.cancel()
         overviewRefreshTask = nil
         overviewWatchTask = nil
+        if let syncCoordinator { await syncCoordinator.close() }
+        syncCoordinator = nil
         if let supervisor { await supervisor.stop() }
         arborsyncClient = nil
         arborsyncProcessKind = nil
@@ -1321,60 +1630,13 @@ final class ArborWorkspaceState {
     private func startServerWatch(
         client: ArborWireClient,
         tree: WireTreeDescriptor,
-        coordinator: ReplicaSyncCoordinator
+        coordinator: UpdateCoordinator
     ) {
-        serverWatchTask = Task { [weak self] in
-            var lastEventID = try? await coordinator.watchCursor()
-            var reconnectAttempt = 0
-            while !Task.isCancelled {
-                do {
-                    let events = try await client.watch(tree: tree.id, lastEventID: lastEventID)
-                    reconnectAttempt = 0
-                    for try await event in events {
-                        try Task.checkCancellation()
-                        lastEventID = event.id
-                        guard event.tree.id == tree.id else { continue }
-                        _ = try await coordinator.observe(event)
-                        await self?.refreshSyncPresentation(from: coordinator)
-                    }
-                } catch is CancellationError {
-                    return
-                } catch let error as WireHTTPError where error.code == "resync-required" {
-                    do {
-                        _ = try await coordinator.recoverWatchGap()
-                        lastEventID = try await coordinator.watchCursor()
-                        reconnectAttempt = 0
-                        await self?.refreshSyncPresentation(from: coordinator)
-                    } catch {
-                        reconnectAttempt += 1
-                    }
-                } catch {
-                    reconnectAttempt += 1
-                }
-                do {
-                    let delay = min(5_000, 250 * (1 << min(reconnectAttempt, 5)))
-                    try await Task.sleep(for: .milliseconds(delay))
-                } catch {
-                    return
-                }
-            }
-        }
+        serverWatchTask = CanopyWatchRunner(client: client, tree: tree.id, coordinator: coordinator) { [weak self] in
+            await self?.refreshSyncPresentation(from: coordinator)
+        }.start()
     }
 }
-
-#if os(macOS)
-private extension Dictionary where Key == String, Value == JSONValue {
-    func string(_ key: String) -> String? {
-        guard case let .string(value)? = self[key] else { return nil }
-        return value
-    }
-
-    func bool(_ key: String) -> Bool? {
-        guard case let .bool(value)? = self[key] else { return nil }
-        return value
-    }
-}
-#endif
 
 @MainActor
 @Observable

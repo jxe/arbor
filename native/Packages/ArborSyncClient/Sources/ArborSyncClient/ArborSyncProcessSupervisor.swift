@@ -4,24 +4,20 @@ import Darwin
 import Foundation
 import ServiceManagement
 
-public struct ArborSyncRuntime: Sendable {
+/// A connected control-mode daemon: the loopback origin every same-installation
+/// client talks to for status, trees, accounts, conflicts, sync, pairing,
+/// bootstrap, credential, objects, and events. The daemon owns no workspace and
+/// has no editor path; the app opens trees through `bootstrap(tree:)`.
+public struct ArborSyncControlRuntime: Sendable {
     public let origin: URL
-    public let provider: ArborSyncWorkspaceProvider
-    public let home: WorkspaceReference
-    public let launchLocation: WorkspaceLocation
+    public let client: ArborSyncRESTClient
+    public let status: ArborSyncStatus
     public let attachedToExistingProcess: Bool
 
-    public init(
-        origin: URL,
-        provider: ArborSyncWorkspaceProvider,
-        home: WorkspaceReference,
-        launchLocation: WorkspaceLocation,
-        attachedToExistingProcess: Bool
-    ) {
+    public init(origin: URL, client: ArborSyncRESTClient, status: ArborSyncStatus, attachedToExistingProcess: Bool) {
         self.origin = origin
-        self.provider = provider
-        self.home = home
-        self.launchLocation = launchLocation
+        self.client = client
+        self.status = status
         self.attachedToExistingProcess = attachedToExistingProcess
     }
 }
@@ -54,32 +50,100 @@ public enum ArborSyncLaunchPolicy: Sendable, Equatable {
 public actor ArborSyncProcessSupervisor {
     private static let serviceLabel = "org.nxhx.Arbor.arborsync"
     private static let servicePlist = "org.nxhx.Arbor.arborsync.plist"
+
+    /// How the daemon is launched: `arborsync --control`, no session, no folder of its own.
+    private enum Mode: Sendable {
+        case control
+    }
+
     private let launchPolicy: ArborSyncLaunchPolicy
     private var process: Process?
-    private var workspace: URL?
-    private var accessedSecurityScope = false
+    private var mode: Mode?
+    private var executable: URL?
+    private var preferredPort: Int = 4317
     private var logURL: URL?
-    private var runtime: ArborSyncRuntime?
+    private var controlRuntime: ArborSyncControlRuntime?
     private var serviceRegistrationFailure: String?
 
     public init(launchPolicy: ArborSyncLaunchPolicy = .automatic) {
         self.launchPolicy = launchPolicy
     }
 
+    // MARK: Control mode
+
+    /// Connect to the installation's control-mode daemon, launching one when
+    /// the policy allows and none is listening. The daemon owns no workspace;
+    /// clients open trees through `bootstrap(tree:)`.
     public func start(
-        workspace: URL,
         executable explicitExecutable: URL? = nil,
         preferredPort: Int = 4317
-    ) async throws -> ArborSyncRuntime {
-        if let runtime { return runtime }
-        let normalized = workspace.standardizedFileURL
-        guard normalized.isFileURL else {
-            throw ArborSyncSupervisorError.launchFailed("Tree access requires a local folder URL")
+    ) async throws -> ArborSyncControlRuntime {
+        if let controlRuntime { return controlRuntime }
+        self.mode = .control
+        self.preferredPort = preferredPort
+        let runtime = try await connect(
+            mode: .control,
+            explicitExecutable: explicitExecutable,
+            preferredPort: preferredPort
+        ) { client, origin, status, attached in
+            ArborSyncControlRuntime(origin: origin, client: client, status: status, attachedToExistingProcess: attached)
         }
-        self.workspace = normalized
+        controlRuntime = runtime
+        return runtime
+    }
 
-        if let attached = try await attachIfCompatible(port: preferredPort, workspace: normalized) {
-            runtime = attached
+    // MARK: Lifecycle
+
+    public func stop() async {
+        controlRuntime = nil
+        guard let process else { return }
+        if process.isRunning {
+            process.interrupt()
+            for _ in 0..<20 where process.isRunning {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if process.isRunning { process.terminate() }
+        }
+        self.process = nil
+    }
+
+    /// Stop and reconnect the control-mode daemon.
+    public func restartControl() async throws -> ArborSyncControlRuntime {
+        guard case .control? = mode else {
+            throw ArborSyncSupervisorError.launchFailed("Arbor Sync has not been started in control mode")
+        }
+        let executable = process?.executableURL ?? self.executable
+        await stop()
+        return try await start(executable: executable, preferredPort: preferredPort)
+    }
+
+    public func logs() -> String {
+        guard let logURL, let data = try? Data(contentsOf: logURL) else {
+            let persistent = canonicalServiceLog()
+            if let failure = serviceRegistrationFailure {
+                return "Persistent service registration failed: \(failure)\n\n\(persistent)"
+            }
+            return persistent
+        }
+        return String(decoding: data.suffix(32_768), as: UTF8.self)
+    }
+
+    // MARK: Shared attach-or-launch path
+
+    private typealias MakeRuntime<R> = @Sendable (
+        _ client: ArborSyncRESTClient,
+        _ origin: URL,
+        _ status: ArborSyncStatus,
+        _ attached: Bool
+    ) async throws -> R
+
+    private func connect<R: Sendable>(
+        mode: Mode,
+        explicitExecutable: URL?,
+        preferredPort: Int,
+        make: MakeRuntime<R>
+    ) async throws -> R {
+        if let attached = try await attachIfCompatible(port: preferredPort, make: make) {
             return attached
         }
 
@@ -89,18 +153,12 @@ public actor ArborSyncProcessSupervisor {
 
         if explicitExecutable == nil, preferredPort == 4317, shouldUsePersistentService {
             if kickstartInstalledService() {
-                if let attached = try await waitForService(port: preferredPort, workspace: normalized) {
-                    runtime = attached
-                    return attached
-                }
+                if let attached = try await waitForService(port: preferredPort, make: make) { return attached }
                 throw ArborSyncSupervisorError.readinessTimedOut(canonicalServiceLog())
             }
             do {
                 if try registerBundledService() {
-                    if let attached = try await waitForService(port: preferredPort, workspace: normalized) {
-                        runtime = attached
-                        return attached
-                    }
+                    if let attached = try await waitForService(port: preferredPort, make: make) { return attached }
                     throw ArborSyncSupervisorError.readinessTimedOut(canonicalServiceLog())
                 }
             } catch {
@@ -110,16 +168,13 @@ public actor ArborSyncProcessSupervisor {
         }
 
         let executable = try explicitExecutable ?? locateExecutable()
-        accessedSecurityScope = normalized.startAccessingSecurityScopedResource()
+        self.executable = executable
         var lastFailure = "No available loopback port"
 
         for port in preferredPort..<(preferredPort + 20) {
-            if let attached = try await attachIfCompatible(port: port, workspace: normalized) {
-                runtime = attached
-                return attached
-            }
+            if let attached = try await attachIfCompatible(port: port, make: make) { return attached }
             do {
-                let launched = try launch(executable: executable, workspace: normalized, port: port)
+                let launched = try launch(executable: executable, mode: mode, port: port)
                 process = launched
                 let origin = URL(string: "http://127.0.0.1:\(port)")!
                 let client = ArborSyncRESTClient(baseURL: origin)
@@ -130,14 +185,7 @@ public actor ArborSyncProcessSupervisor {
                     }
                     if let status = try? await client.status() {
                         try validate(status)
-                        let value = try await makeRuntime(
-                            client: client,
-                            origin: origin,
-                            workspace: normalized,
-                            attached: false
-                        )
-                        runtime = value
-                        return value
+                        return try await make(client, origin, status, false)
                     }
                     try await Task.sleep(for: .milliseconds(100))
                 }
@@ -149,56 +197,23 @@ public actor ArborSyncProcessSupervisor {
             }
         }
 
-        releaseWorkspaceAccess()
         throw ArborSyncSupervisorError.readinessTimedOut(lastFailure)
     }
 
-    public func stop() async {
-        runtime = nil
-        guard let process else {
-            releaseWorkspaceAccess()
-            return
-        }
-        if process.isRunning {
-            process.interrupt()
-            for _ in 0..<20 where process.isRunning {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            if process.isRunning { process.terminate() }
-        }
-        self.process = nil
-        releaseWorkspaceAccess()
-    }
-
-    public func restart() async throws -> ArborSyncRuntime {
-        guard let workspace else {
-            throw ArborSyncSupervisorError.launchFailed("No tree has been opened")
-        }
-        let executable = process?.executableURL
-        await stop()
-        return try await start(workspace: workspace, executable: executable)
-    }
-
-    public func logs() -> String {
-        guard let logURL, let data = try? Data(contentsOf: logURL) else {
-            let persistent = canonicalServiceLog()
-            if let failure = serviceRegistrationFailure {
-                return "Persistent service registration failed: \(failure)\n\n\(persistent)"
-            }
-            return persistent
-        }
-        let suffix = data.suffix(32_768)
-        var value = String(decoding: suffix, as: UTF8.self)
-        if let workspace { value = value.replacingOccurrences(of: workspace.path, with: "<tree>") }
-        return value
-    }
-
-    private func attachIfCompatible(port: Int, workspace: URL) async throws -> ArborSyncRuntime? {
+    private func attachIfCompatible<R: Sendable>(port: Int, make: MakeRuntime<R>) async throws -> R? {
         let origin = URL(string: "http://127.0.0.1:\(port)")!
         let client = ArborSyncRESTClient(baseURL: origin)
         guard let status = try? await client.status() else { return nil }
         try validate(status)
-        return try await makeRuntime(client: client, origin: origin, workspace: workspace, attached: true)
+        return try await make(client, origin, status, true)
+    }
+
+    private func waitForService<R: Sendable>(port: Int, make: MakeRuntime<R>) async throws -> R? {
+        for _ in 0..<100 {
+            if let attached = try await attachIfCompatible(port: port, make: make) { return attached }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        return nil
     }
 
     private var shouldUsePersistentService: Bool {
@@ -211,14 +226,6 @@ public actor ArborSyncProcessSupervisor {
             .appending(path: "Contents/Library/LaunchAgents")
             .appending(path: Self.servicePlist)
         return FileManager.default.fileExists(atPath: plist.path)
-    }
-
-    private func waitForService(port: Int, workspace: URL) async throws -> ArborSyncRuntime? {
-        for _ in 0..<100 {
-            if let attached = try await attachIfCompatible(port: port, workspace: workspace) { return attached }
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        return nil
     }
 
     private func registerBundledService() throws -> Bool {
@@ -285,35 +292,17 @@ public actor ArborSyncProcessSupervisor {
         }
     }
 
-    private func makeRuntime(
-        client: ArborSyncRESTClient,
-        origin: URL,
-        workspace: URL,
-        attached: Bool
-    ) async throws -> ArborSyncRuntime {
-        let snapshot = try await client.openSession(workspace.path)
-        let home = WorkspaceReference(
-            tree: TreeID(rawValue: snapshot.ref.tree),
-            path: snapshot.ref.path,
-            stableKey: snapshot.ref.stableKey
-        )
-        return ArborSyncRuntime(
-            origin: origin,
-            provider: ArborSyncWorkspaceProvider(client: client),
-            home: home,
-            launchLocation: .local(workspace.path),
-            attachedToExistingProcess: attached
-        )
-    }
-
-    private func launch(executable: URL, workspace: URL, port: Int) throws -> Process {
+    private func launch(executable: URL, mode: Mode, port: Int) throws -> Process {
         let logs = FileManager.default.temporaryDirectory
             .appending(path: "Arbor-arborsync-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: logs.path, contents: nil)
         let handle = try FileHandle(forWritingTo: logs)
         let process = Process()
         process.executableURL = executable
-        let command = [workspace.path, "--port", String(port)]
+        let command: [String]
+        switch mode {
+        case .control: command = ["--control", "--port", String(port)]
+        }
         if let script = bundledScript(for: executable) {
             process.arguments = [script.path] + command
         } else {
@@ -353,11 +342,6 @@ public actor ArborSyncProcessSupervisor {
               let resources = Bundle.main.resourceURL else { return nil }
         let script = resources.appending(path: "arborsync/arborsync.js")
         return FileManager.default.fileExists(atPath: script.path) ? script : nil
-    }
-
-    private func releaseWorkspaceAccess() {
-        if accessedSecurityScope { workspace?.stopAccessingSecurityScopedResource() }
-        accessedSecurityScope = false
     }
 }
 #endif

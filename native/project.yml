@@ -17,8 +17,10 @@ settings:
 packages:
   ArborKit:
     path: Packages/ArborKit
-  ArborReplica:
-    path: Packages/ArborReplica
+  ArborWorkingTree:
+    path: Packages/ArborWorkingTree
+  ArborObjectStore:
+    path: Packages/ArborObjectStore
   ArborWire:
     path: Packages/ArborWire
   CanopyClient:
@@ -42,7 +44,8 @@ targets:
           - org.nxhx.Arbor.arborsync.plist
     dependencies:
       - package: ArborKit
-      - package: ArborReplica
+      - package: ArborWorkingTree
+      - package: ArborObjectStore
       - package: ArborWire
       - package: CanopyClient
       - package: ArborQuagmire
