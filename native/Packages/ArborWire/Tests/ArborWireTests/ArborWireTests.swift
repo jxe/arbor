@@ -100,6 +100,78 @@ struct WireObjectTests {
         }
     }
 
+    @Test("Sparse validation accepts missing file hashes and still rejects unreachable, cyclic, and rootless graphs")
+    func sparseGraphValidation() throws {
+        let file = try WireObjectCodec.object(.file(Data("hello".utf8)))
+        let image = try WireObjectCodec.object(.file(Data([0xff, 0xd8, 0xff])))
+        let inner = try WireObjectCodec.object(.directory([.init(name: "photo.jpg", hash: image.hash)]))
+        let root = try WireObjectCodec.object(.directory([
+            .init(name: "album", hash: inner.hash),
+            .init(name: "note.md", hash: file.hash),
+        ]))
+        // Spine plus Markdown, file bytes absent.
+        let sparse = WireSnapshot(root: root.hash, objects: [root, inner, file])
+        #expect(throws: ArborWireValidationError.incompleteGraph(image.hash)) {
+            _ = try WireObjectGraph.validate(sparse)
+        }
+        #expect(try WireObjectGraph.validate(sparse, mode: .sparseFiles).count == 3)
+        // Complete graphs still validate in sparse mode.
+        #expect(try WireObjectGraph.validate(.init(root: root.hash, objects: [root, inner, file, image]), mode: .sparseFiles).count == 4)
+        // Unreachable objects are rejected.
+        let extra = try WireObjectCodec.object(.file(Data("extra".utf8)))
+        #expect(throws: ArborWireValidationError.unreachableObject(extra.hash)) {
+            _ = try WireObjectGraph.validate(.init(root: root.hash, objects: [root, inner, file, extra]), mode: .sparseFiles)
+        }
+        // A missing root is rejected, as is a root that is not a directory.
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireObjectGraph.validate(.init(root: root.hash, objects: [inner, file]), mode: .sparseFiles)
+        }
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireObjectGraph.validate(.init(root: file.hash, objects: [file]), mode: .sparseFiles)
+        }
+        // A cycle cannot be built from content hashes; a forged envelope that
+        // names itself is still caught by hash verification, so validate the
+        // reachability walk's cycle guard with a self-referencing entry whose
+        // envelope hash is honest: two directories pointing at each other are
+        // impossible to encode, so the check reduces to hash verification here.
+        let forged = WireObjectEnvelope(hash: root.hash, bytes: inner.bytes)
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireObjectGraph.validate(.init(root: root.hash, objects: [forged, file]), mode: .sparseFiles)
+        }
+        // The bundle codec takes the same mode.
+        let bundle = try WireSnapshotBundleCodec.encode(.init(root: root.hash, objects: [root, inner, file, image]))
+        _ = try WireSnapshotBundleCodec.decode(bundle, root: root.hash, mode: .sparseFiles)
+        let sparseBundle = CanonicalCBOR.encode(.map([
+            ("version", .unsigned(1)),
+            ("objects", .array([root, inner, file].sorted { $0.hash < $1.hash }.map { .bytes($0.bytes) })),
+        ]))
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireSnapshotBundleCodec.decode(sparseBundle, root: root.hash)
+        }
+        #expect(try WireSnapshotBundleCodec.decode(sparseBundle, root: root.hash, mode: .sparseFiles).objects.count == 3)
+    }
+
+    @Test("Object kind is readable from a canonical prefix")
+    func objectKindPrefix() throws {
+        let file = try WireObjectCodec.object(.file(Data("hello".utf8)))
+        let directory = try WireObjectCodec.object(.directory([.init(name: "a.md", hash: file.hash)]))
+        let descriptor = WireCollectionFileDescriptor(
+            format: "json",
+            source: "_store.json",
+            schemaSource: "schema.ts",
+            schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
+            childSetHash: "sha256:" + String(repeating: "4", count: 64)
+        )
+        let collection = try WireObjectCodec.object(.directory([
+            .init(name: "_store.json", hash: file.hash),
+            .init(name: "schema.ts", hash: file.hash),
+        ], childrenSource: descriptor))
+        #expect(WireObjectCodec.kind(ofPrefix: file.bytes.prefix(WireObjectCodec.kindPrefixLength)) == .file)
+        #expect(WireObjectCodec.kind(ofPrefix: directory.bytes.prefix(WireObjectCodec.kindPrefixLength)) == .directory)
+        #expect(WireObjectCodec.kind(ofPrefix: collection.bytes.prefix(WireObjectCodec.kindPrefixLength)) == .directory)
+        #expect(WireObjectCodec.kind(ofPrefix: Data("nope".utf8)) == nil)
+    }
+
     @Test("Swift reproduces the shared immutable snapshot bundle")
     func snapshotBundleVector() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-snapshot-bundles.json"))

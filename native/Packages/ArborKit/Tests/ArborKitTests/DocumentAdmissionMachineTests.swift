@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArborKit
 
-/// Executes every `arborsync-document-admission` scenario from the shared
+/// Executes every `document-admission` scenario from the shared
 /// conformance fixture against the Swift reducer.
 @Suite("Document admission machine fixtures")
 struct DocumentAdmissionMachineTests {
@@ -21,7 +21,7 @@ struct DocumentAdmissionMachineTests {
         let data = try Data(contentsOf: conformanceFixtures.appending(path: "client-state-machines.json"))
         let fixture = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let machines = try #require(fixture["machines"] as? [String: Any])
-        let machine = try #require(machines["arborsync-document-admission"] as? [String: Any])
+        let machine = try #require(machines["document-admission"] as? [String: Any])
         let scenarios = try #require(machine["scenarios"] as? [[String: Any]])
         #expect(scenarios.count >= 10)
         for scenario in scenarios {
@@ -31,10 +31,8 @@ struct DocumentAdmissionMachineTests {
             var state = DocumentAdmissionMachine.State(
                 accepted: .init(
                     source: try #require(accepted["source"] as? String),
-                    revision: try #require(accepted["revision"] as? String),
-                    admissionBasis: accepted["admissionBasis"] as? String
-                ),
-                transport: try Self.enumValue(DocumentAdmissionMachine.Transport.self, from: initial, key: "transport")
+                    revision: try #require(accepted["revision"] as? String)
+                )
             )
             let steps = try #require(scenario["steps"] as? [[String: Any]])
             for (index, step) in steps.enumerated() {
@@ -67,9 +65,7 @@ struct DocumentAdmissionMachineTests {
                 generation: try #require(json["generation"] as? Int),
                 result: .init(
                     source: try #require(result["source"] as? String),
-                    revision: try #require(result["revision"] as? String),
-                    admissionBasis: result["admissionBasis"] as? String,
-                    requestDigest: result["requestDigest"] as? String
+                    revision: try #require(result["revision"] as? String)
                 )
             )
         case "admissionConflicted":
@@ -105,9 +101,7 @@ struct DocumentAdmissionMachineTests {
     private static func observation(_ json: [String: Any]) throws -> DocumentAdmissionMachine.Observation {
         .init(
             source: try #require(json["source"] as? String),
-            revision: try #require(json["revision"] as? String),
-            admissionBasis: json["admissionBasis"] as? String,
-            acceptedRequestDigests: json["acceptedRequestDigests"] as? [String] ?? []
+            revision: try #require(json["revision"] as? String)
         )
     }
 
@@ -128,11 +122,6 @@ struct DocumentAdmissionMachineTests {
         case let (left as [String], right as [String]): left == right
         default: false
         }
-    }
-
-    private static func enumValue<T: RawRepresentable>(_: T.Type, from json: [String: Any], key: String) throws -> T where T.RawValue == String {
-        let raw = try #require(json[key] as? String)
-        return try #require(T(rawValue: raw))
     }
 
     enum FixtureError: Error {

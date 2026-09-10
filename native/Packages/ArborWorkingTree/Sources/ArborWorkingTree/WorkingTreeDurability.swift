@@ -1,10 +1,12 @@
 import Darwin
 import Foundation
 
-struct DurableReplicaFiles: Sendable {
-    let root: URL
+/// The iOS working tree's private directory: `materialized/tree.json`,
+/// `control/heads.json`, `journals/pages/<key>/<id>.json`, `indexes/search.json`.
+/// Object bytes live beside it in `objects/`, owned by a `DirectoryObjectStore`.
+public struct DurableWorkingTreeFiles: WorkingTreeStateStore {
+    public let root: URL
     let materializedDirectory: URL
-    let objectsDirectory: URL
     let journalsDirectory: URL
     let indexesDirectory: URL
     let controlDirectory: URL
@@ -13,76 +15,74 @@ struct DurableReplicaFiles: Sendable {
     var controlURL: URL { controlDirectory.appending(path: "heads.json") }
     var indexURL: URL { indexesDirectory.appending(path: "search.json") }
 
-    init(root: URL) throws {
+    /// Where the tree's `DirectoryObjectStore` overlay lives.
+    public var objectsDirectory: URL { root.appending(path: "objects", directoryHint: .isDirectory) }
+
+    public init(root: URL) throws {
         self.root = root
         materializedDirectory = root.appending(path: "materialized", directoryHint: .isDirectory)
-        objectsDirectory = root.appending(path: "objects", directoryHint: .isDirectory)
         journalsDirectory = root.appending(path: "journals/pages", directoryHint: .isDirectory)
         indexesDirectory = root.appending(path: "indexes", directoryHint: .isDirectory)
         controlDirectory = root.appending(path: "control", directoryHint: .isDirectory)
-        for directory in [root, materializedDirectory, objectsDirectory, journalsDirectory, indexesDirectory, controlDirectory] {
+        for directory in [root, materializedDirectory, journalsDirectory, indexesDirectory, controlDirectory] {
             try createPrivateDirectory(directory)
         }
     }
 
-    func read<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
-        try JSONDecoder().decode(type, from: Data(contentsOf: url))
+    public var hasState: Bool { FileManager.default.fileExists(atPath: stateURL.path) }
+    public func readState() throws -> Data { try Data(contentsOf: stateURL) }
+    public func writeState(_ data: Data) throws { try atomicWrite(data, to: stateURL) }
+
+    public var hasControl: Bool { FileManager.default.fileExists(atPath: controlURL.path) }
+    public func readControl() throws -> Data { try Data(contentsOf: controlURL) }
+    public func writeControl(_ data: Data) throws { try atomicWrite(data, to: controlURL) }
+
+    public func readIndex() -> Data? {
+        guard FileManager.default.fileExists(atPath: indexURL.path) else { return nil }
+        return try? Data(contentsOf: indexURL)
     }
 
-    func write<T: Encodable>(_ value: T, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .millisecondsSince1970
-        try atomicWrite(try encoder.encode(value), to: url)
-    }
+    public func writeIndex(_ data: Data) throws { try atomicWrite(data, to: indexURL) }
 
-    func readDated<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .millisecondsSince1970
-        return try decoder.decode(type, from: Data(contentsOf: url))
-    }
-
-    func writeDated<T: Encodable>(_ value: T, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .millisecondsSince1970
-        try atomicWrite(try encoder.encode(value), to: url)
-    }
-
-    func store(objects: [ReplicaStoredObject]) throws {
-        for object in objects {
-            let url = objectURL(hash: object.hash)
-            if FileManager.default.fileExists(atPath: url.path) {
-                guard try Data(contentsOf: url) == object.bytes else {
-                    throw ReplicaError.corruptState("Immutable object bytes changed for \(object.hash)")
-                }
-            } else {
-                try atomicWrite(object.bytes, to: url)
-            }
+    public func removeIndexes() throws {
+        if FileManager.default.fileExists(atPath: indexesDirectory.path) {
+            try FileManager.default.removeItem(at: indexesDirectory)
         }
+        try createPrivateDirectory(indexesDirectory)
+        try syncDirectory(root)
     }
 
-    func objectURL(hash: String) -> URL {
-        objectsDirectory.appending(path: String(hash.dropFirst("sha256:".count)))
-    }
-
-    func journalURL(pageKey: String, id: String) throws -> URL {
+    public func writeJournal(pageKey: String, id: String, _ data: Data) throws -> String {
         let directory = journalsDirectory.appending(path: safeKey(pageKey), directoryHint: .isDirectory)
         try createPrivateDirectory(directory)
-        return directory.appending(path: "\(safeKey(id)).json")
+        let url = directory.appending(path: "\(safeKey(id)).json")
+        try atomicWrite(data, to: url)
+        return url.path
     }
 
-    func journalURLs() throws -> [URL] {
+    public func journalRecords() throws -> [WorkingTreeJournalRecord] {
         guard FileManager.default.fileExists(atPath: journalsDirectory.path) else { return [] }
         let keys = try FileManager.default.contentsOfDirectory(at: journalsDirectory, includingPropertiesForKeys: nil)
-        return try keys.flatMap { directory in
+        let urls = try keys.flatMap { directory in
             try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "json" }
         }.sorted { $0.path < $1.path }
+        return try urls.map { WorkingTreeJournalRecord(token: $0.path, data: try Data(contentsOf: $0)) }
+    }
+
+    public func removeJournal(token: String) throws {
+        try remove(URL(filePath: token))
+    }
+
+    public func prepareLegacyCleanup() throws -> (@Sendable () -> Void)? {
+        let tombstones = try prepareLegacyHistoryCleanup()
+        guard !tombstones.isEmpty else { return nil }
+        let cleanupRoot = root
+        return { Self.removeLegacyHistoryTombstones(tombstones, from: cleanupRoot) }
     }
 
     /// Moves the obsolete full-snapshot archive out of the production namespace.
-    /// Recursive deletion is deliberately separated so opening a replica never waits on it.
+    /// Recursive deletion is deliberately separated so opening a tree never waits on it.
     func prepareLegacyHistoryCleanup() throws -> [URL] {
         let manager = FileManager.default
         let history = root.appending(path: "history", directoryHint: .isDirectory)
@@ -94,7 +94,7 @@ struct DurableReplicaFiles: Sendable {
         if manager.fileExists(atPath: history.path) {
             let values = try history.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             guard values.isDirectory == true, values.isSymbolicLink != true else {
-                throw ReplicaError.corruptState("Legacy replica history is not a directory")
+                throw WorkingTreeError.corruptState("Legacy working tree history is not a directory")
             }
             let tombstone = root.appending(
                 path: ".obsolete-history-\(UUID().uuidString.lowercased())",
@@ -126,18 +126,10 @@ struct DurableReplicaFiles: Sendable {
         return UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
     }
 
-    func remove(_ url: URL) throws {
+    private func remove(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
         try syncDirectory(url.deletingLastPathComponent())
-    }
-
-    func removeIndexes() throws {
-        if FileManager.default.fileExists(atPath: indexesDirectory.path) {
-            try FileManager.default.removeItem(at: indexesDirectory)
-        }
-        try createPrivateDirectory(indexesDirectory)
-        try syncDirectory(root)
     }
 
     private func atomicWrite(_ data: Data, to destination: URL) throws {
@@ -147,7 +139,7 @@ struct DurableReplicaFiles: Sendable {
             atPath: temporary.path,
             contents: nil,
             attributes: [.posixPermissions: 0o600]
-        ) else { throw ReplicaError.corruptState("Could not create durable temporary file") }
+        ) else { throw WorkingTreeError.corruptState("Could not create durable temporary file") }
         do {
             let handle = try FileHandle(forWritingTo: temporary)
             try handle.write(contentsOf: data)

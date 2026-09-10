@@ -7,19 +7,20 @@ let package = Package(
     products: [.library(name: "CanopyClient", targets: ["CanopyClient"])],
     dependencies: [
         .package(path: "../ArborKit"),
-        .package(path: "../ArborReplica"),
+        .package(path: "../ArborWorkingTree"),
+        .package(path: "../ArborObjectStore"),
         .package(path: "../ArborWire"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2")
     ],
     targets: [
         .target(
             name: "CanopyClient",
-            dependencies: ["ArborKit", "ArborReplica", "ArborWire", "Yams"],
+            dependencies: ["ArborKit", "ArborWorkingTree", "ArborObjectStore", "ArborWire", "Yams"],
             linkerSettings: [.linkedFramework("Security")]
         ),
         .testTarget(
             name: "CanopyClientTests",
-            dependencies: ["CanopyClient", "ArborKit", "ArborReplica", "ArborWire"]
+            dependencies: ["CanopyClient", "ArborKit", "ArborWorkingTree", "ArborObjectStore", "ArborWire"]
         )
     ],
     swiftLanguageModes: [.v6]

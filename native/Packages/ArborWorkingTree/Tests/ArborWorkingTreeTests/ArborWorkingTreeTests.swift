@@ -1,10 +1,31 @@
 import ArborKit
+import ArborObjectStore
+import ArborWire
 import Foundation
 import Testing
-@testable import ArborReplica
+@testable import ArborWorkingTree
+
+/// The two state-store seams a working tree runs on.
+enum StoreKind: String, CaseIterable, Sendable {
+    case durable
+    case inMemory
+}
+
+func openWorkingTree(
+    _ kind: StoreKind,
+    at root: URL,
+    tree: TreeID,
+    platform: any ObjectStore = EmptyObjectStore(),
+    clock: @escaping WorkingTree.Clock = Date.init
+) async throws -> WorkingTree {
+    switch kind {
+    case .durable: try await WorkingTree.open(at: root, tree: tree, platform: platform, clock: clock)
+    case .inMemory: try await WorkingTree.inMemory(tree: tree, platform: platform, clock: clock)
+    }
+}
 
 @Suite("Shared replica semantics")
-struct ReplicaFixtureTests {
+struct WorkingTreeFixtureTests {
     @Test("Directory projection never materializes generated child links")
     func directorySourceIsExact() throws {
         let fixture = try JSONDecoder().decode(
@@ -12,7 +33,7 @@ struct ReplicaFixtureTests {
             from: Data(contentsOf: fixtureDirectory().appending(path: "directory-documents.json"))
         )
         for item in fixture.cases {
-            let root = ReplicaNodeRecord(path: item.directory, kind: .directory, source: item.source.isEmpty ? nil : item.source)
+            let root = WorkingTreeNode(path: item.directory, kind: .directory, source: item.source.isEmpty ? nil : item.source)
             #expect((root.source ?? "") == item.source, Comment(rawValue: item.name))
         }
     }
@@ -26,31 +47,31 @@ struct ReplicaFixtureTests {
         for vector in fixture.objects {
             let bytes: Data
             switch vector.model.type {
-            case "file": bytes = ReplicaWireCodec.file(Data(base64Encoded: vector.model.bytesBase64!)!)
+            case "file": bytes = WorkingTreeWireCodec.file(Data(base64Encoded: vector.model.bytesBase64!)!)
             case "directory":
-                bytes = ReplicaWireCodec.directory(
+                bytes = WorkingTreeWireCodec.directory(
                     vector.model.entries!.map { ($0.name, $0.hash, $0.tree) },
                     childrenSource: vector.model.childrenSource
                 )
-            default: throw ReplicaError.corruptState("Unknown fixture object")
+            default: throw WorkingTreeError.corruptState("Unknown fixture object")
             }
             #expect(bytes.base64EncodedString() == vector.canonicalCborBase64)
-            #expect(ReplicaWireCodec.hash(bytes) == vector.hash)
+            #expect(WorkingTreeWireCodec.hash(bytes) == vector.hash)
         }
     }
 }
 
 @Suite("Offline provider")
-struct ReplicaProviderTests {
-    @Test("Browsing, exact editing, structure, assets, collections, and indexes remain offline")
-    func completeProvider() async throws {
+struct WorkingTreeProviderTests {
+    @Test("Browsing, exact editing, structure, assets, collections, and indexes remain offline", arguments: StoreKind.allCases)
+    func completeProvider(kind: StoreKind) async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_offline"
-            let replica = try await ArborReplica.open(at: root, tree: tree, clock: { Date(timeIntervalSince1970: 1_800_000_000) })
-            let provider = ReplicaWorkspaceProvider(replica: replica)
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree, clock: { Date(timeIntervalSince1970: 1_800_000_000) })
+            let provider = WorkingTreeProvider(workingTree: workingTree)
             let rootRef = WorkspaceReference(tree: tree, path: "/")
 
-            let initialHeads = try await replica.heads()
+            let initialHeads = try await workingTree.heads()
             let initialRootNode = try await provider.resolve(rootRef)
             guard case let .directoryDocument(initialSource, _, stored) = initialRootNode.surface else {
                 Issue.record("Expected the root directory document")
@@ -58,7 +79,7 @@ struct ReplicaProviderTests {
             }
             #expect(initialSource.isEmpty)
             #expect(!stored)
-            #expect(try await replica.heads() == initialHeads)
+            #expect(try await workingTree.heads() == initialHeads)
 
             let rootSession = try await provider.openDocument(rootRef)
             let rootBase = try await rootSession.snapshot()
@@ -77,7 +98,7 @@ struct ReplicaProviderTests {
                 Issue.record("Expected Markdown")
                 return
             }
-            #expect(ReplicaSemantics.pageID(in: createdSource) == markdownID(fromStableKey: pageID))
+            #expect(WorkingTreeSemantics.pageID(in: createdSource) == markdownID(fromStableKey: pageID))
 
             let notesNode = try await provider.resolve(notes.reference)
             guard case let .directoryDocument(notesSource, _, notesStored) = notesNode.surface else {
@@ -93,7 +114,7 @@ struct ReplicaProviderTests {
                 baseContentRevision: notesSnapshot.contentRevision
             )
             #expect(admittedNotes.reference.stableKey != nil)
-            #expect(ReplicaSemantics.pageID(in: admittedNotes.source) == markdownID(fromStableKey: admittedNotes.reference.stableKey))
+            #expect(WorkingTreeSemantics.pageID(in: admittedNotes.source) == markdownID(fromStableKey: admittedNotes.reference.stableKey))
             guard case let .directoryDocument(_, _, admittedStored) = try await provider.resolve(admittedNotes.reference).surface else {
                 Issue.record("Expected the stored directory document")
                 return
@@ -122,7 +143,7 @@ struct ReplicaProviderTests {
             let copied = try #require(try await provider.perform(.copy(reference: moved.reference, destination: notes.reference)))
             #expect(copied.reference.path == "/notes/renamed")
             #expect(copied.reference.stableKey != pageID)
-            await #expect(throws: ReplicaError.self) {
+            await #expect(throws: WorkingTreeError.self) {
                 _ = try await provider.perform(.rename(reference: copied.reference, name: "renamed"))
             }
 
@@ -139,7 +160,7 @@ struct ReplicaProviderTests {
             #expect(storedAsset.markdownSource == storedAsset.reference.path)
             #expect(try await provider.readFile(storedAsset.reference) == asset.bytes)
             #expect(try await provider.store(asset: asset, in: archive.reference) == storedAsset)
-            await #expect(throws: ReplicaError.self) {
+            await #expect(throws: WorkingTreeError.self) {
                 _ = try await provider.store(asset: WorkspaceAsset(name: "../escape", bytes: Data()), in: archive.reference)
             }
 
@@ -180,102 +201,206 @@ struct ReplicaProviderTests {
             }
 
             let beforeRebuild = try await provider.search("Offline first", in: tree)
-            try await replica.deleteRebuildableIndexes()
+            try await workingTree.deleteRebuildableIndexes()
             #expect(try await provider.search("Offline first", in: tree) == beforeRebuild)
 
-            let snapshot = try await replica.currentSnapshot()
-            let snapshotHeads = try await replica.heads()
+            let snapshot = try await workingTree.currentSnapshot()
+            let snapshotHeads = try await workingTree.heads()
             #expect(snapshot.root == snapshotHeads.materializedRoot)
             for object in snapshot.objects {
-                let text = String(decoding: object.bytes, as: UTF8.self)
+                let text = String(decoding: object.bytes ?? Data(), as: UTF8.self)
                 #expect(!text.contains("journals/pages"))
                 #expect(!text.contains("history/"))
                 #expect(!text.contains("indexes/"))
                 #expect(!text.contains("heads.json"))
             }
-            let privateEntries = try FileManager.default.contentsOfDirectory(atPath: root.path)
-            #expect(Set(privateEntries).isSuperset(of: ["control", "indexes", "journals", "materialized", "objects"]))
-            #expect(!privateEntries.contains("history"))
+            if kind == .durable {
+                let privateEntries = try FileManager.default.contentsOfDirectory(atPath: root.path)
+                #expect(Set(privateEntries).isSuperset(of: ["control", "indexes", "journals", "materialized", "objects"]))
+                #expect(!privateEntries.contains("history"))
+                // The node index carries no file bytes once a transaction has stored them.
+                let stateText = String(decoding: try Data(contentsOf: root.appending(path: "materialized/tree.json")), as: UTF8.self)
+                #expect(!stateText.contains("\"inline\""))
+            }
+            // Every file is held by hash and still readable through the overlay.
+            let storedNode = try await workingTree.resolve(storedAsset.reference)
+            #expect(storedNode.ref?.isInline == false)
+            #expect(try await workingTree.fileBytes(storedAsset.reference) == asset.bytes)
+            #expect(try await workingTree.diagnostics().isEmpty)
 
-            try await replica.recordAccepted(root: snapshot.root, update: "up_local")
-            #expect(try await replica.heads().pendingRoot == nil)
+            try await workingTree.recordAccepted(root: snapshot.root, update: "up_local")
+            #expect(try await workingTree.heads().pendingRoot == nil)
             _ = try await provider.perform(.createDirectory(parent: rootRef, name: "pending"))
-            let pendingHeads = try await replica.heads()
+            let pendingHeads = try await workingTree.heads()
             #expect(pendingHeads.acceptedRoot == snapshot.root)
             #expect(pendingHeads.pendingRoot == pendingHeads.materializedRoot)
 
             await session.close()
-            await #expect(throws: ReplicaError.self) { _ = try await session.snapshot() }
-            await replica.close()
+            await #expect(throws: WorkingTreeError.self) { _ = try await session.snapshot() }
+            await workingTree.close()
 
-            let reopened = try await ArborReplica.open(at: root, tree: tree)
-            let reopenedProvider = ReplicaWorkspaceProvider(replica: reopened)
+            guard kind == .durable else { return }
+            let reopened = try await WorkingTree.open(at: root, tree: tree)
+            let reopenedProvider = WorkingTreeProvider(workingTree: reopened)
             #expect(try await reopenedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID)).reference.path == "/archive/renamed")
             #expect(try await reopenedProvider.search("Offline first", in: tree).contains { $0.reference.stableKey == pageID })
+            #expect(try await reopenedProvider.readFile(storedAsset.reference) == asset.bytes)
         }
     }
 
-    @Test("System replacement is root-checked and cannot overwrite pending local work")
-    func systemReplacementBoundary() async throws {
+    @Test("System replacement is root-checked and cannot overwrite pending local work", arguments: StoreKind.allCases)
+    func systemReplacementBoundary(kind: StoreKind) async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_system"
-            let replica = try await ArborReplica.open(at: root, tree: tree)
-            let initial = try await replica.currentSnapshot()
-            try await replica.recordAccepted(root: initial.root, update: "up_initial")
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let initial = try await workingTree.currentSnapshot()
+            try await workingTree.recordAccepted(root: initial.root, update: "up_initial")
 
             let source = "---\nid: pg_remote\n---\n\n# Remote\n"
-            let replacementState = ReplicaState(
+            let replacementState = WorkingTreeState(
                 tree: tree.rawValue,
                 nodes: [
-                    ReplicaNodeRecord(path: "/", kind: .directory),
-                    ReplicaNodeRecord(path: "/remote", pageID: "pg_remote", kind: .markdown, source: source),
-                    ReplicaNodeRecord(path: "/nested", kind: .boundary, boundaryTree: "tr_nested")
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/remote", pageID: "pg_remote", kind: .markdown, source: source),
+                    WorkingTreeNode(path: "/nested", kind: .boundary, boundaryTree: "tr_nested")
                 ]
             )
-            let expected = try ReplicaWireCodec.snapshot(for: replacementState)
-            try await replica.replaceFromSystem(ReplicaSystemReplacement(
+            let expected = try WorkingTreeWireCodec.snapshot(for: replacementState)
+            try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
                 root: expected.root,
                 update: "up_remote",
                 cursor: "up_remote",
                 nodes: [
-                    ReplicaSystemNode(path: "/", content: .directory()),
-                    ReplicaSystemNode(path: "/remote", pageID: "pg_remote", content: .markdown(source: source)),
-                    ReplicaSystemNode(path: "/nested", content: .boundary(tree: "tr_nested"))
+                    WorkingTreeSystemNode(path: "/", content: .directory()),
+                    WorkingTreeSystemNode(path: "/remote", pageID: "pg_remote", content: .markdown(source: source)),
+                    WorkingTreeSystemNode(path: "/nested", content: .boundary(tree: "tr_nested"))
                 ]
             ))
-            let replacedHeads = try await replica.heads()
+            let replacedHeads = try await workingTree.heads()
             #expect(replacedHeads.materializedRoot == expected.root)
             #expect(replacedHeads.acceptedRoot == expected.root)
             #expect(replacedHeads.acceptedUpdate == "up_remote")
             #expect(replacedHeads.pendingRoot == nil)
 
-            let provider = ReplicaWorkspaceProvider(replica: replica)
+            let provider = WorkingTreeProvider(workingTree: workingTree)
             #expect(try await provider.resolve(.init(tree: tree, path: "/nested")).surface.isReadOnly)
             _ = try await provider.perform(.createDirectory(parent: .init(tree: tree, path: "/"), name: "local"))
-            await #expect(throws: ReplicaError.pendingLocalChanges) {
-                try await replica.replaceFromSystem(ReplicaSystemReplacement(
+            await #expect(throws: WorkingTreeError.pendingLocalChanges) {
+                try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
                     root: initial.root,
                     update: "up_stale",
-                    nodes: [ReplicaSystemNode(path: "/", content: .directory())]
+                    nodes: [WorkingTreeSystemNode(path: "/", content: .directory())]
                 ))
             }
         }
     }
 
-    @Test("An open document session observes a system replacement")
-    func documentSessionObservesSystemReplacement() async throws {
+    @Test("A fresh tree can be seeded ahead of its accepted base and keeps that seed pending", arguments: StoreKind.allCases)
+    func pendingSeedFromSystem(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_pending_seed"
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let source = "---\nid: pg_folder\n---\n\n# Folder\n"
+            let seeded = WorkingTreeState(
+                tree: tree.rawValue,
+                nodes: [
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/folder", pageID: "pg_folder", kind: .markdown, source: source)
+                ]
+            )
+            let expected = try WorkingTreeWireCodec.snapshot(for: seeded)
+            let acceptedRoot = "sha256:" + String(repeating: "a", count: 64)
+            try await workingTree.initializePendingFromSystem(
+                WorkingTreeSystemReplacement(
+                    root: expected.root,
+                    update: "up_folder",
+                    nodes: [
+                        WorkingTreeSystemNode(path: "/", content: .directory()),
+                        WorkingTreeSystemNode(path: "/folder", pageID: "pg_folder", content: .markdown(source: source))
+                    ]
+                ),
+                acceptedRoot: acceptedRoot,
+                acceptedUpdate: "up_accepted",
+                acceptedCursor: "up_accepted"
+            )
+            let heads = try await workingTree.heads()
+            #expect(heads.materializedRoot == expected.root)
+            #expect(heads.pendingRoot == expected.root)
+            #expect(heads.acceptedRoot == acceptedRoot)
+            #expect(heads.acceptedUpdate == "up_accepted")
+            #expect(heads.generation == 1)
+
+            // Only a fresh tree may be seeded this way.
+            await #expect(throws: WorkingTreeError.pendingLocalChanges) {
+                try await workingTree.initializePendingFromSystem(
+                    WorkingTreeSystemReplacement(
+                        root: expected.root,
+                        update: "up_folder",
+                        nodes: [
+                            WorkingTreeSystemNode(path: "/", content: .directory()),
+                            WorkingTreeSystemNode(path: "/folder", pageID: "pg_folder", content: .markdown(source: source))
+                        ]
+                    ),
+                    acceptedRoot: acceptedRoot,
+                    acceptedUpdate: "up_accepted"
+                )
+            }
+        }
+    }
+
+    @Test("A read-only provider presents nodes as not writable and refuses every write", arguments: StoreKind.allCases)
+    func readOnlyProvider(kind: StoreKind) async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_readonly"
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let source = "---\nid: pg_page\n---\n\n# Page\n"
+            let state = WorkingTreeState(
+                tree: tree.rawValue,
+                nodes: [
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/page", pageID: "pg_page", kind: .markdown, source: source)
+                ]
+            )
+            let expected = try WorkingTreeWireCodec.snapshot(for: state)
+            try await workingTree.initializeFromSystem(WorkingTreeSystemReplacement(
+                root: expected.root,
+                update: "up_page",
+                nodes: [
+                    WorkingTreeSystemNode(path: "/", content: .directory()),
+                    WorkingTreeSystemNode(path: "/page", pageID: "pg_page", content: .markdown(source: source))
+                ]
+            ))
+            let provider = WorkingTreeProvider(workingTree: workingTree, readOnly: true)
+            #expect(await provider.capabilities() == .readOnly)
+            let page = try await provider.resolve(.init(tree: tree, path: "/page"))
+            #expect(!page.isWritable)
+            await #expect(throws: (any Error).self) {
+                _ = try await provider.perform(.createDirectory(parent: .init(tree: tree, path: "/"), name: "local"))
+            }
+            let session = try await provider.openDocument(page.reference)
+            let snapshot = try await session.snapshot()
+            #expect(snapshot.source == source)
+            await #expect(throws: (any Error).self) {
+                _ = try await session.admit(source: source + "more\n", baseContentRevision: snapshot.contentRevision)
+            }
+            #expect(try await workingTree.heads().materializedRoot == expected.root)
+        }
+    }
+
+    @Test("An open document session observes a system replacement", arguments: StoreKind.allCases)
+    func documentSessionObservesSystemReplacement(kind: StoreKind) async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_observation"
-            let replica = try await ArborReplica.open(at: root, tree: tree)
-            let provider = ReplicaWorkspaceProvider(replica: replica)
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let provider = WorkingTreeProvider(workingTree: workingTree)
             let home = WorkspaceReference(tree: tree, path: "/")
             let created = try #require(try await provider.perform(.createMarkdown(
                 parent: home,
                 name: "note",
                 source: "---\nid: pg_note\n---\n\n# Before\n"
             )))
-            let accepted = try await replica.currentSnapshot()
-            try await replica.recordAccepted(root: accepted.root, update: "up_before")
+            let accepted = try await workingTree.currentSnapshot()
+            try await workingTree.recordAccepted(root: accepted.root, update: "up_before")
             let session = try await provider.openDocument(created.reference)
             let before = try await session.snapshot()
             let updates = try await session.updates()
@@ -283,21 +408,21 @@ struct ReplicaProviderTests {
             _ = try await iterator.next()
 
             let afterSource = "---\nid: pg_note\n---\n\n# After\n"
-            let replacementState = ReplicaState(
+            let replacementState = WorkingTreeState(
                 tree: tree.rawValue,
                 nodes: [
-                    ReplicaNodeRecord(path: "/", kind: .directory),
-                    ReplicaNodeRecord(path: "/note", pageID: "pg_note", kind: .markdown, source: afterSource)
+                    WorkingTreeNode(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/note", pageID: "pg_note", kind: .markdown, source: afterSource)
                 ]
             )
-            let replacement = try ReplicaWireCodec.snapshot(for: replacementState)
-            try await replica.replaceFromSystem(ReplicaSystemReplacement(
+            let replacement = try WorkingTreeWireCodec.snapshot(for: replacementState)
+            try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(
                 root: replacement.root,
                 update: "up_after",
                 cursor: "up_after",
                 nodes: [
-                    ReplicaSystemNode(path: "/", content: .directory()),
-                    ReplicaSystemNode(path: "/note", pageID: "pg_note", content: .markdown(source: afterSource))
+                    WorkingTreeSystemNode(path: "/", content: .directory()),
+                    WorkingTreeSystemNode(path: "/note", pageID: "pg_note", content: .markdown(source: afterSource))
                 ]
             ))
 
@@ -308,12 +433,12 @@ struct ReplicaProviderTests {
         }
     }
 
-    @Test("Creating a child beneath Markdown preserves a sibling body")
-    func markdownLeafBecomesSiblingBodyDirectory() async throws {
+    @Test("Creating a child beneath Markdown preserves a sibling body", arguments: StoreKind.allCases)
+    func markdownLeafBecomesSiblingBodyDirectory(kind: StoreKind) async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_promoteleaf"
-            let replica = try await ArborReplica.open(at: root, tree: tree)
-            let leaf = try await replica.createMarkdown(
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            let leaf = try await workingTree.createMarkdown(
                 parent: .init(tree: tree, path: "/"),
                 name: "x",
                 source: "# X\n"
@@ -323,28 +448,29 @@ struct ReplicaProviderTests {
                 path: leaf.path,
                 stableKey: leaf.pageID.map(markdownStableKey)
             )
-            let child = try await replica.createMarkdown(
+            let child = try await workingTree.createMarkdown(
                 parent: leafReference,
                 name: "child",
                 source: "# Child\n"
             )
 
-            let promoted = try await replica.resolve(leafReference)
+            let promoted = try await workingTree.resolve(leafReference)
             #expect(promoted.kind == .directory)
             #expect(promoted.directoryBodyPlacement == .siblingMarkdown)
             #expect(promoted.source == leaf.source)
-            let expected = try ReplicaWireCodec.snapshot(for: ReplicaState(
+            let expected = try WorkingTreeWireCodec.snapshot(for: WorkingTreeState(
                 tree: tree.rawValue,
                 nodes: [
-                    ReplicaNodeRecord(path: "/", kind: .directory),
+                    WorkingTreeNode(path: "/", kind: .directory),
                     promoted,
                     child,
                 ]
             ))
-            #expect(try await replica.currentSnapshot().root == expected.root)
+            #expect(try await workingTree.currentSnapshot().root == expected.root)
 
-            await replica.close()
-            let reopened = try await ArborReplica.open(at: root, tree: tree)
+            await workingTree.close()
+            guard kind == .durable else { return }
+            let reopened = try await WorkingTree.open(at: root, tree: tree)
             #expect(try await reopened.currentSnapshot().root == expected.root)
             #expect(try await reopened.resolve(leafReference).directoryBodyPlacement == .siblingMarkdown)
         }
@@ -359,30 +485,30 @@ struct ReplicaProviderTests {
             "kind": "directory",
             "source": source,
         ])
-        let record = try JSONDecoder().decode(ReplicaNodeRecord.self, from: data)
+        let record = try JSONDecoder().decode(WorkingTreeNode.self, from: data)
 
         #expect(record.directoryBodyPlacement == nil)
         #expect(record.shadowedSiblingMarkdownSource == nil)
-        let snapshot = try ReplicaWireCodec.snapshot(for: ReplicaState(
+        let snapshot = try WorkingTreeWireCodec.snapshot(for: WorkingTreeState(
             tree: "tr_legacy",
-            nodes: [ReplicaNodeRecord(path: "/", kind: .directory), record]
+            nodes: [WorkingTreeNode(path: "/", kind: .directory), record]
         ))
         #expect(!snapshot.root.isEmpty)
     }
 
     @Test("Duplicate logical paths throw instead of trapping")
     func duplicateLogicalPaths() {
-        let state = ReplicaState(
+        let state = WorkingTreeState(
             tree: "tr_duplicatepaths",
             nodes: [
-                ReplicaNodeRecord(path: "/", kind: .directory),
-                ReplicaNodeRecord(path: "/same", kind: .directory),
-                ReplicaNodeRecord(path: "/same", kind: .markdown, source: "# Same\n"),
+                WorkingTreeNode(path: "/", kind: .directory),
+                WorkingTreeNode(path: "/same", kind: .directory),
+                WorkingTreeNode(path: "/same", kind: .markdown, source: "# Same\n"),
             ]
         )
 
-        #expect(throws: ReplicaError.self) {
-            _ = try ReplicaWireCodec.snapshot(for: state)
+        #expect(throws: WorkingTreeError.self) {
+            _ = try WorkingTreeWireCodec.snapshot(for: state)
         }
     }
 
@@ -390,8 +516,8 @@ struct ReplicaProviderTests {
     func restartProperty() async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_property"
-            var replica = try await ArborReplica.open(at: root, tree: tree)
-            var provider = ReplicaWorkspaceProvider(replica: replica)
+            var workingTree = try await WorkingTree.open(at: root, tree: tree)
+            var provider = WorkingTreeProvider(workingTree: workingTree)
             let rootRef = WorkspaceReference(tree: tree, path: "/")
             let directory = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "many")))
             let names = ["z", "ä", "A"] + (0..<32).map { "node-\(String(format: "%02d", $0))" }
@@ -404,14 +530,14 @@ struct ReplicaProviderTests {
                 )))
                 #expect(identities.insert(try #require(node.reference.stableKey)).inserted)
             }
-            let before = try await replica.currentSnapshot()
-            let beforeHeads = try await replica.heads()
-            await replica.close()
+            let before = try await workingTree.currentSnapshot()
+            let beforeHeads = try await workingTree.heads()
+            await workingTree.close()
 
-            replica = try await ArborReplica.open(at: root, tree: tree)
-            provider = ReplicaWorkspaceProvider(replica: replica)
-            #expect(try await replica.currentSnapshot() == before)
-            #expect(try await replica.heads() == beforeHeads)
+            workingTree = try await WorkingTree.open(at: root, tree: tree)
+            provider = WorkingTreeProvider(workingTree: workingTree)
+            #expect(try await workingTree.currentSnapshot() == before)
+            #expect(try await workingTree.heads() == beforeHeads)
             let complete = try await provider.resolve(directory.reference)
             guard case let .directoryDocument(source, _, _) = complete.surface else {
                 Issue.record("Expected directory document")
@@ -431,9 +557,9 @@ struct ReplicaProviderTests {
                 let next = current.source + "generation \(generation)\n"
                 _ = try await session.admit(source: next, baseContentRevision: current.contentRevision)
             }
-            let final = try await replica.currentSnapshot()
-            await replica.close()
-            let reopened = try await ArborReplica.open(at: root, tree: tree)
+            let final = try await workingTree.currentSnapshot()
+            await workingTree.close()
+            let reopened = try await WorkingTree.open(at: root, tree: tree)
             #expect(try await reopened.currentSnapshot() == final)
             #expect(try await reopened.heads().generation == beforeHeads.generation + 10)
         }
@@ -443,11 +569,11 @@ struct ReplicaProviderTests {
     func diagnostics() async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_diagnostic"
-            let replica = try await ArborReplica.open(at: root, tree: tree)
-            let snapshot = try await replica.currentSnapshot()
+            let workingTree = try await WorkingTree.open(at: root, tree: tree)
+            let snapshot = try await workingTree.currentSnapshot()
             let rootObject = root.appending(path: "objects/\(snapshot.root.dropFirst("sha256:".count))")
             try Data("damaged".utf8).write(to: rootObject)
-            let provider = ReplicaWorkspaceProvider(replica: replica)
+            let provider = WorkingTreeProvider(workingTree: workingTree)
             let children = try await provider.children(of: .init(tree: tree, path: "/"))
             let diagnostic = try #require(children.first { if case .diagnostic = $0.surface { true } else { false } })
             #expect(!diagnostic.isWritable)
@@ -457,23 +583,23 @@ struct ReplicaProviderTests {
 }
 
 @Suite("Legacy replica history cleanup", .serialized)
-struct ReplicaHistoryCleanupTests {
+struct WorkingTreeHistoryCleanupTests {
     @Test("Legacy history is reclaimed after journal recovery without changing heads")
     func reclaimsHistoryAfterRecovery() async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_historycleanup"
-            let initial = try await ArborReplica.open(at: root, tree: tree)
+            let initial = try await WorkingTree.open(at: root, tree: tree)
             let accepted = try await initial.currentSnapshot()
             try await initial.recordAccepted(root: accepted.root, update: "up_initial")
             await initial.close()
 
-            let crashing = try await ArborReplica.open(
+            let crashing = try await WorkingTree.open(
                 at: root,
                 tree: tree,
                 faultInjector: OneShotFault(.afterMaterialization)
             )
-            let provider = ReplicaWorkspaceProvider(replica: crashing)
-            await #expect(throws: ReplicaError.self) {
+            let provider = WorkingTreeProvider(workingTree: crashing)
+            await #expect(throws: WorkingTreeError.self) {
                 _ = try await provider.perform(.createMarkdown(
                     parent: WorkspaceReference(tree: tree, path: "/"),
                     name: "pending",
@@ -485,7 +611,7 @@ struct ReplicaHistoryCleanupTests {
             try FileManager.default.createDirectory(at: history, withIntermediateDirectories: false)
             try Data("legacy snapshot".utf8).write(to: history.appending(path: "000000000001.json"))
 
-            let reopened = try await ArborReplica.open(at: root, tree: tree)
+            let reopened = try await WorkingTree.open(at: root, tree: tree)
             let heads = try await reopened.heads()
             #expect(heads.pendingRoot == heads.materializedRoot)
             #expect(heads.acceptedRoot == accepted.root)
@@ -503,8 +629,8 @@ struct ReplicaHistoryCleanupTests {
     func retriesOnlyHistoryTombstones() async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_historyretry"
-            let replica = try await ArborReplica.open(at: root, tree: tree)
-            await replica.close()
+            let workingTree = try await WorkingTree.open(at: root, tree: tree)
+            await workingTree.close()
 
             let tombstone = root.appending(
                 path: ".obsolete-history-9a1f760e-b55f-4cd7-9e49-462fb4020505",
@@ -515,7 +641,7 @@ struct ReplicaHistoryCleanupTests {
             let similar = root.appending(path: ".obsolete-history-leftover", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: similar, withIntermediateDirectories: false)
 
-            _ = try await ArborReplica.open(at: root, tree: tree)
+            _ = try await WorkingTree.open(at: root, tree: tree)
             try await expectNoHistoryTombstones(in: root)
             #expect(FileManager.default.fileExists(atPath: similar.path))
         }
@@ -525,12 +651,12 @@ struct ReplicaHistoryCleanupTests {
     func cleanupFailureIsNonterminal() async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_historyfailure"
-            let initial = try await ArborReplica.open(at: root, tree: tree)
+            let initial = try await WorkingTree.open(at: root, tree: tree)
             await initial.close()
 
             let history = root.appending(path: "history")
             try Data("not a directory".utf8).write(to: history)
-            let stillUsable = try await ArborReplica.open(at: root, tree: tree)
+            let stillUsable = try await WorkingTree.open(at: root, tree: tree)
             #expect(try await stillUsable.heads().generation == 0)
             #expect(FileManager.default.fileExists(atPath: history.path))
             await stillUsable.close()
@@ -538,7 +664,7 @@ struct ReplicaHistoryCleanupTests {
             try FileManager.default.removeItem(at: history)
             try FileManager.default.createDirectory(at: history, withIntermediateDirectories: false)
             try Data("old".utf8).write(to: history.appending(path: "record.json"))
-            _ = try await ArborReplica.open(at: root, tree: tree)
+            _ = try await WorkingTree.open(at: root, tree: tree)
             #expect(!FileManager.default.fileExists(atPath: history.path))
             try await expectNoHistoryTombstones(in: root)
         }
@@ -546,15 +672,15 @@ struct ReplicaHistoryCleanupTests {
 }
 
 @Suite("Crash recovery", .serialized)
-struct ReplicaCrashTests {
+struct WorkingTreeCrashTests {
     @Test("Every durable transaction boundary replays idempotently")
     func transactionBoundaries() async throws {
-        for point in ReplicaFailurePoint.allCases {
+        for point in WorkingTreeFailurePoint.allCases {
             try await withTemporaryReplica { root in
                 let tree = TreeID(rawValue: "tr_crash_\(point.rawValue)")
-                let replica = try await ArborReplica.open(at: root, tree: tree, faultInjector: OneShotFault(point))
-                let provider = ReplicaWorkspaceProvider(replica: replica)
-                await #expect(throws: ReplicaError.self) {
+                let workingTree = try await WorkingTree.open(at: root, tree: tree, faultInjector: OneShotFault(point))
+                let provider = WorkingTreeProvider(workingTree: workingTree)
+                await #expect(throws: WorkingTreeError.self) {
                     _ = try await provider.perform(.createMarkdown(
                         parent: WorkspaceReference(tree: tree, path: "/"),
                         name: "survives",
@@ -565,8 +691,8 @@ struct ReplicaCrashTests {
                 #expect(admittedJournals.count == 1)
                 #expect(admittedJournals[0].deletingLastPathComponent().lastPathComponent != "X3RyZWU")
 
-                let recovered = try await ArborReplica.open(at: root, tree: tree)
-                let recoveredProvider = ReplicaWorkspaceProvider(replica: recovered)
+                let recovered = try await WorkingTree.open(at: root, tree: tree)
+                let recoveredProvider = WorkingTreeProvider(workingTree: recovered)
                 let node = try await recoveredProvider.resolve(.init(tree: tree, path: "/survives"))
                 #expect(node.reference.stableKey != nil, Comment(rawValue: point.rawValue))
                 let heads = try await recovered.heads()
@@ -575,7 +701,7 @@ struct ReplicaCrashTests {
                 #expect(try journalFiles(root).isEmpty)
 
                 await recovered.close()
-                let again = try await ArborReplica.open(at: root, tree: tree)
+                let again = try await WorkingTree.open(at: root, tree: tree)
                 #expect(try await again.heads() == heads)
             }
         }
@@ -585,32 +711,32 @@ struct ReplicaCrashTests {
     func structuralRecovery() async throws {
         try await withTemporaryReplica { root in
             let tree: TreeID = "tr_structuralcrash"
-            let initial = try await ArborReplica.open(at: root, tree: tree)
-            let provider = ReplicaWorkspaceProvider(replica: initial)
+            let initial = try await WorkingTree.open(at: root, tree: tree)
+            let provider = WorkingTreeProvider(workingTree: initial)
             let rootRef = WorkspaceReference(tree: tree, path: "/")
             let note = try #require(try await provider.perform(.createMarkdown(parent: rootRef, name: "note", source: "# Note\n")))
             let pageID = try #require(note.reference.stableKey)
             let destination = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "destination")))
             await initial.close()
 
-            let moving = try await ArborReplica.open(at: root, tree: tree, faultInjector: OneShotFault(.afterMaterialization))
-            let movingProvider = ReplicaWorkspaceProvider(replica: moving)
-            await #expect(throws: ReplicaError.self) {
+            let moving = try await WorkingTree.open(at: root, tree: tree, faultInjector: OneShotFault(.afterMaterialization))
+            let movingProvider = WorkingTreeProvider(workingTree: moving)
+            await #expect(throws: WorkingTreeError.self) {
                 _ = try await movingProvider.perform(.move(reference: note.reference, destination: destination.reference))
             }
-            let moved = try await ArborReplica.open(at: root, tree: tree)
-            let movedProvider = ReplicaWorkspaceProvider(replica: moved)
+            let moved = try await WorkingTree.open(at: root, tree: tree)
+            let movedProvider = WorkingTreeProvider(workingTree: moved)
             let movedNode = try await movedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID))
             #expect(movedNode.reference.path == "/destination/note")
             await moved.close()
 
-            let trashing = try await ArborReplica.open(at: root, tree: tree, faultInjector: OneShotFault(.afterControl))
-            let trashingProvider = ReplicaWorkspaceProvider(replica: trashing)
-            await #expect(throws: ReplicaError.self) {
+            let trashing = try await WorkingTree.open(at: root, tree: tree, faultInjector: OneShotFault(.afterControl))
+            let trashingProvider = WorkingTreeProvider(workingTree: trashing)
+            await #expect(throws: WorkingTreeError.self) {
                 _ = try await trashingProvider.perform(.trash(reference: movedNode.reference))
             }
-            let trashed = try await ArborReplica.open(at: root, tree: tree)
-            let trashedProvider = ReplicaWorkspaceProvider(replica: trashed)
+            let trashed = try await WorkingTree.open(at: root, tree: tree)
+            let trashedProvider = WorkingTreeProvider(workingTree: trashed)
             let trashedNode = try await trashedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID))
             #expect(trashedNode.reference.path == "/Trash/destination/note")
             let restored = try #require(try await trashedProvider.perform(.restore(reference: trashedNode.reference)))
@@ -620,19 +746,19 @@ struct ReplicaCrashTests {
     }
 }
 
-private final class OneShotFault: ReplicaFaultInjector, @unchecked Sendable {
+private final class OneShotFault: WorkingTreeFaultInjector, @unchecked Sendable {
     private let lock = NSLock()
-    private let target: ReplicaFailurePoint
+    private let target: WorkingTreeFailurePoint
     private var fired = false
 
-    init(_ target: ReplicaFailurePoint) { self.target = target }
+    init(_ target: WorkingTreeFailurePoint) { self.target = target }
 
-    func reached(_ point: ReplicaFailurePoint) throws {
+    func reached(_ point: WorkingTreeFailurePoint) throws {
         lock.lock()
         defer { lock.unlock() }
         if point == target, !fired {
             fired = true
-            throw ReplicaError.simulatedCrash(point)
+            throw WorkingTreeError.simulatedCrash(point)
         }
     }
 }
@@ -702,7 +828,7 @@ private struct WireFixture: Decodable {
             var type: String
             var bytesBase64: String?
             var entries: [Entry]?
-            var childrenSource: ReplicaCollectionFileDescriptor?
+            var childrenSource: WorkingTreeCollectionFileDescriptor?
         }
         var model: Model
         var canonicalCborBase64: String

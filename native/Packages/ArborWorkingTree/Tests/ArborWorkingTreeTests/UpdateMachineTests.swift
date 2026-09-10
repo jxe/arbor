@@ -1,11 +1,12 @@
-@testable import CanopyClient
+@testable import ArborWorkingTree
+import ArborWire
 import Foundation
 import Testing
 
-/// Executes every `direct-canopy-synchronization` scenario from the shared
-/// conformance fixture against the Swift reducer.
-@Suite("Direct synchronization machine fixtures")
-struct DirectSyncMachineTests {
+/// Executes every `working-tree-updates` scenario from the shared
+/// conformance fixture against the Swift `UpdateMachine` reducer.
+@Suite("Update machine fixtures")
+struct UpdateMachineTests {
     private var conformanceFixtures: URL {
         if let path = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"] {
             return URL(fileURLWithPath: path, isDirectory: true)
@@ -16,21 +17,21 @@ struct DirectSyncMachineTests {
             .standardizedFileURL
     }
 
-    @Test("Every shared direct synchronization scenario transitions identically")
+    @Test("Every shared working-tree update scenario transitions identically")
     func sharedScenarios() throws {
         let data = try Data(contentsOf: conformanceFixtures.appending(path: "client-state-machines.json"))
         let fixture = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let machines = try #require(fixture["machines"] as? [String: Any])
-        let machine = try #require(machines["direct-canopy-synchronization"] as? [String: Any])
+        let machine = try #require(machines["working-tree-updates"] as? [String: Any])
         let scenarios = try #require(machine["scenarios"] as? [[String: Any]])
-        #expect(scenarios.count >= 15)
+        #expect(scenarios.count >= 20)
         for scenario in scenarios {
             let name = try #require(scenario["name"] as? String)
             var state = try Self.state(from: try #require(scenario["initial"] as? [String: Any]))
             let steps = try #require(scenario["steps"] as? [[String: Any]])
             for (index, step) in steps.enumerated() {
                 let event = try Self.event(from: try #require(step["event"] as? [String: Any]))
-                let (nextState, effects) = DirectSyncMachine.reduce(state, event)
+                let (nextState, effects) = UpdateMachine.reduce(state, event)
                 state = nextState
                 let label = "\(name) / step \(index + 1)"
                 #expect(state.kind == step["state"] as? String, Comment(rawValue: label))
@@ -44,9 +45,41 @@ struct DirectSyncMachineTests {
         }
     }
 
+    @Test("Element digests are independent of how object envelopes are packed")
+    func envelopeIndependence() throws {
+        let data = try Data(contentsOf: conformanceFixtures.appending(path: "wire-update-intent.json"))
+        let fixture = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let vector = try #require(fixture["envelopeIndependence"] as? [String: Any])
+        let tree = try #require(vector["tree"] as? String)
+        let candidates = try #require(vector["candidates"] as? [String])
+        let base = WireUpdateBase(root: candidates[0], update: try #require(vector["base"] as? String))
+        let expected = try #require(vector["digests"] as? [String])
+        let ifMatch = try #require(vector["ifMatch"] as? String)
+        let packings = try #require(vector["packings"] as? [[[[String: String]]]])
+        for packing in packings {
+            var updates: [WireCandidateUpdate] = []
+            for (index, candidate) in candidates.enumerated() {
+                var objects: [WireObjectEnvelope] = []
+                for envelope in index < packing.count ? packing[index] : [] {
+                    let hash = try #require(envelope["hash"])
+                    let encoded = try #require(envelope["bytes"])
+                    let bytes = try #require(Data(base64Encoded: encoded))
+                    objects.append(WireObjectEnvelope(hash: hash, bytes: bytes))
+                }
+                updates.append(WireCandidateUpdate(
+                    candidate: candidate,
+                    ifMatch: ifMatch,
+                    onConflict: vector["onConflict"] as? String,
+                    objects: objects
+                ))
+            }
+            #expect(updateRequestDigests(tree: tree, base: base, updates: updates) == expected)
+        }
+    }
+
     // MARK: Decoding
 
-    private static func base(_ json: [String: Any]) throws -> DirectSyncMachine.AcceptedBase {
+    private static func base(_ json: [String: Any]) throws -> UpdateMachine.AcceptedBase {
         .init(
             root: try #require(json["root"] as? String),
             update: try #require(json["update"] as? String),
@@ -54,15 +87,15 @@ struct DirectSyncMachineTests {
         )
     }
 
-    private static func head(_ json: [String: Any]?) throws -> DirectSyncMachine.LocalHead? {
+    private static func head(_ json: [String: Any]?) throws -> UpdateMachine.LocalHead? {
         guard let json else { return nil }
         return .init(
             root: try #require(json["root"] as? String),
-            origin: try Self.enumValue(DirectSyncMachine.HeadOrigin.self, from: json, key: "origin")
+            origin: try Self.enumValue(UpdateMachine.HeadOrigin.self, from: json, key: "origin")
         )
     }
 
-    private static func request(_ json: [String: Any]?) throws -> DirectSyncMachine.PreparedRequest? {
+    private static func request(_ json: [String: Any]?) throws -> UpdateMachine.PreparedRequest? {
         guard let json else { return nil }
         return .init(
             id: try #require(json["id"] as? String),
@@ -72,9 +105,9 @@ struct DirectSyncMachineTests {
         )
     }
 
-    private static func result(_ json: [String: Any]) throws -> DirectSyncMachine.AuthorityResult {
+    private static func result(_ json: [String: Any]) throws -> UpdateMachine.AuthorityResult {
         .init(
-            kind: try Self.enumValue(DirectSyncMachine.AuthorityResult.Kind.self, from: json, key: "kind"),
+            kind: try Self.enumValue(UpdateMachine.AuthorityResult.Kind.self, from: json, key: "kind"),
             root: try #require(json["root"] as? String),
             update: try #require(json["update"] as? String),
             cursor: json["cursor"] as? String,
@@ -82,7 +115,7 @@ struct DirectSyncMachineTests {
         )
     }
 
-    private static func conflict(_ json: [String: Any]) throws -> DirectSyncMachine.ConflictEvidence {
+    private static func conflict(_ json: [String: Any]) throws -> UpdateMachine.ConflictEvidence {
         .init(
             current: try base(try #require(json["current"] as? [String: Any])),
             draft: json["draft"] as? String,
@@ -91,9 +124,9 @@ struct DirectSyncMachineTests {
         )
     }
 
-    private static func state(from json: [String: Any]) throws -> DirectSyncMachine.State {
+    private static func state(from json: [String: Any]) throws -> UpdateMachine.State {
         let kind = try #require(json["kind"] as? String)
-        let phase: DirectSyncMachine.Phase
+        let phase: UpdateMachine.Phase
         switch kind {
         case "unplaced":
             phase = .unplaced
@@ -126,12 +159,12 @@ struct DirectSyncMachineTests {
             phase = .conflictPreparing(
                 request: try #require(try request(json["request"] as? [String: Any])),
                 conflict: try conflict(try #require(json["conflict"] as? [String: Any])),
-                choice: try Self.enumValue(DirectSyncMachine.Event.Resolution.self, from: json, key: "choice"),
+                choice: try Self.enumValue(UpdateMachine.Event.Resolution.self, from: json, key: "choice"),
                 head: try head(json["head"] as? [String: Any])
             )
         case "offline":
             let availability = try #require(json["availability"] as? [String: Any])
-            let availabilityValue: DirectSyncMachine.Availability = availability["kind"] as? String == "authentication"
+            let availabilityValue: UpdateMachine.Availability = availability["kind"] as? String == "authentication"
                 ? .authentication(reason: availability["reason"] as? String)
                 : .transport
             phase = .offline(
@@ -143,15 +176,14 @@ struct DirectSyncMachineTests {
         default:
             throw FixtureError.unknownState(kind)
         }
-        return DirectSyncMachine.State(
+        return UpdateMachine.State(
             phase: phase,
             base: try (json["base"] as? [String: Any]).map(base),
-            role: try Self.enumValue(DirectSyncMachine.Role.self, from: json, key: "role"),
             transportAvailable: json["transportAvailable"] as? Bool ?? true
         )
     }
 
-    private static func event(from json: [String: Any]) throws -> DirectSyncMachine.Event {
+    private static func event(from json: [String: Any]) throws -> UpdateMachine.Event {
         switch json["type"] as? String {
         case "bootstrapInstalled":
             return .bootstrapInstalled(
@@ -159,12 +191,10 @@ struct DirectSyncMachineTests {
                 update: try #require(json["update"] as? String),
                 cursor: json["cursor"] as? String
             )
-        case "setRole":
-            return .setRole(try Self.enumValue(DirectSyncMachine.Role.self, from: json, key: "role"))
         case "localHead":
             return .localHead(
                 root: try #require(json["root"] as? String),
-                origin: try Self.enumValue(DirectSyncMachine.HeadOrigin.self, from: json, key: "origin")
+                origin: try Self.enumValue(UpdateMachine.HeadOrigin.self, from: json, key: "origin")
             )
         case "publishDelayElapsed":
             return .publishDelayElapsed
@@ -201,7 +231,7 @@ struct DirectSyncMachineTests {
         case "credentialsRefreshed":
             return .credentialsRefreshed
         case "resolveConflict":
-            return .resolveConflict(try Self.enumValue(DirectSyncMachine.Event.Resolution.self, from: json, key: "choice"))
+            return .resolveConflict(try Self.enumValue(UpdateMachine.Event.Resolution.self, from: json, key: "choice"))
         case "conflictResolutionFailed":
             return .conflictResolutionFailed
         default:

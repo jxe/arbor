@@ -1,52 +1,57 @@
 import ArborKit
-import ArborReplica
 import ArborWire
 import Foundation
 
-/// Effect runner for `DirectSyncMachine` over an `ArborReplica` and a Wire
-/// transport. The replica is the durable store; `DurableSyncControl` retains
-/// the exact request, conflict, and next base; the machine owns scheduling:
+/// Effect runner for `UpdateMachine` over a `WorkingTree` and a Wire
+/// transport. The working tree holds the node index; `UpdateControl` retains
+/// the durable head with its objects, the exact request (with its envelopes),
+/// the conflict, the next base, and any hold; the machine owns scheduling:
 /// one request in flight, one retained successor, a trailing publication delay,
 /// and the single ambiguous-recovery transition on reconnection.
-public actor ReplicaSyncCoordinator {
-    private let replica: ArborReplica
-    private let transport: any ReplicaWireTransport
-    private let files: DurableSyncFiles
-    private let faultInjector: any ReplicaSyncFaultInjector
-    private var control: DurableSyncControl
+///
+/// Every request body is cut from the tree's own bytes (inline state plus its
+/// overlay) minus what the base already retains, so a candidate never carries a
+/// platform-served file. Resubmission reads envelopes only from the persisted
+/// attempt, never from a live object store.
+public actor UpdateCoordinator {
+    private let workingTree: WorkingTree
+    private let transport: any UpdateTransport
+    private let files: UpdateControlFiles
+    private let faultInjector: any UpdateFaultInjector
+    private var control: UpdateControl
     private var terminal = false
     private var syncActive = false
     private var syncAgain = false
     private var inFlight = Set<String>()
     private var transportAvailable: Bool
-    private var machine = DirectSyncMachine.State()
-    private let machineOptions: DirectSyncMachine.Options
+    private var machine = UpdateMachine.State()
+    private let machineOptions: UpdateMachine.Options
     private var publicationTask: Task<Void, Never>?
     private var maxPublicationTask: Task<Void, Never>?
     /// The most recent durable editor admission, for the immediate-delta fast path.
-    private var latestAdmission: ReplicaPatchAdmission?
+    private var latestAdmission: WorkingTreePatchAdmission?
 
     public init(
-        replica: ArborReplica,
-        transport: any ReplicaWireTransport,
+        workingTree: WorkingTree,
+        transport: any UpdateTransport,
         stateRoot: URL,
         transportAvailable: Bool = true,
-        faultInjector: any ReplicaSyncFaultInjector = NoReplicaSyncFaults(),
-        publicationDelay: Duration = DirectSyncMachine.publicationDelay,
-        publicationMaxDelay: Duration = DirectSyncMachine.publicationMaxDelay
+        faultInjector: any UpdateFaultInjector = NoUpdateFaults(),
+        publicationDelay: Duration = UpdateMachine.publicationDelay,
+        publicationMaxDelay: Duration = UpdateMachine.publicationMaxDelay
     ) throws {
-        self.replica = replica
+        self.workingTree = workingTree
         self.transport = transport
-        self.files = try DurableSyncFiles(root: stateRoot)
+        self.files = try UpdateControlFiles(root: stateRoot)
         self.faultInjector = faultInjector
         self.control = try files.load()
         self.transportAvailable = transportAvailable
-        self.machine = DirectSyncMachine.State(transportAvailable: transportAvailable)
-        self.machineOptions = DirectSyncMachine.Options(publicationDelay: publicationDelay, publicationMaxDelay: publicationMaxDelay)
+        self.machine = UpdateMachine.State(transportAvailable: transportAvailable)
+        self.machineOptions = UpdateMachine.Options(publicationDelay: publicationDelay, publicationMaxDelay: publicationMaxDelay)
     }
 
     /// The machine state, for status and tests.
-    public var syncState: DirectSyncMachine.State { machine }
+    public var syncState: UpdateMachine.State { machine }
 
     // MARK: Machine
 
@@ -56,19 +61,19 @@ public actor ReplicaSyncCoordinator {
     /// replica generations are one local head.
     private func ensureMachineEntered() async {
         guard case .unplaced = machine.phase else { return }
-        guard let heads = try? await replica.heads(),
+        guard let heads = try? await workingTree.heads(),
               let root = control.nextBase?.root ?? heads.acceptedRoot,
               let update = control.nextBase?.update ?? heads.acceptedUpdate else { return }
         dispatch(.bootstrapInstalled(root: root, update: update, cursor: heads.acceptedCursor))
         if let conflict = control.conflict {
             machine.phase = .conflict(
-                request: DirectSyncMachine.PreparedRequest(
+                request: UpdateMachine.PreparedRequest(
                     id: "conflict",
                     base: conflict.response.base,
                     candidate: conflict.localRootAtConflict,
                     digests: []
                 ),
-                conflict: DirectSyncMachine.ConflictEvidence(
+                conflict: UpdateMachine.ConflictEvidence(
                     current: .init(root: conflict.response.current.root, update: conflict.response.current.id),
                     draft: conflict.response.draft.root,
                     localRoot: conflict.localRootAtConflict,
@@ -78,22 +83,70 @@ public actor ReplicaSyncCoordinator {
             )
         } else if let attempt = control.attempt {
             machine.phase = .prepared(request: Self.preparedRequest(attempt), head: nil)
+        } else if let head = control.head, let attempt = try? recoverAttempt(from: head, tree: await workingTree.treeID().rawValue) {
+            // The process stopped between the durable head and its publication:
+            // the head's own objects make it a self-contained one-element request.
+            machine.phase = .prepared(request: Self.preparedRequest(attempt), head: nil)
         } else if heads.pendingRoot != nil {
             dispatch(.localHead(root: heads.materializedRoot, origin: .editor))
         }
     }
 
-    private static func preparedRequest(_ attempt: DurableSyncAttempt) -> DirectSyncMachine.PreparedRequest {
+    /// Turn a durable head into the exact attempt it would have become.
+    private func recoverAttempt(from head: UpdateHead, tree: String) throws -> UpdateAttempt {
+        var objects = head.objects
+        for hash in head.spilledObjects ?? [] { objects.append(try files.readObject(hash)) }
+        let request = WireUpdateRequest(base: head.base, candidate: head.root, objects: objects)
+        let attempt = try Self.attempt(tree: tree, base: head.base, generation: head.generation, request: request, adoptedCount: nil)
+        control.attempt = attempt
+        control.head = nil
+        control.presentation = WorkspaceSyncPresentation(
+            state: .requestPending,
+            detail: "Recovered the durable head as one request",
+            acceptedRoot: head.base.root,
+            localRoot: head.root,
+            localAdditions: head.root != head.base.root
+        )
+        try files.write(control)
+        files.retainObjects([])
+        return attempt
+    }
+
+    /// Encode one request as an immutable attempt: its body carries every envelope it will ever send.
+    private static func attempt(
+        tree: String,
+        base: WireUpdateBase,
+        generation: Int,
+        request: WireUpdateRequest,
+        adoptedCount: Int?
+    ) throws -> UpdateAttempt {
+        guard let last = request.updates.last else { throw UpdateError.adoptedRequestEmpty }
+        let digests = updateRequestDigests(tree: tree, base: base, updates: request.updates)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return UpdateAttempt(
+            tree: tree,
+            base: base,
+            candidate: last.candidate,
+            generation: generation,
+            body: try encoder.encode(request),
+            requestDigests: digests,
+            digest: digests.last!,
+            adoptedCount: adoptedCount
+        )
+    }
+
+    private static func preparedRequest(_ attempt: UpdateAttempt) -> UpdateMachine.PreparedRequest {
         .init(id: attempt.digest, base: attempt.base.update, candidate: attempt.candidate, digests: attempt.allRequestDigests)
     }
 
-    private func dispatch(_ event: DirectSyncMachine.Event) {
-        let (next, effects) = DirectSyncMachine.reduce(machine, event, options: machineOptions)
+    private func dispatch(_ event: UpdateMachine.Event) {
+        let (next, effects) = UpdateMachine.reduce(machine, event, options: machineOptions)
         machine = next
         for effect in effects { run(effect) }
     }
 
-    private func run(_ effect: DirectSyncMachine.Effect) {
+    private func run(_ effect: UpdateMachine.Effect) {
         switch effect {
         case let .schedule(timer, delay):
             let task = Task { [weak self] in
@@ -123,7 +176,7 @@ public actor ReplicaSyncCoordinator {
                 guard let self else { return }
                 _ = try? await self.synchronize(admission: admission, extendExistingAttempt: extend)
             }
-        case .submit, .apply, .catchUp, .discardMirrorHead, .surfaceConflict, .stop:
+        case .submit, .apply, .catchUp, .surfaceConflict, .stop:
             // Submission, materialization, and catch-up are performed inline by
             // the pass that dispatched the event; they report back with
             // `applied`, `conflicted`, or a failure.
@@ -135,7 +188,7 @@ public actor ReplicaSyncCoordinator {
         }
     }
 
-    private func timerElapsed(_ timer: DirectSyncMachine.Timer) {
+    private func timerElapsed(_ timer: UpdateMachine.Timer) {
         switch timer {
         case .trailing:
             publicationTask = nil
@@ -148,20 +201,79 @@ public actor ReplicaSyncCoordinator {
 
     public func presentation() async throws -> WorkspaceSyncPresentation {
         try requireOpen()
-        let heads = try await replica.heads()
+        let heads = try await workingTree.heads()
         var value = control.presentation
         value.acceptedRoot = control.nextBase?.root ?? heads.acceptedRoot
         value.localRoot = heads.materializedRoot
         if control.conflict != nil { value.state = .conflict }
+        else if let hold = control.hold { value.state = .conflict; value.detail = hold.reason }
         else if control.attempt != nil { value.state = .requestPending }
         else if heads.pendingRoot != nil { value.state = .locallyPending }
         return value
     }
 
-    public func conflict() throws -> ReplicaConflictPresentation? {
+    /// The current hold, if any. A `foreignConflict` hold means an adopted
+    /// element conflicted: route the user to the authoring tree's review (the
+    /// daemon's Sync Status), never to this client's conflict sheet.
+    public var submissionHold: UpdateHold? { control.hold }
+
+    /// Pause or resume submission. While held, heads and attempts stay durable
+    /// and `presentation` reports `conflict` with `reason`; nothing is sent.
+    /// Passing `nil` lifts the hold; call `syncOnce` afterwards to publish.
+    public func setSubmissionHold(_ reason: String?) throws {
+        try requireOpen()
+        control.hold = reason.map { UpdateHold(reason: $0, foreignConflict: false) }
+        try files.write(control)
+    }
+
+    /// Adopt another working tree's persisted request verbatim as this
+    /// client's first in-flight attempt (the dirty-daemon bootstrap). The
+    /// caller supplies the elements and every object envelope they need;
+    /// digests are recomputed here and must equal `requestDigests`, which
+    /// proves the adopted elements are the same intent the author persisted
+    /// (digests exclude envelopes, so the adopter may re-pack objects). A later
+    /// admission is the retained successor; offline, it is appended once.
+    public func adoptInFlight(
+        base: WireUpdateBase,
+        updates: [WireCandidateUpdate],
+        requestDigests: [String],
+        objects: [WireObjectEnvelope]
+    ) async throws {
+        try requireOpen()
+        guard control.attempt == nil, control.conflict == nil else { throw UpdateError.adoptionBlocked }
+        guard !updates.isEmpty else { throw UpdateError.adoptedRequestEmpty }
+        let treeID = (await workingTree.treeID()).rawValue
+        var elements = updates
+        var carried = Set(elements.flatMap { $0.objects.map(\.hash) })
+        for envelope in objects where carried.insert(envelope.hash).inserted {
+            elements[0].objects.append(envelope)
+        }
+        let request = WireUpdateRequest(base: base.update, updates: elements)
+        let heads = try await workingTree.heads()
+        let attempt = try Self.attempt(tree: treeID, base: base, generation: heads.generation, request: request, adoptedCount: elements.count)
+        guard attempt.allRequestDigests == requestDigests else { throw UpdateError.adoptedRequestDigestMismatch }
+        control.attempt = attempt
+        control.head = nil
+        control.presentation = WorkspaceSyncPresentation(
+            state: .requestPending,
+            detail: "Adopted \(elements.count) durable root intent\(elements.count == 1 ? "" : "s") from the folder",
+            acceptedRoot: base.root,
+            localRoot: attempt.candidate,
+            localAdditions: attempt.candidate != base.root
+        )
+        try files.write(control)
+        files.retainObjects([])
+        if case .unplaced = machine.phase {
+            await ensureMachineEntered()
+        } else {
+            notePersisted(attempt)
+        }
+    }
+
+    public func conflict() throws -> UpdateConflictPresentation? {
         try requireOpen()
         guard let stored = control.conflict else { return nil }
-        return ReplicaConflictPresentation(
+        return UpdateConflictPresentation(
             base: stored.response.base,
             local: stored.localRootAtConflict,
             remote: stored.response.current.root,
@@ -174,19 +286,19 @@ public actor ReplicaSyncCoordinator {
     /// conflict sheet and expose the actual value at each reported path.
     /// Material is cached with the durable conflict so review remains possible
     /// after a restart or a later loss of connectivity.
-    public func conflictWorkspace() async throws -> ReplicaConflictWorkspace? {
+    public func conflictWorkspace() async throws -> UpdateConflictWorkspace? {
         try requireOpen()
         guard var stored = control.conflict else { return nil }
         let material: DurableConflictMaterial
         if let retained = stored.material {
             material = retained
         } else {
-            guard let attempt = stored.attempt else { throw ReplicaSyncError.conflictSnapshotMissing }
+            guard let attempt = stored.attempt else { throw UpdateError.conflictSnapshotMissing }
             let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
             let index = stored.response.details.failedIndex
-            guard request.updates.indices.contains(index) else { throw ReplicaSyncError.conflictSnapshotMissing }
+            guard request.updates.indices.contains(index) else { throw UpdateError.conflictSnapshotMissing }
             let failed = request.updates[index]
-            guard failed.candidate == stored.response.candidate else { throw ReplicaSyncError.conflictSnapshotMissing }
+            guard failed.candidate == stored.response.candidate else { throw UpdateError.conflictSnapshotMissing }
             let tree = attempt.tree
             let baseRoot = stored.response.base
             let currentRoot = stored.response.current.root
@@ -194,7 +306,7 @@ public actor ReplicaSyncCoordinator {
             async let currentValue = transport.snapshot(tree: tree, root: currentRoot)
             let (base, current) = try await (baseValue, currentValue)
             guard base.root == baseRoot, current.root == currentRoot else {
-                throw ReplicaSyncError.conflictSnapshotMissing
+                throw UpdateError.conflictSnapshotMissing
             }
             let mine = try WireTransitionReplay.applying(
                 WireTransitionPayload(objects: failed.objects, deltas: failed.deltas),
@@ -217,7 +329,7 @@ public actor ReplicaSyncCoordinator {
             let current = try ConflictWorkspaceGraph.content(at: path, in: material.current)
             let mine = try ConflictWorkspaceGraph.content(at: path, in: material.mine)
             let draft = try ConflictWorkspaceGraph.content(at: path, in: material.draft)
-            return ReplicaConflictItem(
+            return UpdateConflictItem(
                 path: path,
                 reasons: grouped[path, default: []].map(\.reason),
                 base: base,
@@ -229,7 +341,7 @@ public actor ReplicaSyncCoordinator {
         }
         let request = try stored.attempt.map { try JSONDecoder().decode(WireUpdateRequest.self, from: $0.body) }
         let suffix = max(0, (request?.updates.count ?? 1) - stored.response.details.failedIndex - 1)
-        return ReplicaConflictWorkspace(
+        return UpdateConflictWorkspace(
             identity: stored.attempt?.digest ?? stored.response.candidate,
             items: items,
             unattemptedCount: suffix
@@ -239,39 +351,39 @@ public actor ReplicaSyncCoordinator {
     /// Assemble one reviewed failed-element candidate from the server draft,
     /// replacing only the explicitly chosen conflict paths. This deliberately
     /// does not infer a new merge: `both` selects Canopy's own draft value.
-    public func resolveConflict(_ resolutions: [String: ReplicaConflictResolution]) async throws {
+    public func resolveConflict(_ resolutions: [String: UpdateConflictResolution]) async throws {
         try requireOpen()
-        guard let stored = control.conflict, let attempt = stored.attempt else { throw ReplicaSyncError.noConflict }
+        guard let stored = control.conflict, let attempt = stored.attempt else { throw UpdateError.noConflict }
         guard let workspace = try await conflictWorkspace(),
               workspace.identity == attempt.digest,
               let retained = control.conflict,
               retained.attempt?.digest == attempt.digest,
-              let material = retained.material else { throw ReplicaSyncError.noConflict }
-        guard workspace.unattemptedCount == 0 else { throw ReplicaSyncError.conflictSequenceRequiresReview }
+              let material = retained.material else { throw UpdateError.noConflict }
+        guard workspace.unattemptedCount == 0 else { throw UpdateError.conflictSequenceRequiresReview }
         let paths = workspace.items.map(\.path)
-        guard Set(resolutions.keys) == Set(paths) else { throw ReplicaSyncError.conflictResolutionIncomplete }
+        guard Set(resolutions.keys) == Set(paths) else { throw UpdateError.conflictResolutionIncomplete }
         for lhs in paths {
             for rhs in paths where lhs != rhs {
                 let prefix = lhs == "/" ? "/" : lhs + "/"
-                if rhs.hasPrefix(prefix) { throw ReplicaSyncError.conflictPathOverlap }
+                if rhs.hasPrefix(prefix) { throw UpdateError.conflictPathOverlap }
             }
         }
         var candidate = material.draft
         for item in workspace.items {
-            guard let resolution = resolutions[item.path] else { throw ReplicaSyncError.conflictResolutionIncomplete }
+            guard let resolution = resolutions[item.path] else { throw UpdateError.conflictResolutionIncomplete }
             switch resolution {
             case .current:
                 candidate = try ConflictWorkspaceGraph.replacing(path: item.path, in: candidate, with: material.current)
             case .mine:
                 candidate = try ConflictWorkspaceGraph.replacing(path: item.path, in: candidate, with: material.mine)
             case .both:
-                guard item.offersBoth else { throw ReplicaSyncError.conflictResolutionIncomplete }
+                guard item.offersBoth else { throw UpdateError.conflictResolutionIncomplete }
                 // The draft is already the destination and therefore already
                 // carries Canopy's explicit combined value for this path.
                 break
             case let .edit(source):
                 guard item.draft.editableText != nil || item.mine.editableText != nil || item.current.editableText != nil else {
-                    throw ReplicaSyncError.conflictContentIsNotEditable
+                    throw UpdateError.conflictContentIsNotEditable
                 }
                 candidate = try ConflictWorkspaceGraph.replacingText(path: item.path, in: candidate, with: source)
             }
@@ -279,19 +391,19 @@ public actor ReplicaSyncCoordinator {
         _ = try WireObjectGraph.validate(candidate)
         let descriptor = try await transport.descriptor(tree: attempt.tree).validated(expectedTree: attempt.tree)
         guard descriptor.tree.root == retained.response.current.root,
-              descriptor.tree.update == retained.response.current.id else { throw ReplicaSyncError.localWorkAdvanced }
-        let heads = try await replica.heads()
-        guard heads.materializedRoot == retained.localRootAtConflict else { throw ReplicaSyncError.localWorkAdvanced }
+              descriptor.tree.update == retained.response.current.id else { throw UpdateError.localWorkAdvanced }
+        let heads = try await workingTree.heads()
+        guard heads.materializedRoot == retained.localRootAtConflict else { throw UpdateError.localWorkAdvanced }
 
         dispatch(.resolveConflict(.draft))
         do {
             let replacement = try SnapshotBridge.replacement(
                 snapshot: candidate,
-                tree: await replica.treeID(),
+                tree: await workingTree.treeID(),
                 update: descriptor.tree.update,
                 cursor: descriptor.observedThrough
             )
-            try await replica.replacePendingFromSystem(
+            try await workingTree.replacePendingFromSystem(
                 replacement,
                 acceptedRoot: descriptor.tree.root,
                 acceptedUpdate: descriptor.tree.update,
@@ -316,30 +428,30 @@ public actor ReplicaSyncCoordinator {
 
     public func watchCursor() async throws -> String? {
         try requireOpen()
-        return try await replica.heads().acceptedCursor
+        return try await workingTree.heads().acceptedCursor
     }
 
     /** Reestablishes a coherent snapshot-then-follow boundary after watch history expires. */
     @discardableResult
     public func recoverWatchGap() async throws -> WorkspaceSyncPresentation {
         try requireOpen()
-        let heads = try await replica.heads()
+        let heads = try await workingTree.heads()
         if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
             return try await synchronize(admission: nil)
         }
-        return try await pullCurrentSnapshot(treeID: await replica.treeID().rawValue, priorHeads: heads)
+        return try await pullCurrentSnapshot(treeID: await workingTree.treeID().rawValue, priorHeads: heads)
     }
 
     /** Applies one accepted-state invalidation without turning a clean pull into a write. */
     @discardableResult
     public func observe(_ event: WireWatchEvent) async throws -> WorkspaceSyncPresentation {
         try requireOpen()
-        let treeID = await replica.treeID().rawValue
+        let treeID = await workingTree.treeID().rawValue
         guard event.tree.id == treeID else { return try await presentation() }
-        let heads = try await replica.heads()
+        let heads = try await workingTree.heads()
         if event.id == heads.acceptedCursor { return try await presentation() }
         if let requestDigest = event.requestDigest,
-           requestDigest == control.attempt?.digest {
+           control.attempt?.allRequestDigests.contains(requestDigest) == true {
             // The watch won the response race, or the response was lost. Replaying
             // the exact durable request obtains the server's stored response.
             return try await synchronize(admission: nil)
@@ -359,34 +471,32 @@ public actor ReplicaSyncCoordinator {
 
     private func applyAcceptedTransitions(
         _ event: WireWatchEvent,
-        priorHeads heads: ReplicaHeads
+        priorHeads heads: WorkingTreeHeads
     ) async throws -> WorkspaceSyncPresentation {
         guard let final = event.transitions.last,
               final.update.id == event.tree.update,
               final.update.root == event.tree.root else {
             throw ArborWireValidationError.invalidValue("Watch transition batch does not match its descriptor")
         }
-        let local = try await replica.currentSnapshot()
-        let basis = WireSnapshot(
-            root: local.root,
-            objects: local.objects.map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) }
-        )
-        let accepted = try WireTransitionReplay.applying(event.transitions, to: basis)
-        let latestHeads = try await replica.heads()
+        let basis = try await sparseBasis(deltaBases: Set(event.transitions.flatMap { $0.deltas.map(\.base) }))
+        let accepted = try WireTransitionReplay.applying(event.transitions, to: basis, mode: .sparseFiles)
+        let latestHeads = try await workingTree.heads()
         if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
             return try await synchronize(admission: nil)
         }
         if accepted.root == latestHeads.materializedRoot {
-            try await replica.recordAccepted(root: accepted.root, update: final.update.id, cursor: event.id)
+            try await workingTree.recordAccepted(root: accepted.root, update: final.update.id, cursor: event.id)
         } else {
             let replacement = try SnapshotBridge.replacement(
                 snapshot: accepted,
-                tree: await replica.treeID(),
+                tree: await workingTree.treeID(),
                 update: final.update.id,
-                cursor: event.id
+                cursor: event.id,
+                filesByHash: try await workingTree.sparseFileMetadataByHash()
             )
-            try await replica.replaceFromSystem(replacement)
+            try await workingTree.replaceFromSystem(replacement)
         }
+        control.head = nil
         control.presentation = WorkspaceSyncPresentation(
             state: final.update.merge == nil ? .current : .autoMerged,
             detail: "Applied \(event.transitions.count) ordered accepted transition\(event.transitions.count == 1 ? "" : "s")",
@@ -399,33 +509,46 @@ public actor ReplicaSyncCoordinator {
         return control.presentation
     }
 
+    /// The tree's own sparse graph plus the bytes every delta in a transition
+    /// needs, fetched through the object store once each. Files the transition
+    /// does not touch stay absent; the replay and the bridge both run sparse.
+    private func sparseBasis(deltaBases: Set<String>) async throws -> WireSnapshot {
+        var basis = try await workingTree.localSnapshot()
+        let present = Set(basis.objects.map(\.hash))
+        for hash in deltaBases.sorted() where !present.contains(hash) {
+            basis.objects.append(WireObjectEnvelope(hash: hash, bytes: try await workingTree.objectBytes(hash: hash)))
+        }
+        return basis
+    }
+
     private func pullCurrentSnapshot(
         treeID: String,
-        priorHeads heads: ReplicaHeads
+        priorHeads heads: WorkingTreeHeads
     ) async throws -> WorkspaceSyncPresentation {
         let current = try await transport.descriptor(tree: treeID)
         let snapshot = try await transport.snapshot(tree: treeID, root: current.tree.root)
         let update = current.tree.update
-        guard !update.isEmpty else { throw ReplicaSyncError.replicaIsNotPlaced }
-        let latestHeads = try await replica.heads()
+        guard !update.isEmpty else { throw UpdateError.replicaIsNotPlaced }
+        let latestHeads = try await workingTree.heads()
         if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
             return try await synchronize(admission: nil)
         }
         do {
             if snapshot.root == latestHeads.materializedRoot {
-                try await replica.recordAccepted(root: snapshot.root, update: update, cursor: current.observedThrough)
+                try await workingTree.recordAccepted(root: snapshot.root, update: update, cursor: current.observedThrough)
             } else {
                 let replacement = try SnapshotBridge.replacement(
                     snapshot: snapshot,
-                    tree: await replica.treeID(),
+                    tree: await workingTree.treeID(),
                     update: update,
                     cursor: current.observedThrough
                 )
-                try await replica.replaceFromSystem(replacement)
+                try await workingTree.replaceFromSystem(replacement)
             }
-        } catch ReplicaError.pendingLocalChanges {
+        } catch WorkingTreeError.pendingLocalChanges {
             return try await synchronize(admission: nil)
         }
+        control.head = nil
         control.presentation = WorkspaceSyncPresentation(
             state: .current,
             detail: "Applied the server's current snapshot",
@@ -448,23 +571,71 @@ public actor ReplicaSyncCoordinator {
         return try await synchronize(admission: latestAdmission)
     }
 
-    private func currentHead() -> DirectSyncMachine.LocalHead {
+    private func currentHead() -> UpdateMachine.LocalHead {
         if case let .locallyPending(head, _) = machine.phase { return head }
-        return DirectSyncMachine.LocalHead(root: latestAdmission?.candidateRoot ?? "", origin: .editor)
+        return UpdateMachine.LocalHead(root: latestAdmission?.candidateRoot ?? "", origin: .editor)
     }
 
     /**
      * Nonblocking handoff for one just-durable patch admission. The admission is
-     * already durable in ArborReplica; the machine coalesces it with any other
+     * already durable in WorkingTree; the machine coalesces it with any other
      * unsent generation behind one trailing publication delay, retains it as the
      * single successor of a request in flight, and leaves it in the replica
      * while the transport is unavailable so reconnection appends the latest
      * head once to any ambiguous prefix.
      */
-    public func syncImmediately(_ admission: ReplicaPatchAdmission) async {
+    public func syncImmediately(_ admission: WorkingTreePatchAdmission) async {
         latestAdmission = admission
         await ensureMachineEntered()
+        // The head is durable with its objects before the machine learns of it
+        // (rule 1): a process that stops before the publication delay recovers
+        // it as one request instead of losing the edit.
+        if control.conflict == nil { try? await persistHead(root: admission.candidateRoot) }
         dispatch(.localHead(root: admission.candidateRoot, origin: .editor))
+    }
+
+    private func persistHead(root: String) async throws {
+        let heads = try await workingTree.heads()
+        guard heads.materializedRoot == root, heads.pendingRoot != nil else { return }
+        let base = try currentBase(heads: heads)
+        var envelopes = try await candidateObjects(base: base.root).objects
+        guard control.head?.root != root || control.head?.base != base else { return }
+        var spilled: [String] = []
+        if envelopes.reduce(0, { $0 + $1.bytes.count }) > UpdateHead.inlineByteCap {
+            for envelope in envelopes.sorted(by: { $0.bytes.count > $1.bytes.count }) {
+                try files.writeObject(envelope)
+                spilled.append(envelope.hash)
+            }
+            envelopes.removeAll { spilled.contains($0.hash) }
+        }
+        control.head = UpdateHead(
+            base: base,
+            root: root,
+            generation: heads.generation,
+            objects: envelopes,
+            spilledObjects: spilled.isEmpty ? nil : spilled
+        )
+        try files.write(control)
+        files.retainObjects(Set(spilled))
+    }
+
+    private func currentBase(heads: WorkingTreeHeads) throws -> WireUpdateBase {
+        if let nextBase = control.nextBase { return nextBase }
+        guard let root = heads.acceptedRoot, let update = heads.acceptedUpdate else {
+            throw UpdateError.replicaIsNotPlaced
+        }
+        return WireUpdateBase(root: root, update: update)
+    }
+
+    /// The tree's local graph (inline state plus overlay) validated as a sparse
+    /// spine, and the subset of it the base does not already retain. Nothing is
+    /// fetched: a platform-served file is by definition retained by an accepted
+    /// root the authority can reach.
+    private func candidateObjects(base: String) async throws -> (root: String, objects: [WireObjectEnvelope]) {
+        let local = try await workingTree.localSnapshot()
+        _ = try WireObjectGraph.validate(local, mode: .sparseFiles)
+        let retained = (try? await retainedObjectHashes(root: base)) ?? []
+        return (local.root, local.objects.filter { !retained.contains($0.hash) })
     }
 
     /**
@@ -495,7 +666,7 @@ public actor ReplicaSyncCoordinator {
             }
             return
         }
-        let heads = try? await replica.heads()
+        let heads = try? await workingTree.heads()
         if control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil {
             _ = try? await synchronize(admission: nil, extendExistingAttempt: true)
         } else {
@@ -507,7 +678,7 @@ public actor ReplicaSyncCoordinator {
     }
 
     private func synchronize(
-        admission: ReplicaPatchAdmission?,
+        admission: WorkingTreePatchAdmission?,
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
         try requireOpen()
@@ -532,7 +703,7 @@ public actor ReplicaSyncCoordinator {
             if syncAgain {
                 // A successor retained during the request publishes against the
                 // applied base as one more pass.
-                let heads = try await replica.heads()
+                let heads = try await workingTree.heads()
                 if heads.pendingRoot == nil || control.conflict != nil { syncAgain = false }
                 else { syncAgain = true }
             }
@@ -541,11 +712,15 @@ public actor ReplicaSyncCoordinator {
     }
 
     private func syncPass(
-        admission: ReplicaPatchAdmission?,
+        admission: WorkingTreePatchAdmission?,
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
-        guard control.conflict == nil else { return try await presentation() }
-        let attempt: DurableSyncAttempt
+        guard control.conflict == nil, control.hold == nil else { return try await presentation() }
+        if control.attempt == nil, control.nextBase == nil, try await workingTree.heads().pendingRoot == nil {
+            // A head equal to the accepted base needs no request (rule 11).
+            return try await presentation()
+        }
+        let attempt: UpdateAttempt
         if control.attempt != nil, extendExistingAttempt {
             attempt = try await extendAttemptToCurrent()
         } else if let existing = control.attempt { attempt = existing }
@@ -562,28 +737,7 @@ public actor ReplicaSyncCoordinator {
             try faultInjector.reached(.duringUpload)
             return try await submit(attempt)
         } catch let error as WireUpdateConflictError {
-            let validated = try error.conflict.validated()
-            control.conflict = DurableSyncConflict(
-                response: validated,
-                localRootAtConflict: attempt.candidate,
-                attempt: attempt
-            )
-            control.attempt = nil
-            control.presentation = WorkspaceSyncPresentation(
-                state: .conflict,
-                detail: validated.conflicts.map { "\($0.path): \($0.reason)" }.joined(separator: ", "),
-                acceptedRoot: validated.current.root,
-                localRoot: attempt.candidate,
-                localAdditions: true,
-                remoteAdditions: true
-            )
-            try files.write(control)
-            noteConflict(validated, attempt: attempt)
-            // The conflict response arrived over a live transport, so retain
-            // its review material now when possible. Failure leaves the exact
-            // durable conflict intact and the sheet can retry later.
-            _ = try? await conflictWorkspace()
-            return control.presentation
+            return try await recordConflict(try error.conflict.validated(), attempt: attempt, retained: attempt)
         } catch let error as WireHTTPError where error.status == 401 || error.status == 403 {
             control.presentation.state = error.code == "device-revoked" ? .revoked : .authenticationFailure
             control.presentation.detail = error.message ?? error.code
@@ -591,7 +745,7 @@ public actor ReplicaSyncCoordinator {
             dispatch(.authenticationFailed(reason: error.code))
             return control.presentation
         } catch {
-            if error is ReplicaSyncError || error is ArborWireValidationError {
+            if error is UpdateError || error is ArborWireValidationError {
                 terminal = true
                 dispatch(.validationFailed(reason: String(describing: error)))
             } else {
@@ -604,10 +758,59 @@ public actor ReplicaSyncCoordinator {
         }
     }
 
-    private func noteConflict(_ validated: WireUpdateConflict, attempt: DurableSyncAttempt) {
+    /// Persist a conflict response. An element inside an adopted prefix is
+    /// owned by the working tree that authored it: hold and defer to its
+    /// review flow instead of opening this client's sheet (rule 8). Otherwise
+    /// the conflict is retained with the exact attempt for review here.
+    private func recordConflict(
+        _ validated: WireUpdateConflict,
+        attempt: UpdateAttempt,
+        retained: UpdateAttempt
+    ) async throws -> WorkspaceSyncPresentation {
+        if validated.details.failedIndex < retained.adoptedElementCount {
+            control.hold = UpdateHold(
+                reason: "The folder's change conflicts; review it in Sync Status.",
+                foreignConflict: true
+            )
+            control.presentation = WorkspaceSyncPresentation(
+                state: .conflict,
+                detail: control.hold?.reason,
+                acceptedRoot: validated.current.root,
+                localRoot: retained.candidate,
+                localAdditions: true,
+                remoteAdditions: true
+            )
+            try files.write(control)
+            noteConflict(validated, attempt: attempt)
+            return control.presentation
+        }
+        control.conflict = UpdateConflictRecord(
+            response: validated,
+            localRootAtConflict: retained.candidate,
+            attempt: retained
+        )
+        control.attempt = nil
+        control.presentation = WorkspaceSyncPresentation(
+            state: .conflict,
+            detail: validated.conflicts.map { "\($0.path): \($0.reason)" }.joined(separator: ", "),
+            acceptedRoot: validated.current.root,
+            localRoot: retained.candidate,
+            localAdditions: true,
+            remoteAdditions: true
+        )
+        try files.write(control)
+        noteConflict(validated, attempt: attempt)
+        // The conflict response arrived over a live transport, so retain its
+        // review material now when possible. Failure leaves the exact durable
+        // conflict intact and the sheet can retry later.
+        _ = try? await conflictWorkspace()
+        return control.presentation
+    }
+
+    private func noteConflict(_ validated: WireUpdateConflict, attempt: UpdateAttempt) {
         dispatch(.conflicted(
             id: attempt.digest,
-            conflict: DirectSyncMachine.ConflictEvidence(
+            conflict: UpdateMachine.ConflictEvidence(
                 current: .init(root: validated.current.root, update: validated.current.id),
                 draft: validated.draft.root,
                 localRoot: attempt.candidate,
@@ -616,7 +819,7 @@ public actor ReplicaSyncCoordinator {
         ))
     }
 
-    private func submit(_ attempt: DurableSyncAttempt) async throws -> WorkspaceSyncPresentation {
+    private func submit(_ attempt: UpdateAttempt) async throws -> WorkspaceSyncPresentation {
         guard inFlight.insert(attempt.digest).inserted else { return try await presentation() }
         defer { finishInFlight(attempt.digest) }
         dispatch(.submitStarted(id: attempt.digest))
@@ -630,25 +833,7 @@ public actor ReplicaSyncCoordinator {
             guard control.attempt?.allRequestDigests.starts(with: attempt.allRequestDigests) == true else {
                 return try await presentation()
             }
-            let validated = try error.conflict.validated()
-            control.conflict = DurableSyncConflict(
-                response: validated,
-                localRootAtConflict: control.attempt?.candidate ?? attempt.candidate,
-                attempt: control.attempt ?? attempt
-            )
-            control.attempt = nil
-            control.presentation = WorkspaceSyncPresentation(
-                state: .conflict,
-                detail: validated.conflicts.map { "\($0.path): \($0.reason)" }.joined(separator: ", "),
-                acceptedRoot: validated.current.root,
-                localRoot: attempt.candidate,
-                localAdditions: true,
-                remoteAdditions: true
-            )
-            try files.write(control)
-            noteConflict(validated, attempt: attempt)
-            _ = try? await conflictWorkspace()
-            return control.presentation
+            return try await recordConflict(try error.conflict.validated(), attempt: attempt, retained: control.attempt ?? attempt)
         } catch {
             if control.attempt?.digest != attempt.digest { return try await presentation() }
             throw error
@@ -661,11 +846,11 @@ public actor ReplicaSyncCoordinator {
 
     public func resolveConflictKeepingLocal() throws {
         try requireOpen()
-        guard let conflict = control.conflict else { throw ReplicaSyncError.noConflict }
+        guard let conflict = control.conflict else { throw UpdateError.noConflict }
         if let attempt = conflict.attempt,
            let request = try? JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body),
            request.updates.count > conflict.response.details.failedIndex + 1 {
-            throw ReplicaSyncError.conflictSequenceRequiresReview
+            throw UpdateError.conflictSequenceRequiresReview
         }
         control.nextBase = WireUpdateBase(root: conflict.response.current.root, update: conflict.response.current.id)
         control.conflict = nil
@@ -686,69 +871,40 @@ public actor ReplicaSyncCoordinator {
         run(.cancelTimers)
     }
 
-    private func createAttempt(admission: ReplicaPatchAdmission? = nil) async throws -> DurableSyncAttempt {
-        let heads = try await replica.heads()
-        let base: WireUpdateBase
-        if let nextBase = control.nextBase {
-            base = nextBase
-        } else {
-            guard let root = heads.acceptedRoot, let update = heads.acceptedUpdate else {
-                throw ReplicaSyncError.replicaIsNotPlaced
-            }
-            base = WireUpdateBase(root: root, update: update)
-        }
-        let snapshot = try await replica.currentSnapshot()
-        let wireSnapshot = WireSnapshot(
-            root: snapshot.root,
-            objects: snapshot.objects.map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) }
-        )
-        _ = try WireObjectGraph.validate(wireSnapshot)
-        let retained = (try? await retainedObjectHashes(root: base.root)) ?? []
-        let delta = try await immediateDelta(
-            admission,
-            heads: heads,
-            base: base,
-            snapshot: wireSnapshot,
-            retained: retained
-        )
-        let sparseObjects = wireSnapshot.objects.filter {
-            !retained.contains($0.hash) && $0.hash != delta?.result
-        }
+    private func createAttempt(admission: WorkingTreePatchAdmission? = nil) async throws -> UpdateAttempt {
+        let heads = try await workingTree.heads()
+        let base = try currentBase(heads: heads)
+        // The candidate is the tree's own bytes minus what the base retains
+        // (inline state plus overlay, validated as a sparse spine). A file the
+        // platform serves is never packed: an accepted root already reaches it.
+        let candidate = try await candidateObjects(base: base.root)
+        let delta = try await immediateDelta(admission, heads: heads, base: base, candidate: candidate)
         let request = WireUpdateRequest(
             base: base,
-            candidate: snapshot.root,
-            objects: sparseObjects,
+            candidate: candidate.root,
+            objects: candidate.objects.filter { $0.hash != delta?.result },
             deltas: delta.map { [$0] } ?? []
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let treeID = (await replica.treeID()).rawValue
-        let requestDigest = updateRequestDigest(tree: treeID, base: base, candidate: snapshot.root)
-        let attempt = DurableSyncAttempt(
-            tree: treeID,
-            base: base,
-            candidate: snapshot.root,
-            generation: heads.generation,
-            body: try encoder.encode(request),
-            requestDigests: [requestDigest],
-            digest: requestDigest
-        )
+        let treeID = (await workingTree.treeID()).rawValue
+        let attempt = try Self.attempt(tree: treeID, base: base, generation: heads.generation, request: request, adoptedCount: nil)
         try faultInjector.reached(.beforeRequestPersistence)
         control.attempt = attempt
+        control.head = nil
         control.presentation = WorkspaceSyncPresentation(
             state: .requestPending,
             acceptedRoot: base.root,
-            localRoot: snapshot.root,
-            localAdditions: snapshot.root != base.root
+            localRoot: candidate.root,
+            localAdditions: candidate.root != base.root
         )
         try files.write(control)
+        files.retainObjects([])
         try faultInjector.reached(.afterRequestPersistence)
         notePersisted(attempt)
         return attempt
     }
 
     /// Record the persisted request in the machine, entering `locally-pending` first if the pass started it.
-    private func notePersisted(_ attempt: DurableSyncAttempt) {
+    private func notePersisted(_ attempt: UpdateAttempt) {
         switch machine.phase {
         case .current, .prepared, .submitting, .submittingPending, .acceptedPendingApply, .conflict:
             machine.phase = .locallyPending(head: .init(root: attempt.candidate, origin: .editor), preparing: true)
@@ -759,41 +915,37 @@ public actor ReplicaSyncCoordinator {
     }
 
     /** Persist and return a longer request while an older prefix remains in flight. */
-    private func extendAttemptToCurrent() async throws -> DurableSyncAttempt {
+    private func extendAttemptToCurrent() async throws -> UpdateAttempt {
         guard let existing = control.attempt else { return try await createAttempt() }
         var request = try JSONDecoder().decode(WireUpdateRequest.self, from: existing.body)
-        let snapshot = try await replica.currentSnapshot()
-        guard snapshot.root != existing.candidate else { return existing }
-        let retained = (try? await retainedObjectHashes(root: existing.candidate)) ?? []
-        let update = WireCandidateUpdate(
-            candidate: snapshot.root,
-            objects: snapshot.objects
-                .filter { !retained.contains($0.hash) }
-                .map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) }
-        )
-        request.updates.append(update)
-        let digests = updateRequestDigests(tree: existing.tree, base: existing.base, updates: request.updates)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let attempt = DurableSyncAttempt(
+        let candidate = try await candidateObjects(base: existing.candidate)
+        guard candidate.root != existing.candidate else {
+            // Nothing to append: an exact resend. Let the reducer leave `offline`
+            // through its own resume so the response is accepted, not ignored.
+            if case .offline = machine.phase { dispatch(.transportAvailable(true)) }
+            return existing
+        }
+        request.updates.append(WireCandidateUpdate(candidate: candidate.root, objects: candidate.objects))
+        let heads = try await workingTree.heads()
+        let attempt = try Self.attempt(
             tree: existing.tree,
             base: existing.base,
-            candidate: snapshot.root,
-            generation: (try await replica.heads()).generation,
-            body: try encoder.encode(request),
-            requestDigests: digests,
-            digest: digests.last!
+            generation: heads.generation,
+            request: request,
+            adoptedCount: existing.adoptedCount
         )
         try faultInjector.reached(.beforeRequestPersistence)
         control.attempt = attempt
+        control.head = nil
         control.presentation = WorkspaceSyncPresentation(
             state: .requestPending,
             detail: "Submitting \(request.updates.count) durable root intents",
             acceptedRoot: existing.base.root,
-            localRoot: snapshot.root,
+            localRoot: candidate.root,
             localAdditions: true
         )
         try files.write(control)
+        files.retainObjects([])
         try faultInjector.reached(.afterRequestPersistence)
         if case .offline = machine.phase {
             dispatch(.requestPersisted(Self.preparedRequest(attempt)))
@@ -809,11 +961,10 @@ public actor ReplicaSyncCoordinator {
     /// result's header (which carries the new payload length) is inserted and
     /// unchanged payload ranges are copied at their base offsets.
     private func immediateDelta(
-        _ admission: ReplicaPatchAdmission?,
-        heads: ReplicaHeads,
+        _ admission: WorkingTreePatchAdmission?,
+        heads: WorkingTreeHeads,
         base: WireUpdateBase,
-        snapshot: WireSnapshot,
-        retained: Set<String>
+        candidate: (root: String, objects: [WireObjectEnvelope])
     ) async throws -> WireObjectDelta? {
         guard let admission,
               admission.baseWasAccepted,
@@ -822,12 +973,15 @@ public actor ReplicaSyncCoordinator {
               heads.materializedRoot == admission.candidateRoot,
               heads.pendingRoot == admission.candidateRoot,
               heads.generation == admission.generation,
-              snapshot.root == admission.candidateRoot,
-              retained.contains(admission.baseFile),
-              let resultEnvelope = snapshot.objects.first(where: { $0.hash == admission.resultFile }) else {
+              candidate.root == admission.candidateRoot,
+              let resultEnvelope = candidate.objects.first(where: { $0.hash == admission.resultFile }),
+              !candidate.objects.contains(where: { $0.hash == admission.baseFile }) else {
             return nil
         }
-        let baseBytes = try await replica.storedObjectBytes(hash: admission.baseFile)
+        // The base file's bytes come through the object store (overlay, then
+        // platform). A miss is not an error: the full result object is sent.
+        let baseBytes: Data
+        do { baseBytes = try await workingTree.objectBytes(hash: admission.baseFile) } catch { return nil }
         guard case let .file(basePayload) = try WireObjectCodec.decode(baseBytes),
               let baseSource = String(data: basePayload, encoding: .utf8) else {
             return nil
@@ -867,15 +1021,15 @@ public actor ReplicaSyncCoordinator {
         return delta
     }
 
-    private func apply(_ response: WireUpdateResponse, for attempt: DurableSyncAttempt) async throws {
+    private func apply(_ response: WireUpdateResponse, for attempt: UpdateAttempt) async throws {
         guard response.results.map(\.requestDigest) == attempt.allRequestDigests,
               let final = response.results.last else {
-            throw ReplicaSyncError.returnedRequestDigestMismatch
+            throw UpdateError.returnedRequestDigestMismatch
         }
         guard control.attempt?.digest == attempt.digest else { return }
         let accepted: WireAcceptedUpdate
         let merge: WireMergeSummary?
-        let outcome: DirectSyncMachine.AuthorityResult.Kind
+        let outcome: UpdateMachine.AuthorityResult.Kind
         switch final.result {
         case let .current(update): accepted = update; merge = nil; outcome = .current
         case let .accepted(update): accepted = update; merge = nil; outcome = .accepted
@@ -886,11 +1040,11 @@ public actor ReplicaSyncCoordinator {
             result: .init(kind: outcome, root: accepted.root, update: accepted.id, cursor: accepted.id, digests: attempt.allRequestDigests)
         ))
         if final.reconciliation == nil, accepted.root != attempt.candidate {
-            throw ReplicaSyncError.returnedSnapshotMissing
+            throw UpdateError.returnedSnapshotMissing
         }
         try faultInjector.reached(.duringGraphDownload)
 
-        let heads = try await replica.heads()
+        let heads = try await workingTree.heads()
         if heads.materializedRoot != attempt.candidate {
             if heads.materializedRoot == accepted.root, heads.acceptedRoot == accepted.root {
                 // A previous process durably installed this exact returned graph
@@ -898,9 +1052,25 @@ public actor ReplicaSyncCoordinator {
                 // is idempotent and must not masquerade as newer local work.
                 control.attempt = nil
                 control.nextBase = nil
+                control.head = nil
                 setAppliedPresentation(accepted: accepted, merge: merge)
                 try files.write(control)
                 dispatch(.applied)
+                return
+            }
+            if heads.pendingRoot == nil {
+                // The working tree no longer holds this candidate and has no
+                // pending work of its own: it was re-seeded (a Mac relaunch, a
+                // re-place) while the durable attempt or head carried the work.
+                // The decision is applied; never re-submit the seed. Catch up to
+                // the authority's current state instead.
+                control.attempt = nil
+                control.nextBase = nil
+                control.head = nil
+                setAppliedPresentation(accepted: accepted, merge: merge)
+                try files.write(control)
+                dispatch(.applied)
+                _ = try await pullCurrentSnapshot(treeID: attempt.tree, priorHeads: heads)
                 return
             }
             // New local work was acknowledged after this request was frozen. If
@@ -944,50 +1114,61 @@ public actor ReplicaSyncCoordinator {
 
         if accepted.root == attempt.candidate {
             try faultInjector.reached(.beforeBaseAdvancement)
-            try await replica.recordAccepted(root: accepted.root, update: accepted.id, cursor: accepted.id)
+            try await workingTree.recordAccepted(root: accepted.root, update: accepted.id, cursor: accepted.id)
         } else {
-            guard let reconciliation = final.reconciliation else { throw ReplicaSyncError.returnedSnapshotMissing }
-            // The materialized root is the candidate here, so the local graph is the basis the transition applies to.
-            let local = try await replica.currentSnapshot()
-            let basis = WireSnapshot(root: local.root, objects: local.objects.map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) })
+            guard let reconciliation = final.reconciliation else { throw UpdateError.returnedSnapshotMissing }
+            // The materialized root is the candidate here, so the local graph is
+            // the basis the transition applies to: its sparse spine plus every
+            // delta base, fetched once each.
+            let basis = try await sparseBasis(deltaBases: Set(reconciliation.deltas.map(\.base)))
             let snapshot: WireSnapshot
             do {
-                snapshot = try WireTransitionReplay.applying(reconciliation, to: basis, root: accepted.root)
+                snapshot = try WireTransitionReplay.applying(reconciliation, to: basis, root: accepted.root, mode: .sparseFiles)
             } catch {
-                throw ReplicaSyncError.returnedSnapshotMismatch
+                throw UpdateError.returnedSnapshotMismatch
             }
             try faultInjector.reached(.duringMaterialization)
             let replacement = try SnapshotBridge.replacement(
                 snapshot: snapshot,
-                tree: await replica.treeID(),
+                tree: await workingTree.treeID(),
                 update: accepted.id,
-                cursor: accepted.id
+                cursor: accepted.id,
+                filesByHash: try await workingTree.sparseFileMetadataByHash()
             )
             if heads.pendingRoot == nil {
-                try await replica.replaceFromSystem(replacement)
+                try await workingTree.replaceFromSystem(replacement)
             } else {
-                try await replica.integrateAccepted(replacement, expectedCandidate: attempt.candidate)
+                try await workingTree.integrateAccepted(replacement, expectedCandidate: attempt.candidate)
             }
             try faultInjector.reached(.afterMaterialization)
         }
         control.attempt = nil
         control.nextBase = nil
+        // The tree returned to current: no head outlives its acceptance.
+        control.head = nil
         setAppliedPresentation(accepted: accepted, merge: merge)
         try files.write(control)
+        files.retainObjects([])
         dispatch(.applied)
     }
 
+    /// Every hash reachable from `root`, walking directory objects only. File
+    /// hashes are collected from directory entries without fetching file bytes;
+    /// directories are always materialized locally, so this never fetches.
     private func retainedObjectHashes(root: String) async throws -> Set<String> {
-        var pending = [root]
+        var pending = [(hash: root, isDirectory: true)]
         var visited = Set<String>()
-        while let hash = pending.popLast() {
-            if !visited.insert(hash).inserted { continue }
-            let bytes = try await replica.storedObjectBytes(hash: hash)
-            let object = try WireObjectCodec.decode(bytes)
-            if case let .directory(entries, _) = object {
-                for entry in entries {
-                    if let hash = entry.hash { pending.append(hash) }
-                }
+        while let next = pending.popLast() {
+            if !visited.insert(next.hash).inserted { continue }
+            guard next.isDirectory else { continue }
+            let bytes = try await workingTree.objectBytes(hash: next.hash)
+            guard case let .directory(entries, _) = try WireObjectCodec.decode(bytes) else { continue }
+            // An entry's kind is unknown until its object is seen; peek the
+            // overlay-held prefix rather than fetching a file to learn it is one.
+            for entry in entries {
+                guard let hash = entry.hash else { continue }
+                let kind = try? await workingTree.objectKind(hash: hash)
+                pending.append((hash, kind == .directory))
             }
         }
         return visited
@@ -1007,28 +1188,6 @@ public actor ReplicaSyncCoordinator {
     }
 
     private func requireOpen() throws {
-        if terminal { throw ReplicaSyncError.closed }
-    }
-}
-
-public enum ReplicaPlacementService {
-    public static func place(
-        tree: WireTreeDescriptor,
-        at replicaRoot: URL,
-        transport: any ReplicaWireTransport
-    ) async throws -> ArborReplica {
-        let current = try await transport.descriptor(tree: tree.id)
-        let snapshot = try await transport.snapshot(tree: tree.id, root: current.tree.root)
-        let update = current.tree.update
-        guard !update.isEmpty else { throw ReplicaSyncError.replicaIsNotPlaced }
-        let replica = try await ArborReplica.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
-        let replacement = try SnapshotBridge.replacement(
-            snapshot: snapshot,
-            tree: TreeID(rawValue: tree.id),
-            update: update,
-            cursor: current.observedThrough
-        )
-        try await replica.initializeFromSystem(replacement)
-        return replica
+        if terminal { throw UpdateError.closed }
     }
 }

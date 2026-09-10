@@ -289,6 +289,79 @@ public enum ArborAccountConfigurationYAML {
 
 }
 
+public enum ArborAccountConfigurationFileError: Error, LocalizedError, Sendable, Equatable {
+    case notUTF8(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .notUTF8(path): "\(path) is not UTF-8"
+        }
+    }
+}
+
+public extension ArborAccountConfigurationYAML {
+    /// The on-disk checkout of one account-configuration tree beneath a data
+    /// home: `<dataHome>/accounts/<configurationTree>/`.
+    static func checkoutURL(dataHome: URL, configurationTree: String) -> URL {
+        dataHome
+            .appending(path: "accounts", directoryHint: .isDirectory)
+            .appending(path: configurationTree, directoryHint: .isDirectory)
+    }
+
+    /// Read one file of an account-configuration checkout as strict UTF-8.
+    static func readFile(named filename: String, in checkout: URL) throws -> String {
+        let url = checkout.appending(path: filename)
+        let data = try Data(contentsOf: url)
+        guard let source = String(data: data, encoding: .utf8) else {
+            throw ArborAccountConfigurationFileError.notUTF8(url.path)
+        }
+        return source
+    }
+
+    /// Edit one file of an account-configuration checkout on disk.
+    ///
+    /// Swift twin of `editAccountConfigurationFile` in `@arbor/stores`
+    /// (`packages/stores/src/account-config-v2.ts`); the contract is shared:
+    /// - The file lives at `checkoutURL(dataHome:configurationTree:)/<filename>`
+    ///   and is read as strict UTF-8.
+    /// - `change` rewrites only what it touches (`replacingTrees` and
+    ///   `replacingDevices` replace one top-level block and leave comments,
+    ///   ordering, and unrelated formatting alone).
+    /// - `validate` runs against the new source before anything is written;
+    ///   when it throws, the file on disk is untouched.
+    /// - The new source replaces the file atomically (temporary file + rename),
+    ///   so the daemon's checkout watcher only ever observes complete files.
+    /// - Nothing here talks to the daemon. The checkout is a placed folder: Arbor
+    ///   Sync watches it and pushes the edit like any other placement, and a
+    ///   caller that needs it pushed promptly asks the daemon to synchronize
+    ///   afterwards.
+    ///
+    /// Returns the source that was written.
+    @discardableResult
+    static func editFile(
+        named filename: String,
+        in checkout: URL,
+        change: (String) throws -> String,
+        validate: ((String) throws -> Void)? = nil
+    ) throws -> String {
+        let url = checkout.appending(path: filename)
+        let previous = try readFile(named: filename, in: checkout)
+        let next = try change(previous)
+        try validate?(next)
+        let temporary = url.deletingLastPathComponent()
+            .appending(path: ".\(filename).\(UUID().uuidString).tmp")
+        do {
+            try Data(next.utf8).write(to: temporary, options: [])
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+        return next
+    }
+}
+
 public enum ArborLocalPlacementsYAML {
     public static func placements(from source: String) throws -> [String: [String: String]] {
         try YAMLDecoder().decode([String: [String: String]].self, from: source)

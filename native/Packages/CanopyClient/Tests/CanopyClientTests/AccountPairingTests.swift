@@ -35,6 +35,15 @@ private actor MemoryAccountCredentialStore: AccountCredentialStore {
 
 @Suite("Native account pairing")
 struct NativeAccountPairingTests {
+    @Test("Pairing payload is versioned and server scoped")
+    func pairingPayload() throws {
+        let payload = PairingPayload(
+            origin: URL(string: "https://arbor.example")!,
+            pairing: .init(id: "pa_test", secret: "secret")
+        )
+        #expect(try payload.validated() == payload)
+    }
+
     @Test("Account configuration access edits preserve every tree and untouched source")
     func accountAccessYAML() throws {
         let source = """
@@ -169,6 +178,44 @@ struct NativeAccountPairingTests {
         #expect(Set(try ArborAccountConfigurationYAML.devices(from: changed).keys) == Set(["dv_mac"]))
         #expect(changed.contains("# Keep this administrator note."))
         #expect(changed.contains("# Remove this whole device block."))
+    }
+
+    @Test("Account configuration files are edited on disk atomically and only after validation")
+    func accountConfigurationFileEdit() throws {
+        let dataHome = FileManager.default.temporaryDirectory
+            .appending(path: "ArborAccountFileEdit-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: dataHome) }
+        let checkout = ArborAccountConfigurationYAML.checkoutURL(dataHome: dataHome, configurationTree: "tr_config")
+        #expect(checkout.path.hasSuffix("/accounts/tr_config"))
+        try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
+        let source = "# hosted trees\ntr_first:\n  canonical: /~joe/first\n  access: []\n"
+        try source.write(to: checkout.appending(path: "trees.yaml"), atomically: true, encoding: .utf8)
+
+        let written = try ArborAccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { current in
+            try ArborAccountConfigurationYAML.replacingTrees(in: current) { trees in
+                trees["tr_second"] = ArborHostedTreeDeclaration(canonical: "/~joe/second", access: [])
+            }
+        } validate: { next in
+            _ = try ArborAccountConfigurationYAML.trees(from: next)
+        }
+        #expect(written.hasPrefix("# hosted trees\ntr_first:"))
+        #expect(try String(contentsOf: checkout.appending(path: "trees.yaml"), encoding: .utf8) == written)
+        #expect(try ArborAccountConfigurationYAML.trees(from: written).keys.sorted() == ["tr_first", "tr_second"])
+
+        struct Rejected: Error {}
+        #expect(throws: Rejected.self) {
+            try ArborAccountConfigurationYAML.editFile(named: "trees.yaml", in: checkout) { _ in "broken: [" } validate: { _ in
+                throw Rejected()
+            }
+        }
+        #expect(try String(contentsOf: checkout.appending(path: "trees.yaml"), encoding: .utf8) == written)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: checkout.path).filter { $0.hasSuffix(".tmp") }
+        #expect(leftovers.isEmpty)
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: checkout.appending(path: "devices.yaml"))
+        #expect(throws: ArborAccountConfigurationFileError.self) {
+            try ArborAccountConfigurationYAML.readFile(named: "devices.yaml", in: checkout)
+        }
     }
 
     @Test("Local placement YAML adds a tree without replacing another placement")

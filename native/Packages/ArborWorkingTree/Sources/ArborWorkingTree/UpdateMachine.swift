@@ -4,21 +4,15 @@ import Foundation
 /// against Arbor Wire (Reliability 005, machine B).
 ///
 /// The reducer is pure and language-neutral: roots, updates, cursors, and
-/// request digests are opaque tokens. `ReplicaSyncCoordinator` maps its
-/// `DurableSyncControl` onto these states, persists what each state retains,
+/// request digests are opaque tokens. `UpdateCoordinator` maps its
+/// `UpdateControl` onto these states, persists what each state retains,
 /// and executes the effects the reducer returns. It executes the same fixture
 /// scenarios as the TypeScript reducer in `@arbor/canopy-client`.
-public enum DirectSyncMachine {
+public enum UpdateMachine {
     /// Trailing delay before unsent durable local work is published.
     public static let publicationDelay: Duration = .milliseconds(250)
     /// Maximum delay from the first unsent durable head to its publication.
     public static let publicationMaxDelay: Duration = .seconds(1)
-
-    /// Who may create a local candidate from disk right now (Arbor Sync only; a replica is always `source`).
-    public enum Role: String, Sendable, Equatable {
-        case source
-        case editorMirror = "editor-mirror"
-    }
 
     public struct AcceptedBase: Sendable, Equatable {
         public var root: String
@@ -145,13 +139,11 @@ public enum DirectSyncMachine {
     public struct State: Sendable, Equatable {
         public var phase: Phase
         public var base: AcceptedBase?
-        public var role: Role
         public var transportAvailable: Bool
 
-        public init(phase: Phase = .unplaced, base: AcceptedBase? = nil, role: Role = .source, transportAvailable: Bool = true) {
+        public init(phase: Phase = .unplaced, base: AcceptedBase? = nil, transportAvailable: Bool = true) {
             self.phase = phase
             self.base = base
-            self.role = role
             self.transportAvailable = transportAvailable
         }
 
@@ -174,7 +166,6 @@ public enum DirectSyncMachine {
 
     public enum Event: Sendable, Equatable {
         case bootstrapInstalled(root: String, update: String, cursor: String?)
-        case setRole(Role)
         case localHead(root: String, origin: HeadOrigin)
         case publishDelayElapsed
         case maxDelayElapsed
@@ -210,8 +201,6 @@ public enum DirectSyncMachine {
         case apply(AuthorityResult)
         /// Clean catch-up: apply a contiguous transition batch or pull the current snapshot, then dispatch `applied`.
         case catchUp(cursor: String?)
-        /// A filesystem observation arrived while disk is an editor mirror: reconcile, create no candidate.
-        case discardMirrorHead(root: String)
         case persistConflictResolution(request: PreparedRequest, conflict: ConflictEvidence, choice: Event.Resolution)
         case surfaceConflict(ConflictEvidence)
         case stop(reason: String)
@@ -224,7 +213,6 @@ public enum DirectSyncMachine {
             case .submit: "submit"
             case .apply: "apply"
             case .catchUp: "catchUp"
-            case .discardMirrorHead: "discardMirrorHead"
             case .persistConflictResolution: "persistConflictResolution"
             case .surfaceConflict: "surfaceConflict"
             case .stop: "stop"
@@ -236,7 +224,7 @@ public enum DirectSyncMachine {
         public var publicationDelay: Duration
         public var publicationMaxDelay: Duration
 
-        public init(publicationDelay: Duration = DirectSyncMachine.publicationDelay, publicationMaxDelay: Duration = DirectSyncMachine.publicationMaxDelay) {
+        public init(publicationDelay: Duration = UpdateMachine.publicationDelay, publicationMaxDelay: Duration = UpdateMachine.publicationMaxDelay) {
             self.publicationDelay = publicationDelay
             self.publicationMaxDelay = publicationMaxDelay
         }
@@ -254,14 +242,7 @@ public enum DirectSyncMachine {
             next.phase = .current
             return (next, [])
 
-        case let .setRole(role):
-            next.role = role
-            return (next, [])
-
         case let .localHead(root, origin):
-            if origin == .filesystem, state.role == .editorMirror {
-                return (state, [.discardMirrorHead(root: root)])
-            }
             let latest = LocalHead(root: root, origin: origin)
             switch state.phase {
             case .unplaced, .terminal:
@@ -524,19 +505,18 @@ public enum DirectSyncMachine {
     }
 }
 
-extension DirectSyncMachine.State {
+extension UpdateMachine.State {
     /// A dictionary view used by the shared fixture to check retained fields by dotted path.
     public var fixtureRepresentation: [String: Any] {
         var value: [String: Any] = [
             "kind": kind,
-            "role": role.rawValue,
             "transportAvailable": transportAvailable,
         ]
         if let base { value["base"] = base.fixtureRepresentation }
-        func put(_ head: DirectSyncMachine.LocalHead?) {
+        func put(_ head: UpdateMachine.LocalHead?) {
             if let head { value["head"] = ["root": head.root, "origin": head.origin.rawValue] }
         }
-        func put(_ request: DirectSyncMachine.PreparedRequest?) {
+        func put(_ request: UpdateMachine.PreparedRequest?) {
             if let request {
                 value["request"] = ["id": request.id, "base": request.base, "candidate": request.candidate, "digests": request.digests]
             }
@@ -582,7 +562,7 @@ extension DirectSyncMachine.State {
     }
 }
 
-extension DirectSyncMachine.AcceptedBase {
+extension UpdateMachine.AcceptedBase {
     var fixtureRepresentation: [String: Any] {
         var value: [String: Any] = ["root": root, "update": update]
         if let cursor { value["cursor"] = cursor }

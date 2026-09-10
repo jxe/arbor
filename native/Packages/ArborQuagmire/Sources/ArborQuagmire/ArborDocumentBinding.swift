@@ -77,8 +77,7 @@ public final class ArborDocumentBinding {
         self.acceptedTitle = document.title
         self.editorState = EditorState()
         self.machine = DocumentAdmissionMachine.State(
-            accepted: .init(source: snapshot.source, revision: snapshot.contentRevision, admissionBasis: snapshot.admissionBasis),
-            transport: snapshot.admissionBasis == nil ? .local : .canopy
+            accepted: .init(source: snapshot.source, revision: snapshot.contentRevision)
         )
         self.snapshots[snapshot.contentRevision] = snapshot
     }
@@ -108,7 +107,7 @@ public final class ArborDocumentBinding {
         case .cancelTimer:
             debounceTask?.cancel()
             debounceTask = nil
-        case let .admit(generation, source, baseRevision, _):
+        case let .admit(generation, source, baseRevision):
             let previous = admissionTask
             admissionTask = Task { @MainActor [self] in
                 if let previous { await previous.value }
@@ -119,7 +118,7 @@ public final class ArborDocumentBinding {
         case let .apply(_, revision):
             guard let snapshot = snapshots[revision] else { return }
             applyAcceptedReplacementNow(snapshot)
-        case .mergeLocally, .surfaceConflict:
+        case .mergeLocally:
             // Native Arbor never merges a document locally: the conflict is
             // client-owned evidence until the user chooses a resolution.
             conflict = pendingConflict
@@ -234,7 +233,7 @@ public final class ArborDocumentBinding {
     public func applyAcceptedReplacement(_ snapshot: WorkspaceDocumentSnapshot) async {
         await flush()
         applyAcceptedReplacementNow(snapshot)
-        machine.accepted = .init(source: snapshot.source, revision: snapshot.contentRevision, admissionBasis: snapshot.admissionBasis)
+        machine.accepted = .init(source: snapshot.source, revision: snapshot.contentRevision)
         machine.phase = .clean
     }
 
@@ -294,16 +293,9 @@ public final class ArborDocumentBinding {
     }
 
     private func receiveAuthoritativeUpdate(_ snapshot: WorkspaceDocumentSnapshot) async {
-        let incorporatesWaitingDigest: Bool
-        if case let .admittedAwaitingAuthority(digest) = machine.phase {
-            incorporatesWaitingDigest = snapshot.acceptedRequestDigests.contains(digest)
-        } else {
-            incorporatesWaitingDigest = false
-        }
         if snapshot.contentRevision == accepted.contentRevision {
-            // Same revision: at most this clears the editor's digest fence.
+            // Same revision: nothing to reconcile.
             snapshots[snapshot.contentRevision] = snapshot
-            dispatch(.observed(observation: Self.observation(snapshot), anchor: nil))
             return
         }
         // Quagmire can contain a keystroke or newly inserted block before its
@@ -312,26 +304,15 @@ public final class ArborDocumentBinding {
         let currentAdmission = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0
         guard currentAdmission.source == machine.accepted.source else { return }
         let anchor = machine.anchor
-        let current: WorkspaceDocumentSnapshot
-        if incorporatesWaitingDigest {
-            current = snapshot
-        } else {
-            // Read through the provider so read-your-writes holds; suspending
-            // here is safe because the anchor discards a stale result.
-            guard let refreshed = try? await session.snapshot() else { return }
-            current = refreshed
-        }
+        // Read through the provider so read-your-writes holds; suspending
+        // here is safe because the anchor discards a stale result.
+        guard let current = try? await session.snapshot() else { return }
         snapshots[current.contentRevision] = current
         dispatch(.observed(observation: Self.observation(current), anchor: anchor))
     }
 
     private static func observation(_ snapshot: WorkspaceDocumentSnapshot) -> DocumentAdmissionMachine.Observation {
-        .init(
-            source: snapshot.source,
-            revision: snapshot.contentRevision,
-            admissionBasis: snapshot.admissionBasis,
-            acceptedRequestDigests: snapshot.acceptedRequestDigests
-        )
+        .init(source: snapshot.source, revision: snapshot.contentRevision)
     }
 
     // MARK: Admission transport
@@ -341,17 +322,17 @@ public final class ArborDocumentBinding {
         guard !patch.edits.isEmpty else {
             // Quagmire may report a follow-up commit after the authored source
             // is already current. It is saved by definition.
-            dispatch(.admitted(generation: generation, result: Self.result(accepted, requestDigest: nil)))
+            dispatch(.admitted(generation: generation, result: Self.result(accepted)))
             return
         }
         do {
             let confirmed = try await session.admit(patch: patch)
             snapshots[confirmed.contentRevision] = confirmed
-            dispatch(.admitted(generation: generation, result: Self.result(confirmed, requestDigest: confirmed.admissionRequestDigest)))
+            dispatch(.admitted(generation: generation, result: Self.result(confirmed)))
         } catch let value as WorkspaceDocumentConflict {
             if value.current.source == source {
                 snapshots[value.current.contentRevision] = value.current
-                dispatch(.admitted(generation: generation, result: Self.result(value.current, requestDigest: value.current.admissionRequestDigest)))
+                dispatch(.admitted(generation: generation, result: Self.result(value.current)))
             } else {
                 var enriched = value
                 if enriched.base == nil { enriched.base = accepted }
@@ -371,7 +352,7 @@ public final class ArborDocumentBinding {
                 if current.source == source {
                     // A durable provider write can win the race with its local
                     // acknowledgement. Exact bytes are an idempotent success.
-                    dispatch(.admitted(generation: generation, result: Self.result(current, requestDigest: current.admissionRequestDigest)))
+                    dispatch(.admitted(generation: generation, result: Self.result(current)))
                 } else {
                     pendingConflict = WorkspaceDocumentConflict(base: accepted, current: current, submittedSource: source)
                     dispatch(.admissionConflicted(generation: generation, current: Self.observation(current)))
@@ -386,13 +367,8 @@ public final class ArborDocumentBinding {
         }
     }
 
-    private static func result(_ snapshot: WorkspaceDocumentSnapshot, requestDigest: String?) -> DocumentAdmissionMachine.Result {
-        .init(
-            source: snapshot.source,
-            revision: snapshot.contentRevision,
-            admissionBasis: snapshot.admissionBasis,
-            requestDigest: requestDigest
-        )
+    private static func result(_ snapshot: WorkspaceDocumentSnapshot) -> DocumentAdmissionMachine.Result {
+        .init(source: snapshot.source, revision: snapshot.contentRevision)
     }
 
     private func acknowledge(_ result: DocumentAdmissionMachine.Result) {

@@ -1,17 +1,45 @@
 import ArborKit
-import ArborReplica
 import ArborWire
 import Foundation
+import UniformTypeIdentifiers
 
-enum SnapshotBridge {
-    static func replacement(
+/// What a bootstrap knows about a file whose bytes a sparse snapshot omits.
+public struct SparseFileMetadata: Sendable, Equatable, Codable {
+    public var size: Int
+    public var mediaType: String?
+
+    public init(size: Int, mediaType: String? = nil) {
+        self.size = size
+        self.mediaType = mediaType
+    }
+}
+
+public enum SnapshotBridge {
+    /// Translate a wire snapshot into a system replacement for a working tree.
+    ///
+    /// With neither `files` nor `filesByHash` the snapshot must be complete.
+    /// With either given the snapshot is a sparse spine: directory and Markdown
+    /// objects present, file objects optionally absent. An absent file becomes
+    /// a hash reference sized from `files[path]` or `filesByHash[hash]`; every
+    /// payload-less entry must appear in one of them, so a spine that silently
+    /// dropped a directory object fails loudly instead of collapsing that
+    /// subtree into one lazy file. Markdown must be present.
+    ///
+    /// `files` is what a bootstrap knows (by path); `filesByHash` is what a
+    /// working tree already knows about the files it references, which lets a
+    /// transition replayed onto its sparse local graph be bridged back without
+    /// fetching the files the transition did not touch.
+    public static func replacement(
         snapshot: WireSnapshot,
         tree: TreeID,
         update: String,
-        cursor: String? = nil
-    ) throws -> ReplicaSystemReplacement {
-        let objects = try WireObjectGraph.validate(snapshot)
-        var nodes: [ReplicaSystemNode] = []
+        cursor: String? = nil,
+        files: [String: SparseFileMetadata]? = nil,
+        filesByHash: [String: SparseFileMetadata]? = nil
+    ) throws -> WorkingTreeSystemReplacement {
+        let sparse = files != nil || filesByHash != nil
+        let objects = try WireObjectGraph.validate(snapshot, mode: sparse ? .sparseFiles : .complete)
+        var nodes: [WorkingTreeSystemNode] = []
         var logicalPaths = Set<String>()
 
         func childPath(_ name: String, parent: String) -> String {
@@ -33,7 +61,7 @@ enum SnapshotBridge {
             return decoded
         }
 
-        func appendNode(_ node: ReplicaSystemNode) throws {
+        func appendNode(_ node: WorkingTreeSystemNode) throws {
             guard logicalPaths.insert(node.path).inserted else {
                 throw ArborWireValidationError.invalidValue("Duplicate logical path \(node.path)")
             }
@@ -66,11 +94,11 @@ enum SnapshotBridge {
                 indexSource = try markdownSource(indexHash)
             }
             let source = indexSource ?? siblingMarkdownSource
-            try appendNode(ReplicaSystemNode(
+            try appendNode(WorkingTreeSystemNode(
                 path: path,
                 content: .directory(source: source),
                 childrenSource: childrenSource.map {
-                    ReplicaCollectionFileDescriptor(
+                    WorkingTreeCollectionFileDescriptor(
                         version: $0.version,
                         type: $0.type,
                         format: $0.format,
@@ -87,11 +115,29 @@ enum SnapshotBridge {
             for entry in entries where entry.name != "_index.md" {
                 let destination = childPath(entry.name, parent: path)
                 if let nestedTree = entry.tree {
-                    try appendNode(ReplicaSystemNode(path: destination, content: .boundary(tree: TreeID(rawValue: nestedTree))))
+                    try appendNode(WorkingTreeSystemNode(path: destination, content: .boundary(tree: TreeID(rawValue: nestedTree))))
                     continue
                 }
-                guard let childHash = entry.hash, let object = objects[childHash] else {
-                    throw ArborWireValidationError.incompleteGraph(entry.hash ?? entry.name)
+                guard let childHash = entry.hash else {
+                    throw ArborWireValidationError.incompleteGraph(entry.name)
+                }
+                guard let object = objects[childHash] else {
+                    guard sparse else { throw ArborWireValidationError.incompleteGraph(childHash) }
+                    guard !entry.name.hasSuffix(".md") else {
+                        throw ArborWireValidationError.incompleteGraph("Markdown \(destination) is not in the sparse snapshot")
+                    }
+                    guard let metadata = files?[destination] ?? filesByHash?[childHash] else {
+                        throw ArborWireValidationError.incompleteGraph("Sparse entry \(destination) is not in the files map")
+                    }
+                    try appendNode(WorkingTreeSystemNode(
+                        path: destination,
+                        content: .file(ref: .hash(
+                            childHash,
+                            size: metadata.size,
+                            mediaType: metadata.mediaType ?? inferredMediaType(for: entry.name)
+                        ))
+                    ))
+                    continue
                 }
                 switch object {
                 case .directory:
@@ -112,24 +158,24 @@ enum SnapshotBridge {
                         guard let decoded = String(data: bytes, encoding: .utf8) else {
                             throw ArborWireValidationError.invalidValue("Markdown is not UTF-8")
                         }
-                        try appendNode(ReplicaSystemNode(
+                        try appendNode(WorkingTreeSystemNode(
                             path: childPath(logicalName, parent: path),
                             content: .markdown(source: decoded)
                         ))
                     } else {
-                        try appendNode(ReplicaSystemNode(path: destination, content: .file(bytes: bytes)))
+                        try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(bytes))))
                     }
                 }
             }
         }
 
         try visitDirectory(snapshot.root, path: "/")
-        return ReplicaSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes)
+        return WorkingTreeSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes)
     }
-}
 
-extension WireSnapshot {
-    var replicaSnapshot: ReplicaSnapshot {
-        ReplicaSnapshot(root: root, objects: objects.map { ReplicaStoredObject(hash: $0.hash, bytes: $0.bytes) })
+    public static func inferredMediaType(for name: String) -> String? {
+        let ext = (name as NSString).pathExtension
+        guard !ext.isEmpty else { return nil }
+        return UTType(filenameExtension: ext)?.preferredMIMEType
     }
 }

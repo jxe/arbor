@@ -1,16 +1,16 @@
 import CryptoKit
 import Foundation
 
-enum ReplicaWireValue {
+enum WorkingTreeWireValue {
     case unsigned(Int)
     case bytes(Data)
     case text(String)
-    case array([ReplicaWireValue])
-    case map([(String, ReplicaWireValue)])
+    case array([WorkingTreeWireValue])
+    case map([(String, WorkingTreeWireValue)])
 }
 
-enum ReplicaWireCodec {
-    static func encode(_ value: ReplicaWireValue) -> Data {
+enum WorkingTreeWireCodec {
+    static func encode(_ value: WorkingTreeWireValue) -> Data {
         switch value {
         case let .unsigned(value): return head(major: 0, count: value)
         case let .bytes(bytes): return head(major: 2, count: bytes.count) + bytes
@@ -32,9 +32,9 @@ enum ReplicaWireCodec {
 
     static func directory(
         _ entries: [(name: String, hash: String?, tree: String?)],
-        childrenSource: ReplicaCollectionFileDescriptor? = nil
+        childrenSource: WorkingTreeCollectionFileDescriptor? = nil
     ) -> Data {
-        var fields: [(String, ReplicaWireValue)] = [
+        var fields: [(String, WorkingTreeWireValue)] = [
             ("type", .text("directory")),
             ("entries", .array(entries.map { entry in
                 .map([
@@ -48,7 +48,7 @@ enum ReplicaWireCodec {
         return encode(.map(fields))
     }
 
-    private static func collectionFile(_ value: ReplicaCollectionFileDescriptor) -> ReplicaWireValue {
+    private static func collectionFile(_ value: WorkingTreeCollectionFileDescriptor) -> WorkingTreeWireValue {
         .map([
             ("version", .unsigned(value.version)),
             ("type", .text(value.type)),
@@ -60,19 +60,19 @@ enum ReplicaWireCodec {
         ])
     }
 
-    static func hash(_ bytes: Data) -> String { ReplicaSemantics.sha256(bytes) }
+    static func hash(_ bytes: Data) -> String { WorkingTreeSemantics.sha256(bytes) }
 
-    static func snapshot(for state: ReplicaState) throws -> ReplicaSnapshot {
+    static func snapshot(for state: WorkingTreeState) throws -> WorkingTreeSnapshot {
         let active = state.nodes.filter { $0.path != "/Trash" && !$0.path.hasPrefix("/Trash/") }
         guard active.contains(where: { $0.path == "/" && $0.kind == .directory }) else {
-            throw ReplicaError.corruptState("Replica root directory is missing")
+            throw WorkingTreeError.corruptState("Replica root directory is missing")
         }
         let paths = active.map(\.path)
         guard Set(paths).count == paths.count else {
-            throw ReplicaError.corruptState("Duplicate logical path")
+            throw WorkingTreeError.corruptState("Duplicate logical path")
         }
         let byPath = Dictionary(uniqueKeysWithValues: active.map { ($0.path, $0) })
-        var objects: [String: Data] = [:]
+        var objects: [String: Data?] = [:]
 
         func store(_ bytes: Data) -> String {
             let hash = hash(bytes)
@@ -80,28 +80,38 @@ enum ReplicaWireCodec {
             return hash
         }
 
+        func reference(_ ref: ContentRef?) -> String {
+            switch ref {
+            case let .inline(bytes)?: return store(file(bytes))
+            case let .hash(hash, _, _)?:
+                if objects[hash] == nil { objects[hash] = .some(nil) }
+                return hash
+            case nil: return store(file(Data()))
+            }
+        }
+
         func buildDirectory(at path: String) throws -> String {
             guard let node = byPath[path], node.kind == .directory else {
-                throw ReplicaError.corruptState("Missing directory at \(path)")
+                throw WorkingTreeError.corruptState("Missing directory at \(path)")
             }
             if path == "/", node.directoryBodyPlacement != nil || node.shadowedSiblingMarkdownSource != nil {
-                throw ReplicaError.corruptState("Replica root body must use _index.md")
+                throw WorkingTreeError.corruptState("Replica root body must use _index.md")
             }
             if node.directoryBodyPlacement == .siblingMarkdown {
                 guard node.source != nil, node.shadowedSiblingMarkdownSource == nil else {
-                    throw ReplicaError.corruptState("Malformed sibling Markdown directory body")
+                    throw WorkingTreeError.corruptState("Malformed sibling Markdown directory body")
                 }
             } else if node.shadowedSiblingMarkdownSource != nil, node.source == nil {
-                throw ReplicaError.corruptState("Shadowed sibling Markdown has no _index.md body")
+                throw WorkingTreeError.corruptState("Shadowed sibling Markdown has no _index.md body")
             }
             var entries: [(name: String, hash: String?, tree: String?)] = []
             if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
                 entries.append(("_index.md", store(file(Data(source.utf8))), nil))
             }
-            let children = active.filter { ReplicaSemantics.parent(of: $0.path) == path }
-                .sorted { ReplicaSemantics.compareUTF8(ReplicaSemantics.name(of: $0.path), ReplicaSemantics.name(of: $1.path)) }
+            let children = active.filter { WorkingTreeSemantics.parent(of: $0.path) == path }
+                .sorted { WorkingTreeSemantics.compareUTF8(WorkingTreeSemantics.name(of: $0.path), WorkingTreeSemantics.name(of: $1.path)) }
             for child in children {
-                let name = ReplicaSemantics.name(of: child.path)
+                let name = WorkingTreeSemantics.name(of: child.path)
                 switch child.kind {
                 case .directory:
                     entries.append((name, try buildDirectory(at: child.path), nil))
@@ -113,22 +123,22 @@ enum ReplicaWireCodec {
                 case .markdown:
                     entries.append((name + ".md", store(file(Data((child.source ?? "").utf8))), nil))
                 case .file:
-                    entries.append((name, store(file(child.bytes ?? Data())), nil))
+                    entries.append((name, reference(child.ref), nil))
                 case .boundary:
                     guard let tree = child.boundaryTree, !tree.isEmpty else {
-                        throw ReplicaError.corruptState("Nested tree boundary is empty")
+                        throw WorkingTreeError.corruptState("Nested tree boundary is empty")
                     }
                     entries.append((name, nil, tree))
                 }
             }
-            entries.sort { ReplicaSemantics.compareUTF8($0.name, $1.name) }
+            entries.sort { WorkingTreeSemantics.compareUTF8($0.name, $1.name) }
             return store(Self.directory(entries, childrenSource: node.childrenSource))
         }
 
         let root = try buildDirectory(at: "/")
-        return ReplicaSnapshot(
+        return WorkingTreeSnapshot(
             root: root,
-            objects: objects.map { ReplicaStoredObject(hash: $0.key, bytes: $0.value) }.sorted { $0.hash < $1.hash }
+            objects: objects.map { WorkingTreeStoredObject(hash: $0.key, bytes: $0.value) }.sorted { $0.hash < $1.hash }
         )
     }
 

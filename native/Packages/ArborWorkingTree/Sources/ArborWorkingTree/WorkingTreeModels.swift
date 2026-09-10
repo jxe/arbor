@@ -1,7 +1,7 @@
 import ArborKit
 import Foundation
 
-public enum ReplicaError: Error, Equatable, Sendable {
+public enum WorkingTreeError: Error, Equatable, Sendable {
     case invalidName(String)
     case invalidPath(String)
     case notFound(WorkspaceReference)
@@ -13,27 +13,27 @@ public enum ReplicaError: Error, Equatable, Sendable {
     case pageIDChanged(expected: String, actual: String?)
     case pendingLocalChanges
     case corruptState(String)
-    case simulatedCrash(ReplicaFailurePoint)
+    case simulatedCrash(WorkingTreeFailurePoint)
     case closed
 }
 
-public enum ReplicaFailurePoint: String, Codable, CaseIterable, Sendable {
+public enum WorkingTreeFailurePoint: String, Codable, CaseIterable, Sendable {
     case afterJournal
     case afterObjects
     case afterMaterialization
     case afterControl
 }
 
-public protocol ReplicaFaultInjector: Sendable {
-    func reached(_ point: ReplicaFailurePoint) throws
+public protocol WorkingTreeFaultInjector: Sendable {
+    func reached(_ point: WorkingTreeFailurePoint) throws
 }
 
-public struct NoReplicaFaults: ReplicaFaultInjector {
+public struct NoReplicaFaults: WorkingTreeFaultInjector {
     public init() {}
-    public func reached(_: ReplicaFailurePoint) throws {}
+    public func reached(_: WorkingTreeFailurePoint) throws {}
 }
 
-public struct ReplicaHeads: Codable, Equatable, Sendable {
+public struct WorkingTreeHeads: Codable, Equatable, Sendable {
     public var materializedRoot: String
     public var pendingRoot: String?
     public var acceptedRoot: String?
@@ -42,17 +42,83 @@ public struct ReplicaHeads: Codable, Equatable, Sendable {
     public var generation: Int
 }
 
-public struct ReplicaStoredObject: Codable, Equatable, Sendable {
-    public var hash: String
-    public var bytes: Data
+/// Where a file node's bytes are: carried in the record until the tree's next
+/// transaction stores them in its overlay, or named by hash and served by the
+/// object store on demand. Markdown and directory content never use this; their
+/// source stays inline on the node.
+public enum ContentRef: Codable, Equatable, Sendable {
+    case inline(Data)
+    case hash(String, size: Int, mediaType: String?)
 
-    public init(hash: String, bytes: Data) {
+    private enum CodingKeys: String, CodingKey { case inline, hash, size, mediaType }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let inline = try container.decodeIfPresent(Data.self, forKey: .inline) {
+            self = .inline(inline)
+        } else {
+            self = .hash(
+                try container.decode(String.self, forKey: .hash),
+                size: try container.decode(Int.self, forKey: .size),
+                mediaType: try container.decodeIfPresent(String.self, forKey: .mediaType)
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .inline(bytes):
+            try container.encode(bytes, forKey: .inline)
+        case let .hash(hash, size, mediaType):
+            try container.encode(hash, forKey: .hash)
+            try container.encode(size, forKey: .size)
+            try container.encodeIfPresent(mediaType, forKey: .mediaType)
+        }
+    }
+
+    /// The wire object hash: computed for inline bytes, carried for a hash ref.
+    public var objectHash: String {
+        switch self {
+        case let .inline(bytes): WorkingTreeWireCodec.hash(WorkingTreeWireCodec.file(bytes))
+        case let .hash(hash, _, _): hash
+        }
+    }
+
+    /// The payload length in bytes.
+    public var size: Int {
+        switch self {
+        case let .inline(bytes): bytes.count
+        case let .hash(_, size, _): size
+        }
+    }
+
+    public var mediaType: String? {
+        switch self {
+        case .inline: nil
+        case let .hash(_, _, mediaType): mediaType
+        }
+    }
+
+    public var isInline: Bool {
+        if case .inline = self { return true }
+        return false
+    }
+}
+
+/// One object of a working-tree snapshot. `bytes` is `nil` for a file the tree
+/// only holds by reference; such an object's bytes come from the object store.
+public struct WorkingTreeStoredObject: Codable, Equatable, Sendable {
+    public var hash: String
+    public var bytes: Data?
+
+    public init(hash: String, bytes: Data?) {
         self.hash = hash
         self.bytes = bytes
     }
 }
 
-public struct ReplicaCollectionFileDescriptor: Codable, Equatable, Sendable {
+public struct WorkingTreeCollectionFileDescriptor: Codable, Equatable, Sendable {
     public var version: Int
     public var type: String
     public var format: String
@@ -80,18 +146,33 @@ public struct ReplicaCollectionFileDescriptor: Codable, Equatable, Sendable {
     }
 }
 
-public struct ReplicaSnapshot: Codable, Equatable, Sendable {
+/// The wire graph of a working-tree state. Directory and Markdown objects are
+/// always carried with bytes; file objects held by reference appear as hashes.
+public struct WorkingTreeSnapshot: Codable, Equatable, Sendable {
     public var root: String
-    public var objects: [ReplicaStoredObject]
+    public var objects: [WorkingTreeStoredObject]
 
-    public init(root: String, objects: [ReplicaStoredObject]) {
+    public init(root: String, objects: [WorkingTreeStoredObject]) {
         self.root = root
         self.objects = objects
+    }
+
+    /// Objects carried with bytes.
+    public var inlineObjects: [WorkingTreeStoredObject] { objects.filter { $0.bytes != nil } }
+
+    /// Every hash in the graph, with or without bytes.
+    public var hashes: Set<String> { Set(objects.map(\.hash)) }
+
+    /// Hashes the snapshot carries without bytes.
+    public var sparseHashes: Set<String> { Set(objects.filter { $0.bytes == nil }.map(\.hash)) }
+
+    var inlineObjectsByHash: [String: Data] {
+        Dictionary(uniqueKeysWithValues: objects.compactMap { object in object.bytes.map { (object.hash, $0) } })
     }
 }
 
 /** One locally durable editor admission that may seed a single immediate sync attempt. */
-public struct ReplicaPatchAdmission: Sendable, Equatable {
+public struct WorkingTreePatchAdmission: Sendable, Equatable {
     public var reference: WorkspaceReference
     public var baseRoot: String
     public var candidateRoot: String
@@ -122,7 +203,7 @@ public struct ReplicaPatchAdmission: Sendable, Equatable {
     }
 }
 
-public struct ReplicaDiagnostic: Codable, Equatable, Sendable, Identifiable {
+public struct WorkingTreeDiagnostic: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var title: String
     public var detail: String
@@ -134,31 +215,31 @@ public struct ReplicaDiagnostic: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-public enum ReplicaSystemNodeContent: Sendable, Equatable {
+public enum WorkingTreeSystemNodeContent: Sendable, Equatable {
     case directory(source: String? = nil)
     case markdown(source: String)
-    case file(bytes: Data, mediaType: String? = nil)
+    case file(ref: ContentRef, mediaType: String? = nil)
     case boundary(tree: TreeID)
 }
 
-public enum ReplicaDirectoryBodyPlacement: String, Codable, Sendable {
+public enum WorkingTreeDirectoryBodyPlacement: String, Codable, Sendable {
     case siblingMarkdown
 }
 
-public struct ReplicaSystemNode: Sendable, Equatable {
+public struct WorkingTreeSystemNode: Sendable, Equatable {
     public var path: String
     public var pageID: String?
-    public var content: ReplicaSystemNodeContent
-    public var childrenSource: ReplicaCollectionFileDescriptor?
-    public var directoryBodyPlacement: ReplicaDirectoryBodyPlacement?
+    public var content: WorkingTreeSystemNodeContent
+    public var childrenSource: WorkingTreeCollectionFileDescriptor?
+    public var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
     public var shadowedSiblingMarkdownSource: String?
 
     public init(
         path: String,
         pageID: String? = nil,
-        content: ReplicaSystemNodeContent,
-        childrenSource: ReplicaCollectionFileDescriptor? = nil,
-        directoryBodyPlacement: ReplicaDirectoryBodyPlacement? = nil,
+        content: WorkingTreeSystemNodeContent,
+        childrenSource: WorkingTreeCollectionFileDescriptor? = nil,
+        directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil
     ) {
         self.path = path
@@ -170,13 +251,13 @@ public struct ReplicaSystemNode: Sendable, Equatable {
     }
 }
 
-public struct ReplicaSystemReplacement: Sendable, Equatable {
+public struct WorkingTreeSystemReplacement: Sendable, Equatable {
     public var root: String
     public var update: String
     public var cursor: String?
-    public var nodes: [ReplicaSystemNode]
+    public var nodes: [WorkingTreeSystemNode]
 
-    public init(root: String, update: String, cursor: String? = nil, nodes: [ReplicaSystemNode]) {
+    public init(root: String, update: String, cursor: String? = nil, nodes: [WorkingTreeSystemNode]) {
         self.root = root
         self.update = update
         self.cursor = cursor
@@ -184,26 +265,27 @@ public struct ReplicaSystemReplacement: Sendable, Equatable {
     }
 }
 
-enum ReplicaNodeKind: String, Codable, Sendable {
+enum WorkingTreeNodeKind: String, Codable, Sendable {
     case directory
     case markdown
     case file
     case boundary
 }
 
-struct ReplicaNodeRecord: Codable, Equatable, Sendable {
+struct WorkingTreeNode: Codable, Equatable, Sendable {
     var path: String
     var pageID: String?
-    var kind: ReplicaNodeKind
+    var kind: WorkingTreeNodeKind
     var source: String?
-    var bytes: Data?
+    /// Present exactly for `.file` nodes.
+    var ref: ContentRef?
     var mediaType: String?
     var trashedFrom: String?
     var boundaryTree: String?
-    var childrenSource: ReplicaCollectionFileDescriptor?
+    var childrenSource: WorkingTreeCollectionFileDescriptor?
     // `nil` preserves the original encoding: a directory source is `_index.md`.
     // Contentless legacy directory records also decode unchanged.
-    var directoryBodyPlacement: ReplicaDirectoryBodyPlacement?
+    var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
     // Not logical content; retained only so a shadowed sibling round-trips exactly.
     var shadowedSiblingMarkdownSource: String?
     /// Local observation time for recency sorting. This is replica metadata,
@@ -213,14 +295,14 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
     init(
         path: String,
         pageID: String? = nil,
-        kind: ReplicaNodeKind,
+        kind: WorkingTreeNodeKind,
         source: String? = nil,
-        bytes: Data? = nil,
+        ref: ContentRef? = nil,
         mediaType: String? = nil,
         trashedFrom: String? = nil,
         boundaryTree: String? = nil,
-        childrenSource: ReplicaCollectionFileDescriptor? = nil,
-        directoryBodyPlacement: ReplicaDirectoryBodyPlacement? = nil,
+        childrenSource: WorkingTreeCollectionFileDescriptor? = nil,
+        directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
         modifiedAt: Date? = nil
     ) {
@@ -228,7 +310,7 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         self.pageID = pageID
         self.kind = kind
         self.source = source
-        self.bytes = bytes
+        self.ref = ref
         self.mediaType = mediaType
         self.trashedFrom = trashedFrom
         self.boundaryTree = boundaryTree
@@ -239,13 +321,14 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
     }
 }
 
-struct ReplicaState: Codable, Equatable, Sendable {
-    var schema = 1
+struct WorkingTreeState: Codable, Equatable, Sendable {
+    static let currentSchema = 2
+    var schema = WorkingTreeState.currentSchema
     var tree: String
-    var nodes: [ReplicaNodeRecord]
+    var nodes: [WorkingTreeNode]
 }
 
-struct ReplicaControl: Codable, Equatable, Sendable {
+struct WorkingTreeControl: Codable, Equatable, Sendable {
     var schema = 1
     var tree: String
     var materializedRoot: String
@@ -273,8 +356,8 @@ struct ReplicaControl: Codable, Equatable, Sendable {
         self.generation = generation
     }
 
-    var heads: ReplicaHeads {
-        ReplicaHeads(
+    var heads: WorkingTreeHeads {
+        WorkingTreeHeads(
             materializedRoot: materializedRoot,
             pendingRoot: pendingRoot,
             acceptedRoot: acceptedRoot,
@@ -285,13 +368,13 @@ struct ReplicaControl: Codable, Equatable, Sendable {
     }
 }
 
-struct ReplicaMutationIntent: Codable, Equatable, Sendable {
+struct WorkingTreeMutationIntent: Codable, Equatable, Sendable {
     var id: String
     var pageKey: String
     var generation: Int
     var mutation: String
     var changedAt: Date
-    var state: ReplicaState
+    var state: WorkingTreeState
     var acceptedRoot: String?
     var acceptedUpdate: String?
     var acceptedCursor: String?
@@ -300,7 +383,7 @@ struct ReplicaMutationIntent: Codable, Equatable, Sendable {
     var retainsPendingAgainstAcceptedBase: Bool? = nil
 }
 
-struct ReplicaSearchIndex: Codable, Equatable, Sendable {
+struct WorkingTreeSearchIndex: Codable, Equatable, Sendable {
     struct Entry: Codable, Equatable, Sendable {
         var path: String
         var pageID: String?

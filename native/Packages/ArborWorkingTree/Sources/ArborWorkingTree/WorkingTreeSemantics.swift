@@ -2,14 +2,14 @@ import ArborKit
 import CryptoKit
 import Foundation
 
-enum ReplicaSemantics {
+enum WorkingTreeSemantics {
     static func normalizePath(_ value: String) throws -> String {
         guard value.hasPrefix("/"), !value.contains("\0"), !value.contains("\\") else {
-            throw ReplicaError.invalidPath(value)
+            throw WorkingTreeError.invalidPath(value)
         }
         var parts: [Substring] = []
         for part in value.split(separator: "/", omittingEmptySubsequences: true) {
-            guard part != ".", part != ".." else { throw ReplicaError.invalidPath(value) }
+            guard part != ".", part != ".." else { throw WorkingTreeError.invalidPath(value) }
             parts.append(part)
         }
         return parts.isEmpty ? "/" : "/" + parts.joined(separator: "/")
@@ -18,7 +18,7 @@ enum ReplicaSemantics {
     static func validateName(_ value: String) throws {
         guard !value.isEmpty, value != ".", value != "..", value != ".arbor", value != "_index.md",
               !value.contains("/"), !value.contains("\\"), !value.contains("\0") else {
-            throw ReplicaError.invalidName(value)
+            throw WorkingTreeError.invalidName(value)
         }
     }
 
@@ -94,19 +94,19 @@ enum ReplicaSemantics {
         )
     }
 
-    static func title(for node: ReplicaNodeRecord) -> String {
+    static func title(for node: WorkingTreeNode) -> String {
         WorkspaceDisplayTitle.derived(
             from: node.source,
             fallback: node.path == "/" ? "Home" : name(of: node.path)
         )
     }
 
-    static func documentRevision(node: ReplicaNodeRecord, state: ReplicaState) -> String {
+    static func documentRevision(node: WorkingTreeNode, state: WorkingTreeState) -> String {
         switch node.kind {
         case .markdown:
             return sha256(Data((node.source ?? "").utf8))
         case .file:
-            return sha256(node.bytes ?? Data())
+            return node.ref?.objectHash ?? sha256(Data())
         case .boundary:
             return sha256(Data((node.boundaryTree ?? "").utf8))
         case .directory:
@@ -125,7 +125,7 @@ enum ReplicaSemantics {
     /// The directory a node's relative links resolve against. A directory carries its own
     /// `_index.md` body, so its links are written relative to itself; every other node's are
     /// written relative to its parent, matching the editor's `relativeReferenceBase`.
-    static func linkBase(for node: ReplicaNodeRecord) -> String {
+    static func linkBase(for node: WorkingTreeNode) -> String {
         node.kind == .directory ? node.path : (parent(of: node.path) ?? "/")
     }
 
@@ -139,7 +139,7 @@ enum ReplicaSemantics {
         }
     }
 
-    static func isStoreFile(_ node: ReplicaNodeRecord) -> Bool {
+    static func isStoreFile(_ node: WorkingTreeNode) -> Bool {
         node.kind == .file && ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].contains(name(of: node.path))
     }
 

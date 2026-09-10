@@ -12,7 +12,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../ArborKit"),
-        .package(path: "../ArborReplica"),
+        .package(path: "../ArborWorkingTree"),
+        .package(path: "../ArborObjectStore"),
         .package(path: "../ArborWire")
     ],
     targets: [
@@ -20,6 +21,7 @@ let package = Package(
             name: "ArborSyncClient",
             dependencies: [
                 .product(name: "ArborKit", package: "ArborKit"),
+                .product(name: "ArborObjectStore", package: "ArborObjectStore"),
                 .product(name: "ArborWire", package: "ArborWire")
             ]
         ),
@@ -28,7 +30,9 @@ let package = Package(
             dependencies: [
                 "ArborSyncClient",
                 .product(name: "ArborKit", package: "ArborKit"),
-                .product(name: "ArborReplica", package: "ArborReplica")
+                .product(name: "ArborObjectStore", package: "ArborObjectStore"),
+                .product(name: "ArborWire", package: "ArborWire"),
+                .product(name: "ArborWorkingTree", package: "ArborWorkingTree")
             ]
         )
     ],

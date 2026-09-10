@@ -21,9 +21,7 @@ public struct ArborDocumentConflictAnalysis: Sendable, Equatable {
             headline = message
             explanation = "Arbor kept the current version and your edit for review."
         } else {
-            headline = conflict.current.admissionBasis == nil
-                ? "This document changed outside the current edit session."
-                : "The document has two versions that need review."
+            headline = "This document changed outside the current edit session."
             explanation = "Arbor kept the current version and your edit for review."
         }
 

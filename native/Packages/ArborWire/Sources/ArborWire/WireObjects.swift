@@ -116,6 +116,27 @@ public enum WireObjectCodec {
         "sha256:" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
 
+    public enum Kind: Sendable, Equatable {
+        case file
+        case directory
+    }
+
+    /// The object kind read from the leading bytes of a canonical object without
+    /// decoding its payload. Canonical CBOR orders map keys by encoded length,
+    /// so `type` is always the first field of a wire object. Returns `nil` when
+    /// the prefix is not the head of a canonical wire object.
+    public static func kind(ofPrefix prefix: Data) -> Kind? {
+        let file = Data([0xa2, 0x64]) + Data("type".utf8) + Data([0x64]) + Data("file".utf8)
+        let directory2 = Data([0xa2, 0x64]) + Data("type".utf8) + Data([0x69]) + Data("directory".utf8)
+        let directory3 = Data([0xa3, 0x64]) + Data("type".utf8) + Data([0x69]) + Data("directory".utf8)
+        if prefix.starts(with: file) { return .file }
+        if prefix.starts(with: directory2) || prefix.starts(with: directory3) { return .directory }
+        return nil
+    }
+
+    /// The minimum prefix length `kind(ofPrefix:)` needs to classify any object.
+    public static let kindPrefixLength = 16
+
     public static func object(_ object: WireObject) throws -> WireObjectEnvelope {
         let bytes = try encode(object)
         return WireObjectEnvelope(hash: hash(bytes), bytes: bytes)
@@ -225,7 +246,11 @@ public enum WireSnapshotBundleCodec {
         ]))
     }
 
-    public static func decode(_ data: Data, root: String) throws -> WireSnapshot {
+    public static func decode(
+        _ data: Data,
+        root: String,
+        mode: WireObjectGraph.ValidationMode = .complete
+    ) throws -> WireSnapshot {
         try validateObjectHash(root)
         guard case let .map(fields) = try CanonicalCBOR.decode(data) else {
             throw ArborWireValidationError.invalidCBOR("Snapshot bundle is not a map")
@@ -254,14 +279,29 @@ public enum WireSnapshotBundleCodec {
             return WireObjectEnvelope(hash: hash, bytes: bytes)
         }
         let snapshot = WireSnapshot(root: root, objects: objects)
-        _ = try WireObjectGraph.validate(snapshot)
+        _ = try WireObjectGraph.validate(snapshot, mode: mode)
         return snapshot
     }
 }
 
 public enum WireObjectGraph {
+    /// How much of a graph a snapshot must carry.
+    ///
+    /// - `complete`: every hash reachable from the root has an object.
+    /// - `sparseFiles`: the root must be a present directory; a reachable hash
+    ///   with no object is allowed and is taken to be a file whose bytes are
+    ///   resolvable elsewhere; an object that is not reachable is still rejected,
+    ///   as is a cycle. Used for daemon bootstraps and locally sparsified bundles.
+    public enum ValidationMode: Sendable, Equatable {
+        case complete
+        case sparseFiles
+    }
+
     @discardableResult
-    public static func validate(_ snapshot: WireSnapshot) throws -> [String: WireObject] {
+    public static func validate(
+        _ snapshot: WireSnapshot,
+        mode: ValidationMode = .complete
+    ) throws -> [String: WireObject] {
         try validateObjectHash(snapshot.root)
         var bytesByHash: [String: Data] = [:]
         var objects: [String: WireObject] = [:]
@@ -285,7 +325,10 @@ public enum WireObjectGraph {
         func visit(_ hash: String) throws {
             if visiting.contains(hash) { throw ArborWireValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
-            guard let object = objects[hash] else { throw ArborWireValidationError.incompleteGraph(hash) }
+            guard let object = objects[hash] else {
+                if mode == .sparseFiles { visited.insert(hash); return }
+                throw ArborWireValidationError.incompleteGraph(hash)
+            }
             visiting.insert(hash)
             if case let .directory(entries, _) = object {
                 for entry in entries {

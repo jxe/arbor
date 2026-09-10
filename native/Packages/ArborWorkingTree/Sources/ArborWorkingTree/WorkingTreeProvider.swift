@@ -1,38 +1,48 @@
 import ArborKit
 import Foundation
 
-public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
-    public let replica: ArborReplica
-    private let onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)?
+public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
+    public let workingTree: WorkingTree
+    /// A read-only provider presents every node as not writable and refuses
+    /// structural actions, assets, imports, and document admissions: a visit,
+    /// or a placed tree opened while its folder's daemon holds a conflict.
+    public let readOnly: Bool
+    private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)?
 
     public init(
-        replica: ArborReplica,
-        onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)? = nil
+        workingTree: WorkingTree,
+        readOnly: Bool = false,
+        onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)? = nil
     ) {
-        self.replica = replica
+        self.workingTree = workingTree
+        self.readOnly = readOnly
         self.onPatchAdmission = onPatchAdmission
+    }
+
+    public func capabilities() async -> WorkspaceProviderCapabilities {
+        readOnly ? .readOnly : .full
     }
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
         if let diagnostic = try await diagnostic(for: reference) { return diagnostic }
-        let record = try await replica.resolve(reference)
+        let record = try await workingTree.resolve(reference)
         return try await workspaceNode(record)
     }
 
     public func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] {
-        var nodes = try await replica.children(of: reference).asyncMap { try await workspaceNode($0) }
+        var nodes = try await workingTree.children(of: reference).asyncMap { try await workspaceNode($0) }
         if reference.path == "/" {
-            nodes.append(contentsOf: try await replica.diagnostics().asyncMap { await diagnosticNode($0) })
+            nodes.append(contentsOf: try await workingTree.diagnostics().asyncMap { await diagnosticNode($0) })
         }
         return nodes
     }
 
     public func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult] {
-        let replicaTree = await replica.treeID()
+        let replicaTree = await workingTree.treeID()
         guard tree == replicaTree else { return [] }
-        guard try await replica.heads().generation >= 0 else { return [] }
-        let entries = try await replica.search(query)
-        let backlinkCounts = try await replica.backlinkCountsByPath()
+        guard try await workingTree.heads().generation >= 0 else { return [] }
+        let entries = try await workingTree.search(query)
+        let backlinkCounts = try await workingTree.backlinkCountsByPath()
         var results: [WorkspaceSearchResult] = []
         for entry in entries {
             let reference = WorkspaceReference(
@@ -52,7 +62,7 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     public func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] {
-        try await replica.backlinks(to: reference).map { entry in
+        try await workingTree.backlinks(to: reference).map { entry in
             WorkspaceSearchResult(
                 reference: WorkspaceReference(
                     tree: reference.tree,
@@ -66,42 +76,45 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     public func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
-        let node: ReplicaNodeRecord
+        if readOnly { throw WorkspaceProviderError.invalidAction("This tree is read-only") }
+        let node: WorkingTreeNode
         switch action {
         case let .createMarkdown(parent, name, source):
-            node = try await replica.createMarkdown(parent: parent, name: name, source: source)
+            node = try await workingTree.createMarkdown(parent: parent, name: name, source: source)
         case let .createDirectory(parent, name):
-            node = try await replica.createDirectory(parent: parent, name: name)
+            node = try await workingTree.createDirectory(parent: parent, name: name)
         case let .rename(reference, name):
-            node = try await replica.rename(reference, name: name)
+            node = try await workingTree.rename(reference, name: name)
         case let .move(reference, destination):
-            node = try await replica.move(reference, destination: destination)
+            node = try await workingTree.move(reference, destination: destination)
         case let .copy(reference, destination):
-            node = try await replica.copy(reference, destination: destination)
+            node = try await workingTree.copy(reference, destination: destination)
         case let .trash(reference):
-            node = try await replica.trash(reference)
+            node = try await workingTree.trash(reference)
         case let .restore(reference):
-            node = try await replica.restore(reference)
+            node = try await workingTree.restore(reference)
         }
         return try await workspaceNode(node)
     }
 
     public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
-        let node = try await replica.storeAsset(asset, in: parent)
-        let reference = await replica.workspaceReference(node)
+        if readOnly { throw WorkspaceProviderError.readOnly(parent) }
+        let node = try await workingTree.storeAsset(asset, in: parent)
+        let reference = await workingTree.workspaceReference(node)
         return WorkspaceStoredAsset(reference: reference, markdownSource: reference.path)
     }
 
     public func readFile(_ reference: WorkspaceReference) async throws -> Data {
-        try await replica.fileBytes(reference)
+        try await workingTree.fileBytes(reference)
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
         let node = try await resolve(reference)
         guard node.surface.supportsDocumentSession else { throw WorkspaceProviderError.notDocument(node.reference) }
-        return ReplicaDocumentSession(
-            replica: replica,
+        return WorkingTreeDocumentSession(
+            workingTree: workingTree,
             reference: node.reference,
+            readOnly: readOnly,
             onPatchAdmission: onPatchAdmission
         )
     }
@@ -113,68 +126,72 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
         mediaType: String? = nil,
         in parent: WorkspaceReference
     ) async throws -> WorkspaceNode {
-        let record = try await replica.importFile(name: name, bytes: bytes, mediaType: mediaType, parent: parent)
+        if readOnly { throw WorkspaceProviderError.readOnly(parent) }
+        let record = try await workingTree.importFile(name: name, bytes: bytes, mediaType: mediaType, parent: parent)
         return try await workspaceNode(record)
     }
 
-    private func workspaceNode(_ record: ReplicaNodeRecord) async throws -> WorkspaceNode {
-        let reference = await replica.workspaceReference(record)
-        let revision = await replica.revision(for: record)
+    private func workspaceNode(_ record: WorkingTreeNode) async throws -> WorkspaceNode {
+        let reference = await workingTree.workspaceReference(record)
+        let revision = await workingTree.revision(for: record)
         let surface: WorkspaceSurface
         switch record.kind {
         case .markdown:
             surface = .markdown(source: record.source ?? "", contentRevision: revision)
         case .directory:
-            if let collection = await replica.collection(for: record) {
+            if let collection = await workingTree.collection(for: record) {
                 surface = .collection(kind: collection.kind, rowCount: collection.rows)
             } else {
                 surface = .directoryDocument(
-                    source: await replica.completeSource(for: record) ?? "",
+                    source: await workingTree.completeSource(for: record) ?? "",
                     contentRevision: revision,
                     stored: record.source != nil
                 )
             }
         case .file:
             surface = .file(
-                name: ReplicaSemantics.name(of: record.path),
-                byteCount: record.bytes?.count ?? 0,
-                mediaType: record.mediaType
+                name: WorkingTreeSemantics.name(of: record.path),
+                byteCount: record.ref?.size ?? 0,
+                mediaType: record.mediaType ?? record.ref?.mediaType
             )
         case .boundary:
             surface = .placeholder(message: "Nested Arbor tree \(record.boundaryTree ?? "")")
         }
+        // A file held by hash is available until a read finds no store that can
+        // serve it; only that miss presents the node as a placeholder.
+        let knownMissing = await workingTree.isKnownMissing(record)
         return WorkspaceNode(
             reference: reference,
-            title: ReplicaSemantics.title(for: record),
+            title: WorkingTreeSemantics.title(for: record),
             surface: surface,
             provenance: WorkspaceProvenance(
                 authority: .local,
-                sourceDescription: "Offline replica",
+                sourceDescription: "Working tree",
                 contentRevision: revision
             ),
-            materialization: .available,
-            isWritable: true
+            materialization: knownMissing ? .placeholder : .available,
+            isWritable: !readOnly
         )
     }
 
     private func diagnostic(for reference: WorkspaceReference) async throws -> WorkspaceNode? {
-        guard reference.path.hasPrefix("/.replica-diagnostic-") else { return nil }
-        let replicaTree = await replica.treeID()
+        guard reference.path.hasPrefix("/.working-tree-diagnostic-") else { return nil }
+        let replicaTree = await workingTree.treeID()
         guard reference.tree == replicaTree else { return nil }
-        let expected = String(reference.path.dropFirst("/.replica-diagnostic-".count))
-        guard let diagnostic = try await replica.diagnostics().first(where: { safeDiagnosticID($0.id) == expected }) else { return nil }
+        let expected = String(reference.path.dropFirst("/.working-tree-diagnostic-".count))
+        guard let diagnostic = try await workingTree.diagnostics().first(where: { safeDiagnosticID($0.id) == expected }) else { return nil }
         return await diagnosticNode(diagnostic)
     }
 
-    private func diagnosticNode(_ diagnostic: ReplicaDiagnostic) async -> WorkspaceNode {
+    private func diagnosticNode(_ diagnostic: WorkingTreeDiagnostic) async -> WorkspaceNode {
         WorkspaceNode(
             reference: WorkspaceReference(
-                tree: await replica.treeID(),
-                path: "/.replica-diagnostic-\(safeDiagnosticID(diagnostic.id))"
+                tree: await workingTree.treeID(),
+                path: "/.working-tree-diagnostic-\(safeDiagnosticID(diagnostic.id))"
             ),
             title: diagnostic.title,
             surface: .diagnostic(title: diagnostic.title, detail: diagnostic.detail),
-            provenance: WorkspaceProvenance(authority: .diagnostic, sourceDescription: "Offline replica integrity"),
+            provenance: WorkspaceProvenance(authority: .diagnostic, sourceDescription: "Working tree integrity"),
             isWritable: false
         )
     }
@@ -184,40 +201,43 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 }
 
-public actor ReplicaDocumentSession: WorkspaceDocumentSession {
+public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
     public nonisolated let identity: WorkspaceIdentity
-    private let replica: ArborReplica
+    private let workingTree: WorkingTree
     private let initialReference: WorkspaceReference
-    private let onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)?
+    private let readOnly: Bool
+    private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)?
     private var terminal = false
 
     init(
-        replica: ArborReplica,
+        workingTree: WorkingTree,
         reference: WorkspaceReference,
-        onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)?
+        readOnly: Bool = false,
+        onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)?
     ) {
-        self.replica = replica
+        self.workingTree = workingTree
         self.initialReference = reference
+        self.readOnly = readOnly
         self.onPatchAdmission = onPatchAdmission
         self.identity = reference.identity
     }
 
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        return try await replica.documentSnapshot(initialReference)
+        return try await workingTree.documentSnapshot(initialReference)
     }
 
     public func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
         try requireOpen()
-        let changes = try await replica.changes()
-        let replica = replica
+        let changes = try await workingTree.changes()
+        let workingTree = workingTree
         let reference = initialReference
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     for await _ in changes {
                         try Task.checkCancellation()
-                        continuation.yield(try await replica.documentSnapshot(reference))
+                        continuation.yield(try await workingTree.documentSnapshot(reference))
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -232,25 +252,27 @@ public actor ReplicaDocumentSession: WorkspaceDocumentSession {
 
     public func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
+        if readOnly { throw WorkspaceProviderError.readOnly(initialReference) }
         do {
-            return try await replica.writeDocument(initialReference, source: source, baseRevision: baseContentRevision)
-        } catch ReplicaError.staleRevision {
-            let current = try await replica.documentSnapshot(initialReference)
+            return try await workingTree.writeDocument(initialReference, source: source, baseRevision: baseContentRevision)
+        } catch WorkingTreeError.staleRevision {
+            let current = try await workingTree.documentSnapshot(initialReference)
             throw WorkspaceDocumentConflict(current: current, submittedSource: source)
         }
     }
 
     public func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
+        if readOnly { throw WorkspaceProviderError.readOnly(initialReference) }
         do {
-            let result = try await replica.writeDocument(initialReference, patch: patch)
+            let result = try await workingTree.writeDocument(initialReference, patch: patch)
             if let onPatchAdmission {
                 let admission = result.admission
                 Task { await onPatchAdmission(admission) }
             }
             return result.snapshot
-        } catch ReplicaError.staleRevision {
-            let current = try await replica.documentSnapshot(initialReference)
+        } catch WorkingTreeError.staleRevision {
+            let current = try await workingTree.documentSnapshot(initialReference)
             let submitted = (try? patch.applying(to: current.source)) ?? current.source
             throw WorkspaceDocumentConflict(current: current, submittedSource: submitted)
         }
@@ -275,7 +297,7 @@ public actor ReplicaDocumentSession: WorkspaceDocumentSession {
     }
 
     private func requireOpen() throws {
-        if terminal { throw ReplicaError.closed }
+        if terminal { throw WorkingTreeError.closed }
     }
 }
 

@@ -26,7 +26,7 @@ enum ConflictWorkspaceGraph {
         return .missing
     }
 
-    static func content(at path: String, in snapshot: WireSnapshot) throws -> ReplicaConflictContent {
+    static func content(at path: String, in snapshot: WireSnapshot) throws -> UpdateConflictContent {
         let objects = try WireObjectGraph.validate(snapshot)
         switch try target(at: path, in: snapshot) {
         case .missing:
@@ -34,7 +34,7 @@ enum ConflictWorkspaceGraph {
         case let .boundary(tree):
             return .boundary(tree: tree)
         case let .object(hash):
-            guard let object = objects[hash] else { throw ReplicaSyncError.conflictSnapshotMissing }
+            guard let object = objects[hash] else { throw UpdateError.conflictSnapshotMissing }
             switch object {
             case let .file(bytes):
                 if let text = String(data: bytes, encoding: .utf8) { return .text(text) }
@@ -69,7 +69,7 @@ enum ConflictWorkspaceGraph {
     ) throws -> WireSnapshot {
         let components = try pathComponents(path)
         guard !components.isEmpty else {
-            guard case let .object(root) = replacement else { throw ReplicaSyncError.conflictPathOverlap }
+            guard case let .object(root) = replacement else { throw UpdateError.conflictPathOverlap }
             return try snapshot(root: root, objects: sourceObjects)
         }
         let destinationObjects = try WireObjectGraph.validate(destination)
@@ -78,7 +78,7 @@ enum ConflictWorkspaceGraph {
 
         func rewrite(_ directoryHash: String, depth: Int) throws -> String {
             guard case let .directory(entries, childrenSource)? = objects[directoryHash] else {
-                throw ReplicaSyncError.conflictSnapshotMissing
+                throw UpdateError.conflictSnapshotMissing
             }
             let name = components[depth]
             var nextEntries = entries
@@ -95,7 +95,7 @@ enum ConflictWorkspaceGraph {
             } else {
                 guard let index = nextEntries.firstIndex(where: { $0.name == name }),
                       let child = nextEntries[index].hash else {
-                    throw ReplicaSyncError.conflictSnapshotMissing
+                    throw UpdateError.conflictSnapshotMissing
                 }
                 nextEntries[index] = WireDirectoryEntry(name: name, hash: try rewrite(child, depth: depth + 1))
             }
@@ -113,16 +113,16 @@ enum ConflictWorkspaceGraph {
         var reachable = Set<String>()
         func visit(_ hash: String) throws {
             guard reachable.insert(hash).inserted else { return }
-            guard let object = objects[hash] else { throw ReplicaSyncError.conflictSnapshotMissing }
+            guard let object = objects[hash] else { throw UpdateError.conflictSnapshotMissing }
             if case let .directory(entries, _) = object {
                 for entry in entries { if let child = entry.hash { try visit(child) } }
             }
         }
         try visit(root)
         let envelopes = try reachable.sorted().map { hash -> WireObjectEnvelope in
-            guard let object = objects[hash] else { throw ReplicaSyncError.conflictSnapshotMissing }
+            guard let object = objects[hash] else { throw UpdateError.conflictSnapshotMissing }
             let envelope = try WireObjectCodec.object(object)
-            guard envelope.hash == hash else { throw ReplicaSyncError.conflictSnapshotMissing }
+            guard envelope.hash == hash else { throw UpdateError.conflictSnapshotMissing }
             return envelope
         }
         let result = WireSnapshot(root: root, objects: envelopes)
@@ -131,11 +131,11 @@ enum ConflictWorkspaceGraph {
     }
 
     private static func pathComponents(_ path: String) throws -> [String] {
-        guard path.first == "/" else { throw ReplicaSyncError.conflictSnapshotMissing }
+        guard path.first == "/" else { throw UpdateError.conflictSnapshotMissing }
         if path == "/" { return [] }
         let components = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-            throw ReplicaSyncError.conflictSnapshotMissing
+            throw UpdateError.conflictSnapshotMissing
         }
         return components
     }

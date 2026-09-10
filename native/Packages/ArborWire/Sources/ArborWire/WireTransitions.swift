@@ -1,9 +1,13 @@
 import Foundation
 
 public enum WireTransitionReplay {
+    /// Replay an ordered transition batch onto `basis`. With `mode` `.sparseFiles`
+    /// the basis may omit file objects that are resolvable elsewhere; every
+    /// delta base must still be present, and the result is sparse in the same way.
     public static func applying(
         _ transitions: [WireAcceptedTransition],
-        to basis: WireSnapshot
+        to basis: WireSnapshot,
+        mode: WireObjectGraph.ValidationMode = .complete
     ) throws -> WireSnapshot {
         guard !transitions.isEmpty else {
             throw ArborWireValidationError.invalidValue("Accepted transition batch is empty")
@@ -14,7 +18,7 @@ public enum WireTransitionReplay {
             if let tree, transition.update.tree != tree {
                 throw ArborWireValidationError.invalidValue("Accepted transition batch crosses trees")
             }
-            snapshot = try applying(transition, to: snapshot)
+            snapshot = try applying(transition, to: snapshot, mode: mode)
             tree = transition.update.tree
         }
         return snapshot
@@ -22,7 +26,8 @@ public enum WireTransitionReplay {
 
     public static func applying(
         _ transition: WireAcceptedTransition,
-        to basis: WireSnapshot
+        to basis: WireSnapshot,
+        mode: WireObjectGraph.ValidationMode = .complete
     ) throws -> WireSnapshot {
         _ = try transition.validated()
         guard transition.update.previousRoot == basis.root else {
@@ -31,17 +36,21 @@ public enum WireTransitionReplay {
         return try applying(
             WireTransitionPayload(objects: transition.objects, deltas: transition.deltas),
             to: basis,
-            root: transition.update.root
+            root: transition.update.root,
+            mode: mode
         )
     }
 
-    /// Apply one transition payload to a basis graph and require the result to be the complete graph at `root`.
+    /// Apply one transition payload to a basis graph and require the result to
+    /// be the graph at `root`: complete, or (`.sparseFiles`) a validated spine
+    /// whose absent hashes are files resolvable elsewhere.
     public static func applying(
         _ payload: WireTransitionPayload,
         to basis: WireSnapshot,
-        root: String
+        root: String,
+        mode: WireObjectGraph.ValidationMode = .complete
     ) throws -> WireSnapshot {
-        let basisObjects = try WireObjectGraph.validate(basis)
+        let basisObjects = try WireObjectGraph.validate(basis, mode: mode)
         var bytesByHash = Dictionary(uniqueKeysWithValues: basis.objects.map { ($0.hash, $0.bytes) })
         let basisHashes = Set(basisObjects.keys)
         var suppliedResults = Set<String>()
@@ -72,7 +81,10 @@ public enum WireTransitionReplay {
         func visit(_ hash: String) throws {
             if visiting.contains(hash) { throw ArborWireValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
-            guard let bytes = bytesByHash[hash] else { throw ArborWireValidationError.incompleteGraph(hash) }
+            guard let bytes = bytesByHash[hash] else {
+                if mode == .sparseFiles { visited.insert(hash); return }
+                throw ArborWireValidationError.incompleteGraph(hash)
+            }
             let object = try WireObjectCodec.decode(bytes)
             visiting.insert(hash)
             if case let .directory(entries, _) = object {
@@ -89,9 +101,9 @@ public enum WireTransitionReplay {
         }
         let result = WireSnapshot(
             root: root,
-            objects: visited.sorted().map { WireObjectEnvelope(hash: $0, bytes: bytesByHash[$0]!) }
+            objects: visited.sorted().compactMap { hash in bytesByHash[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } }
         )
-        _ = try WireObjectGraph.validate(result)
+        _ = try WireObjectGraph.validate(result, mode: mode)
         return result
     }
 }

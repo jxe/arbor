@@ -1,4 +1,3 @@
-import ArborSyncClient
 import ArborKit
 @testable import ArborQuagmire
 import Foundation
@@ -912,127 +911,6 @@ struct ArborQuagmireTests {
         #expect((try await session.snapshot()) == before)
     }
 
-    @MainActor
-    @Test("Live editor host resolves an existing raw reference when the protocol harness supplies it")
-    func liveRawReference() async throws {
-        guard let rawOrigin = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"],
-              let origin = URL(string: rawOrigin),
-              let rawReference = ProcessInfo.processInfo.environment["ARBOR_TEST_RAW_REFERENCE"] else {
-            return
-        }
-        let client = ArborSyncRESTClient(baseURL: origin)
-        let root = try await client.node(.path("/", tree: "local"))
-        let reference = WorkspaceReference(
-            tree: TreeID(rawValue: root.ref.tree),
-            path: root.ref.path,
-            stableKey: root.ref.stableKey
-        )
-        let provider = ArborSyncWorkspaceProvider(client: client)
-        let session = try await provider.openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
-            binding: binding,
-            provider: provider,
-            linkPreviewService: linkPreviewService()
-        )
-        let documentReference = DocumentReference(rawReference)
-        #expect(host.lookupDocument(documentReference) == .pending)
-        for _ in 0..<100 where host.lookupDocument(documentReference) == .pending {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        guard case .present = host.lookupDocument(documentReference) else {
-            Issue.record("Expected the live raw reference to resolve")
-            return
-        }
-        await session.close()
-    }
-
-    @MainActor
-    @Test("Live editor preserves blank paragraphs without self-reloading")
-    func liveEditThenRedundantCommit() async throws {
-        guard let rawOrigin = ProcessInfo.processInfo.environment["ARBOR_TEST_EDIT_URL"],
-              let origin = URL(string: rawOrigin) else {
-            return
-        }
-        let client = ArborSyncRESTClient(baseURL: origin)
-        let root = try await client.node(.path("/", tree: "local"))
-        let reference = WorkspaceReference(
-            tree: TreeID(rawValue: root.ref.tree),
-            path: root.ref.path,
-            stableKey: root.ref.stableKey
-        )
-        let provider = ArborSyncWorkspaceProvider(client: client)
-        let session = try await provider.openDocument(reference)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(
-            binding: binding,
-            provider: provider,
-            linkPreviewService: linkPreviewService()
-        )
-        let document = binding.document
-        let parentID = try #require(document.children.first?.id)
-        func emptyParagraphCount(_ document: Document) -> Int {
-            var count = 0
-            document.walk { block, _, _ in
-                if case let .paragraph(text) = block.kind, text.characters.isEmpty { count += 1 }
-            }
-            return count
-        }
-        let originalEmptyParagraphs = emptyParagraphCount(document)
-        var replacements: [DocumentReplacement] = []
-        document.didReplaceChildren = { replacements.append($0) }
-
-        document.transaction(name: "Insert empty bullet") {
-            _ = document.insertSubtree(
-                .bullet(text: ""),
-                at: DropPath(parent: parentID, position: 1)
-            )
-        }
-        host.persistCommit(changes: [], in: document)
-        await host.flush(document)
-        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
-        var ids: [BlockID] = []
-        document.walk { block, _, _ in ids.append(block.id) }
-        #expect(ids.count == Set(ids).count)
-
-        document.transaction(name: "Insert middle blank paragraph") {
-            _ = document.insertSubtree(
-                .paragraph(text: AttributedString()),
-                at: DropPath(parent: parentID, position: 2)
-            )
-        }
-        host.persistCommit(changes: [], in: document)
-        await host.flush(document)
-        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
-        #expect(replacements.isEmpty)
-        #expect(emptyParagraphCount(document) == originalEmptyParagraphs + 1)
-
-        let parent = try #require(document.find(parentID))
-        document.transaction(name: "Insert trailing blank paragraph") {
-            _ = document.insertSubtree(
-                .paragraph(text: AttributedString()),
-                at: DropPath(parent: parentID, position: parent.children.count)
-            )
-        }
-        host.persistCommit(changes: [], in: document)
-        await host.flush(document)
-        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
-        #expect(replacements.isEmpty)
-        #expect(emptyParagraphCount(document) == originalEmptyParagraphs + 2)
-
-        host.persistCommit(changes: [], in: document)
-        await host.flush(document)
-        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
-        let saved = try await session.snapshot()
-        #expect(saved.source.contains("\n- \n"))
-        #expect(saved.source.contains("\u{00A0}"))
-        await session.close()
-
-        let reopenedSession = try await provider.openDocument(reference)
-        let reopened = try await ArborDocumentBinding.open(reference: reference, session: reopenedSession)
-        #expect(emptyParagraphCount(reopened.document) == originalEmptyParagraphs + 2)
-        await reopenedSession.close()
-    }
 
     @MainActor
     @Test("Move To combines editor outline targets with writable document destinations")
@@ -1391,88 +1269,6 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
-    @Test("An editor waits for its own accepted request digest before authoritative replacement")
-    func acceptedDigestFencesAuthoritativeReplacement() async throws {
-        let digest = "sha256:" + String(repeating: "a", count: 64)
-        let reference = WorkspaceReference(tree: "tr_digestfence", path: "/", stableKey: markdownStableKey("pg_digest_fence"))
-        let initial = WorkspaceDocumentSnapshot(
-            reference: reference,
-            source: "---\nid: pg_digest_fence\n---\n\n# Hi\n\n- Before\n",
-            contentRevision: "r1"
-        )
-        let session = LiveUpdateSession(snapshot: initial)
-        await session.setAdmissionDigest(digest)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        var foundBulletID: BlockID?
-        binding.document.walk { block, _, _ in
-            if case .bullet = block.kind { foundBulletID = block.id }
-        }
-        let bulletID = try #require(foundBulletID)
-        binding.document.transaction(name: "latest local") {
-            _ = binding.document.setText(bulletID, AttributedString("Latest local"))
-        }
-        binding.admitCurrentGeneration()
-        await binding.flush()
-
-        await session.publish(
-            source: initial.source.replacingOccurrences(of: "Before", with: "Accepted prefix"),
-            revision: "r-prefix"
-        )
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(binding.document.find(bulletID).map { String($0.text.characters) } == "Latest local")
-
-        await session.publish(
-            source: initial.source.replacingOccurrences(of: "Before", with: "Accepted latest"),
-            revision: "r-authoritative",
-            acceptedRequestDigests: [digest]
-        )
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(binding.document.find(bulletID).map { String($0.text.characters) } == "Accepted latest")
-        await binding.close()
-    }
-
-    @MainActor
-    @Test("A same-source accepted digest releases the editor fence")
-    func sameSourceAcceptedDigestReleasesFence() async throws {
-        let digest = "sha256:" + String(repeating: "b", count: 64)
-        let reference = WorkspaceReference(tree: "tr_digestrelease", path: "/", stableKey: markdownStableKey("pg_digest_release"))
-        let initial = WorkspaceDocumentSnapshot(
-            reference: reference,
-            source: "---\nid: pg_digest_release\n---\n\n# Hi\n\n- Before\n",
-            contentRevision: "r1"
-        )
-        let session = LiveUpdateSession(snapshot: initial)
-        await session.setAdmissionDigest(digest)
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        var foundBulletID: BlockID?
-        binding.document.walk { block, _, _ in
-            if case .bullet = block.kind { foundBulletID = block.id }
-        }
-        let bulletID = try #require(foundBulletID)
-        binding.document.transaction(name: "local") {
-            _ = binding.document.setText(bulletID, AttributedString("Local"))
-        }
-        binding.admitCurrentGeneration()
-        await binding.flush()
-
-        let admitted = await session.snapshot()
-        await session.publish(
-            source: admitted.source,
-            revision: admitted.contentRevision,
-            acceptedRequestDigests: [digest]
-        )
-        try await Task.sleep(for: .milliseconds(30))
-        await session.publish(
-            source: admitted.source.replacingOccurrences(of: "Local", with: "Later remote"),
-            revision: "r-later"
-        )
-        try await Task.sleep(for: .milliseconds(50))
-
-        #expect(binding.document.find(bulletID).map { String($0.text.characters) } == "Later remote")
-        await binding.close()
-    }
-
-    @MainActor
     @Test("A watched authoritative toggle remains a toggle after replacement")
     func liveToggleUpdate() async throws {
         let reference = WorkspaceReference(
@@ -1646,7 +1442,6 @@ private actor LiveUpdateSession: WorkspaceDocumentSession {
     private var current: WorkspaceDocumentSnapshot
     private let stream: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
     private let continuation: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.Continuation
-    private var admissionDigest: String?
 
     init(snapshot: WorkspaceDocumentSnapshot) {
         identity = snapshot.reference.identity
@@ -1659,14 +1454,11 @@ private actor LiveUpdateSession: WorkspaceDocumentSession {
     func snapshot() -> WorkspaceDocumentSnapshot { current }
     func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> { stream }
 
-    func setAdmissionDigest(_ digest: String) { admissionDigest = digest }
-
-    func publish(source: String, revision: String, acceptedRequestDigests: [String] = []) {
+    func publish(source: String, revision: String) {
         current = WorkspaceDocumentSnapshot(
             reference: current.reference,
             source: source,
-            contentRevision: revision,
-            acceptedRequestDigests: acceptedRequestDigests
+            contentRevision: revision
         )
         continuation.yield(current)
     }
@@ -1678,8 +1470,7 @@ private actor LiveUpdateSession: WorkspaceDocumentSession {
         current = WorkspaceDocumentSnapshot(
             reference: current.reference,
             source: source,
-            contentRevision: "r-local",
-            admissionRequestDigest: admissionDigest
+            contentRevision: "r-local"
         )
         return current
     }

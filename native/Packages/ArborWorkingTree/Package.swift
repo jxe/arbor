@@ -2,29 +2,35 @@
 import PackageDescription
 
 let package = Package(
-    name: "ArborReplica",
+    name: "ArborWorkingTree",
     platforms: [
         .iOS("27.0"),
         .macOS("27.0")
     ],
     products: [
-        .library(name: "ArborReplica", targets: ["ArborReplica"])
+        .library(name: "ArborWorkingTree", targets: ["ArborWorkingTree"])
     ],
     dependencies: [
-        .package(path: "../ArborKit")
+        .package(path: "../ArborKit"),
+        .package(path: "../ArborObjectStore"),
+        .package(path: "../ArborWire")
     ],
     targets: [
         .target(
-            name: "ArborReplica",
+            name: "ArborWorkingTree",
             dependencies: [
-                .product(name: "ArborKit", package: "ArborKit")
+                .product(name: "ArborKit", package: "ArborKit"),
+                .product(name: "ArborObjectStore", package: "ArborObjectStore"),
+                .product(name: "ArborWire", package: "ArborWire")
             ]
         ),
         .testTarget(
-            name: "ArborReplicaTests",
+            name: "ArborWorkingTreeTests",
             dependencies: [
-                "ArborReplica",
-                .product(name: "ArborKit", package: "ArborKit")
+                "ArborWorkingTree",
+                .product(name: "ArborKit", package: "ArborKit"),
+                .product(name: "ArborObjectStore", package: "ArborObjectStore"),
+                .product(name: "ArborWire", package: "ArborWire")
             ]
         )
     ],
