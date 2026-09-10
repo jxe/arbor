@@ -18,7 +18,7 @@
  * Support: the data home is the scheme's disposable one and the app's support
  * state for the test tree lives under the test host's own container.
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon } from "@arbor/arborsync";
@@ -34,7 +34,8 @@ async function run(command: string[], environment: Record<string, string> = {}, 
   if (status !== 0) throw new Error(`${command.join(" ")} exited with ${status}`);
 }
 
-const sandbox = await mkdtemp(join(tmpdir(), "arbor-hosted-smoke-"));
+// Placements record real paths; on macOS the temp dir is a symlink under /var.
+const sandbox = await realpath(await mkdtemp(join(tmpdir(), "arbor-hosted-smoke-")));
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 await rm(dataHome, { recursive: true, force: true });
 await mkdir(dataHome, { recursive: true });
