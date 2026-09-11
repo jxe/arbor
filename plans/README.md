@@ -9,11 +9,18 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
 
 - Implement [Reliability 007](reliability/007-reify-composable-canopy-conflicts.md) so Canopy accepts composable algebraic tree states, keeps an ordinary projected root, and derives local conflict regions without blocking unrelated synchronization.
-- Rearchitect Arbor Sync to make it more maintainable and less of a messy HTTP API.
+- Rearchitect Arbor Sync, starting with [Arbor Sync 001](arborsync/001-file-bytes-are-the-object.md) (a file's bytes are its object; directory entries carry the kind) and then [Arbor Sync 002](arborsync/002-object-directory.md) (the placed folder's objects as an on-disk hardlink directory, and the loopback object route deleted).
 - Make sure Canopy storage is not unreasonably big.
 - Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
 
-[Reliability 007](reliability/007-reify-composable-canopy-conflicts.md) now owns the staged Wire, Canopy, migration, client, and native-review work. It stores Jujutsu-style ordered expressions over exact tree roots and treats paths/regions as derived views, so it does not depend on durable Markdown anchors. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) remains active for hard policy/exact-match and local divergence conflicts until Reliability 007's client rollout gate passes. The Arbor Sync architecture and user-directory/profile work still need their next outcomes defined; the list above deliberately does not prejudge those designs.
+[Reliability 007](reliability/007-reify-composable-canopy-conflicts.md) now owns the staged Wire, Canopy, migration, client, and native-review work. It stores Jujutsu-style ordered expressions over exact tree roots and treats paths/regions as derived views, so it does not depend on durable Markdown anchors. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) remains active for hard policy/exact-match and local divergence conflicts until Reliability 007's client rollout gate passes. Arbor Sync 001 and Reliability 007 both rewrite Canopy's update internals and the Swift update coordinator: land 001 first, or rebase 007 onto the new object model, never interleave them. The user-directory/profile work still needs its next outcome defined; the list above deliberately does not prejudge that design.
+
+## Arbor Sync
+
+Carve the daemon into pieces with one clear owner each. The first two plans make the placed folder itself the content-addressable store; later pieces are not numbered until these have soaked.
+
+- [Arbor Sync 001 — File bytes are the object](arborsync/001-file-bytes-are-the-object.md) — **P1 · PLANNED.** A file object's hash is the SHA-256 of its bytes; directory entries are `file`, `directory`, or `tree`; the bootstrap `files` map and Swift CBOR-prefix sniffing go; Canopy schema 7 with a gated live migration.
+- [Arbor Sync 002 — The object directory](arborsync/002-object-directory.md) — **P1 · PLANNED; depends on Arbor Sync 001 and its soak.** New `@arbor/object-store` with an `ObjectDirectory` maintainer keeping `objects/<TreeID>/<hex>` equal to the placed folder through hardlinks; arborsync composes it; `GET /v1/objects` is deleted and the Mac reads the directory.
 
 ## Cleanups
 
@@ -34,7 +41,7 @@ Bounded deletion, simplification, and deduplication whose result is less tempora
 This is work that fills out Arbor's product feature surface. It is useful and often substantial, but is not near-term merely because an older plan carries a P1 product priority.
 
 - **Working-tree follow-ons** — The native working-tree transition is implemented and live; these plans restore surfaces deliberately left for later.
-  - [Native 023 — Rebuild the web editor on the working tree](native/023-rebuild-the-web-editor-on-the-working-tree.md) — **PLANNED; after the Native 022 soak.** Build TypeScript `@arbor/working-tree` and `@arbor/object-store` as twins of the Swift packages, pass the same fixture, and mount the Arbor web editor again.
+  - [Native 023 — Rebuild the web editor on the working tree](native/023-rebuild-the-web-editor-on-the-working-tree.md) — **PLANNED; after the Native 022 soak and Arbor Sync 002.** Build TypeScript `@arbor/working-tree` as a twin of the Swift package (`@arbor/object-store` lands in Arbor Sync 002), pass the same fixture, and mount the Arbor web editor again on its own backend rather than the daemon's deleted object route.
   - [Native 024 — Add disk editors for non-tree folders](native/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Native 023 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 - **Apps** — Make authored Arbor applications executable through complete product slices that freeze the shared compiler, runtime, hosting, and agent contracts. The implemented headless SQLite query, observation, and mutation phases are documented in [`@arbor/data`](../packages/data/README.md).
   - [Apps 001 — Run the unchanged Supplies tree locally, natively, and on Canopy](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003 and 004**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the unchanged [`examples/supplies`](../examples/supplies) corpus as executable documents in local Arbor web, signed macOS Arbor, and its canonical Canopy website.
