@@ -8,12 +8,12 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 
 The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
 
-- Reify conflicts on Canopy so they do not block merges and tree advances so often.
+- Implement [Reliability 007](reliability/007-reify-composable-canopy-conflicts.md) so Canopy accepts composable algebraic tree states, keeps an ordinary projected root, and derives local conflict regions without blocking unrelated synchronization.
 - Rearchitect Arbor Sync to make it more maintainable and less of a messy HTTP API.
 - Make sure Canopy storage is not unreasonably big.
 - Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
 
-The closest existing plans are [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) for client-side conflict review and replay, and [Canopy storage 001](canopy-storage/001-pack-object-storage.md) for measuring and bounding storage. The Arbor Sync architecture and user-directory/profile work still need their next outcomes defined; the list above deliberately does not prejudge those designs.
+[Reliability 007](reliability/007-reify-composable-canopy-conflicts.md) now owns the staged Wire, Canopy, migration, client, and native-review work. It stores Jujutsu-style ordered expressions over exact tree roots and treats paths/regions as derived views, so it does not depend on durable Markdown anchors. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) remains active for hard policy/exact-match and local divergence conflicts until Reliability 007's client rollout gate passes. The Arbor Sync architecture and user-directory/profile work still need their next outcomes defined; the list above deliberately does not prejudge those designs.
 
 ## Cleanups
 
@@ -70,6 +70,7 @@ This is work that fills out Arbor's product feature surface. It is useful and of
 ## Hardening, Efficiency, Polish, etc.
 
 - **Further reliability hardening**
+  - [Reliability 007 — Reify composable Canopy conflicts as algebraic tree states](reliability/007-reify-composable-canopy-conflicts.md) — **P1 · PLANNED.** Add a projected root plus an ordered exact-root merge expression; derive local regions under versioned rules, keep syncing through accepted conflicts, and resolve only exact reviewed state.
   - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **DEFERRED.** The race remains real, but it is not near-term work.
   - [Reliability 006 — Preview and resume initial working-tree bootstrap](reliability/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
   - **Explicit web-editor unload drain** — **WAITING on Native 022 Plan B.** App-controlled navigation already awaits the admission machine's flush; browser `beforeunload`/`pagehide` has no bounded drain and no visible pending state, which Reliability 005 left as a documented limitation. Add one or surface the limitation in the UI.
