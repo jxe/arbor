@@ -1014,6 +1014,7 @@ struct ArborSyncStatusView: View {
     let arborsyncProcessKind: ArborSyncProcessKind?
     let treeStatuses: [ArborTreeSyncStatus]
     let retrySave: () -> Void
+    let reviewDocumentConflict: () -> Void
     let syncNow: () -> Void
     let reviewConflict: (String) -> Void
     let reconnectArborSync: () -> Void
@@ -1037,7 +1038,9 @@ struct ArborSyncStatusView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 16)
-                        if diagnostic != nil {
+                        if binding?.conflict != nil {
+                            Button("Review Edit Conflict", systemImage: "exclamationmark.triangle", action: reviewDocumentConflict)
+                        } else if diagnostic != nil {
                             Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
                         } else {
                             Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
@@ -1061,6 +1064,11 @@ struct ArborSyncStatusView: View {
                 if binding?.isSaving == true || binding?.conflict != nil || diagnostic != nil {
                     Section("Current document") {
                         LabeledContent("Save status", value: saveStatus)
+                        if binding?.conflict != nil {
+                            Text("Your latest edits are still in this editor. Review the conflict to save them and resume synchronization.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
                         if let diagnostic {
                             Text("The latest edit remains in this session but has not reached durable provider storage. Retry before closing or navigating away.")
                                 .font(.caption)
@@ -1100,12 +1108,6 @@ struct ArborSyncStatusView: View {
                             Text("Last reported: \(sync.state.label). Arbor cannot verify that state while the provider connection is unavailable.")
                         } else if let detail = sync.detail {
                             Text(detail)
-                        }
-                        if sync.localAdditions {
-                            Text("Local changes are waiting to synchronize.")
-                        }
-                        if sync.remoteAdditions {
-                            Text("Remote changes are waiting to download.")
                         }
                         if sync.approximatePlacements > 0 {
                             Text("\(sync.approximatePlacements) change placements need review.")
@@ -1155,7 +1157,7 @@ struct ArborSyncStatusView: View {
         .contentShape(Rectangle())
     }
 
-    private var saveStatus: String {
+    var saveStatus: String {
         if binding?.isSaving == true { return "Saving" }
         if binding?.conflict != nil { return "Conflict needs a choice" }
         if binding?.lastError != nil { return "Latest edit not saved" }
@@ -1170,7 +1172,7 @@ struct ArborSyncStatusView: View {
         treeStatuses.filter { $0.condition != "Up to date" }.count
     }
 
-    private var overallStatusTitle: String {
+    var overallStatusTitle: String {
         if diagnostic != nil || binding?.conflict != nil { return "A document needs attention" }
         if sync.state != .current { return synchronizationLabel }
         if treesNeedingAttention == 1 { return "One tree needs attention" }

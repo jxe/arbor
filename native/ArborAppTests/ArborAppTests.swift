@@ -1,4 +1,5 @@
 import ArborKit
+import ArborQuagmire
 import ArborWire
 import Foundation
 import Quagmire
@@ -8,6 +9,34 @@ import Testing
 
 @MainActor
 struct ArborAppTests {
+    @Test("A current tree cannot hide a document conflict after continued typing")
+    func syncStatusRetainsDocumentConflict() async throws {
+        let session = StatusConflictSession()
+        let binding = try await ArborDocumentBinding.open(reference: session.reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: LinkPreviewService(cacheDirectory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+        )
+        for text in ["First edit", "Latest edit"] {
+            binding.document.transaction(name: "Edit") {
+                _ = binding.document.setText(binding.document.children[0].id, AttributedString(text))
+            }
+            host.persistCommit(changes: [], in: binding.document)
+            await binding.flush()
+        }
+        let status = ArborSyncStatusView(
+            provider: "Test", sync: .init(state: .current), binding: binding,
+            arborsyncProcessKind: nil,
+            treeStatuses: [.init(id: "tr_status", title: "Test", detail: "Test", condition: "Up to date", reviewableConflict: false)],
+            retrySave: {}, reviewDocumentConflict: {}, syncNow: {}, reviewConflict: { _ in },
+            reconnectArborSync: {}, showArborSyncLogs: {}
+        )
+        #expect(status.overallStatusTitle == "A document needs attention")
+        #expect(status.saveStatus == "Conflict needs a choice")
+        #expect(binding.conflict?.submittedSource.contains("Latest edit") == true)
+        await binding.close()
+    }
     @Test("History names Canopy as its unavailable authority")
     func canopyHistoryUnavailableCopy() {
         #expect(ArborHistoryView.title == "History")
@@ -700,4 +729,22 @@ struct ArborAppTests {
         await workspace.shutdown()
     }
 #endif
+}
+
+private actor StatusConflictSession: WorkspaceDocumentSession {
+    nonisolated let reference = WorkspaceReference(tree: "tr_status", path: "/")
+    nonisolated var identity: WorkspaceIdentity { reference.identity }
+    func snapshot() -> WorkspaceDocumentSnapshot {
+        .init(reference: reference, source: "Before\n", contentRevision: "r1")
+    }
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        throw WorkspaceDocumentConflict(
+            current: .init(reference: reference, source: "Remote\n", contentRevision: "r2"),
+            submittedSource: source
+        )
+    }
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { snapshot() }
+    func close() {}
 }

@@ -143,8 +143,14 @@ public final class ArborDocumentBinding {
         let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger)
         lastEnqueuedSource = admission.source
         ledger = nextLedger
-        conflict = nil
-        lastError = nil
+        // Editing does not resolve a blocked admission. Keep the warning and
+        // update its retained source so Review/Keep My Edit uses the latest
+        // generation, rather than the first edit that encountered the conflict.
+        if var conflict {
+            conflict.submittedSource = admission.source
+            self.conflict = conflict
+            pendingConflict = conflict
+        }
         dispatch(.edit(source: admission.source))
     }
 

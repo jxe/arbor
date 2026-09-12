@@ -1544,6 +1544,14 @@ struct ArborRootView: View {
             arborsyncProcessKind: workspace.arborsyncProcessKind,
             treeStatuses: syncTreeStatuses,
             retrySave: { Task { await model.retryDocumentSave() } },
+            reviewDocumentConflict: {
+                documentConflictExpanded = true
+#if os(macOS)
+                managementPresented = false
+#else
+                presentedSheet = nil
+#endif
+            },
             syncNow: { Task { await workspace.syncNow() } },
             reviewConflict: { tree in
 #if os(macOS)
