@@ -1,3 +1,4 @@
+import { objectReadError, reportObjectRead, type ObjectReadReporter } from "./object-read-diagnostics.ts";
 import { pendingTreeUpdate } from "@arbor/canopy-client";
 import { decodeObjectEnvelopes, hashObject, type ObjectHash, type WireClient } from "@arbor/wire";
 import type { Workspace } from "./workspace.ts";
@@ -12,6 +13,7 @@ export interface TreeObjectCacheDeps {
   clientFor(tree: string, origin?: string): Promise<WireClient | undefined>;
   /** Bounded bytes retained for fetched-through objects. */
   maxFetchedBytes?: number;
+  report?: ObjectReadReporter;
 }
 
 /** A small byte-bounded LRU keyed by object hash. */
@@ -54,8 +56,10 @@ class ByteLRU {
  */
 export class TreeObjectCache {
   private readonly fetched: ByteLRU;
+  private readonly report: ObjectReadReporter;
 
   constructor(private readonly deps: TreeObjectCacheDeps) {
+    this.report = deps.report ?? reportObjectRead;
     this.fetched = new ByteLRU(deps.maxFetchedBytes ?? 64 * 1024 * 1024);
   }
 
@@ -66,24 +70,37 @@ export class TreeObjectCache {
   }
 
   private async fromIndex(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
-    const workspace = await this.deps.workspaceFor(tree).catch(() => undefined);
+    const workspace = await this.deps.workspaceFor(tree).catch((error) => {
+      this.report(objectReadError({ source: "workspace", tree, hash }, error));
+      return undefined;
+    });
     if (!workspace) return undefined;
     return workspace.objects.bytes(hash, {
       boundaries: this.deps.boundariesFor(workspace),
       exclusions: this.deps.exclusionsFor(workspace),
       describe: (directory, name) => workspace.describeWireCollectionFile(directory, name),
+    }).catch((error) => {
+      this.report(objectReadError({ source: "filesystem", tree, hash }, error));
+      return undefined;
     });
   }
 
   private async fromPending(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
-    const pending = await pendingTreeUpdate(tree).catch(() => undefined);
+    const pending = await pendingTreeUpdate(tree).catch((error) => {
+      this.report(objectReadError({ source: "pending", tree, hash }, error));
+      return undefined;
+    });
     if (!pending) return undefined;
     const bodies = [pending, ...(pending.successors ?? [])];
     for (const body of bodies) {
       let envelopes: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
-      try { envelopes = decodeObjectEnvelopes(body.objects); } catch { continue; }
+      try { envelopes = decodeObjectEnvelopes(body.objects); } catch {
+        this.report({ source: "pending", reason: "invalid-data", tree, hash });
+        continue;
+      }
       const match = envelopes.find((object) => object.hash === hash);
       if (match && hashObject(match.bytes) === hash) return match.bytes;
+      if (match) this.report({ source: "pending", reason: "hash-mismatch", tree, hash });
     }
     return undefined;
   }
@@ -91,11 +108,20 @@ export class TreeObjectCache {
   private async fromCanopy(tree: string, hash: ObjectHash, origin?: string): Promise<Uint8Array | undefined> {
     const cached = this.fetched.get(hash);
     if (cached) return cached;
-    const client = await this.deps.clientFor(tree, origin).catch(() => undefined);
+    const client = await this.deps.clientFor(tree, origin).catch((error) => {
+      this.report(objectReadError({ source: "canopy-client", tree, hash }, error));
+      return undefined;
+    });
     if (!client) return undefined;
     let bytes: Uint8Array;
-    try { bytes = await client.object(tree, hash); } catch { return undefined; }
-    if (hashObject(bytes) !== hash) return undefined;
+    try { bytes = await client.object(tree, hash); } catch (error) {
+      this.report(objectReadError({ source: "canopy", tree, hash }, error));
+      return undefined;
+    }
+    if (hashObject(bytes) !== hash) {
+      this.report({ source: "canopy", reason: "hash-mismatch", tree, hash });
+      return undefined;
+    }
     this.fetched.set(hash, bytes);
     return bytes;
   }

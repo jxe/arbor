@@ -43,11 +43,13 @@ first gain an explicitly read-only file capability so it cannot become a second
 recovery writer. No further listener/process split is currently planned.
 
 Verification on 2026-09-13: typecheck, CLI build, protocol/Swift client checks,
-focused integration tests and the 50,000-file performance gate passed. The full
-product rerun passed 385 tests with one expanded-child-title failure; unchanged
-`683bb57` passed 381 with the identical failure. An initial filesystem watcher
-failure passed in its isolated suite and the full rerun. Standalone handler and
-filesystem-source tests cover the newly independent boundaries.
+focused integration tests and the 50,000-file performance gate passed. The test
+baseline is now green: 389 product tests pass. The physical-child fixture now
+respects filename/H1 summary titles while retaining frontmatter in snapshots;
+the peer-undo test waits for the page's exact revisions instead of counting
+unrelated directory events. Object-read diagnostics preserve fallback and expose
+safe failure classifications in local logs; see
+[diagnostics](local-system.md#object-read-diagnostics).
 
 
 ## Repository and runtimes

@@ -1,3 +1,4 @@
+import { objectReadError, type ObjectReadReporter } from "./object-read-diagnostics.ts";
 import { readFile } from "node:fs/promises";
 import { snapshotDirectory, type DescribeSnapshotCollectionFile, type SnapshotObjectIndex } from "@arbor/fs";
 import { ObjectIndex } from "@arbor/stores";
@@ -19,6 +20,7 @@ export class FilesystemObjectSource implements AsyncDisposable {
     exclusions: () => readonly string[];
     changed: (absolute: string) => void;
     revalidationMs: number;
+    report?: ObjectReadReporter;
   }) {
     this.rows = new ObjectIndex(databasePath);
     if (options.revalidationMs > 0) {
@@ -41,11 +43,18 @@ export class FilesystemObjectSource implements AsyncDisposable {
   async bytes(hash: ObjectHash, scope: FilesystemObjectScope): Promise<Uint8Array | undefined> {
     for (let attempt = 0; attempt < 8; attempt++) {
       const row = this.rows.lookupHash(hash);
-      if (!row) return undefined;
+      if (!row) {
+        this.options.report?.({ source: "filesystem", reason: "missing", hash });
+        return undefined;
+      }
       const bytes = row.kind === "file"
-        ? await readFile(row.path).catch(() => undefined)
+        ? await readFile(row.path).catch((error) => {
+          this.options.report?.(objectReadError({ source: "filesystem", hash, path: row.path }, error));
+          return undefined;
+        })
         : await this.directoryBytes(row.path, hash, scope);
       if (bytes && hashObject(bytes) === hash) return bytes;
+      if (bytes) this.options.report?.({ source: "filesystem", reason: "hash-mismatch", hash, path: row.path });
       this.rows.forgetObject(row.path);
     }
     return undefined;
@@ -64,8 +73,12 @@ export class FilesystemObjectSource implements AsyncDisposable {
       try {
         const snapshot = await snapshotDirectory(path, scope.boundaries, scope.exclusions, scope.describe, index);
         if (snapshot.root === expected) return await snapshot.objects.get(snapshot.root)!.bytes();
-      } catch { return undefined; }
+      } catch (error) {
+        this.options.report?.(objectReadError({ source: "filesystem", hash: expected, path }, error));
+        return undefined;
+      }
     }
+    this.options.report?.({ source: "filesystem", reason: "hash-mismatch", hash: expected, path });
     return undefined;
   }
 
@@ -88,7 +101,10 @@ export class FilesystemObjectSource implements AsyncDisposable {
       for (const path of this.rows.storedObjectPaths("file")) {
         if (!audited.has(path)) this.rows.forgetObject(path);
       }
-    })().finally(() => { this.audit = undefined; });
+    })().catch((error) => {
+      this.options.report?.(objectReadError({ source: "filesystem", path: this.root }, error));
+      throw error;
+    }).finally(() => { this.audit = undefined; });
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

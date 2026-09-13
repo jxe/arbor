@@ -138,6 +138,14 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
   };
 }
 
+/** HTTP failure with machine-readable status; the message retains existing diagnostics. */
+export class WireHTTPError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "WireHTTPError";
+  }
+}
+
 export class WireTransportError extends TypeError {
   override readonly cause: unknown;
 
@@ -171,7 +179,7 @@ export class WireClient {
     const body = await response.text();
     let envelope: ArborError | undefined;
     try { envelope = JSON.parse(body) as ArborError; } catch {}
-    throw new Error(`${response.url}: ${envelope?.error ?? response.status} ${envelope?.message ?? (body || response.statusText)}`);
+    throw new WireHTTPError(response.status, `${response.url}: ${envelope?.error ?? response.status} ${envelope?.message ?? (body || response.statusText)}`);
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {

@@ -81,7 +81,9 @@ describe("NodeProviderRouter conformance", () => {
       expect(page.items).toHaveLength(1);
       const summary = page.items[0]!;
       expect(summary.ref.path).toBe(item.child);
-      expect(summary.properties.title).toBe("One");
+      // Physical child labels use H1-or-filename; collection rows use their title property.
+      // The full snapshot below must still retain the authored frontmatter title.
+      expect(summary.properties.title).toBe(item.name === "expanded" ? "one" : "One");
       expect(summary.capabilities.properties?.revision).toBe(summary.revision);
 
       const key = item.keyed ? canonicalStableKey([["id", "one"]]) : null;

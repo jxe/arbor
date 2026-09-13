@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { revisionOf } from "@arbor/core";
 import { FsConflictError, FsInjectedCrashError, WorkspaceFS } from "@arbor/fs";
 
 const opened: WorkspaceFS[] = [];
@@ -300,9 +301,19 @@ describe("@arbor/fs logical nodes", () => {
     await writeFile(join(root, "page.md"), "---\nid: abc123\n---\nInitial\n");
     const fs = await WorkspaceFS.open(root, { stateDirectory: state, settleDelayMs: 250 });
     opened.push(fs);
-    const externalRevisions: string[] = [];
-    fs.subscribe((event) => {
-      if (event.classification === "external" && event.byteRevision) externalRevisions.push(event.byteRevision);
+    const observeRevision = (revision: string) => new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        unsubscribe();
+        reject(new Error(`No external /page observation for ${revision}`));
+      }, 2_000);
+      const unsubscribe = fs.subscribe((event) => {
+        // Native watchers may also report parent-directory changes. Only the
+        // edited page's revision establishes that its peer write was observed.
+        if (event.path !== "/page" || event.classification !== "external" || event.byteRevision !== revision) return;
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve();
+      });
     });
 
     const initial = await fs.read("/page");
@@ -310,15 +321,17 @@ describe("@arbor/fs logical nodes", () => {
       baseRevision: initial.byteRevision,
       source: "---\nid: abc123\n---\nAuthored\n",
     });
-    await new Promise((resolve) => setTimeout(resolve, 320));
+    await fs.drain();
 
-    await writeFile(join(root, "page.md"), "---\nid: abc123\n---\nPeer edit\n");
-    await new Promise((resolve) => setTimeout(resolve, 180));
+    const peerSource = "---\nid: abc123\n---\nPeer edit\n";
+    const peerObserved = observeRevision(revisionOf(peerSource));
+    await writeFile(join(root, "page.md"), peerSource);
+    await peerObserved;
+    // Do not undo until the first peer state has actually reached the watcher.
+    const undoObserved = observeRevision(authored.byteRevision);
     await writeFile(join(root, "page.md"), authored.bytes!);
-    await new Promise((resolve) => setTimeout(resolve, 180));
+    await undoObserved;
 
-    expect(externalRevisions).toHaveLength(2);
-    expect(externalRevisions[1]).toBe(authored.byteRevision);
     expect(await readFile(join(root, "page.md"), "utf8")).toContain("Authored");
   });
 

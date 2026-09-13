@@ -174,3 +174,19 @@ read. On a format change, the daemon archives old refs and sync journals beneath
 `.state/format-recovery/` before rebuilding indexes. Native direct replicas retain
 the old working tree and sync state beneath `FormatRecovery/` before rebootstrap.
 These archives are recovery evidence and are never replayed automatically.
+
+## Object-read diagnostics
+
+The local byte lookup still tries indexed filesystem bytes, durable pending
+objects and Canopy, in that order. A failed source may fall through to the next;
+only hash-verified bytes are returned. Unexpected failures are written to daemon
+logs with the `[arborsync:object-read]` prefix and structured source/reason fields.
+Permission denial, IO failure, network/HTTP failure, malformed pending data and
+hash mismatch remain distinguishable. Ordinary missing files and uncached old
+hashes do not produce warnings. Use `arbor daemon logs` to inspect these records.
+
+Records contain the requested hash, tree or local path where available, and
+safe error codes/HTTP status. They omit exception messages, response bodies,
+request URLs and credentials. This is local diagnostic evidence, not a change
+to the REST or Canopy Wire response contract. `WireHTTPError.status` lets local
+callers classify HTTP failures without parsing the human-readable message.

@@ -1,3 +1,4 @@
+import { reportObjectRead } from "./object-read-diagnostics.ts";
 import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
@@ -128,6 +129,7 @@ export class Workspace implements AsyncDisposable {
     this.objects = new FilesystemObjectSource(root, join(stateDirectory, "index.sqlite"), {
       exclusions: () => this.excludedRoots,
       revalidationMs: options.objectRevalidationMs ?? DEFAULT_OBJECT_REVALIDATION_MS,
+      report: (diagnostic) => reportObjectRead({ ...diagnostic, tree: this.tree }),
       changed: (absolute) => this.events.emit({
         tree: this.tree,
         kind: "diagnostic",
