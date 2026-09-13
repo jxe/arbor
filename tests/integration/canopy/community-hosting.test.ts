@@ -1,3 +1,5 @@
+import { CommunityConfigStore } from "@arbor/stores";
+import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -204,8 +206,8 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       await owner.submitUpdate(community.tree.id, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested)));
       expect(running.canopy.isReservedHandle("orphan")).toBe(false);
 
-      await service.claimCanopyAccount(`${new URL(running.url).origin}/~charlie`, profilePath, "Charlie");
-      const accounts = await service.accountList();
+      await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).claimCanopyAccount(`${new URL(running.url).origin}/~charlie`, profilePath, "Charlie");
+      const accounts = await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).accountList();
       expect(accounts).toHaveLength(1);
       const configurationTree = accounts[0]!.configurationTree;
       configurationTrees.push(configurationTree);
@@ -235,8 +237,8 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       const retainedPlacements = `${configurationTree}: {}\n`;
       await writeFile(join(home, "placements.yaml"), retainedPlacements);
 
-      await service.claimCanopyAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie");
-      const pluralAccounts = await service.accountList();
+      await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).claimCanopyAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie");
+      const pluralAccounts = await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).accountList();
       expect(pluralAccounts).toHaveLength(2);
       expect(new Set(pluralAccounts.map((account) => account.profileTree))).toEqual(new Set([localProfileTree]));
       expect(new Set(pluralAccounts.map((account) => account.handle))).toEqual(new Set(["charlie", "charlie-two"]));

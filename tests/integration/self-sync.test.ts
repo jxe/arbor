@@ -165,12 +165,12 @@ afterAll(async () => {
   await host.canopy[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateA;
   const cleanup = await serveArborSync(treeA, { port: 0 });
-  await cleanup.service.communityConfig.remove();
+  await new CommunityConfigStore().remove();
   cleanup.server.stop(true);
   await cleanup.service[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateB;
   const peerCleanup = await serveArborSync(bootstrapB, { port: 0 });
-  await peerCleanup.service.communityConfig.remove();
+  await new CommunityConfigStore().remove();
   peerCleanup.server.stop(true);
   await peerCleanup.service[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });

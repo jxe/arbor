@@ -1,5 +1,11 @@
 # Arbor implementation status
 
+Local Arbor Sync is internally decomposed into sync, account and browser handlers,
+a filesystem object source and a narrow connection provider. Its process,
+loopback API and disk formats remain unchanged; no file mirror was introduced.
+See [ownership](docs/reference-implementation.md#local-service-ownership).
+
+
 *Source snapshot reviewed: `a18bc7b` plus the reusable cloud-session implementation,
 2026-09-06. Check the current working tree and tests before relying on a status
 label.*

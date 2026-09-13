@@ -9,7 +9,6 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
 
 - Soak the deployed Wire format through [Arbor Sync 001](arborsync/001-file-bytes-are-the-object.md). Raw hashes, typed entries, and the [minimal conflict contract](_done/reliability/007-reify-composable-canopy-conflicts.md) are implemented; the coordinated history-reset migration and both client upgrades are complete.
-- Extract the local object store later through [Arbor Sync 002](arborsync/002-object-directory.md); revise its hardlink/retention design before execution.
 - Make sure Canopy storage is not unreasonably big.
 - Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
 
@@ -17,10 +16,9 @@ Conflict exploration, resolution, editor intent, and backend selection are defer
 
 ## Arbor Sync
 
-Carve the daemon into pieces with one clear owner each. The first two plans make the placed folder itself the content-addressable store; later pieces are not numbered until these have soaked.
+Carve the daemon into pieces with explicit state owners and independent service boundaries. Raw file hashing and the internal ownership split are implemented; later listener/process changes are optional.
 
-- [Arbor Sync 001 — File bytes are the object](arborsync/001-file-bytes-are-the-object.md) — **P1 · SOAKING.** Raw file hashes, typed entries, schema 7, and the live Mac/iPhone migration are complete; several days of ordinary use remain before 002.
-- [Arbor Sync 002 — The object directory](arborsync/002-object-directory.md) — **P1 · PLANNED; depends on Arbor Sync 001 and its soak.** New `@arbor/object-store` with an `ObjectDirectory` maintainer keeping `objects/<TreeID>/<hex>` equal to the placed folder through hardlinks; arborsync composes it; `GET /v1/objects` is deleted and the Mac reads the directory.
+- [Arbor Sync 001 — File bytes are the object](arborsync/001-file-bytes-are-the-object.md) — **P1 · SOAKING.** Raw file hashes, typed entries, schema 7, and the live Mac/iPhone migration are complete; ordinary-use soak remains before any further runtime cutover.
 
 ## Cleanups
 
@@ -41,7 +39,7 @@ Bounded deletion, simplification, and deduplication whose result is less tempora
 This is work that fills out Arbor's product feature surface. It is useful and often substantial, but is not near-term merely because an older plan carries a P1 product priority.
 
 - **Working-tree follow-ons** — The native working-tree transition is implemented and live; these plans restore surfaces deliberately left for later.
-  - [Native 023 — Rebuild the web editor on the working tree](native/023-rebuild-the-web-editor-on-the-working-tree.md) — **PLANNED; after the Native 022 soak and Arbor Sync 002.** Build TypeScript `@arbor/working-tree` as a twin of the Swift package (`@arbor/object-store` lands in Arbor Sync 002), pass the same fixture, and mount the Arbor web editor again on its own backend rather than the daemon's deleted object route.
+  - [Native 023 — Rebuild the web editor on the working tree](native/023-rebuild-the-web-editor-on-the-working-tree.md) — **PLANNED; after the Native 022 soak.** Build TypeScript `@arbor/working-tree` as a twin of the Swift package (including the browser-safe object-store interface), pass the same fixture, and mount the Arbor web editor again on its own backend using the retained sync object endpoint and explicit service discovery.
   - [Native 024 — Add disk editors for non-tree folders](native/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Native 023 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 - **Apps** — Make authored Arbor applications executable through complete product slices that freeze the shared compiler, runtime, hosting, and agent contracts. The implemented headless SQLite query, observation, and mutation phases are documented in [`@arbor/data`](../packages/data/README.md).
   - [Apps 001 — Run the unchanged Supplies tree locally, natively, and on Canopy](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003 and 004**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the unchanged [`examples/supplies`](../examples/supplies) corpus as executable documents in local Arbor web, signed macOS Arbor, and its canonical Canopy website.

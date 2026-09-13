@@ -11,9 +11,48 @@ This document records replaceable architecture and operating choices in the curr
 - [`@arbor/data`](../packages/data/README.md) — the implemented query, observation, and mutation runtime.
 - [Product-completion plans](../plans/README.md#product-completion) — compiler, presentation, activation, hosting, and agent work that remains.
 
+## Local service ownership
+
+Arbor Sync retains one process and the existing loopback API. `server.ts` supplies
+shared request protection/error handling and composes three handlers:
+
+| Owner | Modules in `packages/arborsync/src/` | Responsibilities |
+|---|---|---|
+| Sync | `sync-http.ts`, `service.ts` | Placement inventory/moves, bootstrap, events, pending updates, reconciliation, materialization and conflict recovery |
+| Account administration | `account-http.ts`, `account-service.ts` | Identity, credentials, accounts, claim/pair/forget through existing account bootstrap ports |
+| Browser | `browser-http.ts`, `local-files.ts` | Scoped file/raw/HEAD/range/ETag handling and the current web placeholder |
+| Filesystem objects | `filesystem-object-source.ts` | SQLite index lifecycle, verified file/directory reads, invalidation and uncached revalidation |
+| Sync connections | `sync-connections.ts` | Explicit account selection and credentials through the injectable `SyncConnections` interface |
+
+`ArborSyncDaemon` no longer implements account administration or browser-serving
+methods. `conflict-tree.ts` holds the pure tree operations used by sync-owned
+review. Observation, pending state, filesystem serialization and placement moves
+remain together. Account configuration YAML is still authored content edited by
+native/CLI tools and reconciled through ordinary folder sync.
+
+`TreeObjectCache` composes the filesystem source, durable pending objects and
+Canopy fallback in that order. File bytes remain in their existing files; the
+extraction adds no mirror or hardlinks and changes no persistence format.
+`Workspace` delegates index ownership, invalidation and audit disposal to the
+filesystem source, supplying scope and diagnostic callbacks. The source does not
+import Workspace, network clients or pending state.
+
+Browser handling is independently testable, but has not moved to another process.
+Its current filesystem read can reconcile recovery journals; a separate host must
+first gain an explicitly read-only file capability so it cannot become a second
+recovery writer. No further listener/process split is currently planned.
+
+Verification on 2026-09-13: typecheck, CLI build, protocol/Swift client checks,
+focused integration tests and the 50,000-file performance gate passed. The full
+product rerun passed 385 tests with one expanded-child-title failure; unchanged
+`683bb57` passed 381 with the identical failure. An initial filesystem watcher
+failure passed in its isolated suite and the full rerun. Standalone handler and
+filesystem-source tests cover the newly independent boundaries.
+
+
 ## Repository and runtimes
 
-The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arborsync HTTP service, stores and private state, shared wire objects/protocol/client code, Canopy server behavior, CLI, server rendering, and the Arbor web React application. `@arbor/wire` has no server or database dependency; the single-process `@arbor/canopy` package depends on it and owns hosting, accepted-update storage, access, claims, and merging. Inside the arborsync daemon, the read-only `system:` tree projection (`system-tree.ts`), account claim and pairing bootstrap (`account-bootstrap.ts`), and generated tree type declarations (`generated-types.ts`) are separate modules behind the daemon's public methods.
+The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arborsync HTTP service, stores and private state, shared wire objects/protocol/client code, Canopy server behavior, CLI, server rendering, and the Arbor web React application. `@arbor/wire` has no server or database dependency; the single-process `@arbor/canopy` package depends on it and owns hosting, accepted-update storage, access, claims, and merging. The local HTTP listener composes independently owned sync, account and browser handlers; see the ownership map above.
 
 The Apple reference client is a set of Foundation-only Swift 6 packages under `native/Packages` (see [Package boundaries](#package-boundaries)); `ArborSyncClient` is the loopback REST client. Native Arbor and Hunch integrate those packages without making SwiftUI, Clamshell, actor structure, `URLSession`, or package paths part of REST v1.
 

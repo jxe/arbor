@@ -31,6 +31,10 @@ unavailable until Plan B** rebuilds it as a working-tree client; app routes
 serve a short notice instead of the bundle, while static hosting of tree files
 at OS-shaped routes (§6) continues.
 
+The reference listener dispatches to separate sync, account and browser handlers.
+This internal decomposition does not change route names, responses, credentials,
+ports or client discovery; see [local service ownership](reference-implementation.md#local-service-ownership).
+
 ## 1. Shared values
 
 REST v1 reuses the portable model, read, locator, access, update, and

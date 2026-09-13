@@ -37,7 +37,6 @@ import {
   type FsWriteResult,
   MutationJournal,
   type SnapshotObjectIndex,
-  snapshotDirectory,
   type WorkspaceDiscovery,
   WorkspaceFS,
 } from "@arbor/fs";
@@ -45,9 +44,9 @@ import { mintPageID, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import {
   ProjectionProviderError,
   type ProjectionWriteTarget,
-  ObjectIndex,
   workspaceState,
 } from "@arbor/stores";
+import { FilesystemObjectSource } from "./filesystem-object-source.ts";
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
@@ -97,7 +96,7 @@ export class Workspace implements AsyncDisposable {
   readonly fs: WorkspaceFS;
   readonly mutations: MutationJournal;
   private stateDirectory: string;
-  private index: ObjectIndex;
+  readonly objects: FilesystemObjectSource;
   private surface: FilesystemNodeSurface;
   private provider: NodeProviderRouter;
   private idOwners = new Map<string, string>();
@@ -111,10 +110,8 @@ export class Workspace implements AsyncDisposable {
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribeFS: () => void;
   private faultInjector?: WorkspaceOptions["faultInjector"];
-  private objectRevalidationTimer?: ReturnType<typeof setInterval>;
-  private objectRevalidation?: Promise<void>;
 
-  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, index: ObjectIndex, options: WorkspaceOptions) {
+  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, options: WorkspaceOptions) {
     this.root = root;
     this.events = options.events ?? new EventBus();
     this.tree = options.tree ?? `rt_${sha256(root).slice(0, 10)}`;
@@ -126,14 +123,18 @@ export class Workspace implements AsyncDisposable {
     this.stateDirectory = stateDirectory;
     this.fs = fs;
     this.mutations = new MutationJournal(join(stateDirectory, "journal", "mutations"));
-    this.index = index;
     this.faultInjector = options.faultInjector;
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
-    const revalidationMs = options.objectRevalidationMs ?? DEFAULT_OBJECT_REVALIDATION_MS;
-    if (revalidationMs > 0) {
-      this.objectRevalidationTimer = setInterval(() => { void this.revalidateObjectIndex().catch(() => {}); }, revalidationMs);
-      this.objectRevalidationTimer.unref?.();
-    }
+    this.objects = new FilesystemObjectSource(root, join(stateDirectory, "index.sqlite"), {
+      exclusions: () => this.excludedRoots,
+      revalidationMs: options.objectRevalidationMs ?? DEFAULT_OBJECT_REVALIDATION_MS,
+      changed: (absolute) => this.events.emit({
+        tree: this.tree,
+        kind: "diagnostic",
+        ref: this.mutationRef(nodePathFromPhysical(toTreePath(this.root, absolute))),
+        origin: "sync",
+      }),
+    });
     this.surface = new FilesystemNodeSurface({
       tree: this.tree,
       enclosingTree: () => this.descriptor(),
@@ -175,8 +176,7 @@ export class Workspace implements AsyncDisposable {
       excludedRoots: options.excludedRoots,
     });
     const discovery = fs.startupDiscovery();
-    const index = new ObjectIndex(join(stateDirectory, "index.sqlite"));
-    const workspace = new Workspace(fs.root, stateDirectory, fs, index, {
+    const workspace = new Workspace(fs.root, stateDirectory, fs, {
       ...options,
       tree: options.tree ?? state.identity.rootID,
       displayName: options.displayName ?? await rootDisplayName(fs.root),
@@ -189,51 +189,10 @@ export class Workspace implements AsyncDisposable {
     return workspace;
   }
 
-  /** The object-store rows that `snapshotDirectory` reads and writes for this root. */
-  objectIndex(): SnapshotObjectIndex {
-    return {
-      fileHash: (absolute, info) => this.index.objectRow(absolute, info)?.hash,
-      remember: (absolute, kind, info, hash) => this.index.rememberObject(absolute, kind, info, hash),
-    };
-  }
+  /** Snapshot walkers share the filesystem source's single index. */
+  objectIndex(): SnapshotObjectIndex { return this.objects.index(); }
 
-  /** Direct access for hash lookups by the object cache. */
-  objectRows(): Pick<ObjectIndex, "lookupHash" | "forgetObject" | "storedObjectHash"> {
-    return this.index;
-  }
-
-  /**
-   * Recompute every file hash with an uncached walk, report each row that
-   * disagrees as a diagnostic event, and rewrite the row. Concurrent calls
-   * share one walk.
-   */
-  revalidateObjectIndex(): Promise<void> {
-    return this.objectRevalidation ??= (async () => {
-      const audited = new Set<string>();
-      const auditor: SnapshotObjectIndex = {
-        fileHash: () => undefined,
-        remember: (absolute, kind, info, hash) => {
-          if (kind !== "file") return;
-          audited.add(absolute);
-          const stored = this.index.storedObjectHash(absolute);
-          if (stored && stored.kind === "file" && stored.hash !== hash) {
-            this.events.emit({
-              tree: this.tree,
-              kind: "diagnostic",
-              ref: this.mutationRef(nodePathFromPhysical(toTreePath(this.root, absolute))),
-              origin: "sync",
-            });
-          }
-          this.index.rememberObject(absolute, "file", info, hash);
-        },
-      };
-      // Boundaries only shape directory objects, so the plain walk audits file rows exactly.
-      await snapshotDirectory(this.root, new Map(), this.excludedRoots, undefined, auditor);
-      for (const path of this.index.storedObjectPaths("file")) {
-        if (!audited.has(path)) this.index.forgetObject(path);
-      }
-    })().finally(() => { this.objectRevalidation = undefined; });
-  }
+  revalidateObjectIndex(): Promise<void> { return this.objects.revalidate(); }
 
   descriptor(): LocalTreeDescriptor {
     return {
@@ -948,11 +907,9 @@ export class Workspace implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
-    if (this.objectRevalidationTimer) clearInterval(this.objectRevalidationTimer);
-    if (this.objectRevalidation) await this.objectRevalidation.catch(() => {});
     for (const timer of this.healingTimers.values()) clearTimeout(timer);
     this.unsubscribeFS();
-    this.index.close();
+    await this.objects[Symbol.asyncDispose]();
     await this.provider[Symbol.asyncDispose]();
     await this.fs[Symbol.asyncDispose]();
   }
@@ -1030,9 +987,7 @@ export class Workspace implements AsyncDisposable {
       // A watcher event can arrive after dispose closed the index; a missed
       // forget is harmless because the stat tuple no longer matches.
       try {
-        this.index.forgetObject(absolute);
-        this.index.forgetObject(`${absolute}.md`);
-        this.index.forgetObject(join(absolute, "_index.md"));
+        this.objects.invalidate([absolute, `${absolute}.md`, join(absolute, "_index.md")]);
       } catch {}
     }
   }

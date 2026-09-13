@@ -1,32 +1,27 @@
+import { localSyncConnections, type SyncConnections } from "./sync-connections.ts";
+import { conflictContent, replaceConflictTarget } from "./conflict-tree.ts";
+import { LocalFileService } from "./local-files.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
   Hash,
   MutationReceipt,
-  NodeRef,
   LocalTreeDescriptor,
   LocatorResolution,
   SnapshotEnvelope,
-  SyncConflictContent,
   SyncConflictResolution,
   SyncConflictWorkspace,
 } from "@arbor/core";
-import { SYSTEM_TREE, canonicalNodePath, normalizeTreePath, siblingMarkdownTreePath } from "@arbor/core";
+import { SYSTEM_TREE, canonicalNodePath } from "@arbor/core";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 import {
-  CanopyAccountStore,
-  CommunityConfigStore,
-  ProfileIdentityStore,
-  listLocalAccounts,
   loadLocalPlacements,
   replaceLocalPlacement,
-  type LocalAccountSummary,
   type LocalPlacement,
   type SharedTreePlacement,
 } from "@arbor/stores";
-import { WireClient, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, encodeWireDirectory, hashObject, updateRequestDigests, verifyTreeSnapshotGraph, type CandidateUpdateJSON, type LazyTreeSnapshot, type ObjectHash, type WireEntryKind, type RemoteTreeDescriptor, type TreeSnapshot, type UpdateRequest } from "@arbor/wire";
-import { accountWireClient, type AccountSelector, type AccountWireClient } from "@arbor/canopy-client";
-import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "@arbor/canopy-client";
+import { WireClient, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, updateRequestDigests, verifyTreeSnapshotGraph, type CandidateUpdateJSON, type LazyTreeSnapshot, type ObjectHash, type RemoteTreeDescriptor, type UpdateRequest } from "@arbor/wire";
+import { resolveUserPath } from "@arbor/canopy-client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import {
@@ -48,36 +43,6 @@ import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts"
 
 export { resolveUserPath } from "@arbor/canopy-client";
 
-/** A logical path inside one placed or session workspace. */
-interface ResolvedScope {
-  workspace: Workspace;
-  ref: NodeRef;
-}
-
-function isSystemError(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === "object" && error !== null && "code" in error;
-}
-
-/** The real OS path for a logical path, resolving the longest existing prefix. */
-async function realOsPath(inputPath: string): Promise<string> {
-  const path = normalizeTreePath(inputPath);
-  let prefix = path;
-  let remainder = "";
-  while (prefix !== "/") {
-    try {
-      const real = await realpath(prefix);
-      return `${real}${remainder}`;
-    } catch (error) {
-      if (isSystemError(error) && (error.code === "EACCES" || error.code === "EPERM")) {
-        throw new ProtocolError("permission-denied", `The operating system denied access to ${inputPath}`, 403, { path: inputPath });
-      }
-      remainder = `/${basename(prefix)}${remainder}`;
-      prefix = dirname(prefix);
-    }
-  }
-  return `${remainder}` || "/";
-}
-
 /** What a loopback client needs to open a placed tree as its own working tree. */
 export interface TreeBootstrap {
   tree: LocalTreeDescriptor;
@@ -93,6 +58,7 @@ export interface TreeBootstrap {
 }
 
 export interface ArborSyncDaemonOptions {
+  connections?: SyncConnections;
   autoSync?: boolean;
   /**
    * Fallback reconciliation interval. Live Wire watches drive synchronization;
@@ -104,107 +70,6 @@ export interface ArborSyncDaemonOptions {
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
-type ConflictTarget = { kind: "object"; hash: ObjectHash; objectKind: WireEntryKind } | { kind: "boundary"; tree: string } | { kind: "missing" };
-
-function conflictPath(path: string): string[] {
-  if (!path.startsWith("/")) throw new Error("Conflict path is not absolute");
-  if (path === "/") return [];
-  const parts = path.slice(1).split("/");
-  if (parts.some((part) => !part || part === "." || part === "..")) throw new Error("Conflict path is invalid");
-  return parts;
-}
-
-function conflictTarget(snapshot: TreeSnapshot, path: string): ConflictTarget {
-  verifyTreeSnapshotGraph(snapshot);
-  const parts = conflictPath(path);
-  if (!parts.length) return { kind: "object", hash: snapshot.root, objectKind: "directory" };
-  let hash = snapshot.root;
-  for (const [index, part] of parts.entries()) {
-    const bytes = snapshot.objects.get(hash);
-    if (!bytes) throw new Error(`Conflict snapshot is missing object: ${hash}`);
-    const object = decodeWireDirectory(bytes);
-    if (object.type !== "directory") return { kind: "missing" };
-    const entry = object.entries.find((candidate) => candidate.name === part);
-    if (!entry) return { kind: "missing" };
-    if (index === parts.length - 1) {
-      if (entry.tree) return { kind: "boundary", tree: entry.tree };
-      return entry.file || entry.directory ? { kind: "object", hash: (entry.file ?? entry.directory)!, objectKind: entry.file ? "file" : "directory" } : { kind: "missing" };
-    }
-    if (!entry.directory) return { kind: "missing" };
-    hash = entry.directory;
-  }
-  return { kind: "missing" };
-}
-
-function conflictContent(snapshot: TreeSnapshot, path: string): SyncConflictContent {
-  const target = conflictTarget(snapshot, path);
-  if (target.kind === "missing") return { kind: "missing" };
-  if (target.kind === "boundary") return { kind: "boundary", tree: target.tree };
-  const bytes = snapshot.objects.get(target.hash);
-  if (!bytes) throw new Error(`Conflict snapshot is missing object: ${target.hash}`);
-  if (target.objectKind === "directory") return { kind: "directory", entries: decodeWireDirectory(bytes).entries.map((entry) => entry.name) };
-  try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) }; }
-  catch { return { kind: "binary", bytes: Buffer.from(bytes).toString("base64") }; }
-}
-
-function replaceConflictTarget(destination: TreeSnapshot, path: string, source: TreeSnapshot, editedText?: string): TreeSnapshot {
-  verifyTreeSnapshotGraph(destination);
-  verifyTreeSnapshotGraph(source);
-  const replacement = editedText === undefined
-    ? conflictTarget(source, path)
-    : (() => {
-        const bytes = new TextEncoder().encode(editedText);
-        return { kind: "object", hash: hashObject(bytes), objectKind: "file", bytes } as const;
-      })();
-  const parts = conflictPath(path);
-  const objects = new Map(destination.objects);
-  for (const [hash, bytes] of source.objects) objects.set(hash, bytes);
-  if ("bytes" in replacement) objects.set(replacement.hash, replacement.bytes);
-  if (!parts.length) {
-    if (replacement.kind !== "object") throw new Error("The tree root cannot be removed or become a boundary");
-    return reachableSnapshot(replacement.hash, objects);
-  }
-  const rewrite = (directoryHash: ObjectHash, depth: number): ObjectHash => {
-    const bytes = objects.get(directoryHash);
-    if (!bytes) throw new Error(`Conflict snapshot is missing object: ${directoryHash}`);
-    const directory = decodeWireDirectory(bytes);
-    if (directory.type !== "directory") throw new Error("Conflict path parent is not a directory");
-    const name = parts[depth]!;
-    const entries = directory.entries.filter((entry) => entry.name !== name);
-    if (depth === parts.length - 1) {
-      if (replacement.kind === "object") entries.push(replacement.objectKind === "file" ? { name, file: replacement.hash } : { name, directory: replacement.hash });
-      if (replacement.kind === "boundary") entries.push({ name, tree: replacement.tree });
-    } else {
-      const prior = directory.entries.find((entry) => entry.name === name);
-      if (!prior?.directory) throw new Error("Conflict path parent is missing");
-      entries.push({ name, directory: rewrite(prior.directory, depth + 1) });
-    }
-    entries.sort((left, right) => compareWireNames(left.name, right.name));
-    const next = encodeWireDirectory({ type: "directory", entries, ...(directory.childrenSource ? { childrenSource: directory.childrenSource } : {}) });
-    const nextHash = hashObject(next);
-    objects.set(nextHash, next);
-    return nextHash;
-  };
-  return reachableSnapshot(rewrite(destination.root, 0), objects);
-}
-
-function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<ObjectHash, Uint8Array>): TreeSnapshot {
-  const objects = new Map<ObjectHash, Uint8Array>();
-  const visit = (hash: ObjectHash, kind: "file" | "directory") => {
-    if (objects.has(hash)) return;
-    const bytes = available.get(hash);
-    if (!bytes) throw new Error(`Retained conflict candidate is missing object: ${hash}`);
-    objects.set(hash, bytes);
-    if (kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
-      if (entry.directory) visit(entry.directory, "directory");
-      if (entry.file) visit(entry.file, "file");
-    }
-  };
-  visit(root, "directory");
-  return verifyTreeSnapshotGraph({ root, objects });
-}
-
-/** Directory entries classify children; only directories and Markdown enter the spine. */
 async function sparseSpine(_root: string, lazy: LazyTreeSnapshot): Promise<{ spine: string }> {
   const spine = new Map<ObjectHash, Uint8Array>();
   const visit = async (hash: ObjectHash): Promise<void> => {
@@ -238,7 +103,7 @@ async function sparseSpine(_root: string, lazy: LazyTreeSnapshot): Promise<{ spi
 export class ArborSyncDaemon implements AsyncDisposable {
   readonly events: EventBus;
   readonly trees: TreeManager;
-  readonly communityConfig = new CommunityConfigStore();
+  private readonly connections: SyncConnections;
   private syncTimer?: ReturnType<typeof setInterval>;
   private syncStartupTimer?: ReturnType<typeof setTimeout>;
   private placementMoving = false;
@@ -248,15 +113,18 @@ export class ArborSyncDaemon implements AsyncDisposable {
   private syncWaiters: Array<() => void> = [];
   private workspaceIOTails = new Map<string, Promise<void>>();
   private readonly treeSync: TreeSynchronizer<Workspace>;
+  private readonly files: LocalFileService;
   private readonly objectCache: TreeObjectCache;
 
   private constructor(events: EventBus, trees: TreeManager, options: ArborSyncDaemonOptions = {}) {
+    this.connections = options.connections ?? localSyncConnections();
+    this.files = new LocalFileService(trees);
     this.events = events;
     this.trees = trees;
     this.treeSync = new TreeSynchronizer<Workspace>({
       trees,
       events,
-      accountToken: (placement) => this.accountToken(placement),
+      accountToken: (placement) => this.connections.tokenFor(placement),
       withWorkspaceIO: (workspace, run) => this.withWorkspaceIO(workspace, run),
       snapshotWorkspace: (workspace, client, remoteTrees) => this.snapshotWorkspace(workspace, client, remoteTrees),
       requestSync: () => this.syncAll(),
@@ -326,32 +194,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return response;
   }
 
-  /**
-   * The account credential for a configuration tree. Serving it over loopback
-   * is deliberate: any local process with the user's filesystem access can
-   * already read the credential store and write the placed folders, so this
-   * exposes no new authority (documented in `docs/local-system.md`).
-   */
-  async credentialToken(configurationTree?: string): Promise<string> {
-    let token: string | undefined;
-    if (configurationTree) {
-      let store: CanopyAccountStore;
-      try { store = new CanopyAccountStore(configurationTree); }
-      catch { throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400); }
-      token = (await store.get())?.accountToken;
-    } else {
-      const accounts = await CanopyAccountStore.list();
-      if (accounts.length > 1) {
-        throw new ProtocolError("invalid-request", "credential requires an explicit configurationTree when several accounts are connected", 400);
-      }
-      token = accounts.length === 1
-        ? (await new CanopyAccountStore(accounts[0]!.configurationTree).get())?.accountToken
-        : (await this.communityConfig.get())?.accountToken;
-    }
-    if (!token) throw new ProtocolError("not-found", "No account credential is available", 404);
-    return token;
-  }
-
   private startAutoSync(syncIntervalMs?: number): void {
     if (this.syncTimer) return;
     this.syncTimer = setInterval(() => {
@@ -371,19 +213,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
    * The multiplexer: every Canopy pass-through picks the claimed account
    * whose address contains the target and forwards with that credential.
    */
-  private wireFor(selector: AccountSelector, options: { required?: boolean } = {}): Promise<AccountWireClient> {
-    return accountWireClient(selector, { communityConfig: this.communityConfig, timeoutMs: WIRE_SYNC_TIMEOUT_MS, ...options });
-  }
-
-  private async accountToken(placement: SharedTreePlacement): Promise<string | undefined> {
-    const selected = await this.wireFor({ configurationTree: placement.configurationTree, origin: placement.endpoint });
-    if (!selected.authenticated) return undefined;
-    if (selected.configurationTree) return (await new CanopyAccountStore(selected.configurationTree).get())?.accountToken;
-    return (await this.communityConfig.get())?.accountToken;
-  }
-
   private async accountClient(placement: SharedTreePlacement): Promise<WireClient> {
-    return (await this.wireFor({ configurationTree: placement.configurationTree, origin: placement.endpoint })).client;
+    return (await this.connections.wireFor({ configurationTree: placement.configurationTree, origin: placement.endpoint })).client;
   }
 
   static async open(
@@ -425,33 +256,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
    * Resolve an OS-shaped path into its owning workspace, canonicalizing
    * through canonical and reader-local mounts. Null when no live root owns it.
    */
-  private async resolveScope(inputPath: string): Promise<ResolvedScope | null> {
-    const canonical = canonicalNodePath(inputPath);
-    const real = await realOsPath(canonical);
-    const owner = await this.trees.ownerOf(real);
-    if (owner) {
-      const mounted = this.trees.reservedBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath))
-        ?? this.trees.localMountBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath));
-      if (mounted) {
-        const mountedWorkspace = await this.trees.workspaceByTree(mounted.tree);
-        if (mountedWorkspace) {
-          return { workspace: mountedWorkspace, ref: { tree: mounted.tree, path: mounted.treePath, stableKey: null } };
-        }
-      }
-      return { workspace: owner.workspace, ref: { tree: owner.workspace.tree, path: canonicalNodePath(owner.treePath), stableKey: null } };
-    }
-    // A Markdown node's physical representation is its `.md` sibling; a
-    // symlinked sibling can land the logical node inside a live root.
-    if (canonical !== "/") {
-      const realSibling = await realOsPath(siblingMarkdownTreePath(canonical)).catch(() => null);
-      const siblingOwner = realSibling ? await this.trees.ownerOf(realSibling) : null;
-      if (siblingOwner && siblingOwner.treePath.endsWith(".md")) {
-        return { workspace: siblingOwner.workspace, ref: { tree: siblingOwner.workspace.tree, path: canonicalNodePath(siblingOwner.treePath), stableKey: null } };
-      }
-    }
-    return null;
-  }
-
   async treeList(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
     const descriptors = await this.trees.descriptors();
     return {
@@ -466,7 +270,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   async resolveLocator(locator: string): Promise<LocatorResolution> {
     if (!/^(?:https?|arbor):\/\//.test(locator)) {
       const absolute = resolveUserPath(locator);
-      const scope = await this.resolveScope(absolute);
+      const scope = await this.files.resolveScope(absolute);
       if (!scope) throw new ProtocolError("not-found", `Path is not inside a placed tree: ${absolute}`, 404, { path: absolute });
       const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === scope.workspace.tree);
       return { ref: scope.ref, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
@@ -483,7 +287,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       ? `${parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "http" : "https"}://${parsed.host}`
       : parsed.origin;
     const path = `/${parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
-    const resolution = await (await this.wireFor({ origin })).client.resolve(path || "/");
+    const resolution = await (await this.connections.wireFor({ origin })).client.resolve(path || "/");
     const local = (await this.trees.descriptors()).find((tree) => tree.id === resolution.ref.tree);
     return { ...resolution, ...(local ? { enclosingTree: local } : {}) };
   }
@@ -500,55 +304,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
     } finally {
       if (this.workspaceIOTails.get(key) === tail) this.workspaceIOTails.delete(key);
     }
-  }
-
-  /**
-   * Resolve a tree-rooted byte path in the scope of the referring
-   * document. The DOM resolves authored tree-rooted spellings (assets)
-   * against the origin; the referrer's enclosing root supplies the tree.
-   */
-  async fileSurfaceInScopeOf(
-    referrerUrlPath: string,
-    treeRootedPath: string,
-    raw: boolean,
-  ): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
-    try {
-      const scope = await this.resolveScope(referrerUrlPath);
-      if (!scope) return null;
-      return await scope.workspace.fileSurface(treeRootedPath, raw);
-    } catch {
-      return null;
-    }
-  }
-
-  /** The byte surface for an OS-shaped URL path, dispatched into its owning root. */
-  async fileSurface(urlPath: string, raw: boolean): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
-    let scope: ResolvedScope | null;
-    try {
-      scope = await this.resolveScope(urlPath);
-    } catch {
-      return null;
-    }
-    if (!scope) return null;
-    return scope.workspace.fileSurface(scope.ref.path, raw).catch(() => null);
-  }
-
-  async claimCanopyAccount(account: string, inputPath: string, displayName?: string): Promise<MutationReceipt["effects"]> {
-    return claimCanopyAccountBootstrap(this, account, inputPath, displayName);
-  }
-
-  async profileIdentity() {
-    return new ProfileIdentityStore().status();
-  }
-
-  async createProfileIdentity(inputPath: string) {
-    const result = await new ProfileIdentityStore().create(resolveUserPath(inputPath));
-    this.trees.invalidateDescriptors();
-    return result;
-  }
-
-  async forgetLocalAccount(): Promise<void> {
-    return forgetLocalAccount(this);
   }
 
   /** Flush a valid file-edited configuration and its resulting tree work before a CLI process exits. */
@@ -677,14 +432,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /** The claimed accounts of this data home; the projection lives in `@arbor/stores` so the CLI can read it directly. */
-  async accountList(): Promise<LocalAccountSummary[]> {
-    return listLocalAccounts(this.communityConfig);
-  }
-
-  async createPairingBootstrap(configurationTree?: string) {
-    return createPairingBootstrap(this, configurationTree);
-  }
-
   private async conflictReviewMaterial(tree: string) {
     const conflict = await treeConflict(tree);
     if (!conflict) throw new ProtocolError("not-found", `Tree has no stored synchronization conflict: ${tree}`, 404);

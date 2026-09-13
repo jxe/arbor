@@ -6,7 +6,6 @@
   synchronized-client cutover, and both client upgrades are complete.
 - **Priority:** first, alongside the minimal Wire contract in
   [Reliability 007](../_done/reliability/007-reify-composable-canopy-conflicts.md).
-- **Followed by:** [Arbor Sync 002](002-object-directory.md), after cutover and soak.
 - Joe authorized implementation and resetting accepted history, conditional on
   every participating client being synchronized. Do not reset unverified data.
 
@@ -41,8 +40,8 @@ old refs and sync journals before rebuilding indexes. Native working-tree format
 copies never replay automatically against reset history. Exact authored files,
 TreeIDs, placement paths, account identities, and credentials survive.
 
-The object-directory port changes and hardlink behavior belong to 002; they are
-not prerequisites for the public Wire change. Snapshot and integrity operations
+The internal service decomposition is implemented separately from the public
+Wire change. The earlier hardlink-directory proposal is retired. Snapshot and integrity operations
 still read file payloads when they must return or verify those bytes; typed graph
 traversal no longer decodes files to classify them.
 
@@ -81,7 +80,7 @@ Follow [Migration 005](../../migrations/005-file-bytes-are-the-object/README.md)
    Match roots to the rehearsal report, verify exact bytes again, and exercise an
    edit round trip. An absent client cannot publish until rebootstrap.
 5. Soak for several days on both platforms. Record dates and evidence before
-   starting 002.
+   marking this soak complete.
 
 Stop cutover on any unsynchronized client, corrupt/missing object, content or
 boundary mismatch, failed verification, or unexplained root difference.

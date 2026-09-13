@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises";
 import { pendingTreeUpdate } from "@arbor/canopy-client";
-import { snapshotDirectory, type DescribeSnapshotCollectionFile, type SnapshotObjectIndex } from "@arbor/fs";
 import { decodeObjectEnvelopes, hashObject, type ObjectHash, type WireClient } from "@arbor/wire";
 import type { Workspace } from "./workspace.ts";
 
@@ -70,50 +68,11 @@ export class TreeObjectCache {
   private async fromIndex(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
     const workspace = await this.deps.workspaceFor(tree).catch(() => undefined);
     if (!workspace) return undefined;
-    const rows = workspace.objectRows();
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const row = rows.lookupHash(hash);
-      if (!row) return undefined;
-      const bytes = row.kind === "file"
-        ? await this.encodeFile(row.path)
-        : await this.encodeDirectory(workspace, row.path, hash);
-      if (bytes && hashObject(bytes) === hash) return bytes;
-      rows.forgetObject(row.path);
-    }
-    return undefined;
-  }
-
-  private async encodeFile(path: string): Promise<Uint8Array | undefined> {
-    try {
-      return await readFile(path);
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async encodeDirectory(workspace: Workspace, path: string, expected: ObjectHash): Promise<Uint8Array | undefined> {
-    const boundaries = this.deps.boundariesFor(workspace);
-    const exclusions = this.deps.exclusionsFor(workspace);
-    const describe: DescribeSnapshotCollectionFile = (directory, name) => workspace.describeWireCollectionFile(directory, name);
-    const rows = workspace.objectRows();
-    const cachedIndex: SnapshotObjectIndex = {
-      ...workspace.objectIndex(),
-      directoryHash: (absolute) => {
-        const stored = rows.storedObjectHash(absolute);
-        return stored?.kind === "directory" ? stored.hash : undefined;
-      },
-    };
-    // First adopt child directory rows without recursing; if the produced
-    // object does not verify, a real walk of the subtree repairs the rows.
-    for (const index of [cachedIndex, workspace.objectIndex()]) {
-      try {
-        const snapshot = await snapshotDirectory(path, boundaries, exclusions, describe, index);
-        if (snapshot.root === expected) return await snapshot.objects.get(snapshot.root)!.bytes();
-      } catch {
-        return undefined;
-      }
-    }
-    return undefined;
+    return workspace.objects.bytes(hash, {
+      boundaries: this.deps.boundariesFor(workspace),
+      exclusions: this.deps.exclusionsFor(workspace),
+      describe: (directory, name) => workspace.describeWireCollectionFile(directory, name),
+    });
   }
 
   private async fromPending(tree: string, hash: ObjectHash): Promise<Uint8Array | undefined> {
