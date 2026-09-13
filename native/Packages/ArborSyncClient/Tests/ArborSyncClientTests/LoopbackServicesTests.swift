@@ -46,7 +46,6 @@ struct LoopbackServicesTests {
         #expect(bootstrap.pending == nil)
         #expect(bootstrap.blocked == nil)
         #expect(bootstrap.observedThrough == "1f8b3c6d-observed:7")
-        #expect(bootstrap.files["/photo.bin"] == TreeBootstrapFile(size: 5, mtime: 1_725_192_000_000))
 
         // The spine is sparse: the root directory and the Markdown object are present,
         // the binary is referenced by hash only.
@@ -85,18 +84,11 @@ struct LoopbackServicesTests {
         #expect(bootstrap.tree.sync == "syncing")
     }
 
-    @Test("A payload-less entry missing from files fails the bootstrap loudly")
-    func unlistedFileRejected() async throws {
-        var json = try JSONSerialization.jsonObject(with: try fixture("bootstrap.json")) as! [String: Any]
-        json["files"] = [String: Any]()
-        let body = try JSONSerialization.data(withJSONObject: json)
+    @Test("A sparse bootstrap classifies omitted files using directory entries")
+    func omittedFileAccepted() async throws {
+        let body = try fixture("bootstrap.json")
         await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
-        await #expect(throws: TreeBootstrapError.unlistedFile(
-            path: "/photo.bin",
-            hash: "sha256:f05fcabf72917dc45b1642301d848414bae19363b1232e4539e8b671347272be"
-        )) {
-            _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
-        }
+        _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
     }
 
     @Test("Bootstrap blocked and error envelopes surface as typed values")

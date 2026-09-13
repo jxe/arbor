@@ -21,9 +21,9 @@ that editors and working trees still build.
 
 `canonical-cbor-values.json` freezes Arbor's canonical CBOR subset: every
 valid case pairs a JSON value with its exact encoding and `sha256:` hash, and
-every invalid case is a byte sequence a decoder must reject. Every hashed
-identity (object hashes, `updates-v1` and `mutate-v1` digests, query output
-hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding;
+every invalid case is a byte sequence a decoder must reject. Every structured hashed
+identity (directory object hashes, `updates-v1` and `mutate-v1` digests, query output
+hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
 `wire-update-intent.json` shows the update digest derived from it.
 
 `client-state-machines.json` freezes the transition scenarios of the two
@@ -43,3 +43,8 @@ digest is evidence for the whole request.
 packings of object envelopes across the same plural request produce
 identical element digests, which is what lets an adopter re-pack a persisted
 request's objects and still prove the same identity.
+
+Wire object vectors use `bytesBase64` for exact stored bytes: raw payloads for
+files and canonical CBOR for directories. Entry target keys (`file`, `directory`,
+`tree`) determine interpretation; payload bytes never determine file kind.
+Regenerate the vectors with `bun tools/canonical-cbor-vectors.ts`.

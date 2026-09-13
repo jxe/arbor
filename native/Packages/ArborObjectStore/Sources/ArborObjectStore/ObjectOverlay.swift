@@ -36,7 +36,7 @@ public protocol ObjectOverlay: ObjectStore {
     /// from `{materializedRoot, acceptedRoot}` after an accepted update is
     /// sufficient, and a later local edit that drops a file can never break an
     /// in-flight resubmission.
-    func retain(reachableFrom roots: Set<String>) throws
+    func retain(reachableFrom roots: Set<String>, files: Set<String>) throws
 
     /// The hashes reachable from `roots` through the directory objects this
     /// overlay holds. Missing objects terminate the walk at that hash.
@@ -44,16 +44,20 @@ public protocol ObjectOverlay: ObjectStore {
 }
 
 extension ObjectOverlay {
+    public func retain(reachableFrom roots: Set<String>) throws {
+        try retain(reachableFrom: roots, files: [])
+    }
+
     public func reachableHashes(from roots: Set<String>) throws -> Set<String> {
-        var pending = Array(roots)
+        var pending = roots.map { (hash: $0, kind: WireEntryKind.directory) }
         var visited = Set<String>()
-        while let hash = pending.popLast() {
+        while let (hash, kind) = pending.popLast() {
             guard visited.insert(hash).inserted else { continue }
-            guard let bytes = try storedBytes(hash) else { continue }
-            guard WireObjectCodec.kind(ofPrefix: bytes.prefix(WireObjectCodec.kindPrefixLength)) == .directory else { continue }
-            if case let .directory(entries, _) = try WireObjectCodec.decode(bytes) {
+            guard kind == .directory else { continue }
+            guard let bytes = try storedBytes(hash) else { throw ObjectStoreError.missing(hash) }
+            if case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) {
                 for entry in entries {
-                    if let child = entry.hash { pending.append(child) }
+                    if let child = entry.hash, let kind = entry.kind { pending.append((child, kind)) }
                 }
             }
         }
@@ -105,8 +109,8 @@ public final class InMemoryObjectOverlay: ObjectOverlay, @unchecked Sendable {
         return try bytes.map { try verifyObject($0, hash: hash) }
     }
 
-    public func retain(reachableFrom roots: Set<String>) throws {
-        let reachable = try reachableHashes(from: roots)
+    public func retain(reachableFrom roots: Set<String>, files: Set<String>) throws {
+        let reachable = try reachableHashes(from: roots).union(files)
         lock.lock()
         defer { lock.unlock() }
         objects = objects.filter { reachable.contains($0.key) }

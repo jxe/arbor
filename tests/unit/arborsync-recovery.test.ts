@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { encodeObjectEnvelopes, encodeWireObject, hashObject, type TreeSnapshot } from "@arbor/wire";
+import { encodeObjectEnvelopes, encodeWireDirectory, hashObject, type TreeSnapshot } from "@arbor/wire";
 import {
   decodeAdmissionBasis,
   decodeRawSyncState,
@@ -10,18 +10,18 @@ import {
 } from "../../tools/recovery/arborsync-recovery.ts";
 
 function file(source: string): [string, Uint8Array] {
-  const bytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(source) });
+  const bytes = new TextEncoder().encode(source);
   return [hashObject(bytes), bytes];
 }
 
 function snapshot(source: string, extra = "one"): TreeSnapshot {
   const [indexHash, indexBytes] = file(source);
   const [extraHash, extraBytes] = file(extra);
-  const rootBytes = encodeWireObject({
+  const rootBytes = encodeWireDirectory({
     type: "directory",
     entries: [
-      { name: "_index.md", hash: indexHash },
-      { name: "extra.txt", hash: extraHash },
+      { name: "_index.md", file: indexHash },
+      { name: "extra.txt", file: extraHash },
     ],
   });
   const root = hashObject(rootBytes);

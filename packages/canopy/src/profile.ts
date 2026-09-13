@@ -1,5 +1,5 @@
 import { parseMarkdown } from "@arbor/editor";
-import { decodeWireObject, type ObjectHash } from "@arbor/wire";
+import { decodeWireDirectory, type ObjectHash } from "@arbor/wire";
 
 const PROFILE_LOCATOR = /^arbor:\/\/tr_[a-z2-7]+\/?$/;
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
@@ -19,13 +19,12 @@ export interface RootProfileFacts {
  */
 export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileFacts> {
   const none: RootProfileFacts = { type: null, members: [] };
-  const directory = decodeWireObject(await load(root));
+  const directory = decodeWireDirectory(await load(root));
   if (directory.type !== "directory") return none;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
-  if (!index?.hash) return none;
-  const file = decodeWireObject(await load(index.hash));
-  if (file.type !== "file") return none;
-  const { frontmatter } = parseMarkdown(new TextDecoder().decode(file.bytes));
+  if (!index?.file) return none;
+  const file = await load(index.file);
+  const { frontmatter } = parseMarkdown(new TextDecoder().decode(file));
   const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
   const declared = Array.isArray(frontmatter.members) ? frontmatter.members : [];
   const members = declared.flatMap((value): RootProfileFacts["members"] => {

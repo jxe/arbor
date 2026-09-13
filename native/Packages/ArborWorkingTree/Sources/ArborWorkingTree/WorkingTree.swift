@@ -242,28 +242,6 @@ public actor WorkingTree {
         return try overlay.storedBytes(hash)
     }
 
-    /// Size and media type of every file the state references by hash, keyed
-    /// by hash. Lets a sparse graph derived from this tree be bridged back
-    /// without fetching the files it omits.
-    public func sparseFileMetadataByHash() throws -> [String: SparseFileMetadata] {
-        try requireOpen()
-        var result: [String: SparseFileMetadata] = [:]
-        for node in state.nodes where node.kind == .file {
-            if case let .hash(hash, size, mediaType)? = node.ref {
-                result[hash] = SparseFileMetadata(size: size, mediaType: mediaType ?? node.mediaType)
-            }
-        }
-        return result
-    }
-
-    /// The kind of an object the overlay holds, read from its prefix; `nil` when
-    /// the overlay does not hold it (a platform-served file, or nothing).
-    public func objectKind(hash: String) throws -> WireObjectCodec.Kind? {
-        try requireOpen()
-        guard let bytes = try overlay.storedBytes(hash) else { return nil }
-        return WireObjectCodec.kind(ofPrefix: bytes.prefix(WireObjectCodec.kindPrefixLength))
-    }
-
     /// Whether the last read of `node`'s bytes found no store able to serve them.
     func isKnownMissing(_ node: WorkingTreeNode) -> Bool {
         guard case let .hash(hash, _, _)? = node.ref else { return false }
@@ -276,10 +254,11 @@ public actor WorkingTree {
     private func retainOverlay(_ control: WorkingTreeControl, state: WorkingTreeState) {
         var roots: Set<String> = [control.materializedRoot]
         if let accepted = control.acceptedRoot { roots.insert(accepted) }
+        var files = Set<String>()
         for node in state.nodes where node.kind == .file {
-            if case let .hash(hash, _, _)? = node.ref { roots.insert(hash) }
+            if case let .hash(hash, _, _)? = node.ref { files.insert(hash) }
         }
-        try? overlay.retain(reachableFrom: roots)
+        try? overlay.retain(reachableFrom: roots, files: files)
     }
 
     public func recordAccepted(root: String, update: String, cursor: String? = nil) throws {
@@ -420,7 +399,12 @@ public actor WorkingTree {
             case let .markdown(source):
                 return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source)
             case let .file(ref, mediaType):
-                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: ref, mediaType: mediaType ?? ref.mediaType)
+                var reference = ref
+                if case let .hash(hash, size, type) = ref, size == nil,
+                   let previous = state.nodes.first(where: { $0.path == node.path && $0.ref?.objectHash == hash })?.ref {
+                    reference = .hash(hash, size: previous.size, mediaType: type ?? previous.mediaType)
+                }
+                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType)
             case let .boundary(tree):
                 return WorkingTreeNode(path: node.path, kind: .boundary, boundaryTree: tree.rawValue)
             }
@@ -669,8 +653,12 @@ public actor WorkingTree {
             return bytes
         case let .hash(hash, _, _)?:
             let object = try await objectBytes(hash: hash)
-            guard case let .file(payload) = try WireObjectCodec.decode(object) else {
+            guard case let .file(payload) = try WireObjectCodec.decode(object, kind: .file) else {
                 throw WorkingTreeError.corruptState("File reference \(hash) is not a file object")
+            }
+            // This is derived metadata; it does not admit a new content generation.
+            if let index = state.nodes.firstIndex(where: { $0.path == node.path && $0.ref?.objectHash == hash }) {
+                state.nodes[index].ref = .hash(hash, size: payload.count, mediaType: state.nodes[index].ref?.mediaType)
             }
             return payload
         case nil:

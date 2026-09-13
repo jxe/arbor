@@ -109,6 +109,8 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
   if (!descriptor || descriptor.id !== tree || !Array.isArray(change.transitions) || !change.transitions.length) {
     throw new Error("Malformed tree.update change");
   }
+  if (descriptor.conflicted !== undefined && typeof descriptor.conflicted !== "boolean") throw new Error("Malformed conflict signal");
+  if (descriptor.extensions !== undefined && (!Array.isArray(descriptor.extensions) || descriptor.extensions.some(id => typeof id !== "string" || !id.length))) throw new Error("Malformed extension identifiers");
   const transitions = change.transitions.map(decodeAcceptedTransitionJSON);
   let previous: AcceptedTransition | undefined;
   for (const transition of transitions) {
@@ -119,7 +121,7 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
     previous = transition;
   }
   const final = transitions.at(-1)!;
-  if (final.update.id !== descriptor.update || final.update.root !== descriptor.root || final.update.id !== cursor) {
+  if (final.update.id !== descriptor.update || final.update.root !== descriptor.root || final.update.id !== cursor || (final.update.conflicted ?? false) !== (descriptor.conflicted ?? false)) {
     throw new Error("Watch descriptor does not end at its final transition");
   }
   const requestDigest = change.requestDigest;

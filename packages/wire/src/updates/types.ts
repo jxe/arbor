@@ -42,6 +42,8 @@ export type { PairingOffer } from "@arbor/core";
  * accepted updates within their tree.
  */
 export interface AcceptedUpdate {
+  /** Independent of root: ordinary projection edits never imply resolution. */
+  conflicted?: boolean;
   id: string;
   tree: string;
   root: ObjectHash;

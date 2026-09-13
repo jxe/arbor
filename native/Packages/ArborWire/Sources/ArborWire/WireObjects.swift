@@ -29,18 +29,26 @@ public struct WireCollectionFileDescriptor: Hashable, Codable, Sendable {
     }
 }
 
+public enum WireEntryKind: String, Codable, Sendable { case file, directory }
+
 public struct WireDirectoryEntry: Hashable, Codable, Sendable {
     public var name: String
-    public var hash: String?
+    public var file: String?
+    public var directory: String?
     public var tree: String?
+    public var hash: String? { file ?? directory }
+    public var kind: WireEntryKind? { file != nil ? .file : directory != nil ? .directory : nil }
 
-    public init(name: String, hash: String? = nil, tree: String? = nil) {
+    public init(name: String, file: String? = nil, directory: String? = nil, tree: String? = nil) {
         self.name = name
-        self.hash = hash
+        self.file = file
+        self.directory = directory
         self.tree = tree
     }
 }
 
+/// A typed in-memory interpretation. File bytes have no encoded wrapper;
+/// directory entries, never payload sniffing, supply the interpretation.
 public enum WireObject: Hashable, Sendable {
     case file(Data)
     case directory([WireDirectoryEntry], childrenSource: WireCollectionFileDescriptor? = nil)
@@ -52,14 +60,15 @@ public enum WireObjectCodec {
         let value: CanonicalCBORValue
         switch object {
         case let .file(bytes):
-            value = .map([("type", .text("file")), ("bytes", .bytes(bytes))])
+            return bytes
         case let .directory(entries, childrenSource):
             var fields: [(String, CanonicalCBORValue)] = [
                 ("type", .text("directory")),
                 ("entries", .array(entries.map { entry in
                     .map([
                         ("name", .text(entry.name)),
-                        entry.hash.map { ("hash", .text($0)) }
+                        entry.file.map { ("file", .text($0)) }
+                            ?? entry.directory.map { ("directory", .text($0)) }
                             ?? ("tree", .text(entry.tree!))
                     ])
                 }))
@@ -70,7 +79,8 @@ public enum WireObjectCodec {
         return CanonicalCBOR.encode(value)
     }
 
-    public static func decode(_ bytes: Data) throws -> WireObject {
+    public static func decode(_ bytes: Data, kind: WireEntryKind) throws -> WireObject {
+        if kind == .file { return .file(bytes) }
         guard case let .map(entries) = try CanonicalCBOR.decode(bytes) else {
             throw ArborWireValidationError.invalidCBOR("Wire object is not a map")
         }
@@ -80,11 +90,6 @@ public enum WireObjectCodec {
         }
         let object: WireObject
         switch type {
-        case "file":
-            guard Set(values.keys) == ["type", "bytes"], case let .bytes(bytes)? = values["bytes"] else {
-                throw ArborWireValidationError.invalidCBOR("File object fields are invalid")
-            }
-            object = .file(bytes)
         case "directory":
             guard Set(values.keys).isSubset(of: ["type", "entries", "childrenSource"]),
                   values.count == (values["childrenSource"] == nil ? 2 : 3),
@@ -95,12 +100,13 @@ public enum WireObjectCodec {
                 guard case let .map(fields) = value else { throw ArborWireValidationError.invalidCBOR("Directory entry is not a map") }
                 let item = Dictionary(uniqueKeysWithValues: fields)
                 guard case let .text(name)? = item["name"] else { throw ArborWireValidationError.invalidCBOR("Directory entry name is missing") }
-                let hash = item["hash"].flatMap { if case let .text(value) = $0 { value } else { nil } }
+                let file = item["file"].flatMap { if case let .text(value) = $0 { value } else { nil } }
+                let directory = item["directory"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let tree = item["tree"].flatMap { if case let .text(value) = $0 { value } else { nil } }
-                guard item.count == 2, [hash != nil, tree != nil].filter({ $0 }).count == 1 else {
+                guard item.count == 2, [file != nil, directory != nil, tree != nil].filter({ $0 }).count == 1 else {
                     throw ArborWireValidationError.invalidCBOR("Directory entry target is invalid")
                 }
-                return WireDirectoryEntry(name: name, hash: hash, tree: tree)
+                return WireDirectoryEntry(name: name, file: file, directory: directory, tree: tree)
             }
             let childrenSource = try values["childrenSource"].map(decodeCollectionFile)
             object = .directory(decoded, childrenSource: childrenSource)
@@ -115,27 +121,6 @@ public enum WireObjectCodec {
     public static func hash(_ bytes: Data) -> String {
         "sha256:" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
-
-    public enum Kind: Sendable, Equatable {
-        case file
-        case directory
-    }
-
-    /// The object kind read from the leading bytes of a canonical object without
-    /// decoding its payload. Canonical CBOR orders map keys by encoded length,
-    /// so `type` is always the first field of a wire object. Returns `nil` when
-    /// the prefix is not the head of a canonical wire object.
-    public static func kind(ofPrefix prefix: Data) -> Kind? {
-        let file = Data([0xa2, 0x64]) + Data("type".utf8) + Data([0x64]) + Data("file".utf8)
-        let directory2 = Data([0xa2, 0x64]) + Data("type".utf8) + Data([0x69]) + Data("directory".utf8)
-        let directory3 = Data([0xa3, 0x64]) + Data("type".utf8) + Data([0x69]) + Data("directory".utf8)
-        if prefix.starts(with: file) { return .file }
-        if prefix.starts(with: directory2) || prefix.starts(with: directory3) { return .directory }
-        return nil
-    }
-
-    /// The minimum prefix length `kind(ofPrefix:)` needs to classify any object.
-    public static let kindPrefixLength = 16
 
     public static func object(_ object: WireObject) throws -> WireObjectEnvelope {
         let bytes = try encode(object)
@@ -197,7 +182,7 @@ public enum WireObjectCodec {
                 throw ArborWireValidationError.invalidValue("Directory entries are not sorted by UTF-8 bytes")
             }
             previous = utf8
-            guard [entry.hash != nil, entry.tree != nil].filter({ $0 }).count == 1 else {
+            guard [entry.file != nil, entry.directory != nil, entry.tree != nil].filter({ $0 }).count == 1 else {
                 throw ArborWireValidationError.invalidValue("Directory entry must have exactly one target")
             }
             if let hash = entry.hash { try validateObjectHash(hash) }
@@ -214,8 +199,8 @@ public enum WireObjectCodec {
             try validateObjectHash(childrenSource.schemaFingerprint)
             try validateObjectHash(childrenSource.childSetHash)
             let entriesByName = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0) })
-            guard entriesByName[childrenSource.source]?.hash != nil,
-                  entriesByName[childrenSource.schemaSource]?.hash != nil else {
+            guard entriesByName[childrenSource.source]?.file != nil,
+                  entriesByName[childrenSource.schemaSource]?.file != nil else {
                 throw ArborWireValidationError.invalidValue("Collection-file sources must be ordinary file entries")
             }
             let allowed = Set([childrenSource.source, childrenSource.schemaSource, "_index.md"])
@@ -275,7 +260,6 @@ public enum WireSnapshotBundleCodec {
             guard seen.insert(hash).inserted else {
                 throw ArborWireValidationError.invalidValue("Snapshot contains a duplicate object")
             }
-            _ = try WireObjectCodec.decode(bytes)
             return WireObjectEnvelope(hash: hash, bytes: bytes)
         }
         let snapshot = WireSnapshot(root: root, objects: objects)
@@ -315,31 +299,32 @@ public enum WireObjectGraph {
                 throw ArborWireValidationError.objectHashMismatch(expected: envelope.hash, actual: actual)
             }
             bytesByHash[envelope.hash] = envelope.bytes
-            objects[envelope.hash] = try WireObjectCodec.decode(envelope.bytes)
-        }
-        guard case .directory? = objects[snapshot.root] else {
-            throw ArborWireValidationError.incompleteGraph("Root is missing or is not a directory")
         }
         var visiting = Set<String>()
         var visited = Set<String>()
-        func visit(_ hash: String) throws {
+        var kinds: [String: WireEntryKind] = [:]
+        func visit(_ hash: String, kind: WireEntryKind) throws {
+            if let prior = kinds[hash], prior != kind { throw ArborWireValidationError.invalidValue("Object kind conflict") }
+            kinds[hash] = kind
             if visiting.contains(hash) { throw ArborWireValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
-            guard let object = objects[hash] else {
-                if mode == .sparseFiles { visited.insert(hash); return }
+            guard let bytes = bytesByHash[hash] else {
+                if mode == .sparseFiles && kind == .file { visited.insert(hash); return }
                 throw ArborWireValidationError.incompleteGraph(hash)
             }
+            let object = try WireObjectCodec.decode(bytes, kind: kind)
+            objects[hash] = object
             visiting.insert(hash)
             if case let .directory(entries, _) = object {
                 for entry in entries {
-                    if let child = entry.hash { try visit(child) }
+                    if let child = entry.hash, let kind = entry.kind { try visit(child, kind: kind) }
                 }
             }
             visiting.remove(hash)
             visited.insert(hash)
         }
-        try visit(snapshot.root)
-        if let unreachable = Set(objects.keys).subtracting(visited).sorted().first {
+        try visit(snapshot.root, kind: .directory)
+        if let unreachable = Set(bytesByHash.keys).subtracting(visited).sorted().first {
             throw ArborWireValidationError.unreachableObject(unreachable)
         }
         return objects
@@ -365,25 +350,25 @@ public extension WireSnapshot {
         }
         let file = try WireObjectCodec.object(.file(bytes))
         let nextEntries = entries.map { entry in
-            entry.name == name ? WireDirectoryEntry(name: name, hash: file.hash) : entry
+            entry.name == name ? WireDirectoryEntry(name: name, file: file.hash) : entry
         }
         let nextRoot = try WireObjectCodec.object(.directory(nextEntries, childrenSource: childrenSource))
         var bytesByHash = Dictionary(uniqueKeysWithValues: self.objects.map { ($0.hash, $0.bytes) })
         bytesByHash[file.hash] = file.bytes
         bytesByHash[nextRoot.hash] = nextRoot.bytes
         var reachable = Set<String>()
-        func visit(_ hash: String) throws {
+        func visit(_ hash: String, kind: WireEntryKind) throws {
             guard reachable.insert(hash).inserted else { return }
             guard let encoded = bytesByHash[hash] else {
                 throw ArborWireValidationError.incompleteGraph(hash)
             }
-            if case let .directory(children, _) = try WireObjectCodec.decode(encoded) {
+            if case let .directory(children, _) = try WireObjectCodec.decode(encoded, kind: kind) {
                 for child in children {
-                    if let childHash = child.hash { try visit(childHash) }
+                    if let childHash = child.hash, let kind = child.kind { try visit(childHash, kind: kind) }
                 }
             }
         }
-        try visit(nextRoot.hash)
+        try visit(nextRoot.hash, kind: .directory)
         let result = WireSnapshot(
             root: nextRoot.hash,
             objects: reachable.sorted().map { WireObjectEnvelope(hash: $0, bytes: bytesByHash[$0]!) }

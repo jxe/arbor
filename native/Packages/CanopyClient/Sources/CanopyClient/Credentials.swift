@@ -790,7 +790,7 @@ public actor NativeAccountService {
             "trees.yaml": "{}\n",
         ]
         let files = try sources.mapValues { try WireObjectCodec.object(.file(Data($0.utf8))) }
-        let entries = files.keys.sorted().map { WireDirectoryEntry(name: $0, hash: files[$0]!.hash) }
+        let entries = files.keys.sorted().map { WireDirectoryEntry(name: $0, file: files[$0]!.hash) }
         let root = try WireObjectCodec.object(.directory(entries))
         let snapshot = WireSnapshot(root: root.hash, objects: (Array(files.values) + [root]).sorted { $0.hash < $1.hash })
         _ = try WireObjectGraph.validate(snapshot)

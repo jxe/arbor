@@ -38,5 +38,5 @@
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts", "migrations/**/*.ts"],
-  "exclude": ["migrations/001-if-match-and-model-hash/**/*.ts", "packages/render/**"]
+  "exclude": ["migrations/000-simplified-wire-2026-09-02/**", "migrations/002-collection-file-wire/**", "migrations/003-account-config-v2/**", "migrations/004-profile-identity-challenges/**", "migrations/001-if-match-and-model-hash/**/*.ts", "packages/render/**"]
 }

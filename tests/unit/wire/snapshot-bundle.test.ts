@@ -5,15 +5,15 @@ import { decodeCBOR, encodeCanonicalCBOR } from "@arbor/core";
 import {
   decodeSnapshotBundle,
   encodeSnapshotBundle,
-  encodeWireObject,
+  encodeWireDirectory,
   hashObject,
   type TreeSnapshot,
 } from "@arbor/wire";
 
 function fixture(): TreeSnapshot {
-  const file = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("snapshot\n") });
+  const file = new TextEncoder().encode("snapshot\n");
   const fileHash = hashObject(file);
-  const root = encodeWireObject({ type: "directory", entries: [{ name: "note.md", hash: fileHash }] });
+  const root = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
   const rootHash = hashObject(root);
   return { root: rootHash, objects: new Map([[rootHash, root], [fileHash, file]]) };
 }
@@ -60,7 +60,7 @@ describe("immutable snapshot bundle", () => {
     expect(() => decodeSnapshotBundle(missingRoot, encodeSnapshotBundle(snapshot))).toThrow("missing reachable object");
     expect(() => decodeSnapshotBundle(snapshot.root, encodeCanonicalCBOR({ version: 1, objects: [objects.find(({ hash }) => hash === snapshot.root)!.bytes] })))
       .toThrow("missing reachable object");
-    const extra = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("extra") });
+    const extra = new TextEncoder().encode("extra");
     const withExtra = [...objects, { hash: hashObject(extra), bytes: extra }].sort((a, b) => a.hash.localeCompare(b.hash));
     expect(() => decodeSnapshotBundle(snapshot.root, encodeCanonicalCBOR({ version: 1, objects: withExtra.map(({ bytes }) => bytes) })))
       .toThrow("unreachable objects");

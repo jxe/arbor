@@ -96,7 +96,6 @@ public actor ArborWireClient {
         try validate(data: data, status: status)
         let actual = WireObjectCodec.hash(data)
         guard actual == hash else { throw ArborWireValidationError.objectHashMismatch(expected: hash, actual: actual) }
-        _ = try WireObjectCodec.decode(data)
         return data
     }
 
@@ -282,7 +281,8 @@ public actor ArborWireClient {
                             let transitions = event.change.transitions
                             guard !transitions.isEmpty,
                                   transitions.last?.update.id == descriptor.update,
-                                  transitions.last?.update.root == descriptor.root else {
+                                  transitions.last?.update.root == descriptor.root,
+                                  (transitions.last?.update.conflicted ?? false) == (descriptor.conflicted ?? false) else {
                                 throw ArborWireValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
                             }
                             for (index, transition) in transitions.enumerated() {

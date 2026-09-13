@@ -225,18 +225,6 @@ public struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
     }
 }
 
-/// One non-Markdown file the sparse spine references by hash only; its bytes come through `/v1/objects`.
-public struct TreeBootstrapFile: Codable, Sendable, Equatable {
-    public var size: Int
-    /// Milliseconds since the epoch.
-    public var mtime: Int64
-
-    public init(size: Int, mtime: Int64) {
-        self.size = size
-        self.mtime = mtime
-    }
-}
-
 /// The daemon's stored update string, verbatim, when it still ends at the folder exactly.
 public struct TreeBootstrapPending: Codable, Sendable, Equatable {
     public var base: String?
@@ -290,7 +278,6 @@ public struct TreeBootstrap: Sendable, Equatable {
     /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
     public var spine: WireSnapshot
     /// Every payload-less file entry by wire path.
-    public var files: [String: TreeBootstrapFile]
     public var pending: TreeBootstrapPending?
     public var blocked: TreeBootstrapBlock?
     public var observedThrough: String
@@ -299,7 +286,6 @@ public struct TreeBootstrap: Sendable, Equatable {
         tree: LocalTreeDescriptor,
         accepted: TreeBootstrapAccepted,
         spine: WireSnapshot,
-        files: [String: TreeBootstrapFile],
         pending: TreeBootstrapPending? = nil,
         blocked: TreeBootstrapBlock? = nil,
         observedThrough: String
@@ -307,7 +293,6 @@ public struct TreeBootstrap: Sendable, Equatable {
         self.tree = tree
         self.accepted = accepted
         self.spine = spine
-        self.files = files
         self.pending = pending
         self.blocked = blocked
         self.observedThrough = observedThrough
@@ -322,15 +307,10 @@ public struct TreeCredential: Codable, Sendable, Equatable {
 }
 
 public enum TreeBootstrapError: Error, LocalizedError, Sendable, Equatable {
-    /// The spine referenced a payload-less entry that `files` does not list, so the client
-    /// cannot tell a lazily omitted file from a missing directory.
-    case unlistedFile(path: String, hash: String)
     case invalidSpine(String)
 
     public var errorDescription: String? {
         switch self {
-        case let .unlistedFile(path, hash):
-            "Bootstrap spine references \(path) (\(hash)) without listing it in files"
         case let .invalidSpine(detail):
             "Bootstrap spine is invalid: \(detail)"
         }

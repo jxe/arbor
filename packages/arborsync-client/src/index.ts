@@ -91,7 +91,6 @@ export interface TreeBootstrap {
   /** Base64 sparse CBOR snapshot bundle: every directory object plus every Markdown file object. */
   spine: string;
   /** Every non-Markdown file entry by wire path; objects are fetched on demand through `/v1/objects`. */
-  files: Record<string, { size: number; mtime: number }>;
   /** The daemon's stored update string, verbatim, when it still ends at the folder exactly. */
   pending?: { base: string | null; updates: BootstrapCandidateUpdate[]; requestDigests: string[] };
   blocked?: "conflict" | "unsettled";

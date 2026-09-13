@@ -138,13 +138,11 @@ private extension String {
 enum ArborVisitSnapshot {
     struct Sparse: Sendable {
         var spine: WireSnapshot
-        var files: [String: SparseFileMetadata]
     }
 
     static func sparsified(_ snapshot: WireSnapshot) throws -> Sparse {
         let objects = try WireObjectGraph.validate(snapshot, mode: .complete)
         var keep = Set<String>()
-        var files: [String: SparseFileMetadata] = [:]
         var visited = Set<String>()
 
         func visit(_ hash: String, path: String) {
@@ -157,14 +155,9 @@ enum ArborVisitSnapshot {
                 switch objects[child] {
                 case .directory:
                     visit(child, path: childPath)
-                case let .file(bytes)?:
+                case .file?:
                     if entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") {
                         keep.insert(child)
-                    } else {
-                        files[childPath] = SparseFileMetadata(
-                            size: bytes.count,
-                            mediaType: SnapshotBridge.inferredMediaType(for: entry.name)
-                        )
                     }
                 case nil:
                     continue
@@ -173,7 +166,7 @@ enum ArborVisitSnapshot {
         }
         visit(snapshot.root, path: "/")
         let spine = WireSnapshot(root: snapshot.root, objects: snapshot.objects.filter { keep.contains($0.hash) })
-        return Sparse(spine: spine, files: files)
+        return Sparse(spine: spine)
     }
 
     /// The replacement a visit installs: the sparse spine bridged with the file
@@ -190,7 +183,7 @@ enum ArborVisitSnapshot {
             tree: tree,
             update: update,
             cursor: cursor,
-            files: sparse.files
+            mode: .sparseFiles
         )
     }
 }

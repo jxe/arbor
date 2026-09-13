@@ -1,6 +1,6 @@
 import {
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
   type ObjectHash,
   type TreeSnapshot,
@@ -32,11 +32,11 @@ function text(bytes: Uint8Array, path: string): string {
 function object(snapshot: TreeSnapshot, hash: ObjectHash, path: string) {
   const bytes = snapshot.objects.get(hash);
   if (!bytes) throw new Error(`Account configuration is missing ${path}`);
-  return decodeWireObject(bytes);
+  return bytes;
 }
 
 export function readAccountConfigGraph(snapshot: TreeSnapshot, configTreeID?: string): AccountConfigGraph {
-  const root = object(snapshot, snapshot.root, "/");
+  const root = decodeWireDirectory(object(snapshot, snapshot.root, "/"));
   if (root.type !== "directory") throw new Error("Account configuration root must be a directory");
   const allowed = new Set(["account.yaml", "trees.yaml", "devices"]);
   for (const entry of root.entries) {
@@ -46,27 +46,25 @@ export function readAccountConfigGraph(snapshot: TreeSnapshot, configTreeID?: st
   }
   const sourceAt = (name: string): string => {
     const entry = root.entries.find((candidate) => candidate.name === name);
-    if (!entry?.hash) throw new Error(`Account configuration requires ${name}`);
-    const value = object(snapshot, entry.hash, name);
-    if (value.type !== "file") throw new Error(`${name} must be a file`);
-    return text(value.bytes, name);
+    if (!entry?.file) throw new Error(`Account configuration requires ${name}`);
+    const value = object(snapshot, entry.file, name);
+    return text(value, name);
   };
   const accountSource = sourceAt("account.yaml");
   const treesSource = sourceAt("trees.yaml");
   const account = parseAccountConfiguration(accountSource, "account.yaml");
   const trees = parseTreesConfiguration(treesSource, "trees.yaml");
   const devicesEntry = root.entries.find((candidate) => candidate.name === "devices");
-  if (!devicesEntry?.hash) throw new Error("Account configuration requires devices/");
-  const devicesObject = object(snapshot, devicesEntry.hash, "devices");
+  if (!devicesEntry?.directory) throw new Error("Account configuration requires devices/");
+  const devicesObject = decodeWireDirectory(object(snapshot, devicesEntry.directory, "devices"));
   if (devicesObject.type !== "directory") throw new Error("devices must be a directory");
   const devices: Record<string, DeviceConfiguration> = {};
   const sources: Record<string, string> = { "account.yaml": accountSource, "trees.yaml": treesSource };
   for (const entry of devicesObject.entries) {
     const match = /^(dv_[a-z2-7]+)\.yaml$/.exec(entry.name);
-    if (!match || !entry.hash || entry.tree) throw new Error(`Unsupported account configuration path: devices/${entry.name}`);
-    const value = object(snapshot, entry.hash, `devices/${entry.name}`);
-    if (value.type !== "file") throw new Error(`devices/${entry.name} must be a file`);
-    const source = text(value.bytes, `devices/${entry.name}`);
+    if (!match || !entry.file || entry.tree) throw new Error(`Unsupported account configuration path: devices/${entry.name}`);
+    const value = object(snapshot, entry.file, `devices/${entry.name}`);
+    const source = text(value, `devices/${entry.name}`);
     devices[match[1]!] = parseDeviceConfiguration(source, match[1]!, `devices/${entry.name}`);
     sources[`devices/${entry.name}`] = source;
   }
@@ -234,22 +232,22 @@ function yaml(value: unknown): string {
 export function snapshotAccountConfig(graph: Omit<AccountConfigGraph, "sources">): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
   const file = (source: string): ObjectHash => {
-    const bytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(source) });
+    const bytes = new TextEncoder().encode(source);
     const hash = hashObject(bytes);
     objects.set(hash, bytes);
     return hash;
   };
   const devicesEntries = Object.entries(graph.devices).sort(([a], [b]) => a.localeCompare(b)).map(([id, device]) => ({
     name: `${id}.yaml`,
-    hash: file(yaml({ version: 1, label: device.label, placements: device.placements })),
+    file: file(yaml({ version: 1, label: device.label, placements: device.placements })),
   }));
-  const devicesBytes = encodeWireObject({ type: "directory", entries: devicesEntries } satisfies WireDirectory);
+  const devicesBytes = encodeWireDirectory({ type: "directory", entries: devicesEntries } satisfies WireDirectory);
   const devicesHash = hashObject(devicesBytes);
   objects.set(devicesHash, devicesBytes);
-  const rootBytes = encodeWireObject({ type: "directory", entries: [
-    { name: "account.yaml", hash: file(yaml(graph.account)) },
-    { name: "devices", hash: devicesHash },
-    { name: "trees.yaml", hash: file(yaml(graph.trees)) },
+  const rootBytes = encodeWireDirectory({ type: "directory", entries: [
+    { name: "account.yaml", file: file(yaml(graph.account)) },
+    { name: "devices", directory: devicesHash },
+    { name: "trees.yaml", file: file(yaml(graph.trees)) },
   ] } satisfies WireDirectory);
   const root = hashObject(rootBytes);
   objects.set(root, rootBytes);

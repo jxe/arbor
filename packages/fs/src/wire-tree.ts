@@ -4,14 +4,14 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { CollectionFileDescriptor, Hash } from "@arbor/core";
 import {
   compareWireNames,
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
   type LazyTreeSnapshot,
   type ObjectHash,
   type TreeSnapshot,
   type WireDirectoryEntry,
-  type WireObject,
+  type WireDirectory,
   type WireObjectSource,
 } from "@arbor/wire";
 import { IGNORED_WORKSPACE_DIRECTORIES } from "./discovery.ts";
@@ -100,16 +100,16 @@ export async function snapshotDirectory(
   if (!(await stat(root)).isDirectory()) throw new Error(`Tree root is not a directory: ${root}`);
   const objects = new Map<ObjectHash, WireObjectSource>();
 
-  const store = (object: WireObject): ObjectHash => {
-    const bytes = encodeWireObject(object);
-    decodeWireObject(bytes);
+  const store = (object: WireDirectory): ObjectHash => {
+    const bytes = encodeWireDirectory(object);
+    decodeWireDirectory(bytes);
     const hash = hashObject(bytes);
-    objects.set(hash, { hash, kind: object.type, bytes: () => Promise.resolve(bytes) });
+    objects.set(hash, { hash, bytes: () => Promise.resolve(bytes) });
     return hash;
   };
 
   const readFileObject = async (absolute: string): Promise<{ hash: ObjectHash; bytes: Uint8Array }> => {
-    const bytes = encodeWireObject({ type: "file", bytes: await readFile(absolute) });
+    const bytes = await readFile(absolute);
     return { hash: hashObject(bytes), bytes };
   };
 
@@ -121,7 +121,6 @@ export async function snapshotDirectory(
       let loaded: Promise<Uint8Array> | undefined;
       objects.set(cached, {
         hash: cached,
-        kind: "file",
         bytes: () => loaded ??= readFileObject(absolute).then(({ hash, bytes }) => {
           if (hash !== cached) {
             loaded = undefined;
@@ -133,7 +132,7 @@ export async function snapshotDirectory(
       return cached;
     }
     const { hash, bytes } = await readFileObject(absolute);
-    objects.set(hash, { hash, kind: "file", bytes: () => Promise.resolve(bytes) });
+    objects.set(hash, { hash, bytes: () => Promise.resolve(bytes) });
     if (info) objectIndex!.remember(absolute, "file", info, hash);
     return hash;
   };
@@ -154,7 +153,7 @@ export async function snapshotDirectory(
         entries.push({ name: entry.name, tree: boundary });
         seen.add(entry.name);
       } else if (entry.isDirectory()) {
-        entries.push({ name: entry.name, hash: objectIndex?.directoryHash?.(absolute) ?? await walk(absolute) });
+        entries.push({ name: entry.name, directory: objectIndex?.directoryHash?.(absolute) ?? await walk(absolute) });
         seen.add(entry.name);
       } else if (entry.isFile()) {
         const source = await fileSource(absolute, entry.name);
@@ -171,7 +170,7 @@ export async function snapshotDirectory(
             ...description,
           };
         }
-        entries.push({ name: entry.name, hash: source });
+        entries.push({ name: entry.name, file: source });
         seen.add(entry.name);
       }
     }
@@ -186,7 +185,7 @@ export async function snapshotDirectory(
     for (const [name, tree] of [...virtualChildren].sort(([a], [b]) => compareWireNames(a, b))) {
       entries.push(tree
         ? { name, tree }
-        : { name, hash: await walkVirtual(join(directory, name)) });
+        : { name, directory: await walkVirtual(join(directory, name)) });
     }
     const hash = store({
       type: "directory",
@@ -208,7 +207,7 @@ export async function snapshotDirectory(
     if (!children.size) throw new Error(`Virtual canonical boundary has no target below ${directory}`);
     const entries: WireDirectoryEntry[] = [];
     for (const [name, tree] of [...children].sort(([a], [b]) => compareWireNames(a, b))) {
-      entries.push(tree ? { name, tree } : { name, hash: await walkVirtual(join(directory, name)) });
+      entries.push(tree ? { name, tree } : { name, directory: await walkVirtual(join(directory, name)) });
     }
     return store({ type: "directory", entries });
   };
@@ -240,21 +239,21 @@ export async function materializeTree(
     const candidate = resolve(path);
     return exclusions.some((excluded) => candidate === excluded || candidate.startsWith(`${excluded}${sep}`));
   };
-  const visit = async (path: string, hash: ObjectHash): Promise<void> => {
+  const visit = async (path: string, hash: ObjectHash, kind: "file" | "directory"): Promise<void> => {
     if (isExcluded(path)) return;
     const bytes = await load(hash);
     if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
-    const object = decodeWireObject(bytes);
-    if (object.type === "file") {
+    if (kind === "file") {
       await mkdir(dirname(path), { recursive: true });
       const existing = await readFile(path).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return undefined;
         throw error;
       });
-      if (existing?.equals(Buffer.from(object.bytes))) return;
-      await writeAtomic(path, object.bytes);
+      if (existing?.equals(Buffer.from(bytes))) return;
+      await writeAtomic(path, bytes);
       return;
     }
+    const object = decodeWireDirectory(bytes);
     await mkdir(path, { recursive: true });
     const expected = new Set(object.entries.map((entry) => entry.name));
     for (const existing of await readdir(path, { withFileTypes: true })) {
@@ -265,8 +264,9 @@ export async function materializeTree(
       const target = contained(canonicalDestination, join(path, entry.name));
       if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
-      else if (entry.hash) await visit(target, entry.hash);
+      else if (entry.file) await visit(target, entry.file, "file");
+      else if (entry.directory) await visit(target, entry.directory, "directory");
     }
   };
-  await visit(canonicalDestination, rootHash);
+  await visit(canonicalDestination, rootHash, "directory");
 }

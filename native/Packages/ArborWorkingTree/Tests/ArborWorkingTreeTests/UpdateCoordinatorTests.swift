@@ -128,8 +128,8 @@ struct UpdateCoordinatorTests {
                 childSetHash: "sha256:" + String(repeating: "4", count: 64)
             )
             let directory = try WireObjectCodec.object(.directory([
-                .init(name: "_store.json", hash: source.hash),
-                .init(name: "schema.ts", hash: schema.hash),
+                .init(name: "_store.json", file: source.hash),
+                .init(name: "schema.ts", file: schema.hash),
             ], childrenSource: descriptor))
             let snapshot = WireSnapshot(root: directory.hash, objects: [directory, schema, source])
             let replacement = try SnapshotBridge.replacement(
@@ -145,33 +145,28 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("A sparse spine plus a files map bridges to the same replacement as the complete snapshot")
+    @Test("A sparse spine with typed entries bridges to the same replacement as the complete snapshot")
     func sparseBridgeEqualsFullBridge() async throws {
         let note = try WireObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n".utf8)))
         let photo = try WireObjectCodec.object(.file(Data([0xff, 0xd8, 0xff, 0xe0])))
         let clip = try WireObjectCodec.object(.file(Data("not really audio".utf8)))
-        let album = try WireObjectCodec.object(.directory([.init(name: "photo.jpg", hash: photo.hash)]))
+        let album = try WireObjectCodec.object(.directory([.init(name: "photo.jpg", file: photo.hash)]))
         let root = try WireObjectCodec.object(.directory([
-            .init(name: "album", hash: album.hash),
-            .init(name: "clip.unknownext", hash: clip.hash),
-            .init(name: "note.md", hash: note.hash),
+            .init(name: "album", directory: album.hash),
+            .init(name: "clip.unknownext", file: clip.hash),
+            .init(name: "note.md", file: note.hash),
         ]))
         let tree = TreeID(rawValue: "tr_sparsebridge")
         let full = WireSnapshot(root: root.hash, objects: [root, album, note, photo, clip])
         let spine = WireSnapshot(root: root.hash, objects: [root, album, note])
-        let files: [String: SparseFileMetadata] = [
-            "/album/photo.jpg": .init(size: 4),
-            "/clip.unknownext": .init(size: 16, mediaType: "audio/x-fake"),
-        ]
-
         let complete = try SnapshotBridge.replacement(snapshot: full, tree: tree, update: "up_1")
-        let sparse = try SnapshotBridge.replacement(snapshot: spine, tree: tree, update: "up_1", files: files)
+        let sparse = try SnapshotBridge.replacement(snapshot: spine, tree: tree, update: "up_1", mode: .sparseFiles)
         #expect(sparse.root == complete.root)
         #expect(sparse.nodes.map(\.path) == complete.nodes.map(\.path))
         let sparsePhoto = try #require(sparse.nodes.first { $0.path == "/album/photo.jpg" })
-        #expect(sparsePhoto.content == .file(ref: .hash(photo.hash, size: 4, mediaType: "image/jpeg")))
+        #expect(sparsePhoto.content == .file(ref: .hash(photo.hash, size: nil, mediaType: "image/jpeg")))
         let sparseClip = try #require(sparse.nodes.first { $0.path == "/clip.unknownext" })
-        #expect(sparseClip.content == .file(ref: .hash(clip.hash, size: 16, mediaType: "audio/x-fake")))
+        #expect(sparseClip.content == .file(ref: .hash(clip.hash, size: nil, mediaType: SnapshotBridge.inferredMediaType(for: "clip.unknownext"))))
         // Markdown and directories are identical between the two.
         #expect(sparse.nodes.filter { $0.path == "/" || $0.path == "/note" || $0.path == "/album" }
             == complete.nodes.filter { $0.path == "/" || $0.path == "/note" || $0.path == "/album" })
@@ -194,21 +189,17 @@ struct UpdateCoordinatorTests {
         #expect(try await sparseTree.fileBytes(.init(tree: tree, path: "/album/photo.jpg")) == Data([0xff, 0xd8, 0xff, 0xe0]))
         #expect(try await sparseTree.completeSnapshot().objects.map(\.hash).sorted() == full.objects.map(\.hash).sorted())
 
-        // A payload-less entry that the files map does not describe fails loudly:
-        // a spine that dropped a directory object must not become a lazy file.
-        #expect(throws: ArborWireValidationError.self) {
-            _ = try SnapshotBridge.replacement(snapshot: spine, tree: tree, update: "up_1", files: ["/album/photo.jpg": .init(size: 4)])
-        }
+        // A missing directory must never become a lazy file.
         let rootless = WireSnapshot(root: root.hash, objects: [root, note])
         #expect(throws: ArborWireValidationError.self) {
-            _ = try SnapshotBridge.replacement(snapshot: rootless, tree: tree, update: "up_1", files: files)
+            _ = try SnapshotBridge.replacement(snapshot: rootless, tree: tree, update: "up_1", mode: .sparseFiles)
         }
         // Markdown must be present in a sparse spine.
         let noMarkdown = WireSnapshot(root: root.hash, objects: [root, album])
         #expect(throws: ArborWireValidationError.self) {
-            _ = try SnapshotBridge.replacement(snapshot: noMarkdown, tree: tree, update: "up_1", files: files.merging(["/note.md": .init(size: 1)]) { $1 })
+            _ = try SnapshotBridge.replacement(snapshot: noMarkdown, tree: tree, update: "up_1", mode: .sparseFiles)
         }
-        // Without a files map the spine is simply incomplete.
+        // Complete mode requires the omitted file payloads too.
         #expect(throws: ArborWireValidationError.self) {
             _ = try SnapshotBridge.replacement(snapshot: spine, tree: tree, update: "up_1")
         }
@@ -315,9 +306,9 @@ struct UpdateCoordinatorTests {
         let mdx = try WireObjectCodec.object(.file(Data("# MDX\n".utf8)))
         let directory = try WireObjectCodec.object(.directory([]))
         let root = try WireObjectCodec.object(.directory([
-            .init(name: "x", hash: directory.hash),
-            .init(name: "x.md", hash: markdown.hash),
-            .init(name: "x.mdx", hash: mdx.hash),
+            .init(name: "x", directory: directory.hash),
+            .init(name: "x.md", file: markdown.hash),
+            .init(name: "x.mdx", file: mdx.hash),
         ]))
         let snapshot = WireSnapshot(root: root.hash, objects: [root, directory, markdown, mdx])
 
@@ -327,8 +318,8 @@ struct UpdateCoordinatorTests {
 
         let plain = try WireObjectCodec.object(.file(Data("plain".utf8)))
         let duplicateRoot = try WireObjectCodec.object(.directory([
-            .init(name: "same", hash: plain.hash),
-            .init(name: "same.md", hash: markdown.hash),
+            .init(name: "same", file: plain.hash),
+            .init(name: "same.md", file: markdown.hash),
         ]))
         let duplicate = WireSnapshot(root: duplicateRoot.hash, objects: [duplicateRoot, plain, markdown])
         #expect(throws: ArborWireValidationError.self) {
@@ -714,6 +705,33 @@ struct UpdateCoordinatorTests {
             #expect(await transport.snapshotRequests == snapshotRequestsBefore)
             #expect(await transport.requests.isEmpty)
             #expect(try await workingTree.heads().acceptedCursor == update.id)
+        }
+    }
+
+    @Test("A same-root conflict transition persists through coordinator restart")
+    func sameRootConflictMetadata() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_metadataconflict"
+            let initial = try snapshot(markdown: "# Existing projection\n")
+            let transport = ClosureTransport(initial: initial) { _, _ in
+                throw ArborWireValidationError.invalidValue("Metadata watch must not submit")
+            }
+            let workingTree = try await placeWorkingTree(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"), transport: transport
+            )
+            let update = WireAcceptedUpdate(id: "up_conflicted", tree: tree, root: initial.root,
+                previousRoot: initial.root, kind: "accepted", acceptedAt: 1, conflicted: true)
+            var remote = descriptor(tree: tree, snapshot: initial, update: update.id)
+            remote.conflicted = true
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
+            let result = try await coordinator.observe(WireWatchEvent(id: update.id, tree: remote,
+                transitions: [.init(update: update, objects: [], deltas: [])]))
+            #expect(result.state == .current)
+            #expect(result.acceptedConflicted == true)
+            #expect(try await workingTree.heads().acceptedCursor == update.id)
+            let restarted = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
+            #expect(try await restarted.presentation().acceptedConflicted == true)
         }
     }
 
@@ -1478,8 +1496,8 @@ struct UpdateCoordinatorPhase3Tests {
         let note = try WireObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
         let photo = try WireObjectCodec.object(.file(Data(repeating: 0xab, count: 4_096)))
         let rootDirectory = try WireObjectCodec.object(.directory([
-            .init(name: "note.md", hash: note.hash),
-            .init(name: "photo.bin", hash: photo.hash),
+            .init(name: "note.md", file: note.hash),
+            .init(name: "photo.bin", file: photo.hash),
         ]))
         let complete = WireSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note, photo].sorted { $0.hash < $1.hash })
         let spine = WireSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
@@ -1490,7 +1508,7 @@ struct UpdateCoordinatorPhase3Tests {
             snapshot: spine,
             tree: TreeID(rawValue: tree),
             update: "up_initial",
-            files: ["/photo.bin": SparseFileMetadata(size: 4_096, mediaType: "application/octet-stream")]
+            mode: .sparseFiles
         ))
         let transport = ClosureTransport(initial: complete) { prepared, _ in
             let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
@@ -1521,8 +1539,8 @@ struct UpdateCoordinatorPhase3Tests {
         let note = try WireObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
         let photo = try WireObjectCodec.object(.file(Data(repeating: 0x01, count: 2_048)))
         let rootDirectory = try WireObjectCodec.object(.directory([
-            .init(name: "note.md", hash: note.hash),
-            .init(name: "photo.bin", hash: photo.hash),
+            .init(name: "note.md", file: note.hash),
+            .init(name: "photo.bin", file: photo.hash),
         ]))
         let spine = WireSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
         let platform = CountingObjectStore(objects: [photo.hash: photo.bytes])
@@ -1531,7 +1549,7 @@ struct UpdateCoordinatorPhase3Tests {
             snapshot: spine,
             tree: TreeID(rawValue: tree),
             update: "up_initial",
-            files: ["/photo.bin": SparseFileMetadata(size: 2_048, mediaType: "application/octet-stream")]
+            mode: .sparseFiles
         ))
         // The remote side replaced the photo; Canopy expresses it as a delta against the retained base.
         let photo2 = try WireObjectCodec.object(.file(Data(repeating: 0x02, count: 2_048)))
@@ -1540,8 +1558,8 @@ struct UpdateCoordinatorPhase3Tests {
             let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
             let localNote = try #require(request.objects.first { $0.hash != request.candidate })
             let mergedRoot = try WireObjectCodec.object(.directory([
-                .init(name: "note.md", hash: localNote.hash),
-                .init(name: "photo.bin", hash: photo2.hash),
+                .init(name: "note.md", file: localNote.hash),
+                .init(name: "photo.bin", file: photo2.hash),
             ]))
             let summary = WireMergeSummary(version: "markdown-additive-v1", approximatePlacements: 0)
             let update = WireAcceptedUpdate(
@@ -1732,7 +1750,7 @@ struct LiveNativePeerTests {
 
 private func snapshot(markdown: String) throws -> WireSnapshot {
     let file = try WireObjectCodec.object(.file(Data(markdown.utf8)))
-    let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
+    let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
     return WireSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
 }
 
@@ -1741,7 +1759,7 @@ private func snapshot(files: [String: String]) throws -> WireSnapshot {
     let entries = try files.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { name in
         let file = try WireObjectCodec.object(.file(Data(files[name, default: ""].utf8)))
         objects.append(file)
-        return WireDirectoryEntry(name: name, hash: file.hash)
+        return WireDirectoryEntry(name: name, file: file.hash)
     }
     let root = try WireObjectCodec.object(.directory(entries))
     objects.append(root)
@@ -1754,19 +1772,19 @@ private func directoryBodySnapshot(
     indexSource: String? = nil
 ) throws -> WireSnapshot {
     let child = try WireObjectCodec.object(.file(Data("# Child\n".utf8)))
-    var directoryEntries = [WireDirectoryEntry(name: "child.md", hash: child.hash)]
+    var directoryEntries = [WireDirectoryEntry(name: "child.md", file: child.hash)]
     var objects = [child]
     if let indexSource {
         let index = try WireObjectCodec.object(.file(Data(indexSource.utf8)))
-        directoryEntries.append(.init(name: "_index.md", hash: index.hash))
+        directoryEntries.append(.init(name: "_index.md", file: index.hash))
         objects.append(index)
     }
     directoryEntries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
     let directory = try WireObjectCodec.object(.directory(directoryEntries))
     let sibling = try WireObjectCodec.object(.file(Data(siblingSource.utf8)))
     let root = try WireObjectCodec.object(.directory([
-        .init(name: stem, hash: directory.hash),
-        .init(name: stem + ".md", hash: sibling.hash),
+        .init(name: stem, directory: directory.hash),
+        .init(name: stem + ".md", file: sibling.hash),
     ]))
     objects.append(contentsOf: [directory, sibling, root])
     return WireSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
@@ -1774,7 +1792,7 @@ private func directoryBodySnapshot(
 
 private func wireDirectoryEntries(snapshot: WireSnapshot, directory hash: String) throws -> [WireDirectoryEntry] {
     let envelope = try #require(snapshot.objects.first { $0.hash == hash })
-    guard case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes) else {
+    guard case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes, kind: .directory) else {
         throw ArborWireValidationError.invalidValue("Expected directory object")
     }
     return entries
@@ -1786,7 +1804,7 @@ private func wireEntryNames(snapshot: WireSnapshot, directory hash: String) thro
 
 private func wireDirectoryEntries(snapshot: WorkingTreeSnapshot, directory hash: String) throws -> [WireDirectoryEntry] {
     let object = try #require(snapshot.objects.first { $0.hash == hash })
-    guard case let .directory(entries, _) = try WireObjectCodec.decode(try #require(object.bytes)) else {
+    guard case let .directory(entries, _) = try WireObjectCodec.decode(try #require(object.bytes), kind: .directory) else {
         throw ArborWireValidationError.invalidValue("Expected directory object")
     }
     return entries
@@ -1799,16 +1817,16 @@ private func wireEntryNames(snapshot: WorkingTreeSnapshot, directory hash: Strin
 private func completeCandidate(_ request: WireUpdateRequest, retained: WireSnapshot) throws -> WireSnapshot {
     var envelopes = Dictionary(uniqueKeysWithValues: retained.objects.map { ($0.hash, $0) })
     for object in request.objects { envelopes[object.hash] = object }
-    var pending = [request.candidate]
+    var pending = [(request.candidate, WireEntryKind.directory)]
     var visited = Set<String>()
     var objects: [WireObjectEnvelope] = []
-    while let hash = pending.popLast() {
+    while let (hash, kind) = pending.popLast() {
         if !visited.insert(hash).inserted { continue }
         let envelope = try #require(envelopes[hash])
         objects.append(envelope)
-        if case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes) {
+        if case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes, kind: kind) {
             for entry in entries {
-                if let hash = entry.hash { pending.append(hash) }
+                if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) }
             }
         }
     }

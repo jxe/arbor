@@ -7,8 +7,8 @@
         "type": "file",
         "bytesBase64": "aGVsbG8K"
       },
-      "canonicalCborBase64": "omR0eXBlZGZpbGVlYnl0ZXNGaGVsbG8K",
-      "hash": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b"
+      "hash": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+      "bytesBase64": "aGVsbG8K"
     },
     {
       "name": "directory-utf8-order",
@@ -21,16 +21,16 @@
           },
           {
             "name": "z",
-            "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            "file": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
           },
           {
             "name": "ä",
-            "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
           }
         ]
       },
-      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzg6JkbmFtZWFBZHRyZWVodHJfY2hpbGSiZGhhc2h4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZG5hbWVheqJkaGFzaHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWLDpA==",
-      "hash": "sha256:2c33ed526ed3f73ddc93a0107e374c5a69cb9c5588cbe3b4d0576527135efb2a"
+      "hash": "sha256:6e7fdc9185c1df40bca9f88b8ddbee271142a8b7d817eac1b0846f0090298305",
+      "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzg6JkbmFtZWFBZHRyZWVodHJfY2hpbGSiZGZpbGV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZG5hbWVheqJkZmlsZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWLDpA=="
     },
     {
       "name": "directory-collection-file",
@@ -39,11 +39,11 @@
         "entries": [
           {
             "name": "_store.json",
-            "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
           },
           {
             "name": "schema.ts",
-            "hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            "file": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
           }
         ],
         "childrenSource": {
@@ -56,30 +56,34 @@
           "childSetHash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
         }
       },
-      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWtfc3RvcmUuanNvbqJkaGFzaHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJkbmFtZWlzY2hlbWEudHNuY2hpbGRyZW5Tb3VyY2WnZHR5cGVvY29sbGVjdGlvbi1maWxlZmZvcm1hdGRqc29uZnNvdXJjZWtfc3RvcmUuanNvbmd2ZXJzaW9uAWxjaGlsZFNldEhhc2h4R3NoYTI1Njo0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0bHNjaGVtYVNvdXJjZWlzY2hlbWEudHNxc2NoZW1hRmluZ2VycHJpbnR4R3NoYTI1NjozMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz",
-      "hash": "sha256:471656227eb27df5b6fabe1e69fba7047705a0da27363e3295c442b4681d1e9b"
+      "hash": "sha256:5a497a26a0577bca961264eef13be1ed0218370a754ee45fc01de1cfbb3a6b0f",
+      "bytesBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkZmlsZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWtfc3RvcmUuanNvbqJkZmlsZXhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJkbmFtZWlzY2hlbWEudHNuY2hpbGRyZW5Tb3VyY2WnZHR5cGVvY29sbGVjdGlvbi1maWxlZmZvcm1hdGRqc29uZnNvdXJjZWtfc3RvcmUuanNvbmd2ZXJzaW9uAWxjaGlsZFNldEhhc2h4R3NoYTI1Njo0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0bHNjaGVtYVNvdXJjZWlzY2hlbWEudHNxc2NoZW1hRmluZ2VycHJpbnR4R3NoYTI1NjozMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz"
     }
   ],
   "invalid": [
     {
       "name": "unsorted-directory",
-      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWF6omRoYXNoeEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGRuYW1lYUE=",
-      "reason": "entries are not lexicographically ordered by UTF-8 bytes"
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWF6omRmaWxleEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGRuYW1lYWE="
     },
     {
       "name": "duplicate-name",
-      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFBomRoYXNoeEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGRuYW1lYUE=",
-      "reason": "directory entry names are not unique"
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFhomRmaWxleEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGRuYW1lYWE="
     },
     {
       "name": "dual-target",
-      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaNkaGFzaHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFBZHRyZWVodHJfY2hpbGQ=",
-      "reason": "entry has both hash and tree"
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaNkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFhZHRyZWVodHJfY2hpbGQ="
+    },
+    {
+      "name": "entry-with-hash-key",
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkaGFzaHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFh"
+    },
+    {
+      "name": "file-and-directory",
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaNkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFhaWRpcmVjdG9yeXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
     },
     {
       "name": "noncanonical-cbor",
-      "canonicalCborBase64": "omVieXRlc0ZoZWxsbwpkdHlwZWRmaWxl",
-      "reason": "equivalent data model is not encoded canonically"
+      "canonicalCborBase64": "omdlbnRyaWVzgGR0eXBlaWRpcmVjdG9yeQ=="
     }
   ]
 }

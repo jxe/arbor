@@ -104,7 +104,7 @@ final class ArborWorkspaceState {
     /// state layout changes incompatibly. "4": content references (schema 2
     /// state, no inline file bytes), the `WorkingTrees/` layout, and
     /// `update-control.json`.
-    static let workingTreeFormat = "4"
+    static let workingTreeFormat = "5"
 
     private(set) var provider: any WorkspaceProvider
     private(set) var editorWorkspace: ArborEditorWorkspace
@@ -217,8 +217,15 @@ final class ArborWorkspaceState {
            FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
             workingTree = try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
         } else {
-            try? FileManager.default.removeItem(at: replicaRoot)
-            try? FileManager.default.removeItem(at: syncStateRoot)
+            // Retain old admissions and materialized content for recovery; never
+            // replay an old-format journal against reset accepted history.
+            let archive = root.appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
+            for (source, name) in [(replicaRoot, "WorkingTree"), (syncStateRoot, "Sync")] {
+                if FileManager.default.fileExists(atPath: source.path) {
+                    try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+                    try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
+                }
+            }
             workingTree = try await WorkingTreePlacementService.place(tree: tree, at: replicaRoot, transport: transport)
             try Self.workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
         }
@@ -840,7 +847,7 @@ final class ArborWorkspaceState {
             tree: TreeID(rawValue: treeID),
             update: bootstrap.accepted.update,
             cursor: bootstrap.accepted.cursor,
-            files: bootstrap.files.mapValues { SparseFileMetadata(size: $0.size) }
+            mode: .sparseFiles
         )
         if bootstrap.spine.root == bootstrap.accepted.root {
             try await workingTree.initializeFromSystem(replacement)

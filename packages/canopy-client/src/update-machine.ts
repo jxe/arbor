@@ -18,6 +18,7 @@ export const PUBLICATION_DELAY_MS = 250;
 export const PUBLICATION_MAX_DELAY_MS = 1_000;
 
 export interface AcceptedBase {
+  conflicted?: boolean;
   root: string;
   update: string;
   cursor?: string;
@@ -40,6 +41,7 @@ export interface PreparedRequest {
 }
 
 export interface AuthorityResult {
+  conflicted?: boolean;
   kind: "accepted" | "merged" | "current";
   root: string;
   update: string;
@@ -84,14 +86,14 @@ export type UpdateState =
   | (Base & { kind: "terminal"; reason: string });
 
 export type UpdateEvent =
-  | { type: "bootstrapInstalled"; root: string; update: string; cursor?: string }
+  | { type: "bootstrapInstalled"; conflicted?: boolean; root: string; update: string; cursor?: string }
   | { type: "localHead"; root: string; origin: LocalHeadOrigin }
   | { type: "publishDelayElapsed" }
   | { type: "maxDelayElapsed" }
   | { type: "requestPersisted"; request: PreparedRequest }
   | { type: "submitStarted"; id: string }
   | { type: "accepted"; id: string; result: AuthorityResult }
-  | { type: "watch"; cursor: string; root: string; update: string; digests: string[]; transitions: boolean }
+  | { type: "watch"; conflicted?: boolean; cursor: string; root: string; update: string; digests: string[]; transitions: boolean }
   | { type: "watchGap" }
   | { type: "conflicted"; id: string; conflict: ConflictEvidence }
   | { type: "applied" }
@@ -172,7 +174,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
     case "bootstrapInstalled": {
       if (state.kind !== "unplaced") return { state, effects: [] };
       return {
-        state: { ...ctx(state), kind: "current", base: { root: event.root, update: event.update, ...(event.cursor ? { cursor: event.cursor } : {}) } },
+        state: { ...ctx(state), kind: "current", base: { root: event.root, update: event.update, ...(event.conflicted === undefined ? {} : { conflicted: event.conflicted }), ...(event.cursor ? { cursor: event.cursor } : {}) } },
         effects: [],
       };
     }
@@ -268,6 +270,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
         update: event.update,
         cursor: event.cursor,
         digests: event.digests,
+        ...(event.conflicted === undefined ? {} : { conflicted: event.conflicted }),
       };
       switch (state.kind) {
         case "current": {
@@ -334,7 +337,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
 
     case "applied": {
       if (state.kind !== "accepted-pending-apply") return { state, effects: [] };
-      const base: AcceptedBase = { root: state.result.root, update: state.result.update, ...(state.result.cursor ? { cursor: state.result.cursor } : {}) };
+      const base: AcceptedBase = { root: state.result.root, update: state.result.update, ...(state.result.conflicted === undefined ? {} : { conflicted: state.result.conflicted }), ...(state.result.cursor ? { cursor: state.result.cursor } : {}) };
       const next: Base = { ...ctx(state), base };
       if (state.head && state.head.root !== base.root) {
         // Publish the retained successor against the new applied base without waiting.

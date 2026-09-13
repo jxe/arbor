@@ -53,34 +53,12 @@ public struct DirectoryObjectStore: ObjectOverlay {
         return Set(names.filter { $0.count == 64 && $0.allSatisfy(\.isHexDigit) }.map { "sha256:" + $0 })
     }
 
-    public func retain(reachableFrom roots: Set<String>) throws {
-        let reachable = try reachableHashes(from: roots)
+    public func retain(reachableFrom roots: Set<String>, files: Set<String>) throws {
+        let reachable = try reachableHashes(from: roots).union(files)
         for hash in try hashes() where !reachable.contains(hash) {
             try? FileManager.default.removeItem(at: objectURL(hash: hash))
         }
         try syncDirectory(directory)
-    }
-
-    /// The hashes reachable from `roots`, reading only a prefix of file objects.
-    public func reachableHashes(from roots: Set<String>) throws -> Set<String> {
-        var pending = Array(roots)
-        var visited = Set<String>()
-        while let hash = pending.popLast() {
-            guard visited.insert(hash).inserted else { continue }
-            let url = objectURL(hash: hash)
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            let handle = try FileHandle(forReadingFrom: url)
-            let prefix = try handle.read(upToCount: WireObjectCodec.kindPrefixLength) ?? Data()
-            try handle.close()
-            guard WireObjectCodec.kind(ofPrefix: prefix) == .directory else { continue }
-            guard let bytes = try storedBytes(hash) else { continue }
-            if case let .directory(entries, _) = try WireObjectCodec.decode(bytes) {
-                for entry in entries {
-                    if let child = entry.hash { pending.append(child) }
-                }
-            }
-        }
-        return visited
     }
 
     private func atomicWrite(_ data: Data, to destination: URL) throws {

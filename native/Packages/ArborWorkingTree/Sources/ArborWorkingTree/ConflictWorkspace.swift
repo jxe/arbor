@@ -88,16 +88,17 @@ enum ConflictWorkspaceGraph {
                 case .missing:
                     break
                 case let .object(hash):
-                    nextEntries.append(WireDirectoryEntry(name: name, hash: hash))
+                    if case .directory? = objects[hash] { nextEntries.append(WireDirectoryEntry(name: name, directory: hash)) }
+                    else { nextEntries.append(WireDirectoryEntry(name: name, file: hash)) }
                 case let .boundary(tree):
                     nextEntries.append(WireDirectoryEntry(name: name, tree: tree))
                 }
             } else {
                 guard let index = nextEntries.firstIndex(where: { $0.name == name }),
-                      let child = nextEntries[index].hash else {
+                      let child = nextEntries[index].directory else {
                     throw UpdateError.conflictSnapshotMissing
                 }
-                nextEntries[index] = WireDirectoryEntry(name: name, hash: try rewrite(child, depth: depth + 1))
+                nextEntries[index] = WireDirectoryEntry(name: name, directory: try rewrite(child, depth: depth + 1))
             }
             nextEntries.sort { utf8Less($0.name, $1.name) }
             let directory = try WireObjectCodec.object(.directory(nextEntries, childrenSource: childrenSource))

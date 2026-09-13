@@ -83,7 +83,8 @@ struct UpdateMachineTests {
         .init(
             root: try #require(json["root"] as? String),
             update: try #require(json["update"] as? String),
-            cursor: json["cursor"] as? String
+            cursor: json["cursor"] as? String,
+            conflicted: json["conflicted"] as? Bool
         )
     }
 
@@ -111,7 +112,8 @@ struct UpdateMachineTests {
             root: try #require(json["root"] as? String),
             update: try #require(json["update"] as? String),
             cursor: json["cursor"] as? String,
-            digests: json["digests"] as? [String] ?? []
+            digests: json["digests"] as? [String] ?? [],
+            conflicted: json["conflicted"] as? Bool
         )
     }
 
@@ -189,7 +191,8 @@ struct UpdateMachineTests {
             return .bootstrapInstalled(
                 root: try #require(json["root"] as? String),
                 update: try #require(json["update"] as? String),
-                cursor: json["cursor"] as? String
+                cursor: json["cursor"] as? String,
+            conflicted: json["conflicted"] as? Bool
             )
         case "localHead":
             return .localHead(
@@ -212,7 +215,8 @@ struct UpdateMachineTests {
                 root: try #require(json["root"] as? String),
                 update: try #require(json["update"] as? String),
                 digests: json["digests"] as? [String] ?? [],
-                transitions: json["transitions"] as? Bool ?? false
+                transitions: json["transitions"] as? Bool ?? false,
+                conflicted: json["conflicted"] as? Bool
             )
         case "watchGap":
             return .watchGap

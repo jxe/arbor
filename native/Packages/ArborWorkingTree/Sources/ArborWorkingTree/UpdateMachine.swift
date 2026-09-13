@@ -15,11 +15,13 @@ public enum UpdateMachine {
     public static let publicationMaxDelay: Duration = .seconds(1)
 
     public struct AcceptedBase: Sendable, Equatable {
+        public var conflicted: Bool?
         public var root: String
         public var update: String
         public var cursor: String?
 
-        public init(root: String, update: String, cursor: String? = nil) {
+        public init(root: String, update: String, cursor: String? = nil, conflicted: Bool? = nil) {
+            self.conflicted = conflicted
             self.root = root
             self.update = update
             self.cursor = cursor
@@ -59,6 +61,7 @@ public enum UpdateMachine {
     }
 
     public struct AuthorityResult: Sendable, Equatable {
+        public var conflicted: Bool?
         public enum Kind: String, Sendable, Equatable {
             case accepted
             case merged
@@ -71,7 +74,8 @@ public enum UpdateMachine {
         public var cursor: String?
         public var digests: [String]
 
-        public init(kind: Kind, root: String, update: String, cursor: String? = nil, digests: [String] = []) {
+        public init(kind: Kind, root: String, update: String, cursor: String? = nil, digests: [String] = [], conflicted: Bool? = nil) {
+            self.conflicted = conflicted
             self.kind = kind
             self.root = root
             self.update = update
@@ -165,14 +169,14 @@ public enum UpdateMachine {
     }
 
     public enum Event: Sendable, Equatable {
-        case bootstrapInstalled(root: String, update: String, cursor: String?)
+        case bootstrapInstalled(root: String, update: String, cursor: String?, conflicted: Bool? = nil)
         case localHead(root: String, origin: HeadOrigin)
         case publishDelayElapsed
         case maxDelayElapsed
         case requestPersisted(PreparedRequest)
         case submitStarted(id: String)
         case accepted(id: String, result: AuthorityResult)
-        case watch(cursor: String, root: String, update: String, digests: [String], transitions: Bool)
+        case watch(cursor: String, root: String, update: String, digests: [String], transitions: Bool, conflicted: Bool? = nil)
         case watchGap
         case conflicted(id: String, conflict: ConflictEvidence)
         case applied
@@ -236,9 +240,9 @@ public enum UpdateMachine {
         if case .terminal = state.phase { return (state, []) }
 
         switch event {
-        case let .bootstrapInstalled(root, update, cursor):
+        case let .bootstrapInstalled(root, update, cursor, conflicted):
             guard case .unplaced = state.phase else { return (state, []) }
-            next.base = AcceptedBase(root: root, update: update, cursor: cursor)
+            next.base = AcceptedBase(root: root, update: update, cursor: cursor, conflicted: conflicted)
             next.phase = .current
             return (next, [])
 
@@ -319,8 +323,8 @@ public enum UpdateMachine {
             next.phase = .acceptedPendingApply(result: result, request: request, head: successor)
             return (next, [.apply(result)])
 
-        case let .watch(cursor, root, update, digests, _):
-            let result = AuthorityResult(kind: .accepted, root: root, update: update, cursor: cursor, digests: digests)
+        case let .watch(cursor, root, update, digests, _, conflicted):
+            let result = AuthorityResult(kind: .accepted, root: root, update: update, cursor: cursor, digests: digests, conflicted: conflicted)
             switch state.phase {
             case .current:
                 guard let base = state.base, cursor != base.cursor, update != base.update else { return (state, []) }
@@ -365,7 +369,7 @@ public enum UpdateMachine {
 
         case .applied:
             guard case let .acceptedPendingApply(result, _, head) = state.phase else { return (state, []) }
-            let base = AcceptedBase(root: result.root, update: result.update, cursor: result.cursor)
+            let base = AcceptedBase(root: result.root, update: result.update, cursor: result.cursor, conflicted: result.conflicted)
             next.base = base
             if let head, head.root != base.root {
                 // Publish the retained successor against the new applied base without waiting.
@@ -538,6 +542,7 @@ extension UpdateMachine.State {
         case let .acceptedPendingApply(result, request, head):
             var resultValue: [String: Any] = ["kind": result.kind.rawValue, "root": result.root, "update": result.update, "digests": result.digests]
             if let cursor = result.cursor { resultValue["cursor"] = cursor }
+            if let conflicted = result.conflicted { resultValue["conflicted"] = conflicted }
             value["result"] = resultValue
             put(request)
             put(head)
@@ -566,6 +571,7 @@ extension UpdateMachine.AcceptedBase {
     var fixtureRepresentation: [String: Any] {
         var value: [String: Any] = ["root": root, "update": update]
         if let cursor { value["cursor"] = cursor }
+        if let conflicted { value["conflicted"] = conflicted }
         return value
     }
 }

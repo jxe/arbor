@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { mergeWireTrees } from "@arbor/canopy";
 import { ProjectionProviderHost, decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
 import {
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
   type TreeSnapshot,
   type UpdateConflict,
   type WireDirectoryEntry,
-  type WireObject,
+  type WireDirectory,
 } from "@arbor/wire";
 import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 
@@ -56,8 +56,8 @@ interface MergeFixtures {
   structuralCases: StructuralCase[];
 }
 
-function stored(object: WireObject, objects: Map<string, Uint8Array>): string {
-  const bytes = encodeWireObject(object);
+function stored(object: WireDirectory | { type: "file"; bytes: Uint8Array }, objects: Map<string, Uint8Array>): string {
+  const bytes = object.type === "file" ? object.bytes : encodeWireDirectory(object);
   const hash = hashObject(bytes);
   objects.set(hash, bytes);
   return hash;
@@ -73,7 +73,7 @@ function markdownSnapshot(source: string, objects: Map<string, Uint8Array>): Tre
 
 function namedMarkdownSnapshot(name: string, source: string, objects: Map<string, Uint8Array>): TreeSnapshot {
   const file = stored({ type: "file", bytes: new TextEncoder().encode(source) }, objects);
-  return { root: root([{ name, hash: file }], objects), objects };
+  return { root: root([{ name, file: file }], objects), objects };
 }
 
 async function jsonCollectionFileSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
@@ -105,15 +105,14 @@ async function mergedSource(
   const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash);
   const directoryBytes = load(result.root);
   if (!directoryBytes) throw new Error("Missing merged root");
-  const directory = decodeWireObject(directoryBytes);
+  const directory = decodeWireDirectory(directoryBytes);
   if (directory.type !== "directory") throw new Error("Expected merged directory");
-  const note = directory.entries.find((entry) => entry.name === "note.md")?.hash;
+  const note = directory.entries.find((entry) => entry.name === "note.md")?.file;
   if (!note) throw new Error("Expected merged note.md");
   const fileBytes = load(note);
   if (!fileBytes) throw new Error("Missing merged Markdown object");
-  const file = decodeWireObject(fileBytes);
-  if (file.type !== "file") throw new Error("Expected merged Markdown file");
-  return { result, source: new TextDecoder().decode(file.bytes) };
+  const file = fileBytes;
+  return { result, source: new TextDecoder().decode(file) };
 }
 
 async function mergedPage(
@@ -128,15 +127,14 @@ async function mergedPage(
   const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash);
   const directoryBytes = load(result.root);
   if (!directoryBytes) throw new Error("Missing merged root");
-  const directory = decodeWireObject(directoryBytes);
+  const directory = decodeWireDirectory(directoryBytes);
   if (directory.type !== "directory" || directory.entries.length !== 1) throw new Error("Expected one merged page");
   const entry = directory.entries[0]!;
-  if (!entry.hash) throw new Error("Expected a Markdown hash");
-  const fileBytes = load(entry.hash);
+  if (!entry.file) throw new Error("Expected a Markdown hash");
+  const fileBytes = load(entry.file);
   if (!fileBytes) throw new Error("Missing merged page");
-  const file = decodeWireObject(fileBytes);
-  if (file.type !== "file") throw new Error("Expected a Markdown file");
-  return { result, name: entry.name, source: new TextDecoder().decode(file.bytes) };
+  const file = fileBytes;
+  return { result, name: entry.name, source: new TextDecoder().decode(file) };
 }
 
 function occurrences(source: string, needle: string): number {
@@ -187,15 +185,14 @@ describe("reference Canopy merge fixtures", () => {
     expect(result.conflicts).toEqual([]);
     expect(result.summary).toEqual({ version: "collection-file-rows-v1", mergedRows: 1 });
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
-    const rootObject = decodeWireObject(load(result.root));
+    const rootObject = decodeWireDirectory(load(result.root));
     if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
     const descriptor = rootObject.childrenSource!;
-    const source = decodeWireObject(load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.hash!));
-    const schema = decodeWireObject(load(rootObject.entries.find((entry) => entry.name === descriptor.schemaSource)!.hash!));
-    if (source.type !== "file" || schema.type !== "file") throw new Error("Expected collection files");
+    const source = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
+    const schema = load(rootObject.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!);
     const sandbox = new SchemaSandbox();
     try {
-      const decoded = await decodeWireCollectionFile(descriptor, source.bytes, schema.bytes, sandbox);
+      const decoded = await decodeWireCollectionFile(descriptor, source, schema, sandbox);
       expect(decoded.rows.map((row) => row.properties)).toEqual([
         { id: "a", title: "Candidate A" },
         { id: "b", title: "Remote B" },
@@ -284,9 +281,9 @@ describe("reference Canopy merge fixtures", () => {
       let remote: string;
       if (fixture.kind === "binary") {
         const file = (value: string) => stored({ type: "file", bytes: Buffer.from(value, "base64") }, objects);
-        base = root([{ name: "asset.bin", hash: file(fixture.baseBase64) }], objects);
-        candidate = root([{ name: "asset.bin", hash: file(fixture.candidateBase64) }], objects);
-        remote = root([{ name: "asset.bin", hash: file(fixture.remoteBase64) }], objects);
+        base = root([{ name: "asset.bin", file: file(fixture.baseBase64) }], objects);
+        candidate = root([{ name: "asset.bin", file: file(fixture.candidateBase64) }], objects);
+        remote = root([{ name: "asset.bin", file: file(fixture.remoteBase64) }], objects);
       } else if (fixture.kind === "nested-boundary") {
         base = root([{ name: "nested", tree: fixture.baseTree }], objects);
         candidate = root([{ name: "nested", tree: fixture.candidateTree }], objects);
@@ -295,9 +292,9 @@ describe("reference Canopy merge fixtures", () => {
         const baseFile = stored({ type: "file", bytes: new TextEncoder().encode("base") }, objects);
         const remoteFile = stored({ type: "file", bytes: new TextEncoder().encode("remote") }, objects);
         const candidateDirectory = root([], objects);
-        base = root([{ name: "item", hash: baseFile }], objects);
-        candidate = root([{ name: "item", hash: candidateDirectory }], objects);
-        remote = root([{ name: "item", hash: remoteFile }], objects);
+        base = root([{ name: "item", file: baseFile }], objects);
+        candidate = root([{ name: "item", directory: candidateDirectory }], objects);
+        remote = root([{ name: "item", file: remoteFile }], objects);
       }
       const result = await mergeWireTrees(base, candidate, remote, async (hash) => {
         const bytes = objects.get(hash);

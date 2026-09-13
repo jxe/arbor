@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe("Arbor private state", () => {
-  test("a Wire format bump discards only rebuildable private state", async () => {
+  test("a Wire format bump archives journals and rebuilds indexes", async () => {
     const state = await temp("arbor-private-state-version-");
     process.env.ARBOR_DATA_HOME = state;
     await prepareArborDataRoot();
@@ -49,6 +49,11 @@ describe("Arbor private state", () => {
     await expect(stat(join(privateRoot, "workspaces", "one", "index.json"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(join(privateRoot, "device.json"), "utf8")).toBe("keep\n");
     expect(await readFile(join(privateRoot, "version"), "utf8")).toBe(`${ARBOR_SYNC_STATE_VERSION}\n`);
+    const archives = await readdir(join(privateRoot, "format-recovery"));
+    expect(archives).toHaveLength(1);
+    expect(await readFile(join(privateRoot, "format-recovery", archives[0]!, "sync", "tree.json"), "utf8")).toBe("{}\n");
+    await prepareArborDataRoot();
+    expect(await readdir(join(privateRoot, "format-recovery"))).toEqual(archives);
   });
 
   test("an explicit data home is used as-is and upgrades registry identity", async () => {

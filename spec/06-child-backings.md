@@ -242,7 +242,7 @@ Wire root while leaving both logical hashes unchanged.
 
 Database-backed placements are not decoded through a
 `CollectionFileDescriptor`; database pages and WAL files are never
-`WireObject` values. Their snapshot, observation, and synchronization rules are
+Wire file bytes or directory objects. Their snapshot, observation, and synchronization rules are
 the database contracts below.
 
 ### 2.2 File writes and observation

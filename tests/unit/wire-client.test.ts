@@ -2,14 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   WireClient,
   encodeSnapshotBundle,
-  encodeWireObject,
+  encodeWireDirectory,
   hashObject,
 } from "@arbor/wire";
 
 function snapshotResponse(delays: readonly number[]) {
-  const object = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("slow snapshot\n") });
-  const root = hashObject(object);
-  const body = encodeSnapshotBundle({ root, objects: new Map([[root, object]]) });
+  const object = new TextEncoder().encode("slow snapshot\n");
+  const fileHash = hashObject(object);
+  const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "payload.bin", file: fileHash }] });
+  const root = hashObject(directory);
+  const body = encodeSnapshotBundle({ root, objects: new Map([[root, directory], [fileHash, object]]) });
   const chunkSize = Math.ceil(body.byteLength / delays.length);
   const server = Bun.serve({
     port: 0,

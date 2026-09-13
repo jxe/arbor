@@ -7,7 +7,7 @@ import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import { serveCanopy } from "@arbor/canopy";
 import { canonicalArborLocator, generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireObject, encodeWireObject, hashObject, WireClient } from "@arbor/wire";
+import { type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireDirectory, encodeWireDirectory, hashObject, WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import {
   appendPendingTreeSuccessor,
@@ -351,12 +351,12 @@ describe("private self-sync", () => {
     // way to learn about it within the timeout is its live watch.
     const owner = new WireClient(host.url, token);
     const current = await readAccepted(owner, tree);
-    const rootObject = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
+    const rootObject = decodeWireDirectory(current.snapshot.objects.get(current.snapshot.root)!);
     if (rootObject.type !== "directory") throw new Error("Expected a directory root");
-    const file = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("delivered by watch\n") });
-    const nextRoot = encodeWireObject({
+    const file = new TextEncoder().encode("delivered by watch\n");
+    const nextRoot = encodeWireDirectory({
       type: "directory",
-      entries: [...rootObject.entries, { name: "watched.txt", hash: hashObject(file) }]
+      entries: [...rootObject.entries, { name: "watched.txt", file: hashObject(file) }]
         .sort((left, right) => compareWireNames(left.name, right.name)),
     });
     const objects = current.snapshot.objects;
@@ -405,12 +405,12 @@ describe("private self-sync", () => {
     expect(chainLength).toBe(2);
 
     // The peer's successor adds one file on top of the chain's final root.
-    const chainRoot = decodeWireObject(chainEnd.objects.get(chainEnd.root)!);
+    const chainRoot = decodeWireDirectory(chainEnd.objects.get(chainEnd.root)!);
     if (chainRoot.type !== "directory") throw new Error("Expected a directory root");
-    const extraFile = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("peer successor\n") });
-    const successorRoot = encodeWireObject({
+    const extraFile = new TextEncoder().encode("peer successor\n");
+    const successorRoot = encodeWireDirectory({
       type: "directory",
-      entries: [...chainRoot.entries, { name: "peer-successor.txt", hash: hashObject(extraFile) }]
+      entries: [...chainRoot.entries, { name: "peer-successor.txt", file: hashObject(extraFile) }]
         .sort((left, right) => compareWireNames(left.name, right.name)),
     });
     const successorObjects = new Map(chainEnd.objects);
@@ -494,11 +494,11 @@ describe("private self-sync", () => {
     const account = await owner.account();
     const configurationTree = account.account.configuration.id;
     const remote = await owner.descriptor(configurationTree);
-    const emptyDirectory = encodeWireObject({ type: "directory", entries: [] });
+    const emptyDirectory = encodeWireDirectory({ type: "directory", entries: [] });
     const emptyDirectoryHash = hashObject(emptyDirectory);
-    const staleRoot = encodeWireObject({
+    const staleRoot = encodeWireDirectory({
       type: "directory",
-      entries: [{ name: "LinkPreviews", hash: emptyDirectoryHash }],
+      entries: [{ name: "LinkPreviews", file: emptyDirectoryHash }],
     });
     const staleRootHash = hashObject(staleRoot);
     await savePendingTreeUpdate(configurationTree, {

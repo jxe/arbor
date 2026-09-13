@@ -197,15 +197,17 @@ type SnapshotBundle = {
 
 The response uses `application/cbor` and is the canonical CBOR encoding of
 exactly that map. Each member of `objects` is a CBOR byte string containing the
-exact canonical CBOR bytes of one `WireObject`. Members are ordered
+exact bytes of one object (raw file bytes or a canonical CBOR directory). Members are ordered
 lexicographically by the SHA-256 hash derived from those bytes; hashes are not
 repeated in the body.
 
 The requested root in the URL identifies the graph and is not repeated in the
 body. As the top directory object's hash, it transitively commits to every
 reachable object. A client hashes every supplied byte string, rejects duplicate
-hashes or noncanonical `WireObject` encodings, requires the requested root to
-be present, and walks its graph. It rejects missing reachable objects and
+hashes, requires the requested root to be a present canonical directory,
+and walks its graph using the kind on each reference. A referenced directory
+must decode canonically; file bytes are never decoded. A hash referenced as
+both file and directory in the same graph is invalid. It rejects missing reachable objects and
 unreachable extras, stopping at nested-tree boundaries. The definite-length
 `objects` array supplies the object count; the snapshot carries no tree,
 accepted-update, or observation-cursor metadata.
@@ -237,18 +239,16 @@ root can remain publicly available after the tree ceases to grant public
 access. Removing content from the current tree is therefore not erasure from
 retained accepted snapshots or caches.
 
-The decoded `WireObject` has two variants:
+A file object is its exact file bytes, with no CBOR wrapper. Its object hash
+is `sha256(fileBytes)`. Only directory objects are encoded as canonical CBOR.
+Kind comes from the referencing directory entry; receivers MUST NOT sniff or
+decode file bytes to infer kind. A file may contain bytes that are also a
+valid directory encoding without being interpreted as a directory.
 
 ```ts
-type WireObject = WireFile | WireDirectory;
-
-type WireFile = {
-  type: "file";
-  bytes: Uint8Array;
-};
-
 type WireDirectoryEntry =
-  | { name: Name; hash: Hash }
+  | { name: Name; file: Hash }
+  | { name: Name; directory: Hash }
   | { name: Name; tree: TreeID };
 
 type WireDirectory = {
@@ -337,6 +337,7 @@ type AcceptedUpdate = {
   kind: "initial" | "accepted" | "merged" | "restored";
   acceptedAt: number;
   subject: string | null;
+  conflicted?: boolean;
   merge?: MergeSummary;
 };
 
@@ -385,6 +386,40 @@ payload, or a batch too old for retained transition data produces one terminal
 obtains its addressed snapshot, and resumes strictly after the descriptor's
 `observedThrough` cursor.
 
+#### Accepted unresolved state and optional extensions
+
+`AcceptedUpdate.conflicted` and `RemoteTreeDescriptor.conflicted` signal that
+an accepted state retains unresolved alternatives. Absence is equivalent to
+`false`; a descriptor and its accepted update MUST agree. This state is distinct
+from a rejected update's structured `409 conflict` response. The selected `root`
+remains an ordinary valid directory graph with no conflict markers or special
+entries. An accepted change to unresolved state MUST receive a new update id
+and cursor even when `previousRoot === root`; its transition may be empty.
+Clients MUST durably advance accepted metadata in that case.
+
+Ordinary updates are based on the exact accepted update, not only its projected
+root. Leaving a conflicted region's projected bytes unchanged MUST NOT resolve
+or discard its alternatives. Authorities supporting accepted conflicts MUST
+preserve unresolved state when admitting ordinary changes and may reject a
+change they cannot safely apply. Clients without conflict-review support may
+continue ordinary synchronization and MUST indicate unresolved state rather
+than reporting the tree as conflict-free.
+
+A descriptor MAY advertise `extensions: string[]`, whose entries identify
+optional, versioned extension contracts. Absence is equivalent to an empty
+list. Unknown extension identifiers do not change core interpretation. Clients
+MUST NOT invoke an extension that the authority does not advertise. An extension
+may define conflict inspection, model-specific alternative identities, and
+explicit resolution operations. Such operations produce ordinary accepted
+updates and use the existing synchronization/watch surface for delivery.
+
+This core contract does not define conflict regions, exploration routes,
+resolution bodies, editor intent, or a conflict algebra. An extension MUST NOT
+silently reinterpret an ordinary update as explicit conflict resolution.
+Unknown optional response fields are ignored; extensions that require new
+mutation semantics must define an explicit operation/version and reject
+unsupported operations before changing state.
+
 ### 1.2 Other ways to read trees
 
 #### 1.2.1 Reading an object at a time
@@ -396,9 +431,9 @@ and directories on demand.
 GET /.arbor/trees/{TreeID}/objects/{hash}
 ```
 
-This route returns the same canonical CBOR bytes carried in a snapshot bundle
+This route returns the same object bytes carried in a snapshot bundle
 or `ObjectEnvelope`, but directly as the response body. The hash is present in
-the URL and repeated as the quoted ETag. The response uses `application/cbor`,
+the URL and repeated as the quoted ETag. The response uses `application/octet-stream`,
 must hash to the requested value, and uses the same access-sensitive `Vary` and
 `Cache-Control` policy as an accepted snapshot.
 
@@ -698,9 +733,8 @@ one-entry change to a large directory or a one-paragraph change to a large file
 can use a few instructions, and a moved region is a copy rather than a
 retransmission.
 
-A file object's canonical encoding carries its payload length, so a sender
-deriving a delta from editor edits inserts the result's header bytes and copies
-unchanged payload ranges at their base offsets. Any instruction sequence that
+A file delta addresses file bytes directly: editor replacements copy unchanged
+ranges at their original byte offsets and insert replacement bytes. Any instruction sequence that
 reconstructs the exact result is valid; the diff algorithm is the sender's
 choice and never part of identity.
 
@@ -793,7 +827,7 @@ indefinite lengths, tags, and non-text keys are invalid.
 For a Wire object, the envelope is constructed as follows:
 
 ```text
-objectBytes = canonicalCBOR(wireObject)
+objectBytes = fileBytes OR canonicalCBOR(directory)
 envelope = {
   hash: sha256(objectBytes),
   bytes: paddedBase64(objectBytes)
@@ -801,9 +835,9 @@ envelope = {
 ```
 
 To validate an envelope, the receiver decodes `bytes` as canonical padded
-base64, requires the SHA-256 of the resulting bytes to equal `hash`, requires
-those bytes to be canonical CBOR, and decodes exactly one `WireObject` from
-them. The envelope is not itself hashed and is not a node in the object graph;
+base64 and requires the SHA-256 of the resulting bytes to equal `hash`.
+Graph validation separately interprets directory objects according to their
+references and requires their canonical encoding. The envelope is not itself hashed and is not a node in the object graph;
 it only carries an addressed object's hash and bytes through a JSON response or
 transition payload.
 
@@ -815,9 +849,8 @@ nothing on the Wire is identified by canonical JSON text.
 
 When the value being identified is already an exact byte sequence, Arbor
 hashes those bytes directly instead. In particular, `schemaFingerprint` is
-the SHA-256 of the exact UTF-8 bytes of `schema.ts`. It differs from the hash
-of the schema's `WireFile`, which covers the canonical CBOR encoding of the
-file object. The
+the SHA-256 of the exact UTF-8 bytes of `schema.ts`, and therefore equals
+that file's object hash. The
 [`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
 

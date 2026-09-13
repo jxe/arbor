@@ -24,7 +24,7 @@ import {
   type LocalPlacement,
   type SharedTreePlacement,
 } from "@arbor/stores";
-import { WireClient, compareWireNames, decodeWireObject, encodeSparseSnapshotBundle, encodeWireObject, hashObject, updateRequestDigests, verifyTreeSnapshotGraph, type CandidateUpdateJSON, type LazyTreeSnapshot, type ObjectHash, type RemoteTreeDescriptor, type TreeSnapshot, type UpdateRequest } from "@arbor/wire";
+import { WireClient, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, encodeWireDirectory, hashObject, updateRequestDigests, verifyTreeSnapshotGraph, type CandidateUpdateJSON, type LazyTreeSnapshot, type ObjectHash, type WireEntryKind, type RemoteTreeDescriptor, type TreeSnapshot, type UpdateRequest } from "@arbor/wire";
 import { accountWireClient, type AccountSelector, type AccountWireClient } from "@arbor/canopy-client";
 import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "@arbor/canopy-client";
 import { EventBus } from "./events.ts";
@@ -86,7 +86,6 @@ export interface TreeBootstrap {
   /** Base64 of a sparse CBOR snapshot bundle: every directory object and every Markdown file object. */
   spine: string;
   /** Every non-Markdown file entry by wire path; the client resolves their objects on demand. */
-  files: Record<string, { size: number; mtime: number }>;
   /** The daemon's stored update string, verbatim, when it still describes the folder exactly. */
   pending?: { base: string | null; updates: CandidateUpdateJSON[]; requestDigests: string[] };
   blocked?: "conflict" | "unsettled";
@@ -105,7 +104,7 @@ export interface ArborSyncDaemonOptions {
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
-type ConflictTarget = { kind: "object"; hash: ObjectHash } | { kind: "boundary"; tree: string } | { kind: "missing" };
+type ConflictTarget = { kind: "object"; hash: ObjectHash; objectKind: WireEntryKind } | { kind: "boundary"; tree: string } | { kind: "missing" };
 
 function conflictPath(path: string): string[] {
   if (!path.startsWith("/")) throw new Error("Conflict path is not absolute");
@@ -118,21 +117,21 @@ function conflictPath(path: string): string[] {
 function conflictTarget(snapshot: TreeSnapshot, path: string): ConflictTarget {
   verifyTreeSnapshotGraph(snapshot);
   const parts = conflictPath(path);
-  if (!parts.length) return { kind: "object", hash: snapshot.root };
+  if (!parts.length) return { kind: "object", hash: snapshot.root, objectKind: "directory" };
   let hash = snapshot.root;
   for (const [index, part] of parts.entries()) {
     const bytes = snapshot.objects.get(hash);
     if (!bytes) throw new Error(`Conflict snapshot is missing object: ${hash}`);
-    const object = decodeWireObject(bytes);
+    const object = decodeWireDirectory(bytes);
     if (object.type !== "directory") return { kind: "missing" };
     const entry = object.entries.find((candidate) => candidate.name === part);
     if (!entry) return { kind: "missing" };
     if (index === parts.length - 1) {
       if (entry.tree) return { kind: "boundary", tree: entry.tree };
-      return entry.hash ? { kind: "object", hash: entry.hash } : { kind: "missing" };
+      return entry.file || entry.directory ? { kind: "object", hash: (entry.file ?? entry.directory)!, objectKind: entry.file ? "file" : "directory" } : { kind: "missing" };
     }
-    if (!entry.hash) return { kind: "missing" };
-    hash = entry.hash;
+    if (!entry.directory) return { kind: "missing" };
+    hash = entry.directory;
   }
   return { kind: "missing" };
 }
@@ -143,10 +142,9 @@ function conflictContent(snapshot: TreeSnapshot, path: string): SyncConflictCont
   if (target.kind === "boundary") return { kind: "boundary", tree: target.tree };
   const bytes = snapshot.objects.get(target.hash);
   if (!bytes) throw new Error(`Conflict snapshot is missing object: ${target.hash}`);
-  const object = decodeWireObject(bytes);
-  if (object.type === "directory") return { kind: "directory", entries: object.entries.map((entry) => entry.name) };
-  try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(object.bytes) }; }
-  catch { return { kind: "binary", bytes: Buffer.from(object.bytes).toString("base64") }; }
+  if (target.objectKind === "directory") return { kind: "directory", entries: decodeWireDirectory(bytes).entries.map((entry) => entry.name) };
+  try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) }; }
+  catch { return { kind: "binary", bytes: Buffer.from(bytes).toString("base64") }; }
 }
 
 function replaceConflictTarget(destination: TreeSnapshot, path: string, source: TreeSnapshot, editedText?: string): TreeSnapshot {
@@ -155,8 +153,8 @@ function replaceConflictTarget(destination: TreeSnapshot, path: string, source: 
   const replacement = editedText === undefined
     ? conflictTarget(source, path)
     : (() => {
-        const bytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(editedText) });
-        return { kind: "object", hash: hashObject(bytes), bytes } as const;
+        const bytes = new TextEncoder().encode(editedText);
+        return { kind: "object", hash: hashObject(bytes), objectKind: "file", bytes } as const;
       })();
   const parts = conflictPath(path);
   const objects = new Map(destination.objects);
@@ -169,20 +167,20 @@ function replaceConflictTarget(destination: TreeSnapshot, path: string, source: 
   const rewrite = (directoryHash: ObjectHash, depth: number): ObjectHash => {
     const bytes = objects.get(directoryHash);
     if (!bytes) throw new Error(`Conflict snapshot is missing object: ${directoryHash}`);
-    const directory = decodeWireObject(bytes);
+    const directory = decodeWireDirectory(bytes);
     if (directory.type !== "directory") throw new Error("Conflict path parent is not a directory");
     const name = parts[depth]!;
     const entries = directory.entries.filter((entry) => entry.name !== name);
     if (depth === parts.length - 1) {
-      if (replacement.kind === "object") entries.push({ name, hash: replacement.hash });
+      if (replacement.kind === "object") entries.push(replacement.objectKind === "file" ? { name, file: replacement.hash } : { name, directory: replacement.hash });
       if (replacement.kind === "boundary") entries.push({ name, tree: replacement.tree });
     } else {
       const prior = directory.entries.find((entry) => entry.name === name);
-      if (!prior?.hash) throw new Error("Conflict path parent is missing");
-      entries.push({ name, hash: rewrite(prior.hash, depth + 1) });
+      if (!prior?.directory) throw new Error("Conflict path parent is missing");
+      entries.push({ name, directory: rewrite(prior.directory, depth + 1) });
     }
     entries.sort((left, right) => compareWireNames(left.name, right.name));
-    const next = encodeWireObject({ type: "directory", entries, ...(directory.childrenSource ? { childrenSource: directory.childrenSource } : {}) });
+    const next = encodeWireDirectory({ type: "directory", entries, ...(directory.childrenSource ? { childrenSource: directory.childrenSource } : {}) });
     const nextHash = hashObject(next);
     objects.set(nextHash, next);
     return nextHash;
@@ -192,52 +190,41 @@ function replaceConflictTarget(destination: TreeSnapshot, path: string, source: 
 
 function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<ObjectHash, Uint8Array>): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
-  const visit = (hash: ObjectHash) => {
+  const visit = (hash: ObjectHash, kind: "file" | "directory") => {
     if (objects.has(hash)) return;
     const bytes = available.get(hash);
     if (!bytes) throw new Error(`Retained conflict candidate is missing object: ${hash}`);
     objects.set(hash, bytes);
-    const object = decodeWireObject(bytes);
-    if (object.type === "directory") for (const entry of object.entries) if (entry.hash) visit(entry.hash);
+    if (kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
+      if (entry.directory) visit(entry.directory, "directory");
+      if (entry.file) visit(entry.file, "file");
+    }
   };
-  visit(root);
+  visit(root, "directory");
   return verifyTreeSnapshotGraph({ root, objects });
 }
 
-/**
- * Walk a lazy snapshot from its root without loading non-Markdown files:
- * directory objects and `.md` file objects go into the sparse spine, every
- * other file entry is reported by wire path with its size and mtime so the
- * client can tell a payload-less file from a missing directory (wire entries
- * carry no kind). Boundaries stop the walk.
- */
-async function sparseSpine(root: string, lazy: LazyTreeSnapshot): Promise<{ spine: string; files: Record<string, { size: number; mtime: number }> }> {
+/** Directory entries classify children; only directories and Markdown enter the spine. */
+async function sparseSpine(_root: string, lazy: LazyTreeSnapshot): Promise<{ spine: string }> {
   const spine = new Map<ObjectHash, Uint8Array>();
-  const files: Record<string, { size: number; mtime: number }> = {};
-  const visit = async (hash: ObjectHash, segments: string[]): Promise<void> => {
+  const visit = async (hash: ObjectHash): Promise<void> => {
+    if (spine.has(hash)) return;
     const source = lazy.objects.get(hash);
     if (!source) throw new Error(`Snapshot is missing object ${hash}`);
     const bytes = await source.bytes();
-    if (!spine.has(hash)) spine.set(hash, bytes);
-    const object = decodeWireObject(bytes);
-    if (object.type !== "directory") return;
-    for (const entry of object.entries) {
-      if (!entry.hash) continue;
-      const child = lazy.objects.get(entry.hash);
-      if (!child) throw new Error(`Snapshot is missing object ${entry.hash}`);
-      const path = [...segments, entry.name];
-      if (child.kind === "directory") {
-        await visit(entry.hash, path);
-      } else if (entry.name.toLowerCase().endsWith(".md")) {
-        if (!spine.has(entry.hash)) spine.set(entry.hash, await child.bytes());
-      } else {
-        const info = await stat(join(root, ...path));
-        files[`/${path.join("/")}`] = { size: info.size, mtime: Math.floor(info.mtimeMs) };
+    spine.set(hash, bytes);
+    for (const entry of decodeWireDirectory(bytes).entries) {
+      if (entry.directory) await visit(entry.directory);
+      else if (entry.file && entry.name.toLowerCase().endsWith(".md")) {
+        const child = lazy.objects.get(entry.file);
+        if (!child) throw new Error(`Snapshot is missing Markdown ${entry.file}`);
+        spine.set(entry.file, await child.bytes());
       }
     }
   };
-  await visit(lazy.root, []);
-  return { spine: Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64"), files };
+  await visit(lazy.root);
+  verifyTreeSnapshotGraph({ root: lazy.root, objects: spine }, "sparse-files");
+  return { spine: Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64") };
 }
 
 /**
@@ -293,7 +280,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /**
-   * Bootstrap material for a placed tree. The spine and `files` map always
+   * Bootstrap material for a placed tree. The directory-and-Markdown spine always
    * describe the folder as it is now; `pending` is returned verbatim only when
    * the stored update string still ends at that folder, and `blocked` tells a
    * client why it must not adopt the folder as a clean base.
@@ -316,14 +303,13 @@ export class ArborSyncDaemon implements AsyncDisposable {
       (directory, sourceName) => workspace.describeWireCollectionFile(directory, sourceName),
       workspace.objectIndex(),
     );
-    const { spine, files } = await sparseSpine(workspace.root, lazy);
+    const { spine } = await sparseSpine(workspace.root, lazy);
 
     const [conflict, pending] = await Promise.all([treeConflict(tree), pendingTreeUpdate(tree)]);
     const response: TreeBootstrap = {
       tree: descriptor,
       accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.update },
       spine,
-      files,
       observedThrough: this.events.currentCursor(),
     };
     if (conflict) return { ...response, blocked: "conflict" };

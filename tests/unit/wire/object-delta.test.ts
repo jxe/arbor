@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyObjectDelta, encodeWireObject, hashObject, objectDelta, type ObjectDelta } from "@arbor/wire";
+import { applyObjectDelta, encodeWireDirectory, hashObject, objectDelta, type ObjectDelta } from "@arbor/wire";
 
 function pseudoRandom(length: number, seed: number): Uint8Array {
   const bytes = new Uint8Array(length);
@@ -24,11 +24,11 @@ function insertedBytes(delta: ObjectDelta): number {
 describe("object delta derivation", () => {
   test("copies unchanged payload around an edit at the end of a file whose length header changed", () => {
     const payload = pseudoRandom(200_000, 7);
-    const base = encodeWireObject({ type: "file", bytes: payload });
+    const base = payload;
     const edited = new Uint8Array(payload.byteLength + 4);
     edited.set(payload, 0);
     edited.set(new TextEncoder().encode("tail"), payload.byteLength);
-    const target = encodeWireObject({ type: "file", bytes: edited });
+    const target = edited;
     expect(base.byteLength - payload.byteLength).toBe(target.byteLength - edited.byteLength);
 
     const delta = roundTrip(base, target);
@@ -65,12 +65,12 @@ describe("object delta derivation", () => {
   });
 
   test("handles a directory that gained one entry among many", () => {
-    const file = hashObject(encodeWireObject({ type: "file", bytes: new Uint8Array([1]) }));
+    const file = hashObject(new Uint8Array([1]));
     const names = Array.from({ length: 400 }, (_, index) => `page-${String(index).padStart(4, "0")}.md`);
-    const base = encodeWireObject({ type: "directory", entries: names.map((name) => ({ name, hash: file })) });
-    const target = encodeWireObject({
+    const base = encodeWireDirectory({ type: "directory", entries: names.map((name) => ({ name, file: file })) });
+    const target = encodeWireDirectory({
       type: "directory",
-      entries: [...names, "page-0200a.md"].sort().map((name) => ({ name, hash: file })),
+      entries: [...names, "page-0200a.md"].sort().map((name) => ({ name, file: file })),
     });
     const delta = roundTrip(base, target);
     expect(insertedBytes(delta)).toBeLessThan(160);

@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   compareWireNames,
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
 } from "@arbor/wire";
 import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@arbor/core";
@@ -54,7 +54,7 @@ describe("lazy snapshots and the object index", () => {
       const first = await snapshotDirectory(root, new Map(), exclusions, undefined, objectIndexOf(index));
       const photo = join(root, "nested", "photo.bin");
       const note = join(root, "note.md");
-      const photoHash = hashObject(encodeWireObject({ type: "file", bytes: await readFile(photo) }));
+      const photoHash = hashObject(await readFile(photo));
       expect(index.objectRow(photo, await stat(photo, { bigint: true }))?.hash).toBe(photoHash);
       // Plant rows with wrong hashes under the current stat tuples: a walk that
       // trusts the row reproduces the planted hash, a walk that reads does not.
@@ -67,7 +67,7 @@ describe("lazy snapshots and the object index", () => {
       expect(second.objects.has(photoHash)).toBe(false);
       await expect(second.objects.get(planted)!.bytes()).rejects.toThrow("changed after its snapshot");
       // Markdown is read eagerly regardless of the row, which the walk then repairs.
-      const noteHash = hashObject(encodeWireObject({ type: "file", bytes: await readFile(note) }));
+      const noteHash = hashObject(await readFile(note));
       expect(second.objects.has(noteHash)).toBe(true);
       expect(index.objectRow(note, await stat(note, { bigint: true }))?.hash).toBe(noteHash);
     } finally {
@@ -95,7 +95,7 @@ describe("lazy snapshots and the object index", () => {
       expect(index.objectRow(photo, after)).toBeUndefined();
       const second = await snapshotDirectory(root, new Map(), exclusions, undefined, objectIndexOf(index));
       expect(second.root).not.toBe(first.root);
-      expect(index.objectRow(photo, after)?.hash).toBe(hashObject(encodeWireObject({ type: "file", bytes: await readFile(photo) })));
+      expect(index.objectRow(photo, after)?.hash).toBe(hashObject(await readFile(photo)));
     } finally {
       index.close();
       await rm(root, { recursive: true, force: true });
@@ -106,9 +106,9 @@ describe("lazy snapshots and the object index", () => {
     const { root, index, exclusions } = await fixture("arbor-lazy-dirs-");
     try {
       const first = await snapshotDirectory(root, new Map(), exclusions, undefined, objectIndexOf(index));
-      const rootObject = decodeWireObject(await first.objects.get(first.root)!.bytes());
+      const rootObject = decodeWireDirectory(await first.objects.get(first.root)!.bytes());
       if (rootObject.type !== "directory") throw new Error("Expected a directory");
-      const nestedHash = rootObject.entries.find((entry) => entry.name === "nested")!.hash!;
+      const nestedHash = rootObject.entries.find((entry) => entry.name === "nested")!.directory!;
       expect(index.lookupHash(nestedHash)).toEqual({ path: join(root, "nested"), kind: "directory" });
       expect(index.lookupHash(first.root)).toEqual({ path: root, kind: "directory" });
       const cached: SnapshotObjectIndex = {
@@ -136,10 +136,10 @@ describe("canonical tree objects", () => {
       objects: Array<{
         model: { type: "file"; bytesBase64: string } | {
           type: "directory";
-          entries: Array<{ name: string; hash?: string; tree?: string }>;
+          entries: import("@arbor/wire").WireDirectoryEntry[];
           childrenSource?: import("@arbor/core").CollectionFileDescriptor;
         };
-        canonicalCborBase64: string;
+        bytesBase64: string;
         hash: string;
       }>;
     };
@@ -147,8 +147,8 @@ describe("canonical tree objects", () => {
       const object = vector.model.type === "file"
         ? { type: "file" as const, bytes: Uint8Array.from(Buffer.from(vector.model.bytesBase64, "base64")) }
         : vector.model;
-      const bytes = encodeWireObject(object);
-      expect(Buffer.from(bytes).toString("base64")).toBe(vector.canonicalCborBase64);
+      const bytes = object.type === "file" ? object.bytes : encodeWireDirectory(object);
+      expect(Buffer.from(bytes).toString("base64")).toBe(vector.bytesBase64);
       expect(hashObject(bytes)).toBe(vector.hash);
     }
   });
@@ -161,10 +161,12 @@ describe("canonical tree objects", () => {
       "unsorted-directory",
       "duplicate-name",
       "dual-target",
+      "entry-with-hash-key",
+      "file-and-directory",
       "noncanonical-cbor",
     ]);
     for (const vector of fixture.invalid) {
-      expect(() => decodeWireObject(Buffer.from(vector.canonicalCborBase64, "base64"))).toThrow();
+      expect(() => decodeWireDirectory(Buffer.from(vector.canonicalCborBase64, "base64"))).toThrow();
     }
   });
 
@@ -196,13 +198,13 @@ describe("canonical tree objects", () => {
 
   test("rejects legacy, missing, and mixed collection-file directory shapes", () => {
     const hash = `sha256:${"1".repeat(64)}`;
-    expect(() => decodeWireObject(encodeCanonicalCBOR({
+    expect(() => decodeWireDirectory(encodeCanonicalCBOR({
       type: "directory",
       entries: [{ name: "_store.json", rollup: { version: 1 } }],
     }))).toThrow("Invalid directory entry");
-    expect(() => decodeWireObject(encodeCanonicalCBOR({
+    expect(() => decodeWireDirectory(encodeCanonicalCBOR({
       type: "directory",
-      entries: [{ name: "_store.json", hash }],
+      entries: [{ name: "_store.json", file: hash }],
       childrenSource: {
         version: 1,
         type: "collection-file",
@@ -213,12 +215,12 @@ describe("canonical tree objects", () => {
         childSetHash: hash,
       },
     }))).toThrow("ordinary file entries");
-    expect(() => decodeWireObject(encodeCanonicalCBOR({
+    expect(() => decodeWireDirectory(encodeCanonicalCBOR({
       type: "directory",
       entries: [
-        { name: "_store.json", hash },
-        { name: "extra.md", hash },
-        { name: "schema.ts", hash },
+        { name: "_store.json", file: hash },
+        { name: "extra.md", file: hash },
+        { name: "schema.ts", file: hash },
       ],
       childrenSource: {
         version: 1,
@@ -239,12 +241,12 @@ describe("canonical tree objects", () => {
       await writeFile(join(root, "note.md"), "# Note\n");
       await writeFile(join(root, "nested", "private.md"), "private\n");
       const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map([[join(root, "nested"), "tr_child"]])));
-      const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+      const object = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
       expect(object).toEqual({
         type: "directory",
         entries: [
           { name: "nested", tree: "tr_child" },
-          expect.objectContaining({ name: "note.md", hash: expect.stringMatching(/^sha256:/) }),
+          expect.objectContaining({ name: "note.md", file: expect.stringMatching(/^sha256:/) }),
         ],
       });
       expect(snapshot.objects.size).toBe(2);
@@ -266,21 +268,15 @@ describe("canonical tree objects", () => {
         schemaFingerprint: `sha256:${"3".repeat(64)}`,
         childSetHash: `sha256:${"4".repeat(64)}`,
       })));
-      const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+      const object = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
       if (object.type !== "directory") throw new Error("Expected a directory");
       const descriptor = object.childrenSource!;
       expect(descriptor).toEqual(expect.objectContaining({ type: "collection-file", format: "json" }));
-      const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.hash!;
-      const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.hash!;
+      const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
+      const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
       expect(sourceHash).not.toBe(schemaHash);
-      expect(decodeWireObject(snapshot.objects.get(sourceHash)!)).toEqual({
-        type: "file",
-        bytes: new TextEncoder().encode(storeSource),
-      });
-      expect(decodeWireObject(snapshot.objects.get(schemaHash)!)).toEqual({
-        type: "file",
-        bytes: new TextEncoder().encode(schemaSource),
-      });
+      expect(snapshot.objects.get(sourceHash)!).toEqual(new TextEncoder().encode(storeSource));
+      expect(snapshot.objects.get(schemaHash)!).toEqual(new TextEncoder().encode(schemaSource));
 
       await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!);
       expect(await readFile(join(destination, "_store.json"), "utf8")).toBe(storeSource);
@@ -311,15 +307,14 @@ describe("canonical tree objects", () => {
         await writeFile(join(root, `_store.${codec}`), source);
         const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, name) =>
           collections.collectionFileDescriptor(directory, name)));
-        const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+        const object = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
         if (object.type !== "directory") throw new Error("Expected a collection-file directory");
         const descriptor = object.childrenSource!;
-        const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.hash!;
-        const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.hash!;
-        const sourceObject = decodeWireObject(snapshot.objects.get(sourceHash)!);
-        const schemaObject = decodeWireObject(snapshot.objects.get(schemaHash)!);
-        if (sourceObject.type !== "file" || schemaObject.type !== "file") throw new Error("Expected collection files");
-        const decoded = await decodeWireCollectionFile(descriptor, sourceObject.bytes, schemaObject.bytes, schemas);
+        const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
+        const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
+        const sourceObject = snapshot.objects.get(sourceHash)!;
+        const schemaObject = snapshot.objects.get(schemaHash)!;
+        const decoded = await decodeWireCollectionFile(descriptor, sourceObject, schemaObject, schemas);
         expect(decoded.rows.map((row) => row.properties), codec).toEqual([
           { id: "one", title: "One" },
           { id: "two", title: "Two" },
@@ -361,7 +356,7 @@ describe("canonical tree objects", () => {
       await writeFile(join(mounted, "private-layout.md"), "# Mounted elsewhere\n");
 
       const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [mounted]));
-      const rootObject = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+      const rootObject = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
       expect(rootObject.type).toBe("directory");
       if (rootObject.type !== "directory") throw new Error("Expected a directory");
       expect(rootObject.entries.map((entry) => entry.name)).toEqual(["parent.md"]);

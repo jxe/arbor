@@ -730,14 +730,14 @@ export class TreeManager implements AsyncDisposable {
   async updateSyncMetadata(placement: SharedTreePlacement): Promise<LocalTreeDescriptor> {
     const root = this.known.get(placement.tree);
     if (!root?.placement || root.placement.path !== placement.path) throw new Error(`Unknown configured placement: ${placement.tree}`);
-    root.placement = { ...root.placement, ref: placement.ref, update: placement.update, access: placement.access };
+    root.placement = { ...root.placement, ref: placement.ref, update: placement.update, conflicted: placement.conflicted, access: placement.access };
     this.workspaces.get(placement.tree)?.updateTreeDescriptor({
       access: placement.access,
       ...acceptedBase(placement),
     });
     await savePlacementSyncMetadata(
       placement.tree,
-      { ref: placement.ref, update: placement.update, access: placement.access },
+      { ref: placement.ref, update: placement.update, conflicted: placement.conflicted, access: placement.access },
       placement.configurationTree,
     );
     this.invalidateDescriptors();

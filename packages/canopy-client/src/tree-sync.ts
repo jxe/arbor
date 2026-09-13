@@ -4,7 +4,7 @@ import {
   WireUpdateConflict,
   applyTransitionPayload,
   decodeCandidateUpdateJSON,
-  decodeWireObject,
+  decodeWireDirectory,
   verifyTreeSnapshotGraph,
   type CurrentTree,
   type ObjectHash,
@@ -44,15 +44,17 @@ export interface TreeSyncDeps<W extends SyncWorkspace = SyncWorkspace> {
 
 function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<ObjectHash, Uint8Array>): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
-  const visit = (hash: ObjectHash) => {
+  const visit = (hash: ObjectHash, kind: "file" | "directory") => {
     if (objects.has(hash)) return;
     const bytes = available.get(hash);
     if (!bytes) throw new Error(`Pending update is missing reachable object: ${hash}`);
     objects.set(hash, bytes);
-    const object = decodeWireObject(bytes);
-    if (object.type === "directory") for (const entry of object.entries) if (entry.hash) visit(entry.hash);
+    if (kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
+      if (entry.directory) visit(entry.directory, "directory");
+      if (entry.file) visit(entry.file, "file");
+    }
   };
-  visit(root);
+  visit(root, "directory");
   return verifyTreeSnapshotGraph({ root, objects });
 }
 
@@ -209,15 +211,17 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     retained: TreeSnapshot,
   ): Promise<TreeSnapshot> {
     const objects = new Map<ObjectHash, Uint8Array>();
-    const pending: ObjectHash[] = [current.tree.root];
+    const pending: Array<{ hash: ObjectHash; kind: "file" | "directory" }> = [{ hash: current.tree.root, kind: "directory" }];
     while (pending.length) {
-      const hash = pending.pop()!;
+      const { hash, kind } = pending.pop()!;
       if (objects.has(hash)) continue;
       const bytes = retained.objects.get(hash) ?? await client.object(tree, hash);
       objects.set(hash, bytes);
-      const object = decodeWireObject(bytes);
-      if (object.type === "directory") {
-        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+      if (kind === "directory") {
+        for (const entry of decodeWireDirectory(bytes).entries) {
+          if (entry.file) pending.push({ hash: entry.file, kind: "file" });
+          if (entry.directory) pending.push({ hash: entry.directory, kind: "directory" });
+        }
       }
     }
     return { root: current.tree.root, objects };
@@ -262,6 +266,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         ...placement,
         ref: current.tree.root,
         update: current.tree.update,
+        conflicted: current.tree.conflicted,
         access: current.tree.access === "none" ? "read" : current.tree.access,
       });
       await this.confirmMaterialized(workspace, client, remoteTrees, current.tree.root, "Materialized placement does not match its server root");
@@ -325,6 +330,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         ...placement,
         ref: final.update.root,
         update: final.update.id,
+        conflicted: final.update.conflicted,
         access: descriptor.access === "none" ? "read" : descriptor.access,
       });
       await this.confirmMaterialized(workspace, client, remoteTrees, final.update.root, "Materialized watched transition does not match its accepted root");
@@ -357,7 +363,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       placement = {
         ...placement,
         access: remote.access === "none" ? "read" : remote.access,
-        ...(placement.ref === remote.root ? { update: remote.update } : {}),
+        ...(placement.ref === remote.root ? { update: remote.update, conflicted: remote.conflicted } : {}),
       };
       await trees.updateSyncMetadata(placement);
     }
@@ -370,13 +376,13 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     let local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || !placement.update) {
       if (local.root === remote.root) {
-        await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update });
+        await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update, conflicted: remote.conflicted });
         await saveAcceptedTreeObjects(workspace.tree, local);
         trees.setSyncState(workspace.tree, "idle");
         this.conflicts.delete(workspace.tree);
         return;
       }
-      const root = decodeWireObject(local.objects.get(local.root)!);
+      const root = decodeWireDirectory(local.objects.get(local.root)!);
       if (root.type !== "directory" || root.entries.length) {
         throw new ProtocolError("conflict", "A new placement contains local content but has no accepted-update base", 409, {
           tree: workspace.tree,
@@ -388,7 +394,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       return;
     }
     if (local.root === remote.root) {
-      await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update });
+      await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update, conflicted: remote.conflicted });
       await saveAcceptedTreeObjects(workspace.tree, local);
       if (pending) await clearPendingTreeUpdate(workspace.tree);
       trees.setSyncState(workspace.tree, "idle");
@@ -441,6 +447,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
               ...placement,
               ref: accepted.root,
               update: accepted.id,
+              conflicted: accepted.conflicted,
             };
             await trees.updateSyncMetadata(placement);
             await saveAcceptedTreeObjectHashes(workspace.tree, {
@@ -471,6 +478,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
             ...placement,
             ref: accepted.root,
             update: accepted.id,
+              conflicted: accepted.conflicted,
           });
           await this.confirmMaterialized(workspace, client, remoteTrees, accepted.root, "Materialized accepted tree does not match its server root");
         });

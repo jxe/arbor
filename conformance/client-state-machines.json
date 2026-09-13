@@ -150,6 +150,15 @@
       "effects": ["schedule", "cancelTimers", "persistRequest", "persistConflictResolution", "submit", "apply", "catchUp", "surfaceConflict", "stop"],
       "scenarios": [
         {
+          "name": "accepted conflicts advance identity at the same root without blocking ordinary edits",
+          "initial": { "kind": "current", "base": { "root": "r0", "update": "u0", "cursor": "u0" }, "transportAvailable": true },
+          "steps": [
+            { "event": { "type": "watch", "root": "r0", "update": "u1", "cursor": "u1", "digests": [], "transitions": true, "conflicted": true }, "state": "accepted-pending-apply", "effects": ["catchUp"], "expect": { "result.conflicted": true } },
+            { "event": { "type": "applied" }, "state": "current", "effects": [], "expect": { "base.root": "r0", "base.update": "u1", "base.conflicted": true } },
+            { "event": { "type": "localHead", "root": "r2", "origin": "editor" }, "state": "locally-pending", "effects": ["schedule", "schedule"], "expect": { "base.conflicted": true } }
+          ]
+        },
+        {
           "name": "bootstrap installation is the only entry into current; earlier events are ignored",
           "initial": { "kind": "unplaced", "transportAvailable": true },
           "steps": [

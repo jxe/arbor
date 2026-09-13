@@ -187,7 +187,7 @@ is placed, visited, or cached by resolution.
 GET /v1/objects/{hash}?tree={TreeID}[&origin={url}]
 ```
 
-Serves one canonical wire object (`application/cbor`) by its `sha256:<64 hex>`
+Serves one wire object (`application/octet-stream`) by its `sha256:<64 hex>`
 hash. The response carries `ETag: "<hash>"` and
 `Cache-Control: private, immutable, max-age=31536000`; clients may cache it
 forever because the body is content-addressed. A malformed hash or missing
@@ -198,7 +198,7 @@ The daemon looks the object up in this order:
 
 1. The placed workspace's object index (`objects` table, see
    `local-system.md`): a file row re-reads the file and re-encodes it as a wire
-   file object; a directory row re-encodes the directory from its children
+   raw file bytes; a directory row re-encodes the directory from its children
    rows, walking the subtree only where a child row is missing or invalid.
 2. The tree's stored pending update body, including transmitted successors.
 3. Canopy, through the tree's account client, or through an anonymous client
@@ -230,7 +230,6 @@ with `details.kind: "unsynchronized"`). The response is:
   tree: LocalTreeDescriptor,
   accepted: { root: Hash, update: string, cursor: string },   // cursor === update
   spine: string,          // base64 sparse CBOR snapshot bundle
-  files: Record<string /* wire path */, { size: number, mtime: number }>,
   pending?: { base: string | null, updates: CandidateUpdateJSON[], requestDigests: Hash[] },
   blocked?: "conflict" | "unsettled",
   observedThrough: string,
@@ -246,16 +245,11 @@ the immutable Canopy snapshot bundle (`{ version: 1, objects: [...] }`,
 objects sorted by hash, no duplicates), but it deliberately does not satisfy
 the complete-graph check: it holds every directory object and every file
 object whose entry name ends in `.md`, walked from the current folder root and
-stopping at nested tree boundaries. Every other file's object is left out and
-listed in `files` instead, keyed by wire path (`/photo.bin`,
-`/sub/data.bin`) with its byte size and modification time (milliseconds since
-the epoch). A client resolves those objects on demand through `/v1/objects`.
-`files` exists because a `WireDirectoryEntry` carries only a name and a hash:
-a sparse bundle alone cannot tell a deliberately omitted file from a missing
-directory. A client therefore cross-checks every payload-less entry against
-`files` and fails the bootstrap loudly when one is absent, so a daemon bug can
-never silently collapse a subtree into one lazy "file". The spine always
-describes the folder as it is now, even when the response is blocked.
+stopping at nested tree boundaries. Other file payloads may be left out and
+resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
+`directory`, or `tree`, so a missing directory is always an error. No file map,
+size lookup, or payload sniffing is needed. The spine always describes the
+folder as it is now, even when the response is blocked.
 
 **Pending, verbatim.** When the daemon holds a stored update string for the
 tree (`pending` in its sync state), it is returned verbatim, as the exact
@@ -408,6 +402,10 @@ data, keepalives, conflicting-cursor rejection, and terminal
 resynchronization. Another local implementation may expose the same underlying
 Arbor behavior through a different client/daemon boundary.
 The bootstrap and credential routes are fixed by `bootstrap.json` (a clean
-bootstrap with a sparse spine and one listed binary), `bootstrap-pending.json`
+bootstrap with a sparse spine and one omitted binary), `bootstrap-pending.json`
 (the same tree with a verbatim pending string and its request digests), and
 `credential.json`.
+
+The bootstrap spine uses typed `file` and `directory` entries. Every directory
+and Markdown file is present; other file payloads may be omitted. File sizes
+remain unknown until read; there is no bootstrap `files` classification map.

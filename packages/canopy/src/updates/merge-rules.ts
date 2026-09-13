@@ -1,9 +1,6 @@
 import {
-  encodeWireObject,
-  hashObject,
   type ObjectHash,
   type UpdateConflict,
-  type WireObject,
 } from "@arbor/wire";
 import { canonicalCBORHash, stableJSONString, type CollectionFileDescriptor } from "@arbor/core";
 import {
@@ -22,8 +19,8 @@ import {
 
 export interface RuleContext {
   /** Store a generated object and return its hash. */
-  store(object: WireObject): ObjectHash;
-  object(hash: ObjectHash): Promise<WireObject>;
+  store(bytes: Uint8Array): ObjectHash;
+  file(hash: ObjectHash): Promise<Uint8Array>;
   conflicts: UpdateConflict[];
 }
 
@@ -195,20 +192,16 @@ export async function markdownAdditiveV1(
   context: RuleContext,
 ): Promise<{ hash: ObjectHash; approximate: number }> {
   const [baseObject, candidateObject, currentObject] = await Promise.all([
-    context.object(baseHash), context.object(candidateHash), context.object(currentHash),
+    context.file(baseHash), context.file(candidateHash), context.file(currentHash),
   ]);
-  if (baseObject.type !== "file" || candidateObject.type !== "file" || currentObject.type !== "file") {
-    context.conflicts.push({ path, reason: "path-kind-conflict" });
-    return { hash: candidateHash, approximate: 0 };
-  }
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let baseSource: string;
   let candidateSource: string;
   let currentSource: string;
   try {
-    baseSource = decoder.decode(baseObject.bytes);
-    candidateSource = decoder.decode(candidateObject.bytes);
-    currentSource = decoder.decode(currentObject.bytes);
+    baseSource = decoder.decode(baseObject);
+    candidateSource = decoder.decode(candidateObject);
+    currentSource = decoder.decode(currentObject);
   } catch {
     context.conflicts.push({ path, reason: "binary-conflict" });
     return { hash: candidateHash, approximate: 0 };
@@ -217,7 +210,7 @@ export async function markdownAdditiveV1(
   const source = merged.lines.join("");
   if (divergentFrontmatter(baseSource, candidateSource, currentSource)) context.conflicts.push({ path, reason: "frontmatter-conflict" });
   if (!balancedFences(source)) context.conflicts.push({ path, reason: "invalid-markdown-fence" });
-  return { hash: context.store({ type: "file", bytes: new TextEncoder().encode(source) }), approximate: merged.approximate };
+  return { hash: context.store(new TextEncoder().encode(source)), approximate: merged.approximate };
 }
 
 export interface CollectionFileMergeInput {
@@ -235,9 +228,8 @@ export async function collectionFileRowsV1(
   context: RuleContext,
 ): Promise<{ descriptor: CollectionFileDescriptor; source: ObjectHash; schemaSource: ObjectHash; mergedRows: number }> {
   const collectionFile = async (hash: ObjectHash): Promise<Uint8Array> => {
-    const value = await context.object(hash);
-    if (value.type !== "file") throw new WireCollectionFileError("source", "Collection-file source is not a file object");
-    return value.bytes;
+    const value = await context.file(hash);
+    return value;
   };
   const rowEqual = (left: WireCollectionFileRow | undefined, right: WireCollectionFileRow | undefined): boolean =>
     left === undefined ? right === undefined
@@ -298,10 +290,7 @@ export async function collectionFileRowsV1(
     const childSetHash = canonicalCBORHash([...ordered]
       .sort((left, right) => left.stableKey < right.stableKey ? -1 : left.stableKey > right.stableKey ? 1 : 0)
       .map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
-    const source = context.store({
-      type: "file",
-      bytes: encodeWireCollectionFile(current.descriptor.format, currentFile.schema, ordered),
-    });
+    const source = context.store(encodeWireCollectionFile(current.descriptor.format, currentFile.schema, ordered));
     return {
       descriptor: { ...current.descriptor, childSetHash },
       source,
@@ -317,9 +306,4 @@ export async function collectionFileRowsV1(
   } finally {
     await schemas[Symbol.asyncDispose]();
   }
-}
-
-/** Hash one wire object's canonical bytes without storing it. */
-export function objectHashOf(object: WireObject): ObjectHash {
-  return hashObject(encodeWireObject(object));
 }

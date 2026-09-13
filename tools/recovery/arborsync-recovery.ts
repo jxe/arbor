@@ -8,8 +8,8 @@ import {
   compareWireNames,
   decodeObjectDeltas,
   decodeObjectEnvelopes,
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
   resolveWireLogicalNode,
   verifyTreeSnapshotGraph,
@@ -226,15 +226,17 @@ export function snapshotFromAdmission(base: TreeSnapshot, admission: LegacyEdito
 
 export function reachableSnapshot(root: ObjectHash, available: ReadonlyMap<ObjectHash, Uint8Array>): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
-  const visit = (hash: ObjectHash): void => {
+  const visit = (hash: ObjectHash, kind: "file" | "directory"): void => {
     if (objects.has(hash)) return;
     const bytes = available.get(hash);
     if (!bytes) throw new Error(`Snapshot is missing reachable object: ${hash}`);
     objects.set(hash, bytes);
-    const object = decodeWireObject(bytes);
-    if (object.type === "directory") for (const entry of object.entries) if (entry.hash) visit(entry.hash);
+    if (kind === "directory") for (const entry of decodeWireDirectory(bytes).entries) {
+      if (entry.file) visit(entry.file, "file");
+      if (entry.directory) visit(entry.directory, "directory");
+    }
   };
-  visit(root);
+  visit(root, "directory");
   return verifyTreeSnapshotGraph({ root, objects });
 }
 
@@ -245,7 +247,7 @@ export async function textAtWirePath(snapshot: TreeSnapshot, path: string): Prom
     return bytes;
   });
   if (!node?.body) return null;
-  return new TextDecoder("utf8", { fatal: true }).decode(node.body.bytes);
+  return new TextDecoder("utf8", { fatal: true }).decode(node.body);
 }
 
 function logicalPathForWireFile(path: string): string {
@@ -260,25 +262,25 @@ export function replaceWireFile(snapshot: TreeSnapshot, path: string, source: st
   const parts = path.split("/").filter(Boolean);
   if (!parts.length || parts.some((part) => part === "." || part === "..")) throw new Error(`Invalid Wire file path: ${path}`);
   const objects = new Map(snapshot.objects);
-  const fileBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(source) });
+  const fileBytes = new TextEncoder().encode(source);
   const fileHash = hashObject(fileBytes);
   objects.set(fileHash, fileBytes);
   const rewrite = (directoryHash: ObjectHash, depth: number): ObjectHash => {
     const bytes = objects.get(directoryHash);
     if (!bytes) throw new Error(`Snapshot is missing object: ${directoryHash}`);
-    const directory = decodeWireObject(bytes);
+    const directory = decodeWireDirectory(bytes);
     if (directory.type !== "directory") throw new Error(`Wire path parent is not a directory: ${path}`);
     const name = parts[depth]!;
     const prior = directory.entries.find((entry) => entry.name === name);
     let replacement = fileHash;
     if (depth < parts.length - 1) {
-      if (!prior?.hash || prior.tree) throw new Error(`Wire path parent is missing: ${path}`);
-      replacement = rewrite(prior.hash, depth + 1);
+      if (!prior?.directory || prior.tree) throw new Error(`Wire path parent is missing: ${path}`);
+      replacement = rewrite(prior.directory, depth + 1);
     }
     const entries = directory.entries.filter((entry) => entry.name !== name);
-    entries.push({ name, hash: replacement });
+    entries.push(depth === parts.length - 1 ? { name, file: replacement } : { name, directory: replacement });
     entries.sort((left, right) => compareWireNames(left.name, right.name));
-    const next = encodeWireObject({
+    const next = encodeWireDirectory({
       type: "directory",
       entries,
       ...(directory.childrenSource ? { childrenSource: directory.childrenSource } : {}),

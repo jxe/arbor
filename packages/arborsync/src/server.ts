@@ -221,7 +221,7 @@ function startArborSyncServer(
           if (!bytes) throw new ProtocolError("not-found", `Object is not available: ${hash}`, 404, { tree });
           return new Response(Buffer.from(bytes), {
             headers: {
-              "content-type": "application/cbor",
+              "content-type": "application/octet-stream",
               "content-length": String(bytes.byteLength),
               etag: `"${hash}"`,
               "cache-control": "private, immutable, max-age=31536000",

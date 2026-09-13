@@ -50,12 +50,12 @@ struct WorkingTreeFixtureTests {
             case "file": bytes = WorkingTreeWireCodec.file(Data(base64Encoded: vector.model.bytesBase64!)!)
             case "directory":
                 bytes = WorkingTreeWireCodec.directory(
-                    vector.model.entries!.map { ($0.name, $0.hash, $0.tree) },
+                    vector.model.entries!.map { ($0.name, $0.file, $0.directory, $0.tree) },
                     childrenSource: vector.model.childrenSource
                 )
             default: throw WorkingTreeError.corruptState("Unknown fixture object")
             }
-            #expect(bytes.base64EncodedString() == vector.canonicalCborBase64)
+            #expect(bytes.base64EncodedString() == vector.bytesBase64)
             #expect(WorkingTreeWireCodec.hash(bytes) == vector.hash)
         }
     }
@@ -822,7 +822,8 @@ private struct WireFixture: Decodable {
         struct Model: Decodable {
             struct Entry: Decodable {
                 var name: String
-                var hash: String?
+                var file: String?
+                var directory: String?
                 var tree: String?
             }
             var type: String
@@ -831,7 +832,7 @@ private struct WireFixture: Decodable {
             var childrenSource: WorkingTreeCollectionFileDescriptor?
         }
         var model: Model
-        var canonicalCborBase64: String
+        var bytesBase64: String
         var hash: String
     }
     var objects: [Vector]

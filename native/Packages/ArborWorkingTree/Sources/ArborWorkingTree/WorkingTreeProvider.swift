@@ -151,7 +151,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
         case .file:
             surface = .file(
                 name: WorkingTreeSemantics.name(of: record.path),
-                byteCount: record.ref?.size ?? 0,
+                byteCount: record.ref?.size,
                 mediaType: record.mediaType ?? record.ref?.mediaType
             )
         case .boundary:

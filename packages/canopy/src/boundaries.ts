@@ -1,7 +1,7 @@
 import {
   compareWireNames,
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
   type ObjectHash,
   type WireDirectory,
@@ -66,7 +66,7 @@ export async function rewriteBoundaries(
   if (edits.some((edit) => edit.segments.length === 0)) throw new Error("A boundary cannot replace its parent root");
 
   const rewrite = async (hash: ObjectHash, pending: Edit[]): Promise<ObjectHash> => {
-    const object = decodeWireObject(await load(hash, generated));
+    const object = decodeWireDirectory(await load(hash, generated));
     if (object.type !== "directory") throw new Error("Canonical boundary crosses a file");
     const entries = [...object.entries];
     const grouped = new Map<string, Edit[]>();
@@ -103,20 +103,21 @@ export async function rewriteBoundaries(
       }
       if (deeper.length) {
         if (index >= 0 && entries[index]!.tree) throw new Error(`Canonical boundary crosses another tree: ${name}`);
-        let childHash = index >= 0 ? entries[index]!.hash : undefined;
+        if (index >= 0 && entries[index]!.file) throw new Error(`Canonical boundary crosses a file: ${name}`);
+        let childHash = index >= 0 ? entries[index]!.directory : undefined;
         if (!childHash) {
-          const empty = encodeWireObject({ type: "directory", entries: [] });
+          const empty = encodeWireDirectory({ type: "directory", entries: [] });
           childHash = hashObject(empty);
           generated.set(childHash, empty);
         }
         const updated = await rewrite(childHash, deeper);
-        const next: WireDirectoryEntry = { name, hash: updated };
+        const next: WireDirectoryEntry = { name, directory: updated };
         if (index >= 0) entries[index] = next;
         else entries.push(next);
       }
     }
     entries.sort((a, b) => compareWireNames(a.name, b.name));
-    const bytes = encodeWireObject({ type: "directory", entries } satisfies WireDirectory);
+    const bytes = encodeWireDirectory({ type: "directory", entries } satisfies WireDirectory);
     const nextHash = hashObject(bytes);
     generated.set(nextHash, bytes);
     return nextHash;

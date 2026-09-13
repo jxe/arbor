@@ -294,12 +294,12 @@ struct ArborAppTests {
         let markdown = try WireObjectCodec.object(.file(Data("# Note\n".utf8)))
         let image = try WireObjectCodec.object(.file(Data([0x89, 0x50, 0x4E, 0x47])))
         let nestedDirectory = try WireObjectCodec.object(.directory([
-            WireDirectoryEntry(name: "photo.png", hash: image.hash),
+            WireDirectoryEntry(name: "photo.png", file: image.hash),
         ]))
         let root = try WireObjectCodec.object(.directory([
-            WireDirectoryEntry(name: "assets", hash: nestedDirectory.hash),
-            WireDirectoryEntry(name: "cover.png", hash: image.hash),
-            WireDirectoryEntry(name: "note.md", hash: markdown.hash),
+            WireDirectoryEntry(name: "assets", directory: nestedDirectory.hash),
+            WireDirectoryEntry(name: "cover.png", file: image.hash),
+            WireDirectoryEntry(name: "note.md", file: markdown.hash),
         ]))
         let complete = WireSnapshot(root: root.hash, objects: [root, nestedDirectory, markdown, image])
         let sparse = try ArborVisitSnapshot.sparsified(complete)

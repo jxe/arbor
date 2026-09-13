@@ -135,6 +135,10 @@ export function canonicalArborLocator(canonical: Pick<CanonicalTreeDescriptor, "
  * the accepted base a placement derives from.
  */
 export interface RemoteTreeDescriptor extends TreeDescriptor {
+  /** Accepted alternatives remain unresolved; absence is equivalent to false. */
+  conflicted?: boolean;
+  /** Supported optional extension identifiers, including their version. */
+  extensions?: string[];
   /** The bytes hash of the current accepted tree state: the wire root. */
   root: Hash;
   update: string;

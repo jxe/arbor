@@ -64,7 +64,7 @@ public actor UpdateCoordinator {
         guard let heads = try? await workingTree.heads(),
               let root = control.nextBase?.root ?? heads.acceptedRoot,
               let update = control.nextBase?.update ?? heads.acceptedUpdate else { return }
-        dispatch(.bootstrapInstalled(root: root, update: update, cursor: heads.acceptedCursor))
+        dispatch(.bootstrapInstalled(root: root, update: update, cursor: heads.acceptedCursor, conflicted: control.acceptedConflicted))
         if let conflict = control.conflict {
             machine.phase = .conflict(
                 request: UpdateMachine.PreparedRequest(
@@ -107,6 +107,7 @@ public actor UpdateCoordinator {
             localRoot: head.root,
             localAdditions: head.root != head.base.root
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         files.retainObjects([])
         return attempt
@@ -203,6 +204,7 @@ public actor UpdateCoordinator {
         try requireOpen()
         let heads = try await workingTree.heads()
         var value = control.presentation
+        value.acceptedConflicted = control.acceptedConflicted
         value.acceptedRoot = control.nextBase?.root ?? heads.acceptedRoot
         value.localRoot = heads.materializedRoot
         if control.conflict != nil { value.state = .conflict }
@@ -223,6 +225,7 @@ public actor UpdateCoordinator {
     public func setSubmissionHold(_ reason: String?) throws {
         try requireOpen()
         control.hold = reason.map { UpdateHold(reason: $0, foreignConflict: false) }
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
     }
 
@@ -261,6 +264,7 @@ public actor UpdateCoordinator {
             localRoot: attempt.candidate,
             localAdditions: attempt.candidate != base.root
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         files.retainObjects([])
         if case .unplaced = machine.phase {
@@ -321,6 +325,7 @@ public actor UpdateCoordinator {
             material = DurableConflictMaterial(base: base, current: current, mine: mine, draft: draft)
             stored.material = material
             control.conflict = stored
+            control.presentation.acceptedConflicted = control.acceptedConflicted
             try files.write(control)
         }
         let grouped = Dictionary(grouping: stored.response.conflicts, by: \.path)
@@ -419,6 +424,7 @@ public actor UpdateCoordinator {
                 localAdditions: candidate.root != descriptor.tree.root,
                 remoteAdditions: true
             )
+            control.presentation.acceptedConflicted = control.acceptedConflicted
             try files.write(control)
         } catch {
             dispatch(.conflictResolutionFailed)
@@ -492,11 +498,12 @@ public actor UpdateCoordinator {
                 tree: await workingTree.treeID(),
                 update: final.update.id,
                 cursor: event.id,
-                filesByHash: try await workingTree.sparseFileMetadataByHash()
+                mode: .sparseFiles
             )
             try await workingTree.replaceFromSystem(replacement)
         }
         control.head = nil
+        control.acceptedConflicted = final.update.conflicted
         control.presentation = WorkspaceSyncPresentation(
             state: final.update.merge == nil ? .current : .autoMerged,
             detail: "Applied \(event.transitions.count) ordered accepted transition\(event.transitions.count == 1 ? "" : "s")",
@@ -505,6 +512,7 @@ public actor UpdateCoordinator {
             remoteAdditions: true,
             approximatePlacements: final.update.merge?.approximatePlacements ?? 0
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         return control.presentation
     }
@@ -549,12 +557,14 @@ public actor UpdateCoordinator {
             return try await synchronize(admission: nil)
         }
         control.head = nil
+        control.acceptedConflicted = current.tree.conflicted
         control.presentation = WorkspaceSyncPresentation(
             state: .current,
             detail: "Applied the server's current snapshot",
             acceptedRoot: snapshot.root,
             localRoot: snapshot.root
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         return control.presentation
     }
@@ -615,6 +625,7 @@ public actor UpdateCoordinator {
             objects: envelopes,
             spilledObjects: spilled.isEmpty ? nil : spilled
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         files.retainObjects(Set(spilled))
     }
@@ -733,6 +744,7 @@ public actor UpdateCoordinator {
                 localRoot: attempt.candidate,
                 localAdditions: attempt.candidate != attempt.base.root
             )
+            control.presentation.acceptedConflicted = control.acceptedConflicted
             try files.write(control)
             try faultInjector.reached(.duringUpload)
             return try await submit(attempt)
@@ -741,6 +753,7 @@ public actor UpdateCoordinator {
         } catch let error as WireHTTPError where error.status == 401 || error.status == 403 {
             control.presentation.state = error.code == "device-revoked" ? .revoked : .authenticationFailure
             control.presentation.detail = error.message ?? error.code
+            control.presentation.acceptedConflicted = control.acceptedConflicted
             try files.write(control)
             dispatch(.authenticationFailed(reason: error.code))
             return control.presentation
@@ -780,6 +793,7 @@ public actor UpdateCoordinator {
                 localAdditions: true,
                 remoteAdditions: true
             )
+            control.presentation.acceptedConflicted = control.acceptedConflicted
             try files.write(control)
             noteConflict(validated, attempt: attempt)
             return control.presentation
@@ -798,6 +812,7 @@ public actor UpdateCoordinator {
             localAdditions: true,
             remoteAdditions: true
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         noteConflict(validated, attempt: attempt)
         // The conflict response arrived over a live transport, so retain its
@@ -863,6 +878,7 @@ public actor UpdateCoordinator {
             localAdditions: true,
             remoteAdditions: true
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
     }
 
@@ -896,6 +912,7 @@ public actor UpdateCoordinator {
             localRoot: candidate.root,
             localAdditions: candidate.root != base.root
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         files.retainObjects([])
         try faultInjector.reached(.afterRequestPersistence)
@@ -944,6 +961,7 @@ public actor UpdateCoordinator {
             localRoot: candidate.root,
             localAdditions: true
         )
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         files.retainObjects([])
         try faultInjector.reached(.afterRequestPersistence)
@@ -982,7 +1000,7 @@ public actor UpdateCoordinator {
         // platform). A miss is not an error: the full result object is sent.
         let baseBytes: Data
         do { baseBytes = try await workingTree.objectBytes(hash: admission.baseFile) } catch { return nil }
-        guard case let .file(basePayload) = try WireObjectCodec.decode(baseBytes),
+        guard case let .file(basePayload) = try WireObjectCodec.decode(baseBytes, kind: .file),
               let baseSource = String(data: basePayload, encoding: .utf8) else {
             return nil
         }
@@ -994,21 +1012,18 @@ public actor UpdateCoordinator {
         guard WireObjectCodec.hash(reconstructed) == admission.resultFile,
               reconstructed == resultEnvelope.bytes else { return nil }
 
-        let baseHeader = baseBytes.count - basePayload.count
-        var instructions: [WireObjectDeltaInstruction] = [
-            .insert(Data(reconstructed.prefix(reconstructed.count - resultPayload.count)))
-        ]
+        var instructions: [WireObjectDeltaInstruction] = []
         var cursor = 0
         for edit in admission.patch.edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
             let lower = edit.utf8Range.lowerBound
             guard lower >= cursor, edit.utf8Range.upperBound <= basePayload.count else { return nil }
-            if lower > cursor { instructions.append(.copy(offset: baseHeader + cursor, length: lower - cursor)) }
+            if lower > cursor { instructions.append(.copy(offset: cursor, length: lower - cursor)) }
             let replacement = Data(edit.replacement.utf8)
             if !replacement.isEmpty { instructions.append(.insert(replacement)) }
             cursor = edit.utf8Range.upperBound
         }
         if cursor < basePayload.count {
-            instructions.append(.copy(offset: baseHeader + cursor, length: basePayload.count - cursor))
+            instructions.append(.copy(offset: cursor, length: basePayload.count - cursor))
         }
         let delta: WireObjectDelta
         do {
@@ -1037,7 +1052,7 @@ public actor UpdateCoordinator {
         }
         dispatch(.accepted(
             id: attempt.digest,
-            result: .init(kind: outcome, root: accepted.root, update: accepted.id, cursor: accepted.id, digests: attempt.allRequestDigests)
+            result: .init(kind: outcome, root: accepted.root, update: accepted.id, cursor: accepted.id, digests: attempt.allRequestDigests, conflicted: accepted.conflicted)
         ))
         if final.reconciliation == nil, accepted.root != attempt.candidate {
             throw UpdateError.returnedSnapshotMissing
@@ -1054,6 +1069,7 @@ public actor UpdateCoordinator {
                 control.nextBase = nil
                 control.head = nil
                 setAppliedPresentation(accepted: accepted, merge: merge)
+                control.presentation.acceptedConflicted = control.acceptedConflicted
                 try files.write(control)
                 dispatch(.applied)
                 return
@@ -1068,6 +1084,7 @@ public actor UpdateCoordinator {
                 control.nextBase = nil
                 control.head = nil
                 setAppliedPresentation(accepted: accepted, merge: merge)
+                control.presentation.acceptedConflicted = control.acceptedConflicted
                 try files.write(control)
                 dispatch(.applied)
                 _ = try await pullCurrentSnapshot(treeID: attempt.tree, priorHeads: heads)
@@ -1097,6 +1114,7 @@ public actor UpdateCoordinator {
                 remoteAdditions: accepted.root != attempt.candidate,
                 approximatePlacements: merge?.approximatePlacements ?? 0
             )
+            control.presentation.acceptedConflicted = control.acceptedConflicted
             try files.write(control)
             // The accepted decision is durable; the retained successor publishes
             // against the advanced base as the next pass.
@@ -1133,7 +1151,7 @@ public actor UpdateCoordinator {
                 tree: await workingTree.treeID(),
                 update: accepted.id,
                 cursor: accepted.id,
-                filesByHash: try await workingTree.sparseFileMetadataByHash()
+                mode: .sparseFiles
             )
             if heads.pendingRoot == nil {
                 try await workingTree.replaceFromSystem(replacement)
@@ -1147,6 +1165,7 @@ public actor UpdateCoordinator {
         // The tree returned to current: no head outlives its acceptance.
         control.head = nil
         setAppliedPresentation(accepted: accepted, merge: merge)
+        control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
         files.retainObjects([])
         dispatch(.applied)
@@ -1162,23 +1181,23 @@ public actor UpdateCoordinator {
             if !visited.insert(next.hash).inserted { continue }
             guard next.isDirectory else { continue }
             let bytes = try await workingTree.objectBytes(hash: next.hash)
-            guard case let .directory(entries, _) = try WireObjectCodec.decode(bytes) else { continue }
+            guard case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else { continue }
             // An entry's kind is unknown until its object is seen; peek the
             // overlay-held prefix rather than fetching a file to learn it is one.
             for entry in entries {
                 guard let hash = entry.hash else { continue }
-                let kind = try? await workingTree.objectKind(hash: hash)
-                pending.append((hash, kind == .directory))
+                pending.append((hash, entry.directory != nil))
             }
         }
         return visited
     }
 
     private func setAppliedPresentation(accepted: WireAcceptedUpdate, merge: WireMergeSummary?) {
+        control.acceptedConflicted = accepted.conflicted
         let approximations = merge?.approximatePlacements ?? 0
         control.presentation = WorkspaceSyncPresentation(
             state: approximations > 0 ? .approximatePlacement : merge == nil ? .current : .autoMerged,
-            detail: merge == nil ? "Current at accepted server root" : "Server combined local and remote additions",
+            detail: accepted.conflicted == true ? "Accepted state has unresolved conflicts; review requires a supported conflict extension" : merge == nil ? "Current at accepted server root" : "Server combined local and remote additions",
             acceptedRoot: accepted.root,
             localRoot: accepted.root,
             localAdditions: accepted.candidateRoot != accepted.baseRoot,

@@ -1,5 +1,5 @@
 import { decodeCBOR, encodeCanonicalCBOR } from "@arbor/core";
-import { decodeWireObject, hashObject, type ObjectHash, type TreeSnapshot } from "./objects.ts";
+import { hashObject, type ObjectHash, type TreeSnapshot } from "./objects.ts";
 import { verifyTreeSnapshotGraph } from "./updates/json.ts";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
@@ -60,7 +60,6 @@ export function decodeSparseSnapshotBundle(bytes: Uint8Array): Map<ObjectHash, U
     if (previous && hash <= previous) throw new Error("Snapshot objects are not ordered by hash");
     previous = hash;
     if (objects.has(hash)) throw new Error(`Snapshot contains duplicate object: ${hash}`);
-    decodeWireObject(objectBytes);
     objects.set(hash, objectBytes);
   }
   return objects;
@@ -87,7 +86,6 @@ export function decodeSnapshotBundle(root: string, bytes: Uint8Array): TreeSnaps
     if (previous && hash <= previous) throw new Error("Snapshot objects are not ordered by hash");
     previous = hash;
     if (objects.has(hash)) throw new Error(`Snapshot contains duplicate object: ${hash}`);
-    decodeWireObject(objectBytes);
     objects.set(hash, objectBytes);
   }
 

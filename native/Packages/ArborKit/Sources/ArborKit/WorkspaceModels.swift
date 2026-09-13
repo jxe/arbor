@@ -156,6 +156,7 @@ public enum WorkspaceSynchronization: String, Hashable, Codable, Sendable {
 }
 
 public struct WorkspaceSyncPresentation: Hashable, Codable, Sendable {
+    public var acceptedConflicted: Bool?
     public var state: WorkspaceSynchronization
     public var detail: String?
     public var acceptedRoot: String?

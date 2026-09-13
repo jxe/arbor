@@ -120,7 +120,7 @@ adopter already retains a request or a conflict.
    transition batch in memory and materializes its final state once, or
    pulls the current snapshot when the batch does not chain. A watch event
    under pending work triggers publication and never overwrites the head.
-8. **Conflict is sequential and owned by its author.** A conflict stops at
+8. **A rejected update conflict is sequential and owned by its author.** A conflict stops at
    the first failed element. The machine retains the returned successful
    prefix, the failed element at `failedIndex`, and every unattempted suffix
    element from the exact prepared request. It reviews only the failed element
@@ -137,6 +137,11 @@ adopter already retains a request or a conflict.
    the adopter holds (submission paused, the request and any head kept
    durable, status reported as conflict with the reason) and defers to the
    author's review flow rather than reviewing the element itself.
+   Accepted unresolved state is different: `conflicted: true` on an accepted
+   update does not enter this rejection hold. Apply its ordinary projection,
+   retain its accepted identity and signal, and continue ordinary updates.
+   Metadata-only transitions still advance update/cursor even if root is equal.
+   Review and explicit resolution belong to an advertised optional extension.
 9. **Availability is distinct from validity.** Transport failure enters
    `offline` and retries automatically when transport returns.
    Authentication failure and revocation enter `offline` with an

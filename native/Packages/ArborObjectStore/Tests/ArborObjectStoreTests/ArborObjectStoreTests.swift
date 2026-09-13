@@ -73,11 +73,11 @@ struct ObjectStoreTests {
         let orphan = try WireObjectCodec.object(.file(Data("orphan".utf8)))
         let lazy = "sha256:" + String(repeating: "b", count: 64)
         let inner = try WireObjectCodec.object(.directory([
-            .init(name: "kept.bin", hash: kept.hash),
-            .init(name: "lazy.bin", hash: lazy),
+            .init(name: "kept.bin", file: kept.hash),
+            .init(name: "lazy.bin", file: lazy),
         ]))
-        let root = try WireObjectCodec.object(.directory([.init(name: "dir", hash: inner.hash)]))
-        let oldRoot = try WireObjectCodec.object(.directory([.init(name: "orphan.bin", hash: orphan.hash)]))
+        let root = try WireObjectCodec.object(.directory([.init(name: "dir", directory: inner.hash)]))
+        let oldRoot = try WireObjectCodec.object(.directory([.init(name: "orphan.bin", file: orphan.hash)]))
         let leaf = try WireObjectCodec.object(.file(Data("leaf root".utf8)))
         let all = [kept, orphan, inner, root, oldRoot, leaf].reduce(into: [String: Data]()) { $0[$1.hash] = $1.bytes }
 
@@ -85,7 +85,7 @@ struct ObjectStoreTests {
             try overlay.store(all)
             #expect(try overlay.hashes() == Set(all.keys))
             // A file hash given as a root is a leaf that is retained itself.
-            try overlay.retain(reachableFrom: [root.hash, leaf.hash])
+            try overlay.retain(reachableFrom: [root.hash], files: [leaf.hash])
             #expect(try overlay.hashes() == [root.hash, inner.hash, kept.hash, leaf.hash])
             #expect(try overlay.reachableHashes(from: [root.hash]) == [root.hash, inner.hash, kept.hash, lazy])
             try overlay.retain(reachableFrom: [])

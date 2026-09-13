@@ -87,13 +87,13 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
  * format or the daemon's rebuildable state changes shape, and is the client
  * half of the schema stamp Canopy asserts at startup.
  */
-export const ARBOR_SYNC_STATE_VERSION = "4";
+export const ARBOR_SYNC_STATE_VERSION = "5";
 
 const REBUILDABLE_PRIVATE_ENTRIES = ["sync", "refs"] as const;
 
 /**
- * A private state written by an older build discards what can be rebuilt,
- * the per-tree sync journals, placement refs, and workspace indexes, so every
+ * A private state written by an older build archives per-tree sync journals
+ * and placement refs, then discards rebuildable workspace indexes, so every
  * placement re-places itself from a snapshot on the next pass; authored files
  * are compared byte for byte before anything is rewritten. Credentials,
  * device identity, and system records are kept.
@@ -106,7 +106,11 @@ async function reconcilePrivateStateVersion(state: string): Promise<void> {
   // before the stamp existed; an unstamped state without them is new.
   const olderBuild = stamp !== null || await pathKind(join(state, "refs")) !== "missing";
   if (olderBuild) {
-    for (const name of REBUILDABLE_PRIVATE_ENTRIES) await rm(join(state, name), { recursive: true, force: true });
+    const recovery = join(state, "format-recovery", crypto.randomUUID());
+    await mkdir(recovery, { recursive: true, mode: 0o700 });
+    for (const name of REBUILDABLE_PRIVATE_ENTRIES) {
+      if (await pathKind(join(state, name)) !== "missing") await rename(join(state, name), join(recovery, name));
+    }
     const workspaces = join(state, "workspaces");
     if (await pathKind(workspaces) === "directory") {
       for (const id of await readdir(workspaces)) {

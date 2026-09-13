@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "raw-file",
+      "mode": "complete",
+      "valid": true,
+      "root": "sha256:de6b9d42e927084e6c05287b8f73cafec5c1cfcf3d1c23616b49a31787de26fc",
+      "objects": [
+        {
+          "hash": "sha256:de6b9d42e927084e6c05287b8f73cafec5c1cfcf3d1c23616b49a31787de26fc",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU0MDlmNWY0ZmNjM2NhMmE4ZTRmOTdhMTU4NjEzNWQxOTU0N2YwYzg0NzFlNWY4MjBhNzE0MjBmM2FhYmRiMDNkbmFtZWRmaWxl"
+        },
+        {
+          "hash": "sha256:5409f5f4fcc3ca2a8e4f97a1586135d19547f0c8471e5f820a71420f3aabdb03",
+          "bytesBase64": "cmF3IHBheWxvYWQK"
+        }
+      ]
+    },
+    {
+      "name": "directory-shaped-file",
+      "mode": "complete",
+      "valid": true,
+      "root": "sha256:6b1883890ed49eab8fd0210d79fafd94c7768e89122e7d4ace40702645e7475a",
+      "objects": [
+        {
+          "hash": "sha256:6b1883890ed49eab8fd0210d79fafd94c7768e89122e7d4ace40702645e7475a",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OmM2Mzk0NTQxZjY4MDEyY2YwNTA5ZmU0ZmIwMjlmZGI3MDI4MWYwYWI5NzY0YjlmMTUyNTIxNDBiMTA5MGRjOWZkbmFtZWRmaWxl"
+        },
+        {
+          "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+        }
+      ]
+    },
+    {
+      "name": "omitted-file",
+      "mode": "sparse-files",
+      "valid": true,
+      "root": "sha256:de6b9d42e927084e6c05287b8f73cafec5c1cfcf3d1c23616b49a31787de26fc",
+      "objects": [
+        {
+          "hash": "sha256:de6b9d42e927084e6c05287b8f73cafec5c1cfcf3d1c23616b49a31787de26fc",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU0MDlmNWY0ZmNjM2NhMmE4ZTRmOTdhMTU4NjEzNWQxOTU0N2YwYzg0NzFlNWY4MjBhNzE0MjBmM2FhYmRiMDNkbmFtZWRmaWxl"
+        }
+      ]
+    },
+    {
+      "name": "missing-file",
+      "mode": "complete",
+      "valid": false,
+      "root": "sha256:de6b9d42e927084e6c05287b8f73cafec5c1cfcf3d1c23616b49a31787de26fc",
+      "objects": [
+        {
+          "hash": "sha256:de6b9d42e927084e6c05287b8f73cafec5c1cfcf3d1c23616b49a31787de26fc",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU0MDlmNWY0ZmNjM2NhMmE4ZTRmOTdhMTU4NjEzNWQxOTU0N2YwYzg0NzFlNWY4MjBhNzE0MjBmM2FhYmRiMDNkbmFtZWRmaWxl"
+        }
+      ]
+    },
+    {
+      "name": "missing-directory",
+      "mode": "sparse-files",
+      "valid": false,
+      "root": "sha256:95e946ebc7f9a19a8a333fe9ddad58662dcf67eecba9bd1af2a536d1a6d28084",
+      "objects": [
+        {
+          "hash": "sha256:95e946ebc7f9a19a8a333fe9ddad58662dcf67eecba9bd1af2a536d1a6d28084",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWNkaXJpZGlyZWN0b3J5eEdzaGEyNTY6YzYzOTQ1NDFmNjgwMTJjZjA1MDlmZTRmYjAyOWZkYjcwMjgxZjBhYjk3NjRiOWYxNTI1MjE0MGIxMDkwZGM5Zg=="
+        }
+      ]
+    },
+    {
+      "name": "kind-conflict",
+      "mode": "complete",
+      "valid": false,
+      "root": "sha256:ef400a95f0b45c823f2715331cce21e21ea8fa2f871421aa8a6469e2ccb9b394",
+      "objects": [
+        {
+          "hash": "sha256:ef400a95f0b45c823f2715331cce21e21ea8fa2f871421aa8a6469e2ccb9b394",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkbmFtZWNkaXJpZGlyZWN0b3J5eEdzaGEyNTY6YzYzOTQ1NDFmNjgwMTJjZjA1MDlmZTRmYjAyOWZkYjcwMjgxZjBhYjk3NjRiOWYxNTI1MjE0MGIxMDkwZGM5ZqJkZmlsZXhHc2hhMjU2OmM2Mzk0NTQxZjY4MDEyY2YwNTA5ZmU0ZmIwMjlmZGI3MDI4MWYwYWI5NzY0YjlmMTUyNTIxNDBiMTA5MGRjOWZkbmFtZWRmaWxl"
+        },
+        {
+          "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+        }
+      ]
+    },
+    {
+      "name": "unreachable",
+      "mode": "complete",
+      "valid": false,
+      "root": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+      "objects": [
+        {
+          "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+          "bytesBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+        },
+        {
+          "hash": "sha256:5409f5f4fcc3ca2a8e4f97a1586135d19547f0c8471e5f820a71420f3aabdb03",
+          "bytesBase64": "cmF3IHBheWxvYWQK"
+        }
+      ]
+    }
+  ]
+}

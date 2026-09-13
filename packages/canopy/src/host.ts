@@ -16,7 +16,6 @@ import {
 import type { ObservationRecord } from "./updates/observations.ts";
 import {
   decodeUpdateRequestJSON,
-  decodeWireObject,
   encodeAcceptedTransitionJSON,
   type AcceptedTransition,
   type ObjectHash,
@@ -81,7 +80,7 @@ function descriptorWithUpdate(
 ): RemoteTreeDescriptor {
   const update = canopy.currentUpdate(tree.id);
   if (!update) throw new Error(`Tree has no accepted update: ${tree.id}`);
-  return { ...descriptor(origin, tree, access), root: update.root as RemoteTreeDescriptor["root"], update: update.id };
+  return { ...descriptor(origin, tree, access), root: update.root as RemoteTreeDescriptor["root"], update: update.id, ...(update.conflicted === undefined ? {} : { conflicted: update.conflicted }) };
 }
 
 function watchDescriptor(
@@ -97,7 +96,7 @@ function watchDescriptor(
     tree: tree.id,
     kind: "tree.update",
     change: {
-      descriptor: { ...descriptor(origin, { ...tree, ref: final.update.root }, access), update: final.update.id },
+      descriptor: { ...descriptor(origin, { ...tree, ref: final.update.root }, access), update: final.update.id, ...(final.update.conflicted === undefined ? {} : { conflicted: final.update.conflicted }) },
       transitions: transitions.map(encodeAcceptedTransitionJSON),
       ...(final.requestDigest ? { requestDigest: final.requestDigest } : {}),
     },
@@ -579,7 +578,7 @@ export async function serveCanopy(options: {
           if (!(await canopy.isReadableObject(treeID, hash, account, linkDigest(request)))) return wireError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await canopy.object(hash);
           return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
-            headers: immutableHeaders(request, hash),
+            headers: { ...immutableHeaders(request, hash), "content-type": "application/octet-stream" },
           });
         }
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {
@@ -638,15 +637,15 @@ export async function serveCanopy(options: {
             return html(renderPublicDataPage(title, collectionFileRow.row.properties));
           }
           if (!logical) return new Response("Not found", { status: 404 });
-          const objectValue = logical.object;
+
           const objectName = logical.objectName || canonicalPath.split("/").at(-1) || "Arbor";
-          if (objectValue.type === "file") {
-            const body = new TextDecoder().decode(objectValue.bytes);
+          if (logical.kind === "file") {
+            const body = new TextDecoder().decode(logical.bytes);
             if (objectName.endsWith(".md")) {
               if (request.headers.get("accept")?.includes("text/markdown")) {
-                return new Response(objectValue.bytes.buffer.slice(
-                  objectValue.bytes.byteOffset,
-                  objectValue.bytes.byteOffset + objectValue.bytes.byteLength,
+                return new Response(logical.bytes.buffer.slice(
+                  logical.bytes.byteOffset,
+                  logical.bytes.byteOffset + logical.bytes.byteLength,
                 ) as ArrayBuffer, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
               }
               return html(renderPublicMarkdownPage({
@@ -657,22 +656,22 @@ export async function serveCanopy(options: {
                 documentPath: logicalPath,
               }));
             }
-            return new Response(objectValue.bytes.buffer.slice(
-              objectValue.bytes.byteOffset,
-              objectValue.bytes.byteOffset + objectValue.bytes.byteLength,
+            return new Response(logical.bytes.buffer.slice(
+              logical.bytes.byteOffset,
+              logical.bytes.byteOffset + logical.bytes.byteLength,
             ) as ArrayBuffer);
           }
           const prefix = (tree.canonicalPath === "/"
             ? logicalPath
             : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`)
             .split("/").map((part) => encodeURIComponent(part)).join("/").replace(/\/$/, "");
-          const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
+          const source = logical.body ? new TextDecoder().decode(logical.body) : "";
           if (request.headers.get("accept")?.includes("text/markdown")) {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
           }
-          const collectionFileDescriptor = objectValue.childrenSource;
-          const collectionFile = await wireProjection.collectionFile(objectValue);
-          const physicalChildren = (await Promise.all(objectValue.entries
+          const collectionFileDescriptor = logical.directory.childrenSource;
+          const collectionFile = await wireProjection.collectionFile(logical.directory);
+          const physicalChildren = (await Promise.all(logical.directory.entries
             .filter((entry) => entry.name !== "_index.md"
               && entry.name !== collectionFileDescriptor?.source
               && entry.name !== collectionFileDescriptor?.schemaSource)
@@ -681,13 +680,12 @@ export async function serveCanopy(options: {
                 const nested = canopy.get(entry.tree);
                 if (!nested || !canopy.canRead(account, nested.id, linkDigest(request))) return null;
               }
-              const object = entry.hash ? decodeWireObject(await canopy.object(entry.hash)) : null;
-              const markdown = object?.type === "file" && entry.name.endsWith(".md");
+              const markdown = entry.file !== undefined && entry.name.endsWith(".md");
               const publicName = markdown ? entry.name.slice(0, -3) : entry.name;
               return {
                 name: publicName,
                 href: `${prefix}/${encodeURIComponent(publicName)}${url.search}`,
-                kind: entry.tree || object?.type === "directory" ? "folder" : markdown ? "document" : "file",
+                kind: entry.tree || entry.directory !== undefined ? "folder" : markdown ? "document" : "file",
               };
             }))).filter((child): child is PublicPageChild => child !== null);
           const collectionFileChildren: PublicPageChild[] = (collectionFile?.rows ?? []).map((row) => ({

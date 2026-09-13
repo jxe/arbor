@@ -2,16 +2,11 @@ import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeCollectionFileDescript
 
 export type ObjectHash = string;
 
-export interface WireFile {
-  type: "file";
-  bytes: Uint8Array;
-}
-
-export interface WireDirectoryEntry {
-  name: string;
-  hash?: ObjectHash;
-  tree?: string;
-}
+export type WireEntryKind = "file" | "directory";
+export type WireDirectoryEntry =
+  | { name: string; file: ObjectHash; directory?: never; tree?: never }
+  | { name: string; directory: ObjectHash; file?: never; tree?: never }
+  | { name: string; tree: string; file?: never; directory?: never };
 
 export interface WireDirectory {
   type: "directory";
@@ -19,21 +14,21 @@ export interface WireDirectory {
   childrenSource?: CollectionFileDescriptor;
 }
 
-export function wireEntryObjectHashes(entry: WireDirectoryEntry): ObjectHash[] {
-  if (entry.hash) return [entry.hash];
-  return [];
+export function wireEntryObject(entry: WireDirectoryEntry): { kind: WireEntryKind; hash: ObjectHash } | undefined {
+  if (entry.file !== undefined) return { kind: "file", hash: entry.file };
+  if (entry.directory !== undefined) return { kind: "directory", hash: entry.directory };
+  return undefined;
 }
 
-export type WireObject = WireFile | WireDirectory;
-
-export interface ResolvedWireLogicalNode {
-  object: WireObject;
+export type ResolvedWireLogicalNode = (
+  | { kind: "file"; bytes: Uint8Array }
+  | { kind: "directory"; directory: WireDirectory }
+) & {
   objectName: string;
-  body?: WireFile;
+  body?: Uint8Array;
   bodyOrigin?: "sibling" | "index";
-  /** A sibling body exists beside the `_index.md` that supplies this node's content. */
   shadowedBody: boolean;
-}
+};
 
 export interface TreeSnapshot {
   root: ObjectHash;
@@ -47,8 +42,6 @@ export interface TreeSnapshot {
  */
 export interface WireObjectSource {
   hash: ObjectHash;
-  /** The object's kind when the producer knows it without loading the bytes. */
-  kind?: "file" | "directory";
   bytes(): Promise<Uint8Array>;
 }
 
@@ -62,18 +55,17 @@ export function hashObject(bytes: Uint8Array): ObjectHash {
   return `sha256:${sha256(bytes)}`;
 }
 
-export function encodeWireObject(object: WireObject): Uint8Array {
-  return encodeCanonicalCBOR(object);
+export function encodeWireDirectory(directory: WireDirectory): Uint8Array {
+  const bytes = encodeCanonicalCBOR(directory);
+  decodeWireDirectory(bytes);
+  return bytes;
 }
 
-export function decodeWireObject(bytes: Uint8Array): WireObject {
+export function decodeWireDirectory(bytes: Uint8Array): WireDirectory {
   const value = decodeCBOR(bytes);
   if (!value || typeof value !== "object") throw new Error("Wire object must be a map");
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record);
-  if (record.type === "file" && record.bytes instanceof Uint8Array && keys.length === 2 && keys.includes("type") && keys.includes("bytes")) {
-    return { type: "file", bytes: record.bytes };
-  }
   if (record.type === "directory" && Array.isArray(record.entries)
     && (keys.length === 2 || keys.length === 3)
     && keys.includes("type") && keys.includes("entries")
@@ -91,11 +83,13 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
         || item.name === "."
         || item.name === ".."
         || /[\\/\0]/.test(item.name)
-        || (typeof item.hash !== "string" && typeof item.tree !== "string")
-        || [item.hash, item.tree].filter((target) => target !== undefined).length !== 1
+        || (typeof item.file !== "string" && typeof item.directory !== "string" && typeof item.tree !== "string")
+        || [item.file, item.directory, item.tree].filter((target) => target !== undefined).length !== 1
         || itemKeys.length !== 2
       ) throw new Error("Invalid directory entry");
-      if (typeof item.hash === "string" && !/^sha256:[a-f0-9]{64}$/.test(item.hash)) throw new Error("Invalid directory entry hash");
+      for (const hash of [item.file, item.directory]) {
+        if (hash !== undefined && (typeof hash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(hash))) throw new Error("Invalid directory entry hash");
+      }
       if (typeof item.tree === "string" && item.tree.length === 0) throw new Error("Invalid directory entry tree");
       if (names.has(item.name)) throw new Error("Duplicate directory entry name");
       names.add(item.name);
@@ -106,9 +100,10 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
       previousName = encodedName;
       return {
         name: item.name,
-        ...(typeof item.hash === "string" ? { hash: item.hash } : {}),
+        ...(typeof item.file === "string" ? { file: item.file } : {}),
+        ...(typeof item.directory === "string" ? { directory: item.directory } : {}),
         ...(typeof item.tree === "string" ? { tree: item.tree } : {}),
-      };
+      } as WireDirectoryEntry;
     });
     const childrenSource = record.childrenSource === undefined
       ? undefined
@@ -116,13 +111,16 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
     if (childrenSource) {
       const source = entries.find((entry) => entry.name === childrenSource.source);
       const schema = entries.find((entry) => entry.name === childrenSource.schemaSource);
-      if (!source?.hash || !schema?.hash) throw new Error("Collection-file sources must be ordinary file entries");
+      if (!source?.file || !schema?.file) throw new Error("Collection-file sources must be ordinary file entries");
       const allowed = new Set([childrenSource.source, childrenSource.schemaSource, "_index.md"]);
       if (entries.some((entry) => !allowed.has(entry.name))) {
         throw new Error("Collection-file directory mixes immediate-child backings");
       }
     }
-    return { type: "directory", entries, ...(childrenSource ? { childrenSource } : {}) };
+    const directory: WireDirectory = { type: "directory", entries, ...(childrenSource ? { childrenSource } : {}) };
+    const canonical = encodeCanonicalCBOR(directory);
+    if (canonical.length !== bytes.length || canonical.some((byte, index) => byte !== bytes[index])) throw new Error("Directory object is not canonical CBOR");
+    return directory;
   }
   throw new Error("Unknown wire object");
 }
@@ -131,82 +129,40 @@ export function compareWireNames(left: string, right: string): number {
   return compareUTF8(left, right);
 }
 
-async function loadWireObject(
-  hash: ObjectHash,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<WireObject> {
+async function loadVerified(hash: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<Uint8Array> {
   const bytes = await load(hash);
   if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
-  return decodeWireObject(bytes);
+  return bytes;
 }
 
-async function directoryBody(
-  directory: WireDirectory,
-  sibling: WireDirectoryEntry | undefined,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<Pick<ResolvedWireLogicalNode, "body" | "bodyOrigin" | "shadowedBody">> {
-  const index = directory.entries.find((entry) => entry.name === "_index.md" && entry.hash);
-  const [siblingObject, indexObject] = await Promise.all([
-    sibling?.hash ? loadWireObject(sibling.hash, load) : null,
-    index?.hash ? loadWireObject(index.hash, load) : null,
-  ]);
-  if (siblingObject && siblingObject.type !== "file") throw new Error("Sibling Markdown body must be a file");
-  if (indexObject && indexObject.type !== "file") throw new Error("Directory _index.md body must be a file");
-  // `_index.md` takes precedence; a sibling body beside it is shadowed, not the model.
-  if (indexObject?.type === "file") {
-    return { body: indexObject, bodyOrigin: "index", shadowedBody: siblingObject?.type === "file" };
-  }
-  if (siblingObject?.type === "file") {
-    return { body: siblingObject, bodyOrigin: "sibling", shadowedBody: false };
-  }
+async function directoryBody(directory: WireDirectory, sibling: WireDirectoryEntry | undefined, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<Pick<ResolvedWireLogicalNode, "body" | "bodyOrigin" | "shadowedBody">> {
+  const index = directory.entries.find((entry) => entry.name === "_index.md");
+  if (index && !index.file) throw new Error("Directory _index.md body must be a file");
+  if (sibling && !sibling.file) throw new Error("Sibling Markdown body must be a file");
+  if (index?.file) return { body: await loadVerified(index.file, load), bodyOrigin: "index", shadowedBody: !!sibling?.file };
+  if (sibling?.file) return { body: await loadVerified(sibling.file, load), bodyOrigin: "sibling", shadowedBody: false };
   return { shadowedBody: false };
 }
 
-/**
- * Resolve an extensionless logical path over the physical wire graph. A
- * `x/_index.md` supplies `/x`'s body and `x/` its children; a sibling `x.md`
- * supplies the body only when there is no `_index.md`, as in the filesystem driver.
- */
-export async function resolveWireLogicalNode(
-  root: ObjectHash,
-  path: string,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<ResolvedWireLogicalNode | null> {
+/** Resolve an extensionless logical path; _index.md takes precedence over a sibling body. */
+export async function resolveWireLogicalNode(root: ObjectHash, path: string, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<ResolvedWireLogicalNode | null> {
   const parts = path.split("/").filter(Boolean);
-  let object = await loadWireObject(root, load);
-  if (!parts.length) {
-    if (object.type !== "directory") return { object, objectName: "", shadowedBody: false };
-    return { object, objectName: "", ...await directoryBody(object, undefined, load) };
-  }
-
+  let directory = decodeWireDirectory(await loadVerified(root, load));
+  if (!parts.length) return { kind: "directory", directory, objectName: "", ...await directoryBody(directory, undefined, load) };
   for (const [index, part] of parts.entries()) {
-    if (object.type !== "directory") return null;
-    if (part === object.childrenSource?.source || part === object.childrenSource?.schemaSource) return null;
-    const exact = object.entries.find((entry) => entry.name === part);
-    const sibling = object.entries.find((entry) => entry.name === `${part}.md`);
+    if (part === directory.childrenSource?.source || part === directory.childrenSource?.schemaSource) return null;
+    const exact = directory.entries.find((entry) => entry.name === part);
+    const sibling = directory.entries.find((entry) => entry.name === `${part}.md`);
     const last = index === parts.length - 1;
-
     if (exact?.tree) return null;
-    if (exact?.hash) {
-      const next = await loadWireObject(exact.hash, load);
-      if (!last) {
-        object = next;
-        continue;
-      }
-      if (next.type === "directory") {
-        return {
-          object: next,
-          objectName: exact.name,
-          ...await directoryBody(next, sibling, load),
-        };
-      }
-      return { object: next, objectName: exact.name, shadowedBody: false };
+    if (exact?.directory) {
+      directory = decodeWireDirectory(await loadVerified(exact.directory, load));
+      if (last) return { kind: "directory", directory, objectName: exact.name, ...await directoryBody(directory, sibling, load) };
+    } else if (exact?.file) {
+      return last ? { kind: "file", bytes: await loadVerified(exact.file, load), objectName: exact.name, shadowedBody: false } : null;
+    } else {
+      return last && sibling?.file ? { kind: "file", bytes: await loadVerified(sibling.file, load), objectName: sibling.name, shadowedBody: false } : null;
     }
-
-    if (!last || !sibling?.hash) return null;
-    const markdown = await loadWireObject(sibling.hash, load);
-    if (markdown.type !== "file") return null;
-    return { object: markdown, objectName: sibling.name, shadowedBody: false };
   }
   return null;
 }

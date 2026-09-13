@@ -125,7 +125,6 @@ final class ArborSyncClientTests: XCTestCase {
         XCTAssertEqual(bootstrap.tree.id, tree)
         XCTAssertEqual(bootstrap.spine.root, bootstrap.accepted.root)
         XCTAssertNil(bootstrap.blocked)
-        XCTAssertFalse(bootstrap.files.isEmpty)
         let credential = try await client.credential()
         XCTAssertFalse(credential.isEmpty)
         let root = try await client.object(tree: tree, hash: bootstrap.accepted.root)

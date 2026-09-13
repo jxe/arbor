@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "@arbor/canopy";
-import { encodeWireObject, type ObjectHash } from "@arbor/wire";
+import { encodeWireDirectory, type ObjectHash } from "@arbor/wire";
 import { ObservationLog } from "../../../packages/canopy/src/updates/observations.ts";
 
 const A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as ObjectHash;
@@ -32,7 +32,7 @@ describe("accepted-update transaction store", () => {
   afterEach(() => db.close());
 
   test("commits the ref, reflog, accepted row, and digest as one result", () => {
-    const bytes = encodeWireObject({ type: "directory", entries: [] });
+    const bytes = encodeWireDirectory({ type: "directory", entries: [] });
     const accepted = store.commit({
       tree: "tr_test",
       root: B,

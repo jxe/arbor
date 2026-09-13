@@ -1,4 +1,4 @@
-import { decodeWireObject, type ObjectHash, type WireDirectoryEntry } from "@arbor/wire";
+import { decodeWireDirectory, type ObjectHash, type WireDirectoryEntry } from "@arbor/wire";
 import { canonicalCBORHash, type Hash } from "@arbor/core";
 import { frontmatter } from "./merge-rules.ts";
 
@@ -21,24 +21,24 @@ export class ModelHashes {
   entry(entry: WireDirectoryEntry | undefined): Promise<Hash | null> {
     if (!entry) return Promise.resolve(null);
     if (entry.tree) return Promise.resolve(canonicalCBORHash({ tree: entry.tree }));
-    return this.object(entry.hash!, entry.name.endsWith(".md"));
+    return this.object((entry.file ?? entry.directory)!, entry.name.endsWith(".md"), !!entry.directory);
   }
 
-  object(hash: ObjectHash, markdown: boolean): Promise<Hash> {
-    const key = `${hash}:${markdown ? "md" : "raw"}`;
+  object(hash: ObjectHash, markdown: boolean, directory = true): Promise<Hash> {
+    const key = `${hash}:${directory ? "directory" : markdown ? "md" : "raw"}`;
     let pending = this.cache.get(key);
     if (!pending) {
-      pending = this.compute(hash, markdown);
+      pending = this.compute(hash, markdown, directory);
       this.cache.set(key, pending);
     }
     return pending;
   }
 
-  private async compute(hash: ObjectHash, markdown: boolean): Promise<Hash> {
-    const object = decodeWireObject(await this.load(hash));
-    if (object.type === "file") {
+  private async compute(hash: ObjectHash, markdown: boolean, directory: boolean): Promise<Hash> {
+    const bytes = await this.load(hash);
+    if (!directory) {
       if (markdown) {
-        const source = new TextDecoder().decode(object.bytes);
+        const source = new TextDecoder().decode(bytes);
         const properties = frontmatter(source);
         if (properties) {
           const body = source.replaceAll("\r\n", "\n").split("\n");
@@ -47,8 +47,9 @@ export class ModelHashes {
           return canonicalCBORHash({ properties: Object.fromEntries([...properties].sort()), content });
         }
       }
-      return canonicalCBORHash({ content: object.bytes });
+      return canonicalCBORHash({ content: bytes });
     }
+    const object = decodeWireDirectory(bytes);
     const bodyEntry = object.entries.find((entry) => entry.name === "_index.md");
     const body = bodyEntry ? await this.entry(bodyEntry) : null;
     if (object.childrenSource) {

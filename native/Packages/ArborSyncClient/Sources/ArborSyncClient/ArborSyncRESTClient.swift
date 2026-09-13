@@ -130,12 +130,10 @@ public actor ArborSyncRESTClient {
             throw TreeBootstrapError.invalidSpine("spine is not base64")
         }
         let spine = try WireSnapshotBundleCodec.decode(bundle, root: envelope.accepted.root, mode: .sparseFiles)
-        try Self.checkSparseEntries(spine, files: envelope.files)
         return TreeBootstrap(
             tree: envelope.tree,
             accepted: envelope.accepted,
             spine: spine,
-            files: envelope.files,
             pending: envelope.pending,
             blocked: envelope.blocked,
             observedThrough: envelope.observedThrough
@@ -173,28 +171,7 @@ public actor ArborSyncRESTClient {
         guard actual == hash else {
             throw ArborWireValidationError.objectHashMismatch(expected: hash, actual: actual)
         }
-        _ = try WireObjectCodec.decode(data)
         return data
-    }
-
-    /// Every reachable entry whose object the spine omits must be a file listed in `files`;
-    /// otherwise a daemon bug could silently collapse a subtree into one lazy "file".
-    static func checkSparseEntries(_ spine: WireSnapshot, files: [String: TreeBootstrapFile]) throws {
-        let objects = try WireObjectGraph.validate(spine, mode: .sparseFiles)
-        var visited = Set<String>()
-        func visit(_ hash: String, at path: String) throws {
-            guard visited.insert(hash).inserted else { return }
-            guard let object = objects[hash] else {
-                guard files[path] != nil else { throw TreeBootstrapError.unlistedFile(path: path, hash: hash) }
-                return
-            }
-            guard case let .directory(entries, _) = object else { return }
-            for entry in entries {
-                guard let child = entry.hash else { continue }
-                try visit(child, at: path == "/" ? "/\(entry.name)" : "\(path)/\(entry.name)")
-            }
-        }
-        try visit(spine.root, at: "/")
     }
 
     public func forgetLocalAccount() async throws {
@@ -348,7 +325,6 @@ private struct TreeBootstrapEnvelope: Decodable {
     var tree: LocalTreeDescriptor
     var accepted: TreeBootstrapAccepted
     var spine: String
-    var files: [String: TreeBootstrapFile]
     var pending: TreeBootstrapPending?
     var blocked: TreeBootstrapBlock?
     var observedThrough: String

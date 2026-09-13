@@ -8,8 +8,8 @@ import {
   type HostedTreesConfiguration,
 } from "@arbor/stores";
 import {
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
   type ObjectHash,
   type TreeSnapshot,
@@ -32,11 +32,11 @@ function text(bytes: Uint8Array, path: string): string {
 function object(snapshot: TreeSnapshot, hash: ObjectHash, path: string) {
   const bytes = snapshot.objects.get(hash);
   if (!bytes) throw new Error(`Account configuration is missing ${path}`);
-  return decodeWireObject(bytes);
+  return bytes;
 }
 
 export function readAccountConfigGraphV2(snapshot: TreeSnapshot, configurationTree?: string): AccountConfigGraphV2 {
-  const root = object(snapshot, snapshot.root, "/");
+  const root = decodeWireDirectory(object(snapshot, snapshot.root, "/"));
   if (root.type !== "directory") throw new Error("Account configuration root must be a directory");
   const allowed = new Set(["account.yaml", "trees.yaml", "devices.yaml"]);
   for (const entry of root.entries) {
@@ -45,10 +45,9 @@ export function readAccountConfigGraphV2(snapshot: TreeSnapshot, configurationTr
   }
   const sourceAt = (name: string): string => {
     const entry = root.entries.find((candidate) => candidate.name === name);
-    if (!entry?.hash) throw new Error(`Account configuration requires ${name}`);
-    const value = object(snapshot, entry.hash, name);
-    if (value.type !== "file") throw new Error(`${name} must be a file`);
-    return text(value.bytes, name);
+    if (!entry?.file) throw new Error(`Account configuration requires ${name}`);
+    const value = object(snapshot, entry.file, name);
+    return text(value, name);
   };
   const sources = {
     "account.yaml": sourceAt("account.yaml"),
@@ -210,16 +209,16 @@ export function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "source
 export function snapshotAccountConfigV2(graph: Omit<AccountConfigGraphV2, "sources">): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
   const file = (source: string): ObjectHash => {
-    const bytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(source) });
+    const bytes = new TextEncoder().encode(source);
     const hash = hashObject(bytes);
     objects.set(hash, bytes);
     return hash;
   };
   const sources = accountConfigSourcesV2(graph);
-  const rootBytes = encodeWireObject({ type: "directory", entries: [
-    { name: "account.yaml", hash: file(sources["account.yaml"]) },
-    { name: "devices.yaml", hash: file(sources["devices.yaml"]) },
-    { name: "trees.yaml", hash: file(sources["trees.yaml"]) },
+  const rootBytes = encodeWireDirectory({ type: "directory", entries: [
+    { name: "account.yaml", file: file(sources["account.yaml"]) },
+    { name: "devices.yaml", file: file(sources["devices.yaml"]) },
+    { name: "trees.yaml", file: file(sources["trees.yaml"]) },
   ] } satisfies WireDirectory);
   const root = hashObject(rootBytes);
   objects.set(root, rootBytes);

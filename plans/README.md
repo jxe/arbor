@@ -8,18 +8,18 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 
 The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
 
-- Implement [Reliability 007](reliability/007-reify-composable-canopy-conflicts.md) so Canopy accepts composable algebraic tree states, keeps an ordinary projected root, and derives local conflict regions without blocking unrelated synchronization.
-- Rearchitect Arbor Sync, starting with [Arbor Sync 001](arborsync/001-file-bytes-are-the-object.md) (a file's bytes are its object; directory entries carry the kind) and then [Arbor Sync 002](arborsync/002-object-directory.md) (the placed folder's objects as an on-disk hardlink directory, and the loopback object route deleted).
+- Soak the deployed Wire format through [Arbor Sync 001](arborsync/001-file-bytes-are-the-object.md). Raw hashes, typed entries, and the [minimal conflict contract](_done/reliability/007-reify-composable-canopy-conflicts.md) are implemented; the coordinated history-reset migration and both client upgrades are complete.
+- Extract the local object store later through [Arbor Sync 002](arborsync/002-object-directory.md); revise its hardlink/retention design before execution.
 - Make sure Canopy storage is not unreasonably big.
 - Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
 
-[Reliability 007](reliability/007-reify-composable-canopy-conflicts.md) now owns the staged Wire, Canopy, migration, client, and native-review work. It stores Jujutsu-style ordered expressions over exact tree roots and treats paths/regions as derived views, so it does not depend on durable Markdown anchors. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) remains active for hard policy/exact-match and local divergence conflicts until Reliability 007's client rollout gate passes. Arbor Sync 001 and Reliability 007 both rewrite Canopy's update internals and the Swift update coordinator: land 001 first, or rebase 007 onto the new object model, never interleave them. The user-directory/profile work still needs its next outcome defined; the list above deliberately does not prejudge that design.
+Conflict exploration, resolution, editor intent, and backend selection are deferred. Their optional extension may depend on the conflict model. The ordinary Wire projection/update contract must remain stable. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) continues to own rejected-update and local-divergence review.
 
 ## Arbor Sync
 
 Carve the daemon into pieces with one clear owner each. The first two plans make the placed folder itself the content-addressable store; later pieces are not numbered until these have soaked.
 
-- [Arbor Sync 001 — File bytes are the object](arborsync/001-file-bytes-are-the-object.md) — **P1 · PLANNED.** A file object's hash is the SHA-256 of its bytes; directory entries are `file`, `directory`, or `tree`; the bootstrap `files` map and Swift CBOR-prefix sniffing go; Canopy schema 7 with a gated live migration.
+- [Arbor Sync 001 — File bytes are the object](arborsync/001-file-bytes-are-the-object.md) — **P1 · SOAKING.** Raw file hashes, typed entries, schema 7, and the live Mac/iPhone migration are complete; several days of ordinary use remain before 002.
 - [Arbor Sync 002 — The object directory](arborsync/002-object-directory.md) — **P1 · PLANNED; depends on Arbor Sync 001 and its soak.** New `@arbor/object-store` with an `ObjectDirectory` maintainer keeping `objects/<TreeID>/<hex>` equal to the placed folder through hardlinks; arborsync composes it; `GET /v1/objects` is deleted and the Mac reads the directory.
 
 ## Cleanups
@@ -29,7 +29,7 @@ Bounded deletion, simplification, and deduplication whose result is less tempora
 - **Compatibility removal**
   - [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
   - [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported Canopy and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
-  - [Cleanup 003 — Remove singular update compatibility](cleanups/003-remove-singular-update-compatibility.md) — **WAITING** for every supported Canopy server and Arbor client to complete the plural-update rollout and for the mixed-version observation window to show no supported singular callers.
+  - **Singular update compatibility removal** — **DEFERRED.** Reliability 007 completed the minimal conflict contract without a v2 update-request cutover. The reference host still accepts the legacy singular adapter; new clients use the specified plural request. Re-scope its removal separately; the retired rollout strategy is preserved in [`_done/cleanups/`](./_done/cleanups/README.md).
 - **Smaller cleanup candidates and shared seams**
   - **Shared runtime protocol decoding** — **Deduplication · WAITING.** Promote when a second trusted boundary besides Arbor Sync needs runtime decoding; then colocate browser-safe pure decoders in `@arbor/core`, without adding schema generation solely to reduce repetition.
   - **Provider scalar normalization** — **Deduplication · OWNED by Postgres 001 and 002.** Freeze one language-neutral representation for blobs, 64-bit integers, booleans, nullability, and other provider scalars before implementations drift.
@@ -77,7 +77,7 @@ This is work that fills out Arbor's product feature surface. It is useful and of
 ## Hardening, Efficiency, Polish, etc.
 
 - **Further reliability hardening**
-  - [Reliability 007 — Reify composable Canopy conflicts as algebraic tree states](reliability/007-reify-composable-canopy-conflicts.md) — **P1 · PLANNED.** Add a projected root plus an ordered exact-root merge expression; derive local regions under versioned rules, keep syncing through accepted conflicts, and resolve only exact reviewed state.
+  - **Choose Canopy’s reified-conflict backend and extension** — **LATER DESIGN SPIKE.** Prove continuation, localization, resolution, restart, retention, authorization, and bounded history while preserving the ordinary Wire contract.
   - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **DEFERRED.** The race remains real, but it is not near-term work.
   - [Reliability 006 — Preview and resume initial working-tree bootstrap](reliability/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
   - **Explicit web-editor unload drain** — **WAITING on Native 022 Plan B.** App-controlled navigation already awaits the admission machine's flush; browser `beforeunload`/`pagehide` has no bounded drain and no visible pending state, which Reliability 005 left as a documented limitation. Add one or surface the limitation in the UI.

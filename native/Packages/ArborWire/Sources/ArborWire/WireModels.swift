@@ -65,6 +65,8 @@ public func canonicalArborLocator(endpoint: String, path: String) -> String {
 }
 
 public struct WireTreeDescriptor: Codable, Sendable, Equatable {
+    public var conflicted: Bool?
+    public var extensions: [String]?
     public var id: String
     public var kind: String
     public var access: String
@@ -84,7 +86,9 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
         root: String,
         access: String,
         canonical: WireCanonicalDescriptor?,
-        update: String
+        update: String,
+        conflicted: Bool? = nil,
+        extensions: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -92,6 +96,8 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
         self.canonical = canonical
         self.root = root
         self.update = update
+        self.conflicted = conflicted
+        self.extensions = extensions
     }
 
     public func validated() throws -> Self {
@@ -228,6 +234,7 @@ public struct WireMergeSummary: Codable, Sendable, Equatable {
 }
 
 public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
+    public var conflicted: Bool?
     public var id: String
     public var tree: String
     public var root: String
@@ -251,7 +258,8 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
         baseRoot: String? = nil,
         candidateRoot: String? = nil,
         remoteRoot: String? = nil,
-        merge: WireMergeSummary? = nil
+        merge: WireMergeSummary? = nil,
+        conflicted: Bool? = nil
     ) {
         self.id = id
         self.tree = tree
@@ -264,6 +272,7 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
         self.candidateRoot = candidateRoot
         self.remoteRoot = remoteRoot
         self.merge = merge
+        self.conflicted = conflicted
     }
 
     public func validated() throws -> Self {
@@ -486,7 +495,6 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
             guard WireObjectCodec.hash(envelope.bytes) == envelope.hash else {
                 throw ArborWireValidationError.objectHashMismatch(expected: envelope.hash, actual: WireObjectCodec.hash(envelope.bytes))
             }
-            _ = try WireObjectCodec.decode(envelope.bytes)
             guard results.insert(envelope.hash).inserted else {
                 throw ArborWireValidationError.invalidValue("Duplicate transition result")
             }

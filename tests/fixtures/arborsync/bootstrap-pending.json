@@ -13,39 +13,33 @@
     },
     "placement": "placed",
     "sync": "syncing",
-    "root": "sha256:5dd2bd834c92a156958f27eeebe8c0c9a05410bcbc5a874b6d636c98b10bea20",
+    "root": "sha256:f67d4ba9f8bedaba285d7342328777dc5d5a89a667c808980a384340757ddc0e",
     "update": "upd_0001"
   },
   "accepted": {
-    "root": "sha256:5dd2bd834c92a156958f27eeebe8c0c9a05410bcbc5a874b6d636c98b10bea20",
+    "root": "sha256:f67d4ba9f8bedaba285d7342328777dc5d5a89a667c808980a384340757ddc0e",
     "update": "upd_0001",
     "cursor": "upd_0001"
   },
-  "spine": "omdvYmplY3RzgljVomR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjY5ZmFjMTAzZWNiMDM0Y2JmOTM5MTZhNWUwM2E1ZDMxOGU5ZjdjY2NjNWUyYTZjZjhhOTBjOWY2NTg1OTY2Y2RkbmFtZWlfaW5kZXgubWSiZGhhc2h4R3NoYTI1NjpmMDVmY2FiZjcyOTE3ZGM0NWIxNjQyMzAxZDg0ODQxNGJhZTE5MzYzYjEyMzJlNDUzOWU4YjY3MTM0NzI3MmJlZG5hbWVpcGhvdG8uYmluWBqiZHR5cGVkZmlsZWVieXRlc0gjIE5vdGVzCmd2ZXJzaW9uAQ==",
-  "files": {
-    "/photo.bin": {
-      "size": 5,
-      "mtime": 1725192000000
-    }
-  },
+  "spine": "omdvYmplY3RzgkgjIE5vdGVzCljVomR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkZmlsZXhHc2hhMjU2OjM2NWQwYjg0YWU2M2MyYWZjMjkzZGVkZDJiMDBiZGYwZGM4ZDZlZjcwYzkyOTdkOTBmOWU1NjgyYWIwZDcyZWVkbmFtZWlfaW5kZXgubWSiZGZpbGV4R3NoYTI1NjpmMDVmY2FiZjcyOTE3ZGM0NWIxNjQyMzAxZDg0ODQxNGJhZTE5MzYzYjEyMzJlNDUzOWU4YjY3MTM0NzI3MmJlZG5hbWVpcGhvdG8uYmluZ3ZlcnNpb24B",
   "observedThrough": "1f8b3c6d-observed:7",
   "pending": {
     "base": "upd_0001",
     "updates": [
       {
-        "candidate": "sha256:5dd2bd834c92a156958f27eeebe8c0c9a05410bcbc5a874b6d636c98b10bea20",
+        "candidate": "sha256:f67d4ba9f8bedaba285d7342328777dc5d5a89a667c808980a384340757ddc0e",
         "ifMatch": "modelHash",
         "objects": [
           {
-            "hash": "sha256:69fac103ecb034cbf93916a5e03a5d318e9f7cccc5e2a6cf8a90c9f6585966cd",
-            "bytes": "omR0eXBlZGZpbGVlYnl0ZXNIIyBOb3Rlcwo="
+            "hash": "sha256:365d0b84ae63c2afc293dedd2b00bdf0dc8d6ef70c9297d90f9e5682ab0d72ee",
+            "bytes": "IyBOb3Rlcwo="
           }
         ],
         "deltas": []
       }
     ],
     "requestDigests": [
-      "sha256:4ec13a0d7e3bcc5f5baa7c2e336ffcd6ca5c49e30b7177929bda1e577089d230"
+      "sha256:63c03b1d70c72ba68301d5204de3f47ec603eeeab3af420a423045cec49bb2b8"
     ]
   }
 }

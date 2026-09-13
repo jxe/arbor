@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeTransitionPayloadJSON,
   encodeTransitionPayloadJSON,
-  encodeWireObject,
+  encodeWireDirectory,
   hashObject,
   type AcceptedTransitionPayload,
 } from "@arbor/wire";
 
 describe("accepted transition wire encoding", () => {
   test("round-trips complete objects and object deltas", () => {
-    const base = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("base") });
-    const result = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("best") });
-    const directory = encodeWireObject({ type: "directory", entries: [{ name: "note.md", hash: hashObject(result) }] });
+    const base = new TextEncoder().encode("base");
+    const result = new TextEncoder().encode("best");
+    const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: hashObject(result) }] });
     const payload: AcceptedTransitionPayload = {
       objects: [{ hash: hashObject(directory), bytes: directory }],
       deltas: [{

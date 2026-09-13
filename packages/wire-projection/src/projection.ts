@@ -25,7 +25,6 @@ import {
   type WireCollectionFileRow,
 } from "@arbor/stores";
 import {
-  decodeWireObject,
   resolveWireLogicalNode,
   type ObjectHash,
   type ResolvedWireLogicalNode,
@@ -54,9 +53,9 @@ export interface WireNodeProjection {
 }
 
 export function wireNodeStableKey(node: ResolvedWireLogicalNode): string | null {
-  const file = node.object.type === "file" ? node.object : node.body;
+  const file = node.kind === "file" ? node.bytes : node.body;
   if (!file) return null;
-  const id = parseMarkdown(new TextDecoder().decode(file.bytes)).frontmatter.id;
+  const id = parseMarkdown(new TextDecoder().decode(file)).frontmatter.id;
   return isPageID(id) ? pageIDStableKey(id) : null;
 }
 
@@ -85,16 +84,15 @@ export class WireProjection {
   async collectionFile(directory: WireDirectory): Promise<DecodedWireCollectionFile | null> {
     const descriptor = directory.childrenSource;
     if (!descriptor) return null;
-    const sourceHash = directory.entries.find((entry) => entry.name === descriptor.source)?.hash;
-    const schemaHash = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.hash;
+    const sourceHash = directory.entries.find((entry) => entry.name === descriptor.source)?.file;
+    const schemaHash = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.file;
     if (!sourceHash || !schemaHash) throw new Error("Collection-file sources are missing");
     const [source, schema] = await Promise.all([
-      this.options.load(sourceHash).then(decodeWireObject),
-      this.options.load(schemaHash).then(decodeWireObject),
+      this.options.load(sourceHash),
+      this.options.load(schemaHash),
     ]);
-    if (source.type !== "file" || schema.type !== "file") throw new Error("Collection-file sources must be file objects");
     const sandbox = new SchemaSandbox();
-    try { return await decodeWireCollectionFile(descriptor, source.bytes, schema.bytes, sandbox); }
+    try { return await decodeWireCollectionFile(descriptor, source, schema, sandbox); }
     finally { await sandbox[Symbol.asyncDispose](); }
   }
 
@@ -123,7 +121,7 @@ export class WireProjection {
     }
 
     const { node, path } = resolution;
-    const object = node.object;
+
     const objectName = node.objectName || (path === "/" ? this.options.rootName : path.split("/").at(-1)!) || this.options.rootName;
     const diagnostics: Diagnostic[] = node.shadowedBody ? [{
       code: "shadowed-body",
@@ -131,11 +129,11 @@ export class WireProjection {
       path,
       severity: "warning",
     }] : [];
-    if (object.type === "file") {
+    if (node.kind === "file") {
       const markdown = objectName.endsWith(".md");
-      const document = markdown ? parseMarkdown(new TextDecoder().decode(object.bytes)) : undefined;
+      const document = markdown ? parseMarkdown(new TextDecoder().decode(node.bytes)) : undefined;
       const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-      const revision = revisionOf(object.bytes);
+      const revision = revisionOf(node.bytes);
       return {
         resolution,
         snapshot: this.response({
@@ -155,25 +153,25 @@ export class WireProjection {
       };
     }
 
-    const source = node.body ? new TextDecoder().decode(node.body.bytes) : "";
-    const collectionFileDescriptor = object.childrenSource;
-    const collectionFile = await this.collectionFile(object);
-    const children = (await Promise.all(object.entries
+    const source = node.body ? new TextDecoder().decode(node.body) : "";
+    const collectionFileDescriptor = node.directory.childrenSource;
+    const collectionFile = await this.collectionFile(node.directory);
+    const children = (await Promise.all(node.directory.entries
       .filter((entry) => entry.name !== "_index.md"
         && entry.name !== collectionFileDescriptor?.source
         && entry.name !== collectionFileDescriptor?.schemaSource)
       .map(async (entry) => {
-        const childObject = entry.hash ? decodeWireObject(await this.options.load(entry.hash)) : null;
-        const markdown = childObject?.type === "file" && entry.name.endsWith(".md");
+        const childBytes = entry.file && entry.name.endsWith(".md") ? await this.options.load(entry.file) : null;
+        const markdown = childBytes !== null && entry.name.endsWith(".md");
         const name = markdown ? entry.name.slice(0, -3) : entry.name;
         const childPath = canonicalNodePath(`${path === "/" ? "" : path}/${name}`);
         if (entry.tree && this.options.includeBoundary && !await this.options.includeBoundary(childPath)) return null;
-        const document = markdown && childObject?.type === "file"
-          ? parseMarkdown(new TextDecoder().decode(childObject.bytes))
+        const document = markdown && childBytes !== null
+          ? parseMarkdown(new TextDecoder().decode(childBytes!))
           : undefined;
-        const revision = entry.hash ?? entry.tree ?? revisionOf(childPath);
+        const revision = entry.file ?? entry.directory ?? entry.tree ?? revisionOf(childPath);
         const stableKey = document && isPageID(document.frontmatter.id) ? pageIDStableKey(document.frontmatter.id) : null;
-        const kind = entry.tree || childObject?.type === "directory" ? "directory" : markdown ? "markdown" : "file";
+        const kind = entry.tree || entry.directory !== undefined ? "directory" : markdown ? "markdown" : "file";
         const summary: NodeSummary = {
           ref: { tree: this.options.tree, path: childPath, stableKey },
           name,
@@ -211,7 +209,7 @@ export class WireProjection {
         properties: { revision, writable: false },
         content: { revision, mediaType: "text/markdown", format: "markdown", writable: false },
         children: collectionFile && collectionFileDescriptor ? {
-          revision: object.entries.find((entry) => entry.name === collectionFileDescriptor.source)!.hash!,
+          revision: node.directory.entries.find((entry) => entry.name === collectionFileDescriptor.source)!.file!,
           schema: collectionFileDescriptor.schemaFingerprint,
           backing: {
             type: "collection-file",
@@ -264,10 +262,10 @@ export class WireProjection {
     if (path === "/") return null;
     const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
     const parent = await resolveWireLogicalNode(this.options.root, parentPath, this.options.load);
-    if (parent?.object.type !== "directory") return null;
-    const descriptor = parent.object.childrenSource;
+    if (parent?.kind !== "directory") return null;
+    const descriptor = parent.directory.childrenSource;
     if (!descriptor) return null;
-    const projection = await this.collectionFile(parent.object);
+    const projection = await this.collectionFile(parent.directory);
     if (!projection) return null;
     const segment = path.split("/").at(-1)!;
     const row = projection.rows.find((candidate) => stableKey
@@ -292,12 +290,12 @@ export class WireProjection {
       const node = await resolveWireLogicalNode(this.options.root, path, this.options.load);
       if (!node) continue;
       if (wireNodeStableKey(node) === stableKey) return { kind: "node", path, node };
-      if (node.object.type !== "directory") continue;
-      const directories = new Set(node.object.entries
-        .filter((entry) => !entry.tree && entry.hash && entry.name !== "_index.md" && !entry.name.endsWith(".md"))
+      if (node.kind !== "directory") continue;
+      const directories = new Set(node.directory.entries
+        .filter((entry) => !entry.tree && (entry.file ?? entry.directory) && entry.name !== "_index.md" && !entry.name.endsWith(".md"))
         .map((entry) => entry.name));
-      for (const entry of node.object.entries) {
-        if (entry.tree || !entry.hash || entry.name === "_index.md") continue;
+      for (const entry of node.directory.entries) {
+        if (entry.tree || !(entry.file ?? entry.directory) || entry.name === "_index.md") continue;
         const name = entry.name.endsWith(".md") ? entry.name.slice(0, -3) : entry.name;
         if (entry.name.endsWith(".md") && directories.has(name)) continue;
         pending.push(canonicalNodePath(`${path === "/" ? "" : path}/${name}`));

@@ -1,5 +1,5 @@
 import {
-  decodeWireObject,
+  decodeWireDirectory,
   encodeTransitionPayloadJSON,
   hashObject,
   objectDelta,
@@ -7,7 +7,7 @@ import {
   type ObjectDelta,
   type ObjectHash,
   type WireDirectoryEntry,
-  type WireObject,
+  type WireDirectory,
 } from "@arbor/wire";
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -35,26 +35,26 @@ export async function buildAcceptedTransitionPayload(
   targetRoot: ObjectHash,
   load: Load,
 ): Promise<AcceptedTransitionPayload> {
-  const cache = new Map<ObjectHash, { bytes: Uint8Array; object: WireObject }>();
+  const cache = new Map<ObjectHash, { bytes: Uint8Array; object?: WireDirectory }>();
   const provided = new Set<ObjectHash>();
   const objects: AcceptedTransitionPayload["objects"] = [];
   const deltas: ObjectDelta[] = [];
 
-  const loaded = async (hash: ObjectHash) => {
-    const existing = cache.get(hash);
+  const loaded = async (hash: ObjectHash, kind: "file" | "directory") => {
+    const existing = cache.get(`${kind}:${hash}`);
     if (existing) return existing;
     const bytes = await load(hash);
     if (hashObject(bytes) !== hash) throw new Error(`Transition object hash mismatch: ${hash}`);
-    const value = { bytes, object: decodeWireObject(bytes) };
-    cache.set(hash, value);
+    const value = { bytes, object: kind === "directory" ? decodeWireDirectory(bytes) : undefined };
+    cache.set(`${kind}:${hash}`, value);
     return value;
   };
 
-  const visit = async (beforeHash: ObjectHash | undefined, afterHash: ObjectHash): Promise<void> => {
+  const visit = async (beforeHash: ObjectHash | undefined, afterHash: ObjectHash, afterKind: "file" | "directory", beforeKind: "file" | "directory" = afterKind): Promise<void> => {
     if (beforeHash === afterHash || provided.has(afterHash)) return;
     provided.add(afterHash);
-    const after = await loaded(afterHash);
-    const before = beforeHash ? await loaded(beforeHash) : undefined;
+    const after = await loaded(afterHash, afterKind);
+    const before = beforeHash ? await loaded(beforeHash, beforeKind) : undefined;
 
     let delta: ObjectDelta | undefined;
     if (before && before.bytes.byteLength <= MAX_DELTA_SOURCE_BYTES && after.bytes.byteLength <= MAX_DELTA_SOURCE_BYTES) {
@@ -65,16 +65,16 @@ export async function buildAcceptedTransitionPayload(
     if (delta) deltas.push(delta);
     else objects.push({ hash: afterHash, bytes: after.bytes });
 
-    if (after.object.type === "directory") {
-      const beforeEntries = before?.object.type === "directory" ? before.object.entries : [];
+    if (after.object) {
+      const beforeEntries = before?.object?.entries ?? [];
       for (const entry of after.object.entries) {
         const prior = matchingEntry(entry, beforeEntries);
-        if (entry.hash) await visit(prior?.hash, entry.hash);
+        if (entry.file || entry.directory) await visit(prior?.file ?? prior?.directory, (entry.file ?? entry.directory)!, entry.file ? "file" : "directory", prior?.file ? "file" : "directory");
       }
     }
   };
 
-  await visit(previousRoot, targetRoot);
+  await visit(previousRoot, targetRoot, "directory");
   const payload: AcceptedTransitionPayload = {
     objects,
     deltas,

@@ -1,6 +1,6 @@
 import {
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
   type MergeSummary,
   type ObjectHash,
@@ -24,7 +24,8 @@ type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 
 function entryEqual(left: WireDirectoryEntry | undefined, right: WireDirectoryEntry | undefined): boolean {
   return left?.name === right?.name
-    && left?.hash === right?.hash
+    && left?.file === right?.file
+    && left?.directory === right?.directory
     && left?.tree === right?.tree;
 }
 
@@ -40,9 +41,9 @@ function conflictReason(
 ): UpdateConflict["reason"] {
   const present = [before, local, accepted].filter((entry): entry is WireDirectoryEntry => entry !== undefined);
   if (present.some((entry) => entry.tree)) return "nested-boundary-conflict";
-  const kinds = new Set(present.map((entry) => entry.hash ? "object" : "none"));
+  const kinds = new Set(present.map((entry) => entry.file ? "file" : entry.directory ? "directory" : "none"));
   if (kinds.size > 1) return "path-kind-conflict";
-  if (local?.hash && accepted?.hash && !local.name.endsWith(".md")) return "binary-conflict";
+  if (local?.file && accepted?.file && !local.name.endsWith(".md")) return "binary-conflict";
   return "node-conflict";
 }
 
@@ -70,15 +71,12 @@ export async function mergeWireTrees(
   const conflicts: UpdateConflict[] = [];
   const loadAny = async (hash: ObjectHash) => generated.get(hash) ?? await load(hash);
   const context: RuleContext = {
-    store(object) {
-      const bytes = encodeWireObject(object);
+    store(bytes) {
       const hash = hashObject(bytes);
       generated.set(hash, bytes);
       return hash;
     },
-    async object(hash) {
-      return decodeWireObject(await loadAny(hash));
-    },
+    file: loadAny,
     conflicts,
   };
   const hashes = new ModelHashes(loadAny);
@@ -88,9 +86,7 @@ export async function mergeWireTrees(
   let sawCollectionFileRule = false;
 
   const directoryObject = async (entry: WireDirectoryEntry | undefined): Promise<WireDirectory | null> => {
-    if (!entry?.hash) return null;
-    const object = await context.object(entry.hash);
-    return object.type === "directory" ? object : null;
+    return entry?.directory ? decodeWireDirectory(await loadAny(entry.directory)) : null;
   };
 
   /** Resolve one conflicting node with its representation's rule; undefined when it has none. */
@@ -100,12 +96,12 @@ export async function mergeWireTrees(
     local: WireDirectoryEntry,
     accepted: WireDirectoryEntry,
   ): Promise<WireDirectoryEntry | undefined> => {
-    if (local.hash && accepted.hash && local.name.endsWith(".md") && (!before || before.hash)) {
-      const baseHash = before?.hash ?? context.store({ type: "file", bytes: new Uint8Array() });
-      const merged = await markdownAdditiveV1(path, baseHash, local.hash, accepted.hash, context);
+    if (local.file && accepted.file && local.name.endsWith(".md") && (!before || before.file)) {
+      const baseHash = before?.file ?? context.store(new Uint8Array());
+      const merged = await markdownAdditiveV1(path, baseHash, local.file, accepted.file, context);
       sawMarkdownRule = true;
       approximatePlacements += merged.approximate;
-      return { name: local.name, hash: merged.hash };
+      return { name: local.name, file: merged.hash };
     }
     return undefined;
   };
@@ -115,12 +111,11 @@ export async function mergeWireTrees(
     const unique = new Map<string, WireDirectoryEntry>();
     const duplicates = new Set<string>();
     for (const entry of directory.values()) {
-      if (!entry.hash || !entry.name.endsWith(".md")) continue;
-      const value = await context.object(entry.hash);
-      if (value.type !== "file") continue;
+      if (!entry.file || !entry.name.endsWith(".md")) continue;
+      const value = await context.file(entry.file);
       let source: string;
       try {
-        source = new TextDecoder("utf-8", { fatal: true }).decode(value.bytes);
+        source = new TextDecoder("utf-8", { fatal: true }).decode(value);
       } catch {
         continue;
       }
@@ -148,7 +143,7 @@ export async function mergeWireTrees(
     const [localChildren, acceptedChildren] = await Promise.all([directoryObject(local), directoryObject(accepted)]);
     if (localChildren && acceptedChildren) {
       const baseChildren = (await directoryObject(before)) ?? { type: "directory" as const, entries: [] };
-      return { name, hash: await mergeDirectory(path, baseChildren, localChildren, acceptedChildren) };
+      return { name, directory: await mergeDirectory(path, baseChildren, localChildren, acceptedChildren) };
     }
     const [baseModel, currentModel] = await Promise.all([hashes.entry(before), hashes.entry(accepted)]);
     if (baseModel === currentModel) return local ?? null;
@@ -178,8 +173,8 @@ export async function mergeWireTrees(
     const collectionInput = (directory: WireDirectory): CollectionFileMergeInput | null => {
       const descriptor = directory.childrenSource;
       if (!descriptor) return null;
-      const source = directory.entries.find((entry) => entry.name === descriptor.source)?.hash;
-      const schemaSource = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.hash;
+      const source = directory.entries.find((entry) => entry.name === descriptor.source)?.file;
+      const schemaSource = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.file;
       return source && schemaSource ? { descriptor, source, schemaSource } : null;
     };
     const baseCollection = collectionInput(baseDirectory);
@@ -209,8 +204,8 @@ export async function mergeWireTrees(
       }
       if (selectedCollection) {
         entries.push(
-          { name: selectedCollection.descriptor.source, hash: selectedCollection.source },
-          { name: selectedCollection.descriptor.schemaSource, hash: selectedCollection.schemaSource },
+          { name: selectedCollection.descriptor.source, file: selectedCollection.source },
+          { name: selectedCollection.descriptor.schemaSource, file: selectedCollection.schemaSource },
         );
       }
     }
@@ -255,15 +250,15 @@ export async function mergeWireTrees(
       const resolved = await resolveNode(parentPath, name, before, local, accepted);
       if (resolved) entries.push(resolved);
     }
-    return context.store({
+    return context.store(encodeWireDirectory({
       type: "directory",
       entries: sortedEntries(entries),
       ...(selectedCollection ? { childrenSource: selectedCollection.descriptor } : {}),
-    });
+    }));
   };
 
   const rootDirectory = async (hash: ObjectHash): Promise<WireDirectory> => {
-    const object = await context.object(hash);
+    const object = decodeWireDirectory(await loadAny(hash));
     if (object.type !== "directory") throw new Error("Tree root is not a directory object");
     return object;
   };

@@ -48,7 +48,7 @@ public struct WorkingTreeHeads: Codable, Equatable, Sendable {
 /// source stays inline on the node.
 public enum ContentRef: Codable, Equatable, Sendable {
     case inline(Data)
-    case hash(String, size: Int, mediaType: String?)
+    case hash(String, size: Int?, mediaType: String?)
 
     private enum CodingKeys: String, CodingKey { case inline, hash, size, mediaType }
 
@@ -59,7 +59,7 @@ public enum ContentRef: Codable, Equatable, Sendable {
         } else {
             self = .hash(
                 try container.decode(String.self, forKey: .hash),
-                size: try container.decode(Int.self, forKey: .size),
+                size: try container.decodeIfPresent(Int.self, forKey: .size),
                 mediaType: try container.decodeIfPresent(String.self, forKey: .mediaType)
             )
         }
@@ -72,7 +72,7 @@ public enum ContentRef: Codable, Equatable, Sendable {
             try container.encode(bytes, forKey: .inline)
         case let .hash(hash, size, mediaType):
             try container.encode(hash, forKey: .hash)
-            try container.encode(size, forKey: .size)
+            try container.encodeIfPresent(size, forKey: .size)
             try container.encodeIfPresent(mediaType, forKey: .mediaType)
         }
     }
@@ -86,7 +86,7 @@ public enum ContentRef: Codable, Equatable, Sendable {
     }
 
     /// The payload length in bytes.
-    public var size: Int {
+    public var size: Int? {
         switch self {
         case let .inline(bytes): bytes.count
         case let .hash(_, size, _): size

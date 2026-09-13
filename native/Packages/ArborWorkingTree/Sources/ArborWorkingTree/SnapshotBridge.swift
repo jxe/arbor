@@ -3,42 +3,18 @@ import ArborWire
 import Foundation
 import UniformTypeIdentifiers
 
-/// What a bootstrap knows about a file whose bytes a sparse snapshot omits.
-public struct SparseFileMetadata: Sendable, Equatable, Codable {
-    public var size: Int
-    public var mediaType: String?
-
-    public init(size: Int, mediaType: String? = nil) {
-        self.size = size
-        self.mediaType = mediaType
-    }
-}
-
 public enum SnapshotBridge {
-    /// Translate a wire snapshot into a system replacement for a working tree.
-    ///
-    /// With neither `files` nor `filesByHash` the snapshot must be complete.
-    /// With either given the snapshot is a sparse spine: directory and Markdown
-    /// objects present, file objects optionally absent. An absent file becomes
-    /// a hash reference sized from `files[path]` or `filesByHash[hash]`; every
-    /// payload-less entry must appear in one of them, so a spine that silently
-    /// dropped a directory object fails loudly instead of collapsing that
-    /// subtree into one lazy file. Markdown must be present.
-    ///
-    /// `files` is what a bootstrap knows (by path); `filesByHash` is what a
-    /// working tree already knows about the files it references, which lets a
-    /// transition replayed onto its sparse local graph be bridged back without
-    /// fetching the files the transition did not touch.
+    /// Directory references must be present in all modes; sparse file references
+    /// may omit payloads, except Markdown source which must remain inline.
     public static func replacement(
         snapshot: WireSnapshot,
         tree: TreeID,
         update: String,
         cursor: String? = nil,
-        files: [String: SparseFileMetadata]? = nil,
-        filesByHash: [String: SparseFileMetadata]? = nil
+        mode: WireObjectGraph.ValidationMode = .complete
     ) throws -> WorkingTreeSystemReplacement {
-        let sparse = files != nil || filesByHash != nil
-        let objects = try WireObjectGraph.validate(snapshot, mode: sparse ? .sparseFiles : .complete)
+        let sparse = mode == .sparseFiles
+        let objects = try WireObjectGraph.validate(snapshot, mode: mode)
         var nodes: [WorkingTreeSystemNode] = []
         var logicalPaths = Set<String>()
 
@@ -126,15 +102,12 @@ public enum SnapshotBridge {
                     guard !entry.name.hasSuffix(".md") else {
                         throw ArborWireValidationError.incompleteGraph("Markdown \(destination) is not in the sparse snapshot")
                     }
-                    guard let metadata = files?[destination] ?? filesByHash?[childHash] else {
-                        throw ArborWireValidationError.incompleteGraph("Sparse entry \(destination) is not in the files map")
-                    }
                     try appendNode(WorkingTreeSystemNode(
                         path: destination,
                         content: .file(ref: .hash(
                             childHash,
-                            size: metadata.size,
-                            mediaType: metadata.mediaType ?? inferredMediaType(for: entry.name)
+                            size: nil,
+                            mediaType: inferredMediaType(for: entry.name)
                         ))
                     ))
                     continue

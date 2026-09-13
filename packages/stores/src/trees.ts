@@ -18,6 +18,7 @@ import { CanopyAccountStore, CommunityConfigStore } from "./server-config.ts";
 import { arborDataRoot, arborPrivateRoot } from "./private-state.ts";
 
 export interface SharedTreePlacement {
+  conflicted?: boolean;
   configurationTree?: TreeID;
   path: string;
   tree: TreeID;
@@ -49,6 +50,7 @@ export interface TreeRegistrySnapshot {
 }
 
 interface PlacementSyncMetadata {
+  conflicted?: boolean;
   ref?: string;
   update?: string;
   access?: "read" | "write";

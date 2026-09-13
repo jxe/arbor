@@ -2,9 +2,9 @@ import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   applyObjectDelta,
-  decodeWireObject,
+  decodeWireDirectory,
   hashObject,
-  wireEntryObjectHashes,
+  wireEntryObject,
   type ObjectDelta,
   type ObjectHash,
   type TreeSnapshot,
@@ -69,18 +69,20 @@ export class ObjectStore {
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
     visit: (hash: ObjectHash, bytes: Uint8Array) => boolean | void,
   ): Promise<{ complete: boolean; stopped: boolean }> {
-    const pending = [root];
+    const pending: Array<{ hash: ObjectHash; kind: "file" | "directory" }> = [{ hash: root, kind: "directory" }];
     const seen = new Set<ObjectHash>();
     while (pending.length) {
-      const hash = pending.pop()!;
+      const { hash, kind } = pending.pop()!;
       if (seen.has(hash)) continue;
       seen.add(hash);
       const bytes = await this.find(hash, proposed);
       if (!bytes) return { complete: false, stopped: false };
       if (visit(hash, bytes) === false) return { complete: true, stopped: true };
-      const object = decodeWireObject(bytes);
-      if (object.type === "directory") {
-        for (const entry of object.entries) pending.push(...wireEntryObjectHashes(entry));
+      if (kind === "directory") {
+        for (const entry of decodeWireDirectory(bytes).entries) {
+          const target = wireEntryObject(entry);
+          if (target) pending.push(target);
+        }
       }
     }
     return { complete: true, stopped: false };
@@ -134,7 +136,6 @@ export class ObjectStore {
       }
       const bytes = applyObjectDelta(await this.read(delta.base), delta);
       if (hashObject(bytes) !== delta.result) throw new Error(`Object delta result hash mismatch: ${delta.result}`);
-      decodeWireObject(bytes);
       proposed.set(delta.result, bytes);
       reconstructed.push({ hash: delta.result, bytes });
     }

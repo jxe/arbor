@@ -18,10 +18,10 @@ import {
 import { parseMarkdown } from "@arbor/editor";
 import { decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
 import {
-  decodeWireObject,
-  encodeWireObject,
+  decodeWireDirectory,
+  encodeWireDirectory,
   hashObject,
-  wireEntryObjectHashes,
+  wireEntryObject,
   updateRequestDigests,
   type AcceptedTransition,
   type AcceptedTransitionPayload,
@@ -116,11 +116,11 @@ function sameOrDescendant(path: string, parent: string): boolean {
 }
 
 function directSnapshot(source: string): TreeSnapshot {
-  const fileBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(source) });
+  const fileBytes = new TextEncoder().encode(source);
   const fileHash = hashObject(fileBytes);
-  const rootBytes = encodeWireObject({
+  const rootBytes = encodeWireDirectory({
     type: "directory",
-    entries: [{ name: "_index.md", hash: fileHash }],
+    entries: [{ name: "_index.md", file: fileHash }],
   });
   const rootHash = hashObject(rootBytes);
   return { root: rootHash, objects: new Map([[fileHash, fileBytes], [rootHash, rootBytes]]) };
@@ -1527,7 +1527,7 @@ export class CanopyDaemon implements AsyncDisposable {
       let hash = root;
       let valid = true;
       for (const [index, segment] of segments.entries()) {
-        const object = decodeWireObject(await this.objects.load(hash, proposed));
+        const object = decodeWireDirectory(await this.objects.load(hash, proposed));
         if (object.type !== "directory") {
           valid = false;
           break;
@@ -1539,8 +1539,8 @@ export class CanopyDaemon implements AsyncDisposable {
         }
         if (index === segments.length - 1) {
           valid = entry.tree === child.tree_id;
-        } else if (entry.hash) {
-          hash = entry.hash;
+        } else if (entry.directory) {
+          hash = entry.directory;
         } else {
           valid = false;
           break;
@@ -1559,13 +1559,12 @@ export class CanopyDaemon implements AsyncDisposable {
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
     kind: "person" | "group",
   ): Promise<void> {
-    const directory = decodeWireObject(await this.objects.load(root, proposed));
+    const directory = decodeWireDirectory(await this.objects.load(root, proposed));
     if (directory.type !== "directory") throw new Error("Profile root must be a directory");
     const index = directory.entries.find((entry) => entry.name === "_index.md");
-    if (!index?.hash) throw new Error("Profile tree requires _index.md");
-    const file = decodeWireObject(await this.objects.load(index.hash, proposed));
-    if (file.type !== "file") throw new Error("Profile _index.md must be a file");
-    const { frontmatter } = parseMarkdown(new TextDecoder().decode(file.bytes));
+    if (!index?.file) throw new Error("Profile tree requires _index.md");
+    const file = await this.objects.load(index.file, proposed);
+    const { frontmatter } = parseMarkdown(new TextDecoder().decode(file));
     if (frontmatter.type !== kind) throw new Error(`Profile root must declare type: ${kind}`);
   }
 
@@ -1686,11 +1685,14 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private async validateGraph(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
-    const pending = [root];
+    const pending: Array<{ hash: ObjectHash; kind: "file" | "directory" }> = [{ hash: root, kind: "directory" }];
+    const kinds = new Map<ObjectHash, string>();
     const seen = new Set<ObjectHash>();
     let totalBytes = 0;
     while (pending.length) {
-      const hash = pending.pop()!;
+      const { hash, kind } = pending.pop()!;
+      if (kinds.has(hash) && kinds.get(hash) !== kind) throw new Error(`Object kind conflict: ${hash}`);
+      kinds.set(hash, kind);
       if (seen.has(hash)) continue;
       seen.add(hash);
       if (seen.size > 100_000) throw new Error("Tree exceeds the object quota");
@@ -1699,8 +1701,8 @@ export class CanopyDaemon implements AsyncDisposable {
       if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
       totalBytes += bytes.byteLength;
       if (totalBytes > 1_000_000_000) throw new Error("Tree exceeds the storage quota");
-      const object = decodeWireObject(bytes);
-      if (object.type !== "directory") continue;
+      if (kind === "file") continue;
+      const object = decodeWireDirectory(bytes);
       const names = new Set<string>();
       for (const entry of object.entries) {
         if (
@@ -1712,17 +1714,16 @@ export class CanopyDaemon implements AsyncDisposable {
           || names.has(entry.name)
         ) throw new Error(`Invalid or duplicate directory entry: ${entry.name}`);
         names.add(entry.name);
-        pending.push(...wireEntryObjectHashes(entry));
+        const target = wireEntryObject(entry);
+        if (target) pending.push(target);
       }
       if (object.childrenSource) {
         const loadFile = async (name: string): Promise<Uint8Array> => {
-          const target = object.entries.find((entry) => entry.name === name)?.hash;
+          const target = object.entries.find((entry) => entry.name === name)?.file;
           if (!target) throw new Error(`Missing collection-file entry: ${name}`);
           const targetBytes = await this.objects.find(target, proposed);
           if (!targetBytes || hashObject(targetBytes) !== target) throw new Error(`Missing collection-file object: ${target}`);
-          const targetObject = decodeWireObject(targetBytes);
-          if (targetObject.type !== "file") throw new Error(`Collection-file source is not a file: ${target}`);
-          return targetObject.bytes;
+          return targetBytes;
         };
         await decodeWireCollectionFile(
           object.childrenSource,

@@ -68,7 +68,6 @@ public enum WireTransitionReplay {
                 throw ArborWireValidationError.invalidValue("Object delta base is not reachable from the transition basis")
             }
             let encoded = try delta.apply(to: base)
-            _ = try WireObjectCodec.decode(encoded)
             guard bytesByHash[delta.result] == nil else {
                 throw ArborWireValidationError.invalidValue("Object delta result was already supplied")
             }
@@ -78,24 +77,24 @@ public enum WireTransitionReplay {
 
         var visiting = Set<String>()
         var visited = Set<String>()
-        func visit(_ hash: String) throws {
+        func visit(_ hash: String, kind: WireEntryKind) throws {
             if visiting.contains(hash) { throw ArborWireValidationError.cyclicGraph(hash) }
             if visited.contains(hash) { return }
             guard let bytes = bytesByHash[hash] else {
-                if mode == .sparseFiles { visited.insert(hash); return }
+                if mode == .sparseFiles && kind == .file { visited.insert(hash); return }
                 throw ArborWireValidationError.incompleteGraph(hash)
             }
-            let object = try WireObjectCodec.decode(bytes)
+            let object = try WireObjectCodec.decode(bytes, kind: kind)
             visiting.insert(hash)
             if case let .directory(entries, _) = object {
                 for entry in entries {
-                    if let child = entry.hash { try visit(child) }
+                    if let child = entry.hash, let kind = entry.kind { try visit(child, kind: kind) }
                 }
             }
             visiting.remove(hash)
             visited.insert(hash)
         }
-        try visit(root)
+        try visit(root, kind: .directory)
         if let unreachable = suppliedResults.subtracting(visited).sorted().first {
             throw ArborWireValidationError.unreachableObject(unreachable)
         }

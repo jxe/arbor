@@ -1,3 +1,4 @@
+import { encodeWireDirectory } from "@arbor/wire";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -160,22 +161,21 @@ describe("arborsync object route", () => {
 
   async function indexedSnapshot() {
     const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
-    const { hashObject, decodeWireObject } = await import("@arbor/wire");
+    const { hashObject, decodeWireDirectory } = await import("@arbor/wire");
     const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, activeWorkspace.objectIndex()));
-    return { snapshot, hashObject, decodeWireObject };
+    return { snapshot, hashObject, decodeWireDirectory };
   }
 
   test("serves a file object from the index with an immutable ETag", async () => {
     const bytes = new TextEncoder().encode("object-route-file-bytes");
     await writeFile(join(root, "object-route.bin"), bytes);
     const { snapshot, hashObject } = await indexedSnapshot();
-    const { encodeWireObject } = await import("@arbor/wire");
-    const hash = hashObject(encodeWireObject({ type: "file", bytes }));
+    const hash = hashObject(bytes);
     expect(snapshot.objects.has(hash)).toBe(true);
 
     const response = await fetch(`${base}/v1/objects/${encodeURIComponent(hash)}?tree=${encodeURIComponent(scope)}`);
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("application/cbor");
+    expect(response.headers.get("content-type")).toBe("application/octet-stream");
     expect(response.headers.get("etag")).toBe(`"${hash}"`);
     expect(response.headers.get("cache-control")).toBe("private, immutable, max-age=31536000");
     const served = new Uint8Array(await response.arrayBuffer());
@@ -187,21 +187,21 @@ describe("arborsync object route", () => {
     await mkdir(join(root, "object-dir"), { recursive: true });
     await writeFile(join(root, "object-dir", "leaf.md"), "leaf\n");
     await writeFile(join(root, "object-dir", "leaf.bin"), "binary-leaf");
-    const { snapshot, hashObject, decodeWireObject } = await indexedSnapshot();
-    const rootObject = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+    const { snapshot, hashObject, decodeWireDirectory } = await indexedSnapshot();
+    const rootObject = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
     if (rootObject.type !== "directory") throw new Error("Expected a directory");
-    const directoryHash = rootObject.entries.find((entry) => entry.name === "object-dir")!.hash!;
+    const directoryHash = rootObject.entries.find((entry) => entry.name === "object-dir")!.directory!;
     for (const hash of [directoryHash, snapshot.root]) {
       const served = await client.object(scope, hash);
       expect(hashObject(served)).toBe(hash);
-      expect(decodeWireObject(served).type).toBe("directory");
+      expect(decodeWireDirectory(served).type).toBe("directory");
     }
   });
 
   test("serves objects held only by the stored pending update body", async () => {
-    const { encodeWireObject, hashObject } = await import("@arbor/wire");
+    const { hashObject } = await import("@arbor/wire");
     const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
-    const bytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("pending-only-object") });
+    const bytes = new TextEncoder().encode("pending-only-object");
     const hash = hashObject(bytes);
     await savePendingTreeUpdate(scope, pendingFromSnapshot(null, { root: hash, objects: new Map([[hash, bytes]]) }));
     try {
@@ -215,7 +215,7 @@ describe("arborsync object route", () => {
 
   test("fetches through to Canopy for an unplaced tree named by origin", async () => {
     const { serveCanopy } = await import("@arbor/canopy");
-    const { WireClient, encodeWireObject, hashObject } = await import("@arbor/wire");
+    const { WireClient, hashObject } = await import("@arbor/wire");
     const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
     const canopyRoot = await mkdtemp(join(tmpdir(), "arbor-object-canopy-"));
     const token = "object-route-owner";
@@ -240,7 +240,7 @@ describe("arborsync object route", () => {
       await owner.submitUpdate(communityTree, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, boundaries)));
       // The local copy is gone; the daemon has no placement for this tree.
       await rm(join(source, "remote-only.bin"));
-      const hash = hashObject(encodeWireObject({ type: "file", bytes: remoteOnly }));
+      const hash = hashObject(remoteOnly);
 
       const served = await client.object(communityTree, hash, canopy.url);
       expect(hashObject(served)).toBe(hash);
@@ -374,7 +374,7 @@ describe("arborsync bootstrap and credential routes", () => {
   }
 
   test("bootstraps a clean placed tree with a sparse spine and a file map", async () => {
-    const { decodeSparseSnapshotBundle, decodeWireObject, hashObject, encodeWireObject } = await import("@arbor/wire");
+    const { decodeSparseSnapshotBundle, decodeWireDirectory, hashObject } = await import("@arbor/wire");
     const bootstrap = await placedClient.bootstrap(tree);
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!;
     expect(bootstrap.tree.id).toBe(tree);
@@ -385,21 +385,18 @@ describe("arborsync bootstrap and credential routes", () => {
 
     const spine = decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64"));
     expect(spine.has(bootstrap.accepted.root as never)).toBe(true);
-    const kinds = [...spine.values()].map((bytes) => decodeWireObject(bytes));
-    expect(kinds.filter((object) => object.type === "directory")).toHaveLength(2);
-    const markdown = kinds.filter((object) => object.type === "file").map((object) => new TextDecoder().decode(object.bytes)).sort();
+    const directories = [decodeWireDirectory(spine.get(bootstrap.accepted.root)!)];
+    for (const entry of directories[0]!.entries) if (entry.directory) directories.push(decodeWireDirectory(spine.get(entry.directory)!));
+    expect(directories).toHaveLength(2);
+    const markdown = directories.flatMap(directory => directory.entries.filter(entry => entry.file && entry.name.endsWith(".md")).map(entry => new TextDecoder().decode(spine.get(entry.file!)!))).sort();
     expect(markdown).toEqual(["# Bootstrap tree\n", "A note\n", "Child\n"]);
-
-    expect(Object.keys(bootstrap.files).sort()).toEqual(["/photo.bin", "/sub/data.bin"]);
-    expect(bootstrap.files["/photo.bin"]).toMatchObject({ size: 5, mtime: expect.any(Number) });
-    expect(bootstrap.files["/sub/data.bin"]!.size).toBe(3);
-
-    // Payload-less entries in the spine are exactly the listed files, resolvable through the object route.
-    const photoHash = hashObject(encodeWireObject({ type: "file", bytes: new Uint8Array([1, 2, 3, 4, 5]) }));
+    expect("files" in bootstrap).toBe(false);
+    // Typed file entries are resolvable even when their payload is omitted.
+    const photoHash = hashObject(new Uint8Array([1, 2, 3, 4, 5]));
     expect(spine.has(photoHash)).toBe(false);
-    const root = decodeWireObject(spine.get(bootstrap.accepted.root as never)!);
+    const root = decodeWireDirectory(spine.get(bootstrap.accepted.root as never)!);
     if (root.type !== "directory") throw new Error("Expected a directory root");
-    expect(root.entries.find((entry) => entry.name === "photo.bin")?.hash).toBe(photoHash);
+    expect(root.entries.find((entry) => entry.name === "photo.bin")?.file).toBe(photoHash);
     expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
   });
 
@@ -450,7 +447,7 @@ describe("arborsync bootstrap and credential routes", () => {
       expect(bootstrap.pending).toBeUndefined();
       expect(bootstrap.accepted).toEqual(accepted);
       expect(decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64")).size).toBe(5);
-      expect(Object.keys(bootstrap.files)).toHaveLength(2);
+      expect("files" in bootstrap).toBe(false);
     } finally {
       await clearTreeConflict(tree);
     }
@@ -458,7 +455,7 @@ describe("arborsync bootstrap and credential routes", () => {
 
   test("blocks as unsettled when the stored pending update does not end at the folder", async () => {
     const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
-    const { encodeWireObject, hashObject } = await import("@arbor/wire");
+    const { hashObject } = await import("@arbor/wire");
     const snapshot = await folderSnapshot();
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     // Stale base: the chain no longer starts at the accepted update.
@@ -469,7 +466,7 @@ describe("arborsync bootstrap and credential routes", () => {
       await clearPendingTreeUpdate(tree);
     }
     // Right base, but the last candidate is not the folder root.
-    const bytes = encodeWireObject({ type: "directory", entries: [] });
+    const bytes = encodeWireDirectory({ type: "directory", entries: [] });
     await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, { root: hashObject(bytes), objects: new Map([[hashObject(bytes), bytes]]) }));
     try {
       const bootstrap = await placedClient.bootstrap(tree);

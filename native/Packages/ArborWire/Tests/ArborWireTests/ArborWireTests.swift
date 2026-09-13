@@ -15,13 +15,31 @@ private var fixtures: URL {
 
 @Suite("Canonical wire objects")
 struct WireObjectTests {
+    @Test("Swift executes the shared complete and sparse graph cases")
+    func sharedGraphCases() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-graphs.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for vector in try #require(fixture["cases"] as? [[String: Any]]) {
+            let objects = try #require(vector["objects"] as? [[String: String]]).map { object in
+                WireObjectEnvelope(hash: object["hash"]!, bytes: Data(base64Encoded: object["bytesBase64"]!)!)
+            }
+            let snapshot = WireSnapshot(root: try #require(vector["root"] as? String), objects: objects)
+            let mode: WireObjectGraph.ValidationMode = vector["mode"] as? String == "sparse-files" ? .sparseFiles : .complete
+            if vector["valid"] as? Bool == true {
+                _ = try WireObjectGraph.validate(snapshot, mode: mode)
+            } else {
+                #expect(throws: (any Error).self) { _ = try WireObjectGraph.validate(snapshot, mode: mode) }
+            }
+        }
+    }
+
     @Test("Replacing a root file rebuilds a complete canonical snapshot")
     func replacingRootFile() throws {
         let first = try WireObjectCodec.object(.file(Data("before".utf8)))
         let second = try WireObjectCodec.object(.file(Data("untouched".utf8)))
         let root = try WireObjectCodec.object(.directory([
-            WireDirectoryEntry(name: "first.txt", hash: first.hash),
-            WireDirectoryEntry(name: "second.txt", hash: second.hash),
+            WireDirectoryEntry(name: "first.txt", file: first.hash),
+            WireDirectoryEntry(name: "second.txt", file: second.hash),
         ]))
         let snapshot = WireSnapshot(root: root.hash, objects: [first, second, root].sorted { $0.hash < $1.hash })
 
@@ -60,15 +78,16 @@ struct WireObjectTests {
                 object = .directory(entries.map {
                     return WireDirectoryEntry(
                         name: $0["name"] as! String,
-                        hash: $0["hash"] as? String,
+                        file: $0["file"] as? String,
+                        directory: $0["directory"] as? String,
                         tree: $0["tree"] as? String
                     )
                 }, childrenSource: childrenSource)
             }
             let bytes = try WireObjectCodec.encode(object)
-            #expect(bytes.base64EncodedString() == vector["canonicalCborBase64"] as? String)
+            #expect(bytes.base64EncodedString() == vector["bytesBase64"] as? String)
             #expect(WireObjectCodec.hash(bytes) == vector["hash"] as? String)
-            #expect(try WireObjectCodec.decode(bytes) == object)
+            #expect(try WireObjectCodec.decode(bytes, kind: model["type"] as? String == "file" ? .file : .directory) == object)
         }
     }
 
@@ -77,18 +96,18 @@ struct WireObjectTests {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-objects.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let vectors = try #require(fixture["invalid"] as? [[String: Any]])
-        #expect(vectors.count == 4)
+        #expect(vectors.count == 6)
         for vector in vectors {
             let base64 = try #require(vector["canonicalCborBase64"] as? String)
             let bytes = try #require(Data(base64Encoded: base64))
-            #expect(throws: (any Error).self) { _ = try WireObjectCodec.decode(bytes) }
+            #expect(throws: (any Error).self) { _ = try WireObjectCodec.decode(bytes, kind: .directory) }
         }
     }
 
     @Test("Complete graph validation rejects missing and unreachable objects")
     func graphValidation() throws {
         let file = try WireObjectCodec.object(.file(Data("hello".utf8)))
-        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
         let valid = WireSnapshot(root: root.hash, objects: [root, file])
         #expect(try WireObjectGraph.validate(valid).count == 2)
         #expect(throws: ArborWireValidationError.self) {
@@ -104,10 +123,10 @@ struct WireObjectTests {
     func sparseGraphValidation() throws {
         let file = try WireObjectCodec.object(.file(Data("hello".utf8)))
         let image = try WireObjectCodec.object(.file(Data([0xff, 0xd8, 0xff])))
-        let inner = try WireObjectCodec.object(.directory([.init(name: "photo.jpg", hash: image.hash)]))
+        let inner = try WireObjectCodec.object(.directory([.init(name: "photo.jpg", file: image.hash)]))
         let root = try WireObjectCodec.object(.directory([
-            .init(name: "album", hash: inner.hash),
-            .init(name: "note.md", hash: file.hash),
+            .init(name: "album", directory: inner.hash),
+            .init(name: "note.md", file: file.hash),
         ]))
         // Spine plus Markdown, file bytes absent.
         let sparse = WireSnapshot(root: root.hash, objects: [root, inner, file])
@@ -151,25 +170,13 @@ struct WireObjectTests {
         #expect(try WireSnapshotBundleCodec.decode(sparseBundle, root: root.hash, mode: .sparseFiles).objects.count == 3)
     }
 
-    @Test("Object kind is readable from a canonical prefix")
-    func objectKindPrefix() throws {
-        let file = try WireObjectCodec.object(.file(Data("hello".utf8)))
-        let directory = try WireObjectCodec.object(.directory([.init(name: "a.md", hash: file.hash)]))
-        let descriptor = WireCollectionFileDescriptor(
-            format: "json",
-            source: "_store.json",
-            schemaSource: "schema.ts",
-            schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
-            childSetHash: "sha256:" + String(repeating: "4", count: 64)
-        )
-        let collection = try WireObjectCodec.object(.directory([
-            .init(name: "_store.json", hash: file.hash),
-            .init(name: "schema.ts", hash: file.hash),
-        ], childrenSource: descriptor))
-        #expect(WireObjectCodec.kind(ofPrefix: file.bytes.prefix(WireObjectCodec.kindPrefixLength)) == .file)
-        #expect(WireObjectCodec.kind(ofPrefix: directory.bytes.prefix(WireObjectCodec.kindPrefixLength)) == .directory)
-        #expect(WireObjectCodec.kind(ofPrefix: collection.bytes.prefix(WireObjectCodec.kindPrefixLength)) == .directory)
-        #expect(WireObjectCodec.kind(ofPrefix: Data("nope".utf8)) == nil)
+    @Test("Raw file bytes can resemble a directory without being interpreted")
+    func fileKindComesFromEntry() throws {
+        let bytes = try WireObjectCodec.encode(.directory([]))
+        let file = try WireObjectCodec.object(.file(bytes))
+        let root = try WireObjectCodec.object(.directory([.init(name: "object.bin", file: file.hash)]))
+        let graph = try WireObjectGraph.validate(.init(root: root.hash, objects: [root, file]))
+        #expect(graph[file.hash] == .file(bytes))
     }
 
     @Test("Swift reproduces the shared immutable snapshot bundle")
@@ -197,7 +204,7 @@ struct WireObjectTests {
     @Test("Swift rejects invalid immutable snapshot bundles")
     func invalidSnapshotBundles() throws {
         let file = try WireObjectCodec.object(.file(Data("snapshot\n".utf8)))
-        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
         let snapshot = WireSnapshot(root: root.hash, objects: [root, file])
         let valid = try WireSnapshotBundleCodec.encode(snapshot)
         #expect(throws: ArborWireValidationError.self) {
@@ -426,11 +433,11 @@ struct UpdateProtocolTests {
     @Test("Ordered accepted transitions apply object deltas through a merge")
     func acceptedTransitionReplay() throws {
         let baseFile = try WireObjectCodec.object(.file(Data("abcdef".utf8)))
-        let baseRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: baseFile.hash)]))
+        let baseRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", file: baseFile.hash)]))
         let firstFile = try WireObjectCodec.object(.file(Data("abXYef".utf8)))
-        let firstRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: firstFile.hash)]))
+        let firstRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", file: firstFile.hash)]))
         let finalFile = try WireObjectCodec.object(.file(Data("abXYef!".utf8)))
-        let finalRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: finalFile.hash)]))
+        let finalRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", file: finalFile.hash)]))
         let firstUpdate = WireAcceptedUpdate(
             id: "2", tree: "tr_notes", root: firstRoot.hash,
             previousRoot: baseRoot.hash, kind: "accepted", acceptedAt: 1
@@ -443,8 +450,6 @@ struct UpdateProtocolTests {
         // Deltas address canonical object bytes: the file header carries the
         // payload length, so it is inserted and payload ranges are copied.
         let baseHeader = baseFile.bytes.count - 6
-        let firstHeader = Data(firstFile.bytes.prefix(firstFile.bytes.count - 6))
-        let finalHeader = Data(finalFile.bytes.prefix(finalFile.bytes.count - 7))
         let transitions = [
             WireAcceptedTransition(
                 update: firstUpdate,
@@ -453,7 +458,6 @@ struct UpdateProtocolTests {
                     base: baseFile.hash,
                     result: firstFile.hash,
                     instructions: [
-                        .insert(firstHeader),
                         .copy(offset: baseHeader, length: 2),
                         .insert(Data("XY".utf8)),
                         .copy(offset: baseHeader + 4, length: 2),
@@ -467,7 +471,6 @@ struct UpdateProtocolTests {
                     base: firstFile.hash,
                     result: finalFile.hash,
                     instructions: [
-                        .insert(finalHeader),
                         .copy(offset: baseHeader, length: 6),
                         .insert(Data("!".utf8)),
                     ]
@@ -514,7 +517,7 @@ struct UpdateProtocolTests {
     @Test("Ambiguous transport retries the exact prepared request without a caller key")
     func exactRetry() async throws {
         let file = try WireObjectCodec.object(.file(Data("retry".utf8)))
-        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
         let snapshot = WireSnapshot(root: root.hash, objects: [file, root])
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let requestDigest = updateRequestDigest(
@@ -693,7 +696,7 @@ struct LiveWireTests {
 
     private func snapshot(fileBytes: Data) throws -> WireSnapshot {
         let file = try WireObjectCodec.object(.file(fileBytes))
-        let root = try WireObjectCodec.object(.directory([.init(name: "blob.bin", hash: file.hash)]))
+        let root = try WireObjectCodec.object(.directory([.init(name: "blob.bin", file: file.hash)]))
         return WireSnapshot(root: root.hash, objects: [file, root]).sorted()
     }
 }
@@ -712,7 +715,7 @@ private func wireStubSession() -> URLSession {
 
 private func wireTestSnapshot(_ value: String) throws -> WireSnapshot {
     let file = try WireObjectCodec.object(.file(Data(value.utf8)))
-    let root = try WireObjectCodec.object(.directory([.init(name: "value.bin", hash: file.hash)]))
+    let root = try WireObjectCodec.object(.directory([.init(name: "value.bin", file: file.hash)]))
     return WireSnapshot(root: root.hash, objects: [file, root])
 }
 

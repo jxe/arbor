@@ -162,6 +162,7 @@ struct DurableConflictMaterial: Codable, Equatable, Sendable {
 struct UpdateControl: Codable, Equatable, Sendable {
     static let currentSchema = 2
 
+    var acceptedConflicted: Bool?
     var schema = UpdateControl.currentSchema
     var attempt: UpdateAttempt?
     var conflict: UpdateConflictRecord?

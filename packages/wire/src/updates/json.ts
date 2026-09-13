@@ -1,4 +1,4 @@
-import { decodeWireObject, encodeWireObject, hashObject, wireEntryObjectHashes, type ObjectHash, type TreeSnapshot } from "../objects.ts";
+import { decodeWireDirectory, hashObject, wireEntryObject, type WireEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import type {
   AcceptedTransition,
   AcceptedTransitionPayload,
@@ -189,6 +189,7 @@ export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
     || typeof record.kind !== "string" || !ACCEPTED_KINDS.has(record.kind)
     || !Number.isSafeInteger(record.acceptedAt)
     || (record.subject !== null && typeof record.subject !== "string")
+    || (record.conflicted !== undefined && typeof record.conflicted !== "boolean")
     || (record.merge !== undefined && (!record.merge || typeof record.merge !== "object"))) {
     throw new Error("Invalid accepted update");
   }
@@ -200,6 +201,7 @@ export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
     kind: record.kind as AcceptedUpdate["kind"],
     acceptedAt: record.acceptedAt as number,
     subject: record.subject as string | null,
+    ...(record.conflicted === undefined ? {} : { conflicted: record.conflicted as boolean }),
     ...(record.merge ? { merge: record.merge as MergeSummary } : {}),
   };
 }
@@ -325,21 +327,34 @@ export function decodeTreeSnapshotJSON(value: unknown): TreeSnapshot {
   return { root: record.root as ObjectHash, objects };
 }
 
-/** Require canonical encoding and that every object is reachable from the root, with no extras. */
-export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot): TreeSnapshot {
+/** Verify kinds from references, exact hashes, complete directories, and no extra members. */
+export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot, mode: "complete" | "sparse-files" = "complete"): TreeSnapshot {
   const visited = new Set<ObjectHash>();
-  const visit = (hash: ObjectHash) => {
+  const visiting = new Set<ObjectHash>();
+  const kinds = new Map<ObjectHash, WireEntryKind>();
+  const visit = (hash: ObjectHash, kind: WireEntryKind) => {
+    if (!/^sha256:[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid snapshot hash");
+    if (kinds.has(hash) && kinds.get(hash) !== kind) throw new Error(`Snapshot object kind conflict: ${hash}`);
+    kinds.set(hash, kind);
+    if (visiting.has(hash)) throw new Error(`Snapshot directory cycle: ${hash}`);
     if (visited.has(hash)) return;
     const bytes = snapshot.objects.get(hash);
-    if (!bytes) throw new Error(`Snapshot is missing reachable object: ${hash}`);
-    const object = decodeWireObject(bytes);
-    if (!bytesEqual(encodeWireObject(object), bytes)) throw new Error(`Snapshot object is not canonical CBOR: ${hash}`);
-    visited.add(hash);
-    if (object.type === "directory") {
-      for (const entry of object.entries) for (const child of wireEntryObjectHashes(entry)) visit(child);
+    if (!bytes) {
+      if (mode === "sparse-files" && kind === "file") return;
+      throw new Error(`Snapshot is missing reachable object: ${hash}`);
     }
+    if (hashObject(bytes) !== hash) throw new Error(`Snapshot object hash mismatch: ${hash}`);
+    visiting.add(hash);
+    if (kind === "directory") {
+      for (const entry of decodeWireDirectory(bytes).entries) {
+        const target = wireEntryObject(entry);
+        if (target) visit(target.hash, target.kind);
+      }
+    }
+    visiting.delete(hash);
+    visited.add(hash);
   };
-  visit(snapshot.root);
+  visit(snapshot.root, "directory");
   if (visited.size !== snapshot.objects.size) throw new Error("Snapshot contains unreachable objects");
   return snapshot;
 }

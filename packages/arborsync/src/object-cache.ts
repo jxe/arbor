@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { pendingTreeUpdate } from "@arbor/canopy-client";
 import { snapshotDirectory, type DescribeSnapshotCollectionFile, type SnapshotObjectIndex } from "@arbor/fs";
-import { decodeObjectEnvelopes, encodeWireObject, hashObject, type ObjectHash, type WireClient } from "@arbor/wire";
+import { decodeObjectEnvelopes, hashObject, type ObjectHash, type WireClient } from "@arbor/wire";
 import type { Workspace } from "./workspace.ts";
 
 export const OBJECT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -85,7 +85,7 @@ export class TreeObjectCache {
 
   private async encodeFile(path: string): Promise<Uint8Array | undefined> {
     try {
-      return encodeWireObject({ type: "file", bytes: await readFile(path) });
+      return await readFile(path);
     } catch {
       return undefined;
     }

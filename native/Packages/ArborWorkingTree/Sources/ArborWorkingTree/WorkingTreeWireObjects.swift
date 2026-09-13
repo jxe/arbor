@@ -27,11 +27,11 @@ enum WorkingTreeWireCodec {
     }
 
     static func file(_ bytes: Data) -> Data {
-        encode(.map([("type", .text("file")), ("bytes", .bytes(bytes))]))
+        bytes
     }
 
     static func directory(
-        _ entries: [(name: String, hash: String?, tree: String?)],
+        _ entries: [(name: String, file: String?, directory: String?, tree: String?)],
         childrenSource: WorkingTreeCollectionFileDescriptor? = nil
     ) -> Data {
         var fields: [(String, WorkingTreeWireValue)] = [
@@ -39,7 +39,8 @@ enum WorkingTreeWireCodec {
             ("entries", .array(entries.map { entry in
                 .map([
                     ("name", .text(entry.name)),
-                    entry.hash.map { ("hash", .text($0)) }
+                    entry.file.map { ("file", .text($0)) }
+                        ?? entry.directory.map { ("directory", .text($0)) }
                         ?? ("tree", .text(entry.tree!))
                 ])
             }))
@@ -104,9 +105,9 @@ enum WorkingTreeWireCodec {
             } else if node.shadowedSiblingMarkdownSource != nil, node.source == nil {
                 throw WorkingTreeError.corruptState("Shadowed sibling Markdown has no _index.md body")
             }
-            var entries: [(name: String, hash: String?, tree: String?)] = []
+            var entries: [(name: String, file: String?, directory: String?, tree: String?)] = []
             if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
-                entries.append(("_index.md", store(file(Data(source.utf8))), nil))
+                entries.append(("_index.md", store(file(Data(source.utf8))), nil, nil))
             }
             let children = active.filter { WorkingTreeSemantics.parent(of: $0.path) == path }
                 .sorted { WorkingTreeSemantics.compareUTF8(WorkingTreeSemantics.name(of: $0.path), WorkingTreeSemantics.name(of: $1.path)) }
@@ -114,21 +115,21 @@ enum WorkingTreeWireCodec {
                 let name = WorkingTreeSemantics.name(of: child.path)
                 switch child.kind {
                 case .directory:
-                    entries.append((name, try buildDirectory(at: child.path), nil))
+                    entries.append((name, nil, try buildDirectory(at: child.path), nil))
                     if child.directoryBodyPlacement == .siblingMarkdown, let source = child.source {
-                        entries.append((name + ".md", store(file(Data(source.utf8))), nil))
+                        entries.append((name + ".md", store(file(Data(source.utf8))), nil, nil))
                     } else if let shadowed = child.shadowedSiblingMarkdownSource {
-                        entries.append((name + ".md", store(file(Data(shadowed.utf8))), nil))
+                        entries.append((name + ".md", store(file(Data(shadowed.utf8))), nil, nil))
                     }
                 case .markdown:
-                    entries.append((name + ".md", store(file(Data((child.source ?? "").utf8))), nil))
+                    entries.append((name + ".md", store(file(Data((child.source ?? "").utf8))), nil, nil))
                 case .file:
-                    entries.append((name, reference(child.ref), nil))
+                    entries.append((name, reference(child.ref), nil, nil))
                 case .boundary:
                     guard let tree = child.boundaryTree, !tree.isEmpty else {
                         throw WorkingTreeError.corruptState("Nested tree boundary is empty")
                     }
-                    entries.append((name, nil, tree))
+                    entries.append((name, nil, nil, tree))
                 }
             }
             entries.sort { WorkingTreeSemantics.compareUTF8($0.name, $1.name) }

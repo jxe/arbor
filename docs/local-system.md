@@ -34,8 +34,8 @@ beneath it. Those private names and layouts may change.
 
 Beneath a placed root's `.state`, `index.sqlite` holds the workspace's object
 store rows in an `objects` table: one row per absolute path the snapshot walk
-encodes, for files and directories alike, with the file's stat tuple (size,
-`mtime_ns`, `ctime_ns`, inode, device) and the hash of its wire object, indexed
+hashes, for files and directories alike, with the file's stat tuple (size,
+`mtime_ns`, `ctime_ns`, inode, device) and the SHA-256 of its raw bytes, indexed
 by hash. The walk that computes a tree's root writes these rows, so they are
 fresh whenever a root is; a file row is consulted only while its whole stat
 tuple still matches, and a hit lets the walk skip reading that file. The index
@@ -167,3 +167,10 @@ explicit offline migration: it converted the synchronized v1 graph to v2 and
 extracted OS paths into local `placements.yaml`. Its repository artifact and
 compatibility readers remain during the rollback window, but normal startup
 does not perform that conversion implicitly.
+
+Wire format 5 uses raw file payloads and typed directory entries. Sparse
+bootstraps include directories and Markdown; other file sizes are unknown until
+read. On a format change, the daemon archives old refs and sync journals beneath
+`.state/format-recovery/` before rebuilding indexes. Native direct replicas retain
+the old working tree and sync state beneath `FormatRecovery/` before rebootstrap.
+These archives are recovery evidence and are never replayed automatically.

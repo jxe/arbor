@@ -3,34 +3,57 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { canonicalCBORHash, encodeCanonicalCBOR } from "@arbor/core";
-import { canonicalUpdateIntent, encodeWireObject, hashObject, updateRequestDigest } from "@arbor/wire";
+import { canonicalUpdateIntent, encodeWireDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@arbor/wire";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 const intentPath = "conformance/wire-update-intent.json";
 const intent = JSON.parse(await readFile(intentPath, "utf8"));
-const oldDigest: string = intent.identity.digest;
-const request = { base: intent.identity.base, candidate: intent.identity.candidate };
-const { canonicalJSON: _dropped, ...identity } = intent.identity;
-identity.canonicalCBORBase64 = b64(canonicalUpdateIntent(intent.identity.tree, request));
-identity.digest = updateRequestDigest(intent.identity.tree, request);
-intent.identity = { tree: identity.tree, base: identity.base, candidate: identity.candidate, canonicalCBORBase64: identity.canonicalCBORBase64, digest: identity.digest };
-await writeFile(intentPath, JSON.stringify(intent, null, 2) + "\n");
-// Endpoint cases carry `__DIGEST:<case>__` placeholders (or a stale digest)
-// for the request identity their body implies; fill them from the encoder.
+const digestChanges = new Map<string, string>();
+for (const key of ["identity", "laterElement"]) {
+  const vector = intent[key];
+  if (key === "laterElement") vector.base.requestDigest = intent.identity.digest;
+  const previous = vector.digest;
+  vector.canonicalCBORBase64 = b64(canonicalUpdateIntent(vector.tree, vector));
+  vector.digest = updateRequestDigest(vector.tree, vector);
+  digestChanges.set(previous, vector.digest);
+}
+intent.envelopeIndependence.digests = [intent.identity.digest, intent.laterElement.digest];
+let intentText = JSON.stringify(intent, null, 2);
+for (const [before, after] of digestChanges) intentText = intentText.replaceAll(before, after);
+await writeFile(intentPath, intentText + "\n");
 const endpointsPath = "conformance/wire-endpoints.json";
 let endpoints = await readFile(endpointsPath, "utf8");
-const emptyDirectory = encodeWireObject({ type: "directory", entries: [] });
+const emptyDirectory = encodeWireDirectory({ type: "directory", entries: [] });
 endpoints = endpoints.replaceAll("__EMPTY_DIRECTORY_HASH__", hashObject(emptyDirectory)).replaceAll("__EMPTY_DIRECTORY_BYTES__", b64(emptyDirectory));
-const parsed = JSON.parse(endpoints) as { cases: Array<{ name: string; request: { path: string; body?: { base?: string | null; candidate?: string } } }> };
-for (const entry of parsed.cases) {
-  const body = entry.request.body;
-  if (!body || body.candidate === undefined || body.base === undefined) continue;
-  const tree = decodeURIComponent(entry.request.path.split("/")[3]!);
-  const digest = updateRequestDigest(tree, { base: body.base, candidate: body.candidate as `sha256:${string}` });
-  endpoints = endpoints.replaceAll(`__DIGEST:${entry.name}__`, digest);
-}
-if (endpoints.includes(oldDigest)) endpoints = endpoints.replaceAll(oldDigest, identity.digest);
+for (const [before, after] of digestChanges) endpoints = endpoints.replaceAll(before, after);
 await writeFile(endpointsPath, endpoints);
+
+// Bootstrap pending requests preserve semantic identity after object rehashing.
+for (const path of ["tests/fixtures/arborsync/bootstrap.json", "tests/fixtures/arborsync/bootstrap-pending.json"]) {
+  const value = JSON.parse(await readFile(path, "utf8"));
+  if (value.pending) value.pending.requestDigests = updateRequestDigests(value.tree.id, value.pending);
+  await writeFile(path, JSON.stringify(value, null, 2) + "\n");
+}
+
+// Object models are the symbolic source of truth; payloads are raw for files.
+const objectPath = "conformance/wire-objects.json";
+const objectVectors = JSON.parse(await readFile(objectPath, "utf8"));
+for (const vector of objectVectors.objects) {
+  const bytes = vector.model.type === "file" ? Buffer.from(vector.model.bytesBase64, "base64") : encodeWireDirectory(vector.model);
+  delete vector.canonicalCborBase64;
+  vector.bytesBase64 = b64(bytes);
+  vector.hash = hashObject(bytes);
+}
+const invalidHash = "sha256:" + "0".repeat(64);
+objectVectors.invalid = [
+  { name: "unsorted-directory", entries: [{ name: "z", file: invalidHash }, { name: "a", file: invalidHash }] },
+  { name: "duplicate-name", entries: [{ name: "a", file: invalidHash }, { name: "a", file: invalidHash }] },
+  { name: "dual-target", entries: [{ name: "a", file: invalidHash, tree: "tr_child" }] },
+  { name: "entry-with-hash-key", entries: [{ name: "a", hash: invalidHash }] },
+  { name: "file-and-directory", entries: [{ name: "a", file: invalidHash, directory: invalidHash }] },
+].map(({ name, entries }) => ({ name, canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries })) }));
+objectVectors.invalid.push({ name: "noncanonical-cbor", canonicalCborBase64: b64(Buffer.concat([Buffer.from([0xa2]), encodeCanonicalCBOR("entries"), encodeCanonicalCBOR([]), encodeCanonicalCBOR("type"), encodeCanonicalCBOR("directory")])) });
+await writeFile(objectPath, JSON.stringify(objectVectors, null, 2) + "\n");
 
 const valid = [
   { name: "null", value: null },
@@ -52,4 +75,23 @@ const invalid = [
   { name: "non-text-map-key", canonicalCBORBase64: b64(Uint8Array.from([0xa1, 0x01, 0x02])), reason: "map keys must be text" },
 ];
 await writeFile("conformance/canonical-cbor-values.json", JSON.stringify({ version: 1, valid, invalid }, null, 2) + "\n");
-console.log("intent digest", oldDigest, "->", identity.digest);
+console.log("Regenerated Wire vectors");
+
+// Reference kinds control sparse graph validation, including directory-shaped files.
+const graphPayload = new TextEncoder().encode("raw payload\n");
+const graphLeaf = { hash: hashObject(graphPayload), bytes: graphPayload };
+const graphDirectory = { hash: hashObject(emptyDirectory), bytes: emptyDirectory };
+function graph(name: string, mode: string, entries: any[], members: typeof graphLeaf[], valid: boolean) {
+  const bytes = encodeWireDirectory({ type: "directory", entries });
+  return { name, mode, valid, root: hashObject(bytes), objects: [ { hash: hashObject(bytes), bytesBase64: b64(bytes) }, ...members.map(member => ({ hash: member.hash, bytesBase64: b64(member.bytes) })) ] };
+}
+const graphVectors = [
+  graph("raw-file", "complete", [{ name: "file", file: graphLeaf.hash }], [graphLeaf], true),
+  graph("directory-shaped-file", "complete", [{ name: "file", file: graphDirectory.hash }], [graphDirectory], true),
+  graph("omitted-file", "sparse-files", [{ name: "file", file: graphLeaf.hash }], [], true),
+  graph("missing-file", "complete", [{ name: "file", file: graphLeaf.hash }], [], false),
+  graph("missing-directory", "sparse-files", [{ name: "dir", directory: graphDirectory.hash }], [], false),
+  graph("kind-conflict", "complete", [{ name: "dir", directory: graphDirectory.hash }, { name: "file", file: graphDirectory.hash }], [graphDirectory], false),
+  graph("unreachable", "complete", [], [graphLeaf], false),
+];
+await writeFile("conformance/wire-graphs.json", JSON.stringify({ version: 1, cases: graphVectors }, null, 2) + "\n");

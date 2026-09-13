@@ -3,16 +3,16 @@ import { buildAcceptedTransitionPayload } from "@arbor/canopy";
 import {
   applyObjectDelta,
   encodeTransitionPayloadJSON,
-  encodeWireObject,
+  encodeWireDirectory,
   hashObject,
   type AcceptedTransitionPayload,
   type ObjectHash,
 } from "@arbor/wire";
 
 function graph(name: string, payload: Uint8Array) {
-  const file = encodeWireObject({ type: "file", bytes: payload });
+  const file = payload;
   const fileHash = hashObject(file);
-  const root = encodeWireObject({ type: "directory", entries: [{ name, hash: fileHash }] });
+  const root = encodeWireDirectory({ type: "directory", entries: [{ name, file: fileHash }] });
   const rootHash = hashObject(root);
   return { root: rootHash, file: fileHash, objects: new Map<ObjectHash, Uint8Array>([[fileHash, file], [rootHash, root]]) };
 }
@@ -71,7 +71,7 @@ describe("accepted transition derivation", () => {
     expect(encodedBytes(transition)).toBeLessThan(2_000);
     expect(reconstruct(transition, before.objects).get(after.file)).toEqual(after.objects.get(after.file));
 
-    const emptyRootBytes = encodeWireObject({ type: "directory", entries: [] });
+    const emptyRootBytes = encodeWireDirectory({ type: "directory", entries: [] });
     const emptyRoot = hashObject(emptyRootBytes);
     objects.set(emptyRoot, emptyRootBytes);
     const creation = await buildAcceptedTransitionPayload(emptyRoot, after.root, async (hash) => objects.get(hash)!);
@@ -81,13 +81,13 @@ describe("accepted transition derivation", () => {
 
   test("diffs a large directory so one changed entry costs a few instructions", async () => {
     const encoder = new TextEncoder();
-    const shared = encodeWireObject({ type: "file", bytes: encoder.encode("# Page\n") });
-    const changed = encodeWireObject({ type: "file", bytes: encoder.encode("# Page\n\nChanged\n") });
+    const shared = encoder.encode("# Page\n");
+    const changed = encoder.encode("# Page\n\nChanged\n");
     const names = Array.from({ length: 400 }, (_, index) => `page-${String(index).padStart(4, "0")}.md`);
-    const beforeRoot = encodeWireObject({ type: "directory", entries: names.map((name) => ({ name, hash: hashObject(shared) })) });
-    const afterRoot = encodeWireObject({
+    const beforeRoot = encodeWireDirectory({ type: "directory", entries: names.map((name) => ({ name, file: hashObject(shared) })) });
+    const afterRoot = encodeWireDirectory({
       type: "directory",
-      entries: names.map((name) => ({ name, hash: hashObject(name === "page-0200.md" ? changed : shared) })),
+      entries: names.map((name) => ({ name, file: hashObject(name === "page-0200.md" ? changed : shared) })),
     });
     const objects = new Map<ObjectHash, Uint8Array>([
       [hashObject(shared), shared],

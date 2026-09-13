@@ -8,7 +8,7 @@ import type {
 } from "@arbor/core";
 import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
-import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireObject, hashObject, updateRequestDigests } from "@arbor/wire";
+import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireDirectory, hashObject, updateRequestDigests } from "@arbor/wire";
 import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "@arbor/arborsync-client";
 
 // Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
@@ -87,12 +87,12 @@ describe("REST v1 protocol fixtures", () => {
     expect(clean.pending).toBeUndefined();
     // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
     const spine = decodeSparseSnapshotBundle(Buffer.from(clean.spine, "base64"));
-    const root = decodeWireObject(spine.get(clean.accepted.root as never)!);
+    const root = decodeWireDirectory(spine.get(clean.accepted.root as never)!);
     if (root.type !== "directory") throw new Error("Expected a directory root");
     expect(root.entries.map((entry) => entry.name)).toEqual(["_index.md", "photo.bin"]);
-    expect(spine.has(root.entries[0]!.hash!)).toBe(true);
-    expect(spine.has(root.entries[1]!.hash!)).toBe(false);
-    expect(clean.files["/photo.bin"]).toEqual({ size: 5, mtime: 1725192000000 });
+    expect(spine.has(root.entries[0]!.file!)).toBe(true);
+    expect(spine.has(root.entries[1]!.file!)).toBe(false);
+    expect("files" in clean).toBe(false);
     // A pending bootstrap carries the daemon's request string verbatim with digests the client can recompute.
     const request = decodeUpdateRequestJSON({ base: pending.pending!.base, updates: pending.pending!.updates });
     expect(pending.pending!.requestDigests).toEqual(updateRequestDigests(pending.tree.id, request));
