@@ -37,6 +37,25 @@ extraction adds no mirror or hardlinks and changes no persistence format.
 filesystem source, supplying scope and diagnostic callbacks. The source does not
 import Workspace, network clients or pending state.
 
+`Workspace` owns one placed folder: filesystem and object-source lifecycle,
+descriptor/scope, watcher subscription and change observations. Its explicit
+`editor` component (`WorkspaceEditor`) owns node/provider projection, editor
+mutations, stable-key resolution, link healing and generated types. Callers that
+need these operations use `workspace.editor`; the folder owner does not forward
+an editor-shaped API. Both components share the same filesystem, events and
+provider state rather than opening a second workspace.
+
+Recovery is still a folder-open guarantee. `Workspace.open()` initializes the
+editor component and finishes interrupted mutation recovery before returning,
+even when its caller only needs synchronization. The component is eager because
+collection descriptions, generated types and recovery still need it. Browser
+file reads remain folder-owned. The unused coarse `resolveTreeConflict` method
+is removed; sync conflict resolution uses the existing identity-checked review
+path, with its HTTP contract unchanged. Uncalled transfer/import wrappers
+were deleted rather than moved. Recovery tests inspect durable receipts and exact
+file bytes before any caller accesses `workspace.editor`.
+
+
 Browser handling is independently testable, but has not moved to another process.
 Its current filesystem read can reconcile recovery journals; a separate host must
 first gain an explicitly read-only file capability so it cannot become a second

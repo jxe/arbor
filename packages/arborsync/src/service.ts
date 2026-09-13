@@ -25,7 +25,6 @@ import { resolveUserPath } from "@arbor/canopy-client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import {
-  clearPendingTreeUpdate,
   clearTreeConflict,
   pendingFromSnapshot,
   pendingTreeUpdate,
@@ -559,77 +558,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
     this.treeSync.conflicts.delete(tree);
     await this.treeSync.updateWorkspace(workspace, placement, client, (await client.list()).snapshot);
     return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/conflicts/${tree}`, stableKey: null } }];
-  }
-
-  async resolveTreeConflict(
-    tree: string,
-    choice: "local" | "draft" | "remote",
-  ): Promise<MutationReceipt["effects"]> {
-    const conflict = await treeConflict(tree);
-    if (!conflict) throw new ProtocolError("not-found", `Tree has no stored synchronization conflict: ${tree}`, 404);
-    const placement = this.trees.placementFor(tree);
-    const workspace = await this.trees.workspaceByTree(tree);
-    if (!placement || !workspace) {
-      throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
-    }
-    const client = await this.accountClient(placement);
-    if (choice === "remote") {
-      const remote = (await client.descriptor(tree)).tree;
-      if (!remote.update) throw new Error("Server does not advertise accepted updates for this tree");
-      await materializeTree(
-        workspace.root,
-        remote.root,
-        (hash) => client.object(tree, hash),
-        undefined,
-        this.trees.excludedMountsWithin(workspace.root),
-      );
-      await this.trees.updateSyncMetadata({
-        ...placement,
-        ref: remote.root,
-        update: remote.update,
-        access: remote.access === "none" ? "read" : remote.access,
-      });
-      const acceptedLocal = await this.snapshotWorkspace(workspace, client);
-      if (acceptedLocal.root !== remote.root) throw new Error("Materialized remote tree does not match its server root");
-      await saveAcceptedTreeObjects(tree, acceptedLocal);
-      await clearPendingTreeUpdate(tree);
-      await clearTreeConflict(tree);
-      this.trees.setSyncState(tree, "idle");
-      this.treeSync.conflicts.delete(tree);
-      return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/conflicts/${tree}`, stableKey: null } }];
-    }
-
-    let candidate: import("@arbor/wire").TreeSnapshot;
-    if (choice === "draft") {
-      const local = await this.snapshotWorkspace(workspace, client);
-      if (local.root !== conflict.details.candidate) {
-        throw new ProtocolError(
-          "stale-content-revision",
-          "Local files changed after the conflict; keep the current local version or review those edits before choosing the older draft",
-          409,
-          { path: `/trees/${tree}` },
-        );
-      }
-      candidate = snapshotFromConflictDraft(conflict, local);
-      await materializeTree(
-        workspace.root,
-        candidate.root,
-        (hash) => {
-          const bytes = candidate.objects.get(hash);
-          if (!bytes) throw new Error(`Conflict draft is missing object: ${hash}`);
-          return Promise.resolve(bytes);
-        },
-        undefined,
-        this.trees.excludedMountsWithin(workspace.root),
-      );
-    } else {
-      candidate = await this.snapshotWorkspace(workspace, client);
-    }
-    await savePendingTreeUpdate(tree, pendingFromSnapshot(conflict.details.current.id, candidate));
-    await clearTreeConflict(tree);
-    this.treeSync.conflicts.delete(tree);
-    await this.treeSync.updateWorkspace(workspace, placement, client, (await client.list()).snapshot);
-    return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/trees/${tree}`, stableKey: null } }];
   }
 
   private canonicalBoundariesFor(

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Workspace } from "@arbor/arborsync";
 import type { MutationRequest } from "@arbor/core";
+import { MutationJournal } from "@arbor/fs";
+import { workspaceState } from "@arbor/stores";
 import { canonicalStableKey } from "@arbor/core";
 
 const temporary: string[] = [];
@@ -19,7 +21,7 @@ async function directories(): Promise<{ root: string; state: string }> {
   return { root, state };
 }
 
-describe("REST v1 protocol fault recovery", () => {
+describe("Workspace editor fault recovery", () => {
   for (const stage of [
     "protocol:intent-recorded",
     "protocol:preparation",
@@ -44,14 +46,14 @@ describe("REST v1 protocol fault recovery", () => {
         mutationID: `fault-${stage}`,
         operations: [{ op: "createDirectory", tree, path: "/once" }],
       };
-      await expect(first.executeMutation(request)).rejects.toThrow(stage);
+      await expect(first.editor.executeMutation(request)).rejects.toThrow(stage);
       await first[Symbol.asyncDispose]();
 
       const recovered = await Workspace.open(root);
-      const receipt = await recovered.executeMutation(request);
+      const receipt = await recovered.editor.executeMutation(request);
       expect(receipt.effects[0]).toMatchObject({ kind: "created", ref: { path: "/once" } });
-      expect((await recovered.snapshot({ tree, path: "/once", stableKey: null })).ref.path).toBe("/once");
-      expect(await recovered.executeMutation(request)).toEqual(receipt);
+      expect((await recovered.editor.snapshot({ tree, path: "/once", stableKey: null })).ref.path).toBe("/once");
+      expect(await recovered.editor.executeMutation(request)).toEqual(receipt);
       await recovered[Symbol.asyncDispose]();
     });
   }
@@ -74,7 +76,7 @@ describe("REST v1 protocol fault recovery", () => {
     });
     const tree = first.tree;
     const key = canonicalStableKey([["id", "one"]]);
-    const row = await first.snapshot({ tree, path: "/records/one", stableKey: key });
+    const row = await first.editor.snapshot({ tree, path: "/records/one", stableKey: key });
     const request: MutationRequest = {
       mutationID: "fault-collection-file-commit",
       operations: [{
@@ -84,16 +86,24 @@ describe("REST v1 protocol fault recovery", () => {
         properties: { id: "one", title: "Changed" },
       }],
     };
-    await expect(first.executeMutation(request)).rejects.toThrow("protocol:provider-committed");
+    await expect(first.editor.executeMutation(request)).rejects.toThrow("protocol:provider-committed");
     expect(await readFile(join(collection, "_store.json"), "utf8"))
       .toBe('[{"id":"one","title":"Changed"}]\n');
     await first[Symbol.asyncDispose]();
 
     const recovered = await Workspace.open(root);
-    const receipt = await recovered.executeMutation(request);
+    // Opening a folder must finish recovery without any editor API invocation.
+    const journal = new MutationJournal(join((await workspaceState(root)).directory, "journal", "mutations"));
+    const completed = await journal.get(request.mutationID);
+    expect(completed?.state).toBe("completed");
+    expect(completed?.receipt?.effects[0]).toMatchObject({ ref: { path: "/records/one" } });
+    expect(await readFile(join(collection, "_store.json"), "utf8"))
+      .toBe('[{"id":"one","title":"Changed"}]\n');
+    const receipt = await recovered.editor.executeMutation(request);
+    expect(receipt).toEqual(completed!.receipt!);
     expect(receipt.effects[0]).toMatchObject({ ref: { path: "/records/one" }, propertiesRevision: expect.stringMatching(/^sha256:/) });
-    expect((await recovered.snapshot({ tree, path: "/records/stale", stableKey: key })).properties.title).toBe("Changed");
-    expect(await recovered.executeMutation(request)).toEqual(receipt);
+    expect((await recovered.editor.snapshot({ tree, path: "/records/stale", stableKey: key })).properties.title).toBe("Changed");
+    expect(await recovered.editor.executeMutation(request)).toEqual(receipt);
     await recovered[Symbol.asyncDispose]();
   });
 });

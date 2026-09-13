@@ -35,18 +35,18 @@ afterAll(async () => {
 
 describe("workspace service", () => {
   test("browses pages and directories", async () => {
-    const rootNode = await workspace.snapshot({ tree: workspace.tree, path: "/", stableKey: null });
-    const rootChildren = await workspace.children(rootNode.ref);
+    const rootNode = await workspace.editor.snapshot({ tree: workspace.tree, path: "/", stableKey: null });
+    const rootChildren = await workspace.editor.children(rootNode.ref);
     expect(rootChildren.items.map((item) => item.name)).toContain("notes");
     expect(rootChildren.items.map((item) => item.name)).toContain(".claude");
     expect(rootChildren.items.map((item) => item.name)).not.toContain(".build");
-    const leaf = await workspace.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
+    const leaf = await workspace.editor.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
     expect(nodeDocument(leaf)?.blocks[0]?.type).toBe("toggle");
-    expect((await workspace.snapshot({ tree: workspace.tree, path: "/notes.md", stableKey: null })).ref.path).toBe("/notes");
+    expect((await workspace.editor.snapshot({ tree: workspace.tree, path: "/notes.md", stableKey: null })).ref.path).toBe("/notes");
   });
 
   test("keeps generated collection types in private workspace state", async () => {
-    const declarationPath = workspace.generatedTypeDeclarationPath();
+    const declarationPath = workspace.editor.generatedTypeDeclarationPath();
     expect(relative(root, declarationPath).startsWith("..")).toBe(true);
     expect(await readFile(declarationPath, "utf8")).toContain('declare module "arbor/runtime"');
     await expect(stat(join(root, ".arbor"))).rejects.toThrow();
@@ -56,7 +56,7 @@ describe("workspace service", () => {
     await mkdir(collection);
     await writeFile(schemaPath, 'import { z } from "zod"; export const schema = z.object({ title: z.string() });\n');
     await writeFile(join(collection, "_store.csv"), "title\nExample\n");
-    await workspace.generateTypes();
+    await workspace.editor.generateTypes();
 
     const generated = await readFile(declarationPath, "utf8");
     const schemaImport = generated.match(/import type \{ schema as Schema0 \} from ("[^"]+");/);
@@ -72,25 +72,25 @@ describe("workspace service", () => {
     await writeFile(join(collection, "_index.md"), "About the records.\n");
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
-    const node = await workspace.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
+    const node = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
     expect(nodeKind(node)).toBe("directory");
     expect(nodeDocument(node)?.source).toBe("About the records.\n");
-    expect((await workspace.children(node.ref)).items.some((child) => child.ref.path === "/records/one")).toBe(true);
-    const snapshot = await workspace.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
+    expect((await workspace.editor.children(node.ref)).items.some((child) => child.ref.path === "/records/one")).toBe(true);
+    const snapshot = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
     expect(snapshot.capabilities.children?.schema).toStartWith("sha256:");
-    const children = await workspace.children(snapshot.ref);
+    const children = await workspace.editor.children(snapshot.ref);
     expect(children.items).toContainEqual(expect.objectContaining({
       ref: expect.objectContaining({ path: "/records/one", stableKey: '[["id","abc123"]]' }),
       properties: expect.objectContaining({ id: "abc123", title: "One" }),
     }));
     const key = canonicalStableKey([["id", "abc123"]]);
-    const row = await workspace.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
+    const row = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
     expect(row.ref.path).toBe("/records/one");
     expect(row.capabilities.properties?.writable).toBe(true);
     expect(row.capabilities.content?.writable).toBe(true);
     expect(nodeDocument(row)?.bodySource).toBe("Row body.\n");
 
-    await workspace.executeMutation({
+    await workspace.editor.executeMutation({
       mutationID: "markdown-row-properties",
       operations: [{
         op: "writeProperties",
@@ -99,11 +99,11 @@ describe("workspace service", () => {
         properties: { id: "abc123", title: "Updated" },
       }],
     });
-    const updated = await workspace.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
+    const updated = await workspace.editor.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
     expect(updated.properties).toEqual({ id: "abc123", title: "Updated" });
     expect(nodeDocument(updated)?.bodySource).toBe("Row body.\n");
 
-    await expect(workspace.executeMutation({
+    await expect(workspace.editor.executeMutation({
       mutationID: "markdown-row-identity-change",
       operations: [{
         op: "writeProperties",
@@ -114,7 +114,7 @@ describe("workspace service", () => {
     })).rejects.toMatchObject({ code: "invalid-reference" });
 
     const changedSource = nodeDocument(updated)!.source.replace("Row body.", "Changed body.");
-    await workspace.executeMutation({
+    await workspace.editor.executeMutation({
       mutationID: "markdown-row-content",
       operations: [{
         op: "writeMarkdown",
@@ -123,7 +123,7 @@ describe("workspace service", () => {
         source: changedSource,
       }],
     });
-    expect(nodeDocument(await workspace.snapshot({ tree: workspace.tree, path: "/records/one", stableKey: key }))?.bodySource)
+    expect(nodeDocument(await workspace.editor.snapshot({ tree: workspace.tree, path: "/records/one", stableKey: key }))?.bodySource)
       .toBe("Changed body.\n");
   });
 
@@ -133,19 +133,19 @@ describe("workspace service", () => {
     await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
     await writeFile(join(collection, "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
 
-    const parent = await workspace.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
+    const parent = await workspace.editor.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
     expect(parent.capabilities.children?.backing).toMatchObject({ type: "collection-file", format: "json" });
     expect(parent.capabilities.children?.writable).toBe(false);
-    const children = await workspace.children(parent.ref);
+    const children = await workspace.editor.children(parent.ref);
     expect(children.items.map((item) => item.ref.path)).toEqual(["/rolled/a", "/rolled/b"]);
 
     const key = canonicalStableKey([["id", "b"]]);
-    const row = await workspace.snapshot({ tree: workspace.tree, path: "/rolled/stale-name", stableKey: key });
+    const row = await workspace.editor.snapshot({ tree: workspace.tree, path: "/rolled/stale-name", stableKey: key });
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/rolled/b", stableKey: key });
     expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.content).toBeUndefined();
     expect(row.capabilities.properties?.writable).toBe(true);
-    await workspace.executeMutation({
+    await workspace.editor.executeMutation({
       mutationID: "json-row-properties",
       operations: [{
         op: "writeProperties",
@@ -156,7 +156,7 @@ describe("workspace service", () => {
     });
     expect(await readFile(join(collection, "_store.json"), "utf8"))
       .toBe('[{"id":"b","title":"Changed"},{"id":"a","title":"First"}]\n');
-    const updated = await workspace.snapshot({ tree: workspace.tree, path: "/rolled/stale-again", stableKey: key });
+    const updated = await workspace.editor.snapshot({ tree: workspace.tree, path: "/rolled/stale-again", stableKey: key });
     expect(updated.properties).toEqual({ id: "b", title: "Changed" });
   });
 
@@ -171,40 +171,40 @@ describe("workspace service", () => {
     database.query("insert into items values (?, ?), (?, ?)").run("b", "Second", "a", "First");
     database.close();
 
-    const container = await workspace.snapshot({ tree: workspace.tree, path: "/database", stableKey: null });
+    const container = await workspace.editor.snapshot({ tree: workspace.tree, path: "/database", stableKey: null });
     expect(container.capabilities.children?.backing).toMatchObject({ type: "database", driver: "sqlite", scope: "subtree" });
-    const tables = await workspace.children(container.ref);
+    const tables = await workspace.editor.children(container.ref);
     expect(tables.items).toContainEqual(expect.objectContaining({
       ref: expect.objectContaining({ path: "/database/items", stableKey: null }),
       capabilities: expect.objectContaining({ children: expect.objectContaining({ total: 2 }) }),
     }));
 
-    const table = await workspace.snapshot({ tree: workspace.tree, path: "/database/items", stableKey: null });
+    const table = await workspace.editor.snapshot({ tree: workspace.tree, path: "/database/items", stableKey: null });
     expect(table.capabilities.children?.backing).toMatchObject({ type: "database", driver: "sqlite", scope: "children" });
-    const rows = await workspace.children(table.ref);
+    const rows = await workspace.editor.children(table.ref);
     expect(rows.items.map((item) => item.ref.path)).toEqual(["/database/items/a", "/database/items/b"]);
 
     const key = canonicalStableKey([["id", "b"]]);
-    const row = await workspace.snapshot({ tree: workspace.tree, path: "/database/items/stale", stableKey: key });
+    const row = await workspace.editor.snapshot({ tree: workspace.tree, path: "/database/items/stale", stableKey: key });
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/database/items/b", stableKey: key });
     expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.properties?.writable).toBe(true);
   });
 
   test("writes exact source and enforces revision CAS", async () => {
-    const node = await workspace.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
+    const node = await workspace.editor.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
     const source = "---\ntitle: Notes\n---\n▸ Changed\n  First\n";
-    await workspace.executeMutation({ mutationID: "workspace-write-source", operations: [{
+    await workspace.editor.executeMutation({ mutationID: "workspace-write-source", operations: [{
       op: "writeMarkdown",
       ref: node.ref,
       baseContentRevision: node.capabilities.content!.revision,
       source,
     }] });
-    const saved = await workspace.snapshot(node.ref);
+    const saved = await workspace.editor.snapshot(node.ref);
     expect(nodeDocument(saved)?.frontmatter.id).toBeUndefined();
     expect(nodeDocument(saved)?.source).toBe(source);
     expect(await readFile(join(root, "notes.md"), "utf8")).toContain("▸ Changed");
-    await expect(workspace.executeMutation({ mutationID: "workspace-write-stale", operations: [{
+    await expect(workspace.editor.executeMutation({ mutationID: "workspace-write-stale", operations: [{
       op: "writeMarkdown",
       ref: node.ref,
       baseContentRevision: node.capabilities.content!.revision,
@@ -213,8 +213,8 @@ describe("workspace service", () => {
   });
 
   test("materializes a directory page on first write", async () => {
-    const node = await workspace.snapshot({ tree: workspace.tree, path: "/folder", stableKey: null });
-    await workspace.executeMutation({ mutationID: "workspace-write-directory", operations: [{
+    const node = await workspace.editor.snapshot({ tree: workspace.tree, path: "/folder", stableKey: null });
+    await workspace.editor.executeMutation({ mutationID: "workspace-write-directory", operations: [{
       op: "writeMarkdown",
       ref: node.ref,
       baseContentRevision: node.capabilities.content!.revision,
@@ -223,27 +223,27 @@ describe("workspace service", () => {
     const stored = await readFile(join(root, "folder", "_index.md"), "utf8");
     expect(stored).toContain("About this folder");
     expect(stored).not.toContain("[child](child)");
-    expect((await workspace.children({ tree: workspace.tree, path: "/folder", stableKey: null })).items.map((child) => child.ref.path)).toContain("/folder/child");
-    expect((await workspace.snapshot({ tree: workspace.tree, path: "/folder/_index.md", stableKey: null })).ref.path).toBe("/folder");
+    expect((await workspace.editor.children({ tree: workspace.tree, path: "/folder", stableKey: null })).items.map((child) => child.ref.path)).toContain("/folder/child");
+    expect((await workspace.editor.snapshot({ tree: workspace.tree, path: "/folder/_index.md", stableKey: null })).ref.path).toBe("/folder");
   });
 
   test("reports body state and unambiguous child identity", async () => {
-    const notes = await workspace.snapshot({ tree: "local", path: "/notes", stableKey: null });
+    const notes = await workspace.editor.snapshot({ tree: "local", path: "/notes", stableKey: null });
     expect(notes.content?.representation?.state).toBe("stored");
     expect(notes.content?.representation?.origin).toBe("sibling");
     expect(notes.ref.stableKey).toBeNull();
 
-    const materialized = await workspace.snapshot({ tree: "local", path: "/folder", stableKey: null });
+    const materialized = await workspace.editor.snapshot({ tree: "local", path: "/folder", stableKey: null });
     expect(materialized.content?.representation?.state).toBe("stored");
     expect(materialized.content?.representation?.origin).toBe("index");
 
     await mkdir(join(root, "plain"));
-    const implicit = await workspace.snapshot({ tree: "local", path: "/plain", stableKey: null });
+    const implicit = await workspace.editor.snapshot({ tree: "local", path: "/plain", stableKey: null });
     expect(implicit.content?.representation?.state).toBe("implicit");
     expect(implicit.content?.representation?.origin).toBeUndefined();
     expect(nodeDocument(implicit)?.blocks).toEqual([]);
 
-    const listing = await workspace.children({ tree: "local", path: "/", stableKey: null });
+    const listing = await workspace.editor.children({ tree: "local", path: "/", stableKey: null });
     const child = listing.items.find((item) => item.ref.path === "/notes");
     expect(child?.ref.stableKey).toBeNull();
     expect(listing.items.find((item) => item.ref.path === "/plain")?.ref.stableKey).toBeNull();
@@ -251,7 +251,7 @@ describe("workspace service", () => {
 
   test("ensureDocumentIdentity mints lazily, no-ops when present, and replays idempotently", async () => {
     await mkdir(join(root, "bodyless"));
-    const before = await workspace.snapshot({ tree: "local", path: "/bodyless", stableKey: null });
+    const before = await workspace.editor.snapshot({ tree: "local", path: "/bodyless", stableKey: null });
     expect(before.content?.representation?.state).toBe("implicit");
     expect(before.ref.stableKey).toBeNull();
 
@@ -263,7 +263,7 @@ describe("workspace service", () => {
         baseContentRevision: before.capabilities.content?.revision!,
       }] as [never] & { 0: unknown },
     };
-    const receipt = await workspace.executeMutation(request as never);
+    const receipt = await workspace.editor.executeMutation(request as never);
     const effect = receipt.effects[0]!;
     const pageID = pageIDFromStableKey(effect.ref.stableKey);
     expect(pageID).toMatch(/^[a-z0-9]{6}$/);
@@ -271,11 +271,11 @@ describe("workspace service", () => {
     expect(parseMarkdown(materialized).frontmatter.id).toBe(pageID);
     expect(materialized.trim().endsWith("---")).toBe(true);
 
-    const replayed = await workspace.executeMutation(request as never);
+    const replayed = await workspace.editor.executeMutation(request as never);
     expect(replayed).toEqual(receipt);
 
-    const after = await workspace.snapshot({ tree: "local", path: "/bodyless", stableKey: null });
-    const again = await workspace.executeMutation({
+    const after = await workspace.editor.snapshot({ tree: "local", path: "/bodyless", stableKey: null });
+    const again = await workspace.editor.executeMutation({
       mutationID: "identity-test-0002",
       operations: [{
         op: "ensureDocumentIdentity",
@@ -289,7 +289,7 @@ describe("workspace service", () => {
 
   test("rename and trash preserve and report document identity", async () => {
     await writeFile(join(root, "unnamed.md"), "No identity yet\n");
-    const receipt = await workspace.executeMutation({
+    const receipt = await workspace.editor.executeMutation({
       mutationID: "identity-rename-0001",
       operations: [{ op: "rename", ref: { tree: "local", path: "/unnamed", stableKey: null }, name: "named" }],
     } as never);
@@ -298,7 +298,7 @@ describe("workspace service", () => {
     expect(movedPageID).toMatch(/^[a-z0-9]{6}$/);
     expect(await readFile(join(root, "named.md"), "utf8")).toContain(`id: ${movedPageID}`);
 
-    const trashed = await workspace.executeMutation({
+    const trashed = await workspace.editor.executeMutation({
       mutationID: "identity-trash-0001",
       operations: [{ op: "trash", refs: [{ tree: "local", path: "/named", stableKey: null }] }],
     } as never);
@@ -306,19 +306,19 @@ describe("workspace service", () => {
   });
 
   test("soft deletes and restores", async () => {
-    const deleted = await workspace.delete("/folder/child");
+    const deleted = await workspace.editor.delete("/folder/child");
     expect(deleted.trashPath).toStartWith("/Trash/folder/child");
     await expect(stat(join(root, "folder", "child.md"))).rejects.toThrow();
     await mkdir(join(root, "folder", "child"));
-    await expect(workspace.restore(deleted.trashPath)).rejects.toThrow("Destination already exists");
+    await expect(workspace.editor.restore(deleted.trashPath)).rejects.toThrow("Destination already exists");
     await rm(join(root, "folder", "child"), { recursive: true });
-    const restored = await workspace.restore(deleted.trashPath);
+    const restored = await workspace.editor.restore(deleted.trashPath);
     expect(restored.path).toBe("/folder/child");
     expect(await readFile(join(root, "folder", "child.md"), "utf8")).toContain("Child body");
   });
 
   test("stores content-addressed assets", async () => {
-    const asset = await workspace.addAsset("/folder", "picture.png", new TextEncoder().encode("image"));
+    const asset = await workspace.editor.addAsset("/folder", "picture.png", new TextEncoder().encode("image"));
     expect(asset.path).toMatch(/^\/Assets\/[a-f0-9]{16}\.png$/);
     expect(asset.markdownPath).toStartWith("/Assets/");
     expect(asset.markdownPath).toBe(asset.path);
@@ -334,9 +334,9 @@ describe("workspace service", () => {
       await mkdir(join(duplicateRoot, "same"));
       await writeFile(join(duplicateRoot, "same", "child.md"), "Child\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
-      const rootNode = await duplicateWorkspace.snapshot({ tree: duplicateWorkspace.tree, path: "/", stableKey: null });
-      expect((await duplicateWorkspace.children(rootNode.ref)).items.filter((child) => child.ref.path === "/same")).toHaveLength(1);
-      const same = await duplicateWorkspace.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
+      const rootNode = await duplicateWorkspace.editor.snapshot({ tree: duplicateWorkspace.tree, path: "/", stableKey: null });
+      expect((await duplicateWorkspace.editor.children(rootNode.ref)).items.filter((child) => child.ref.path === "/same")).toHaveLength(1);
+      const same = await duplicateWorkspace.editor.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
       expect(nodeKind(same)).toBe("directory");
       expect(nodeDocument(same)?.bodySource).toBe("Leaf\n");
       await duplicateWorkspace[Symbol.asyncDispose]();
@@ -344,10 +344,10 @@ describe("workspace service", () => {
 
       await writeFile(join(duplicateRoot, "same", "_index.md"), "Directory\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
-      const duplicate = await duplicateWorkspace.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
+      const duplicate = await duplicateWorkspace.editor.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
       expect(nodeDocument(duplicate)?.bodySource).toBe("Directory\n");
       expect(duplicate.diagnostics.some((item) => item.code === "shadowed-body")).toBe(true);
-      await duplicateWorkspace.executeMutation({ mutationID: "shadowed-body-write", operations: [{
+      await duplicateWorkspace.editor.executeMutation({ mutationID: "shadowed-body-write", operations: [{
         op: "writeMarkdown",
         ref: duplicate.ref,
         baseContentRevision: duplicate.capabilities.content!.revision,

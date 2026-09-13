@@ -3,6 +3,9 @@
 Local Arbor Sync is internally decomposed into sync, account and browser handlers,
 a filesystem object source and a narrow connection provider. Its process,
 loopback API and disk formats remain unchanged; no file mirror was introduced.
+`Workspace` now separates its folder lifecycle from an explicit editor/provider
+component while retaining recovery at open. Sync conflicts use the existing
+identity-checked review path; the unused coarse resolver is removed.
 See [ownership](docs/reference-implementation.md#local-service-ownership).
 
 
