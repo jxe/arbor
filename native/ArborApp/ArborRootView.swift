@@ -245,6 +245,7 @@ private enum MacSidebarSearchCommand {
     case previous
     case next
     case open
+    case escape
 }
 
 private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
@@ -254,6 +255,7 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     let handleSearchCommand: @MainActor (MacSidebarSearchCommand) -> Void
     @Binding var installed: Bool
     let content: AnyView
+    @FocusedValue(\.editorCommands) private var editorCommands
 
     init<Content: View>(
         width: CGFloat,
@@ -271,11 +273,18 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
         self.content = AnyView(content())
     }
 
+    private func dispatchSearchCommand(_ command: MacSidebarSearchCommand) {
+        handleSearchCommand(command)
+        if case .escape = command {
+            editorCommands?.perform(.escape)
+        }
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             installed: $installed,
             isVisible: isVisible,
-            handleSearchCommand: handleSearchCommand
+            handleSearchCommand: dispatchSearchCommand
         )
     }
 
@@ -293,7 +302,7 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
             width: width,
             isVisible: isVisible,
             focusSearchRequest: focusSearchRequest,
-            handleSearchCommand: handleSearchCommand
+            handleSearchCommand: dispatchSearchCommand
         )
         context.coordinator.attach(to: view.window)
     }
@@ -437,6 +446,7 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
                       self.searchFieldIsFirstResponder else { return event }
                 let command: MacSidebarSearchCommand
                 switch event.keyCode {
+                case 53: command = .escape
                 case 126: command = .previous
                 case 125: command = .next
                 case 36, 76: command = .open
@@ -558,6 +568,8 @@ struct ArborPageSearchControls: View {
     var prompt = "Search pages"
     var focused: FocusState<Bool>.Binding
     var handleKeyPress: ((KeyPress) -> KeyPress.Result)?
+    var escapeReturnsToDocument = false
+    @FocusedValue(\.editorCommands) private var editorCommands
 
     var body: some View {
         HStack(spacing: 6) {
@@ -567,6 +579,14 @@ struct ArborPageSearchControls: View {
                 TextField(prompt, text: $query)
                     .textFieldStyle(.plain)
                     .focused(focused)
+#if os(macOS)
+                    .onKeyPress(.escape) {
+                        guard escapeReturnsToDocument else { return .ignored }
+                        focused.wrappedValue = false
+                        editorCommands?.perform(.escape)
+                        return .handled
+                    }
+#endif
                     .onKeyPress(keys: [.upArrow, .downArrow, .return]) { press in
                         handleKeyPress?(press) ?? .ignored
                     }
@@ -1074,7 +1094,8 @@ struct ArborRootView: View {
             query: $sidebarSearchText,
             order: $sidebarPageOrder,
             focused: $sidebarSearchFocused,
-            handleKeyPress: handleSidebarSearchKeyPress
+            handleKeyPress: handleSidebarSearchKeyPress,
+            escapeReturnsToDocument: true
         )
 #if os(macOS)
         .padding(.leading, 8)
@@ -1144,9 +1165,15 @@ struct ArborRootView: View {
 
 #if os(macOS)
     private func handleSidebarSearchCommand(_ command: MacSidebarSearchCommand) {
+        if case .escape = command {
+            sidebarSearchFocused = false
+            return
+        }
         let results = keyboardNavigableSidebarResults
         guard !results.isEmpty else { return }
         switch command {
+        case .escape:
+            break
         case .previous:
             moveSidebarKeyboardSelection(by: -1, in: results)
         case .next:
