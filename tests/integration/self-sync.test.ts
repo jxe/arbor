@@ -177,6 +177,23 @@ afterAll(async () => {
 });
 
 
+test("pending semantic identity survives persistence and appending a snapshot successor", async () => {
+  process.env.ARBOR_DATA_HOME = stateA;
+  const snapshot = await resolveSnapshot(await snapshotDirectory(treeA));
+  const pending = pendingFromSnapshot("up_basis", snapshot);
+  pending.operations = [{ kind: "undoOperation", key: "undo", target: { change: "previous", operation: "edit" } }];
+  const id = generateArborID("tr");
+  await savePendingTreeUpdate(id, appendPendingTreeSuccessor(pending, snapshot));
+  const restored = (await pendingTreeUpdate(id))!;
+  expect(restored.change).toBe(pending.change);
+  expect(restored.operations).toEqual(pending.operations);
+  const updates = updatesFromPending(restored);
+  expect(updates).toHaveLength(2);
+  expect(updates[1]!.change).not.toBe(pending.change);
+  expect(updates[1]!.operations).toBeNull();
+  expect(decodeCandidateUpdateJSON(updates[0]).operations).toEqual(pending.operations);
+});
+
 describe("private self-sync", () => {
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
@@ -416,7 +433,7 @@ describe("private self-sync", () => {
     const successorObjects = new Map(chainEnd.objects);
     successorObjects.set(hashObject(extraFile), extraFile);
     successorObjects.set(hashObject(successorRoot), successorRoot);
-    const successor: CandidateUpdate = {
+    const successor: CandidateUpdate = { change: crypto.randomUUID(), operations: null,
       candidate: hashObject(successorRoot),
       ifMatch: "modelHash",
       objects: [...successorObjects].map(([hash, bytes]) => ({ hash, bytes })),
@@ -501,7 +518,7 @@ describe("private self-sync", () => {
       entries: [{ name: "LinkPreviews", file: emptyDirectoryHash }],
     });
     const staleRootHash = hashObject(staleRoot);
-    await savePendingTreeUpdate(configurationTree, {
+    await savePendingTreeUpdate(configurationTree, { change: crypto.randomUUID(), operations: null,
       base: remote.tree.update!,
       candidate: staleRootHash,
       ifMatch: "modelHash",

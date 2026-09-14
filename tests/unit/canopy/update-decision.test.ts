@@ -6,7 +6,7 @@ const A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const B = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as ObjectHash;
 const C = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" as ObjectHash;
 
-describe("updates-v1 identity decision table", () => {
+describe("snapshot identity decision table", () => {
   test.each([
     [A, A, A, "modelHash", "current"],
     [A, A, B, "modelHash", "current"],

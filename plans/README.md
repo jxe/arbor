@@ -4,6 +4,14 @@ Active planning starts with the outcomes to pursue soon, then keeps the remainin
 
 For what works now, use [status.md](../status.md). For portable behavior, use the [specification](../spec.md). The [documentation map](../docs/README.md) explains the remaining document types.
 
+## Source intent milestones
+
+The [Protocol-ready milestone](../docs/protocol-ready.md) defines and transports intent while preserving snapshot-only behavior. Semantic execution remains explicitly unsupported. Follow these remaining plans:
+
+1. [Reliability 008 — Enable operations and editor emission](reliability/008-enable-source-operations.md), one validated operation family at a time.
+2. [Reliability 009 — Canopy provenance and source-aware merges](reliability/009-canopy-provenance-merges.md), including accepted alternatives, inspection, and bounded history.
+3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
+
 ## What to do soon
 
 The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
@@ -12,7 +20,7 @@ The near-term direction is intentionally broad. Refine these into smaller execut
 - Make sure Canopy storage is not unreasonably big.
 - Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
 
-Conflict exploration, resolution, editor intent, and backend selection are deferred. Their optional extension may depend on the conflict model. The ordinary Wire projection/update contract must remain stable. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) continues to own rejected-update and local-divergence review.
+An isolated [conflict terms experiment](../docs/conflict-terms-experiment.md) tests Jujutsu-style composition and preservation beyond algebra. The [intent comparison](../docs/conflict-intent-comparison.md) now exercises source targets, authored revisions, moves/copies, selective deletion undo, and alternative edits. Range lineage through paragraph splits/combinations and safe provenance compaction remain the discriminating backend questions. The Protocol-ready update grammar now carries that intent while operation execution remains explicitly unsupported. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) continues to own rejected-update and local-divergence review.
 
 ## Arbor Sync
 
@@ -27,7 +35,6 @@ Bounded deletion, simplification, and deduplication whose result is less tempora
 - **Compatibility removal**
   - [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
   - [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported Canopy and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
-  - **Singular update compatibility removal** — **DEFERRED.** Reliability 007 completed the minimal conflict contract without a v2 update-request cutover. The reference host still accepts the legacy singular adapter; new clients use the specified plural request. Re-scope its removal separately; the retired rollout strategy is preserved in [`_done/cleanups/`](./_done/cleanups/README.md).
 - **Smaller cleanup candidates and shared seams**
   - **Shared runtime protocol decoding** — **Deduplication · WAITING.** Promote when a second trusted boundary besides Arbor Sync needs runtime decoding; then colocate browser-safe pure decoders in `@arbor/core`, without adding schema generation solely to reduce repetition.
   - **Provider scalar normalization** — **Deduplication · OWNED by Postgres 001 and 002.** Freeze one language-neutral representation for blobs, 64-bit integers, booleans, nullability, and other provider scalars before implementations drift.
@@ -75,7 +82,7 @@ This is work that fills out Arbor's product feature surface. It is useful and of
 ## Hardening, Efficiency, Polish, etc.
 
 - **Further reliability hardening**
-  - **Choose Canopy’s reified-conflict backend and extension** — **LATER DESIGN SPIKE.** Prove continuation, localization, resolution, restart, retention, authorization, and bounded history while preserving the ordinary Wire contract.
+  - **Choose Canopy’s reified-conflict backend and extension** — **SNAPSHOT AND PARAGRAPH-INTENT MODELS IMPLEMENTED; BACKEND OPEN.** The [intent comparison](../docs/conflict-intent-comparison.md) tests identity-bearing terms for moves/copies, repeated text, causal deletion, selective undo, and alternative edits. Next compare range lineage through splits/combinations and safe history compaction, then integrate real editor correspondence, authority ownership, and the optional extension.
   - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **DEFERRED.** The race remains real, but it is not near-term work.
   - [Reliability 006 — Preview and resume initial working-tree bootstrap](reliability/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
   - **Explicit web-editor unload drain** — **WAITING on Native 022 Plan B.** App-controlled navigation already awaits the admission machine's flush; browser `beforeunload`/`pagehide` has no bounded drain and no visible pending state, which Reliability 005 left as a documented limitation. Add one or surface the limitation in the UI.

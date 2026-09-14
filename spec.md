@@ -16,6 +16,8 @@ in the [route index](#route-index). Local
 client/daemon transport, UI controls, CLI commands, runtime algorithms, package
 topology, private-state layout, and test machinery are reference choices.
 
+[Source intent and provenance](spec/10-source-intent.md) defines authored change identities, source references, and explicit operations on the ordinary Wire update route.
+
 ## Thesis
 
 Arbor's global logical space is conceptually a sparse table from `TreeID` to

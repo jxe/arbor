@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path";
 import { arborPrivateRoot, prepareArborDataRoot } from "@arbor/stores";
 import {
+  decodeCandidateUpdateJSON,
   decodeObjectDeltas,
   decodeTreeSnapshotJSON,
   encodeTreeSnapshotJSON,
@@ -88,6 +89,7 @@ async function load(tree: string): Promise<TreeSyncState> {
     // read, and the next save drops the rest.
     const stored = JSON.parse(await readFile(pathFor(tree), "utf8")) as TreeSyncState;
     const { pending, conflict, conflictMaterial, accepted } = stored;
+    if (pending) updatesFromPending(pending).forEach((update) => decodeCandidateUpdateJSON(update));
     return {
       ...(pending ? { pending } : {}),
       ...(conflict ? { conflict } : {}),
@@ -128,6 +130,8 @@ export function pendingFromSnapshot(
 ): PendingTreeUpdate {
   return {
     base,
+    change: crypto.randomUUID(),
+    operations: null,
     candidate: snapshot.root,
     ifMatch: base === null ? "bytesHash" : "modelHash",
     objects: encodeObjectEnvelopes([...snapshot.objects].filter(([hash]) => !retained.has(hash))),

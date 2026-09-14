@@ -32,7 +32,7 @@ const authorityState = join(sandbox, "canopy");
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 
 try {
-  await run(["bun", "test", "tests/unit/protocol.test.ts"]);
+  await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/wire/update-intent.test.ts", "tests/unit/wire/operations.test.ts"]);
 
   // One local Canopy with an owner account; the control-mode daemon below
   // places `treeDir` under that account so the Swift suites can exercise the
@@ -118,6 +118,7 @@ try {
     };
     await run(["swift", "test", "--package-path", "native/Packages/ArborWire"], { ...fixtures, ...wire });
     await run(["swift", "test", "--package-path", "native/Packages/CanopyClient"], { ...fixtures, ...wire });
+    await run(["swift", "test", "--package-path", "native/Packages/ArborWorkingTree"], fixtures);
   } finally {
     canopy.server.stop(true);
     await canopy.canopy[Symbol.asyncDispose]();

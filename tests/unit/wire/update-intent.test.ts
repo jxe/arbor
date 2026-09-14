@@ -14,6 +14,8 @@ import {
 interface IntentFixtures {
   version: number;
   identity: {
+    change: string;
+    operations: null;
     tree: string;
     base: string;
     candidate: ObjectHash;
@@ -23,6 +25,8 @@ interface IntentFixtures {
     digest: string;
   };
   laterElement: {
+    change: string;
+    operations: null;
     tree: string;
     base: { requestDigest: ObjectHash; candidate: ObjectHash };
     candidate: ObjectHash;
@@ -34,6 +38,7 @@ interface IntentFixtures {
   envelopeIndependence: {
     tree: string;
     base: string;
+    changes: string[];
     candidates: ObjectHash[];
     ifMatch: "modelHash";
     onConflict: "merge";
@@ -59,7 +64,7 @@ const deltaFixtures = JSON.parse(await readFile(
   invalid: Array<{ name: string; deltas: unknown[] }>;
 };
 
-describe("updates-v1 JSON identity", () => {
+describe("Wire semantic identity", () => {
   test("matches the language-neutral canonical CBOR and digest vector", () => {
     const identity = fixtures.identity;
     expect(Buffer.from(canonicalUpdateIntent(identity.tree, identity)).toString("base64")).toBe(identity.canonicalCBORBase64);
@@ -77,10 +82,10 @@ describe("updates-v1 JSON identity", () => {
       [identity.tree, identity.base, identity.candidate, identity.ifMatch, "reject"],
     ] as const;
     for (const [tree, base, candidate, ifMatch, onConflict] of changed) {
-      expect(updateRequestDigest(tree, { base, candidate, ifMatch, onConflict })).not.toBe(identity.digest);
+      expect(updateRequestDigest(tree, { change: fixtures.identity.change, operations: null, base, candidate, ifMatch, onConflict })).not.toBe(identity.digest);
     }
     // onConflict is digested at its effective value, so an omitted merge equals an explicit one.
-    expect(updateRequestDigest(identity.tree, { base: identity.base, candidate: identity.candidate, ifMatch: identity.ifMatch }))
+    expect(updateRequestDigest(identity.tree, { change: fixtures.identity.change, operations: null, base: identity.base, candidate: identity.candidate, ifMatch: identity.ifMatch }))
       .toBe(identity.digest);
     expect(fixtures.replayCases).toEqual(expect.arrayContaining([
       expect.objectContaining({ sameIntent: true, expected: expect.objectContaining({ additionalAcceptedUpdates: 0 }) }),
@@ -101,15 +106,15 @@ describe("updates-v1 JSON identity", () => {
     expect(() => decodeObjectEnvelopes([{ hash, bytes: "YQ" }])).toThrow("padded base64");
     expect(() => decodeUpdateRequestJSON({
       base: { root: fixtures.identity.candidate, update: fixtures.identity.base },
-      updates: [{ candidate: fixtures.identity.candidate, ifMatch: "modelHash", objects: [], deltas: [] }],
+      updates: [{ change: fixtures.identity.change, operations: null, candidate: fixtures.identity.candidate, ifMatch: "modelHash", objects: [], deltas: [] }],
     })).toThrow("base update id or null");
-    const activation = decodeUpdateRequestJSON({ base: null, updates: [{ candidate: fixtures.identity.candidate,
+    const activation = decodeUpdateRequestJSON({ base: null, updates: [{ change: fixtures.identity.change, operations: null, candidate: fixtures.identity.candidate,
       ifMatch: "bytesHash", objects: [], deltas: [] }] });
     expect(activation.base).toBeNull();
     expect(activation.updates[0]!.deltas).toEqual([]);
     expect(() => decodeUpdateRequestJSON({
       base: null,
-      updates: [{
+      updates: [{ change: fixtures.identity.change, operations: null,
         candidate: fixtures.identity.candidate,
         ifMatch: "bytesHash",
         objects: [],
@@ -134,7 +139,7 @@ describe("updates-v1 JSON identity", () => {
     }
     expect(() => decodeUpdateRequestJSON({
       base: fixtures.identity.base,
-      updates: [{
+      updates: [{ change: fixtures.identity.change, operations: null,
         candidate: fixtures.identity.candidate,
         ifMatch: "modelHash",
         objects: [{ hash: result, bytes: "eA==" }],
@@ -146,7 +151,7 @@ describe("updates-v1 JSON identity", () => {
   test("element digests are independent of how object envelopes are packed", () => {
     const vector = fixtures.envelopeIndependence;
     for (const packing of vector.packings) {
-      const updates = vector.candidates.map((candidate, index) => ({
+      const updates = vector.candidates.map((candidate, index) => ({ change: vector.changes[index]!, operations: null,
         candidate,
         ifMatch: vector.ifMatch,
         onConflict: vector.onConflict,
@@ -158,14 +163,14 @@ describe("updates-v1 JSON identity", () => {
   });
 
   test("chains later identities through the exact append-only prefix", () => {
-    const first = {
+    const first = { change: fixtures.identity.change, operations: null,
       candidate: fixtures.identity.candidate,
       ifMatch: fixtures.identity.ifMatch,
       onConflict: fixtures.identity.onConflict,
       objects: [],
       deltas: [],
     };
-    const second = {
+    const second = { change: fixtures.laterElement.change, operations: null,
       candidate: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as ObjectHash,
       ifMatch: "modelHash" as const,
       objects: [],
@@ -175,6 +180,7 @@ describe("updates-v1 JSON identity", () => {
     expect(digests[0]).toBe(fixtures.identity.digest);
     expect(digests[1]).toBe(updateRequestDigest(fixtures.identity.tree, {
       base: { requestDigest: digests[0]!, candidate: first.candidate },
+      change: second.change, operations: null,
       candidate: second.candidate,
       ifMatch: second.ifMatch,
     }));

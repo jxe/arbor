@@ -386,7 +386,7 @@ payload, or a batch too old for retained transition data produces one terminal
 obtains its addressed snapshot, and resumes strictly after the descriptor's
 `observedThrough` cursor.
 
-#### Accepted unresolved state and optional extensions
+#### Accepted unresolved state
 
 `AcceptedUpdate.conflicted` and `RemoteTreeDescriptor.conflicted` signal that
 an accepted state retains unresolved alternatives. Absence is equivalent to
@@ -405,20 +405,11 @@ change they cannot safely apply. Clients without conflict-review support may
 continue ordinary synchronization and MUST indicate unresolved state rather
 than reporting the tree as conflict-free.
 
-A descriptor MAY advertise `extensions: string[]`, whose entries identify
-optional, versioned extension contracts. Absence is equivalent to an empty
-list. Unknown extension identifiers do not change core interpretation. Clients
-MUST NOT invoke an extension that the authority does not advertise. An extension
-may define conflict inspection, model-specific alternative identities, and
-explicit resolution operations. Such operations produce ordinary accepted
-updates and use the existing synchronization/watch surface for delivery.
-
-This core contract does not define conflict regions, exploration routes,
-resolution bodies, editor intent, or a conflict algebra. An extension MUST NOT
-silently reinterpret an ordinary update as explicit conflict resolution.
-Unknown optional response fields are ignored; extensions that require new
-mutation semantics must define an explicit operation/version and reject
-unsupported operations before changing state.
+[Source intent and provenance](10-source-intent.md) defines operation identities,
+alternative edits, and explicit resolution on the ordinary update route.
+These semantics require no extension negotiation or parallel API version.
+Unknown optional response fields remain ignorable; unknown mutation semantics
+must be rejected before accepting any part of their request.
 
 ### 1.2 Other ways to read trees
 
@@ -462,11 +453,19 @@ type UpdateRequest = {
 };
 
 type CandidateUpdate = TransitionPayload & {
+  change: string;
+  operations: SourceOperation[] | null;
   candidate: Hash;
   ifMatch: "bytesHash" | "modelHash";
   onConflict?: "reject" | "merge";
 };
 ```
+
+`change` is a durable authored-change identity; `operations: null` explicitly
+selects snapshot semantics. A nonempty array fully explains the candidate using
+[source operations](10-source-intent.md). These fields are required, included
+in request identity, and preserved verbatim in an adopted or retried prefix.
+There is no residual payload or implicit downgrade to snapshot semantics.
 
 `base` is the id of the accepted update and `tree.update` watchpoint from which
 the string begins, or `null` when its first element activates a reserved tree.
@@ -490,6 +489,8 @@ same time:
   "base": "248",
   "updates": [
     {
+      "change": "change-one",
+      "operations": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "ifMatch": "modelHash",
       "objects": [],
@@ -504,12 +505,16 @@ same time:
   "base": "248",
   "updates": [
     {
+      "change": "change-one",
+      "operations": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "ifMatch": "modelHash",
       "objects": [],
       "deltas": []
     },
     {
+      "change": "change-two",
+      "operations": null,
       "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
       "ifMatch": "modelHash",
       "objects": [],
@@ -522,7 +527,7 @@ same time:
 Within one client epoch, every later request must preserve the exact semantic
 earlier elements and only append. The transport representation of an element's
 objects and deltas may change without changing its identity. A client must not
-rewrite an element's candidate or matching policy, or fork two different
+rewrite an element's change ID, operations, candidate, or matching policy, or fork two different
 successors from one prefix. It starts a new epoch only after the previous
 speculative string has been completely acknowledged and its resulting accepted
 transition has been durably applied, using that watchpoint as the new `base`.
@@ -677,7 +682,7 @@ applied exactly becomes a new client-owned conflict before submission.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
-of `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`, with
+of `{ domain: "arbor-update", tree, base, change, operations, candidate, ifMatch, onConflict }`, with
 `onConflict` as its effective value, scoped to the authenticated credential.
 For the first element, `base` is the request's accepted update id or `null`.
 For each later element, `base` is
@@ -705,11 +710,13 @@ type ArborError<TDetails = unknown> = {
 };
 ```
 
-Two tokens that serve different purposes are often encountered together:
+Three tokens that serve different purposes are often encountered together:
 
 - An accepted-update `id` identifies one durable accepted transition of one
   tree and is also that transition's `tree.update` cursor.
-- A credential-scoped `requestDigest` identifies one canonical `updates-v1`
+- A client-authored `change` identifies an immutable authored change; operation
+  outputs derive their origin from that change and their operation/output keys.
+- A credential-scoped `requestDigest` identifies one canonical update
   semantic request across retries and different object/delta packaging.
 
 ### 2.5 Sparse transfer with object deltas

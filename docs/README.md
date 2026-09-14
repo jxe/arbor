@@ -21,6 +21,8 @@ Arbor separates portable contracts, current implementation status, usage, produc
 - [Local system](local-system.md) — local data home, private state, watchers, visits, credentials, and migration.
 - [Local Arbor REST API](arborsync-api.md) — the implemented loopback client/daemon boundary.
 - [Client design](client.md) — non-normative web/native interaction design; use `status.md` for implementation truth.
+- [Conflict terms experiment](conflict-terms-experiment.md) — isolated Jujutsu-style backend, preservation counterexample, tested behavior, and integration limits.
+- [Conflict intent comparison](conflict-intent-comparison.md) — seven thought experiments, a source-intent model, and the distinction between operation identity and a full content graph.
 - [Client state machines](client-state-machines.md) — the document admission machine every Arbor Sync editor runs, and where it meets the direct Canopy machine in the specification.
 
 ## Planning and history
@@ -29,3 +31,7 @@ Arbor separates portable contracts, current implementation status, usage, produc
 - [Completed evidence](../plans/_done/README.md) — completed, rejected, and superseded work.
 - [Notes](notes/social-networking.md) — exploratory arguments that are neither specification nor status.
 - [Archive](archive/arbord-projection-outline.md) — historical implementation outlines retained for context.
+
+- [Protocol-ready source intent](protocol-ready.md) — current operation boundary and coordinated upgrade procedure.
+
+- [Protocol cutover preparation](protocol-cutover-preparation.md) — integrated build/rehearsal evidence and the remaining joint cutover.

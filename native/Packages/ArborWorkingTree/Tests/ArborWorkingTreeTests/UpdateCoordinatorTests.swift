@@ -115,6 +115,40 @@ private struct OnePointFault: UpdateFaultInjector {
 
 @Suite("Working-tree update coordinator")
 struct UpdateCoordinatorTests {
+    @Test("Adopted operations survive restart even when the candidate root is unchanged")
+    func semanticAdoptionRestart() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_semantic"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n")
+            let transport = ClosureTransport(initial: initial) { _, _ in throw URLError(.notConnectedToInternet) }
+            let workingTree = try await placeWorkingTree(tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"), at: root.appending(path: "replica"), transport: transport)
+            let state = root.appending(path: "sync")
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: state)
+            let operation = try WireSourceOperation(["key": .string("undo"), "kind": .string("undoOperation"), "target": .object(["change": .string("prior"), "operation": .string("edit")])])
+            let candidate = WireCandidateUpdate(candidate: initial.root, change: "retained", operations: [operation], objects: initial.objects)
+            let base = WireUpdateBase(root: initial.root, update: "up_initial")
+            let digests = updateRequestDigests(tree: tree, base: base, updates: [candidate])
+            try await coordinator.adoptInFlight(base: base, updates: [candidate], requestDigests: digests, objects: initial.objects)
+            let reopened = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: state)
+            _ = try? await reopened.syncOnce()
+            let requests = await transport.requests
+            #expect(requests.count == 1)
+            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
+            #expect(request.updates[0].change == candidate.change)
+            #expect(request.updates[0].operations == candidate.operations)
+            #expect(requests[0].requestDigests == digests)
+            var retained = try UpdateControlFiles(root: state).load()
+            var altered = request
+            altered.base = "different-accepted-state"
+            retained.attempt!.body = try JSONEncoder().encode(altered)
+            try UpdateControlFiles(root: state).write(retained)
+            #expect(throws: ArborWireValidationError.self) {
+                try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: state)
+            }
+            #expect(try UpdateControlFiles(root: state).load().attempt?.body == retained.attempt?.body)
+        }
+    }
+
     @Test("Native materialization preserves exact Wire collection-file descriptors")
     func collectionFileDescriptorRoundTrip() async throws {
         try await withTemporaryRoot { root in
@@ -956,12 +990,14 @@ struct UpdateCoordinatorTests {
             var sequencedControl = try UpdateControlFiles(root: root).load()
             var sequencedAttempt = try #require(sequencedControl.conflict?.attempt)
             var sequencedRequest = try JSONDecoder().decode(WireUpdateRequest.self, from: sequencedAttempt.body)
-            sequencedRequest.updates.append(try #require(sequencedRequest.updates.first))
+            var successor = try #require(sequencedRequest.updates.first)
+            successor.change = UUID().uuidString
+            sequencedRequest.updates.append(successor)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             sequencedAttempt.body = try encoder.encode(sequencedRequest)
-            sequencedAttempt.requestDigests = sequencedAttempt.allRequestDigests + ["unattempted-suffix"]
-            sequencedAttempt.digest = "unattempted-suffix"
+            sequencedAttempt.requestDigests = updateRequestDigests(tree: sequencedAttempt.tree, base: sequencedAttempt.base, updates: sequencedRequest.updates)
+            sequencedAttempt.digest = sequencedAttempt.requestDigests!.last!
             sequencedControl.conflict?.attempt = sequencedAttempt
             try UpdateControlFiles(root: root).write(sequencedControl)
             let sequencedCoordinator = try UpdateCoordinator(workingTree: workingTree, transport: conflictTransport, stateRoot: root)

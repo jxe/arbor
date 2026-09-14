@@ -91,7 +91,7 @@ adopter already retains a request or a conflict.
 3. **One request, prepared exactly.** When the delay elapses the client
    persists one exact request from the applied base to the latest head,
    collapsing every unsent intermediate generation, then transmits it. A
-   request's base, elements, matching policies, candidates, derived digests,
+   request's base, change IDs, operations, matching policies, candidates, derived digests,
    **and the object envelopes it carries** are one immutable record from the
    first attempt onward. Resubmission reads only that record, never a live
    object store: collecting the working tree's overlay between attempts must
@@ -141,7 +141,9 @@ adopter already retains a request or a conflict.
    update does not enter this rejection hold. Apply its ordinary projection,
    retain its accepted identity and signal, and continue ordinary updates.
    Metadata-only transitions still advance update/cursor even if root is equal.
-   Review and explicit resolution belong to an advertised optional extension.
+   Review and explicit resolution use the ordinary [source operation contract](10-source-intent.md).
+   An unsupported-operation response holds the exact request for an upgrade or
+   explicit author action; root equality must not discard semantic work.
 9. **Availability is distinct from validity.** Transport failure enters
    `offline` and retries automatically when transport returns.
    Authentication failure and revocation enter `offline` with an

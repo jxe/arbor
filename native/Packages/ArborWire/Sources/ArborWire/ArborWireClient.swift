@@ -398,6 +398,8 @@ public func canonicalUpdateIntent(
     tree: String,
     base: WireUpdateBase,
     candidate: String,
+    change: String,
+    operations: [WireSourceOperation]? = nil,
     ifMatch: String = "modelHash",
     onConflict: String? = nil
 ) -> Data {
@@ -405,6 +407,8 @@ public func canonicalUpdateIntent(
         tree: tree,
         base: .text(base.update),
         candidate: candidate,
+        change: change,
+        operations: operations,
         ifMatch: ifMatch,
         onConflict: onConflict
     )
@@ -414,11 +418,15 @@ private func canonicalUpdateIntent(
     tree: String,
     base: CanonicalCBORValue,
     candidate: String,
+    change: String,
+    operations: [WireSourceOperation]? = nil,
     ifMatch: String,
     onConflict: String?
 ) -> Data {
     CanonicalCBOR.encode(.map([
-        ("version", .text("updates-v1")),
+        ("domain", .text("arbor-update")),
+        ("change", .text(change)),
+        ("operations", operations.map { .array($0.map(\.cbor)) } ?? .null),
         ("tree", .text(tree)),
         ("base", base),
         ("candidate", .text(candidate)),
@@ -431,10 +439,12 @@ public func updateRequestDigest(
     tree: String,
     base: WireUpdateBase,
     candidate: String,
+    change: String,
+    operations: [WireSourceOperation]? = nil,
     ifMatch: String = "modelHash",
     onConflict: String? = nil
 ) -> String {
-    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict))
+    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, change: change, operations: operations, ifMatch: ifMatch, onConflict: onConflict))
 }
 
 public func updateRequestDigests(
@@ -449,6 +459,8 @@ public func updateRequestDigests(
             tree: tree,
             base: basis,
             candidate: update.candidate,
+            change: update.change,
+            operations: update.operations,
             ifMatch: update.ifMatch,
             onConflict: update.onConflict
         ))

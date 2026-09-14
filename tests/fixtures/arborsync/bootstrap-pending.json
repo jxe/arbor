@@ -35,11 +35,13 @@
             "bytes": "IyBOb3Rlcwo="
           }
         ],
-        "deltas": []
+        "deltas": [],
+        "change": "fixture-bootstrap-1",
+        "operations": null
       }
     ],
     "requestDigests": [
-      "sha256:63c03b1d70c72ba68301d5204de3f47ec603eeeab3af420a423045cec49bb2b8"
+      "sha256:3bb8dcfd5d709ed4696d49c270dba6f8319e559c7f258decb1ec29f8b8c848e1"
     ]
   }
 }

@@ -1,0 +1,1258 @@
+{
+  "tree": "tr_semantic",
+  "base": "up_base",
+  "valid": [
+    {
+      "name": "snapshot",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": null,
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      },
+      "canonicalCBORBase64": "qGRiYXNlZ3VwX2Jhc2VkdHJlZWt0cl9zZW1hbnRpY2ZjaGFuZ2VuZml4dHVyZS1jaGFuZ2VmZG9tYWlubGFyYm9yLXVwZGF0ZWdpZk1hdGNoaW1vZGVsSGFzaGljYW5kaWRhdGV4R3NoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFham9uQ29uZmxpY3RlbWVyZ2Vqb3BlcmF0aW9uc/Y=",
+      "digest": "sha256:0eb602a2ff70946a425dad7e8a3db901bc3551073403e4946e7bb93fa6b31357"
+    },
+    {
+      "name": "all-operation-kinds",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          },
+          {
+            "key": "move",
+            "kind": "moveSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "at": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 6,
+              "end": 6
+            },
+            "side": "before"
+          },
+          {
+            "key": "copy",
+            "kind": "copySource",
+            "source": {
+              "kind": "output",
+              "change": "fixture-change",
+              "operation": "edit",
+              "output": "text",
+              "start": 0,
+              "end": 6
+            },
+            "at": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 6,
+              "end": 6
+            },
+            "side": "after",
+            "output": "copy"
+          },
+          {
+            "key": "move-entry",
+            "kind": "moveEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            },
+            "destination": "/new.md"
+          },
+          {
+            "key": "copy-entry",
+            "kind": "copyEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            },
+            "destination": "/copy.md",
+            "output": "entry"
+          },
+          {
+            "key": "remove-entry",
+            "kind": "removeEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            }
+          },
+          {
+            "key": "alternative",
+            "kind": "editAlternative",
+            "source": {
+              "kind": "alternative",
+              "state": "up_state",
+              "conflict": "conflict_1",
+              "alternative": "alternative_1",
+              "start": 0,
+              "end": 6
+            },
+            "text": "edited",
+            "output": "text"
+          },
+          {
+            "key": "resolve",
+            "kind": "resolveConflict",
+            "state": "up_state",
+            "conflict": "conflict_1",
+            "alternatives": [
+              "alternative_1",
+              "alternative_2"
+            ],
+            "text": "resolved",
+            "output": "text"
+          },
+          {
+            "key": "undo",
+            "kind": "undoOperation",
+            "target": {
+              "change": "old_change",
+              "operation": "edit"
+            }
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      },
+      "canonicalCBORBase64": "qGRiYXNlZ3VwX2Jhc2VkdHJlZWt0cl9zZW1hbnRpY2ZjaGFuZ2VuZml4dHVyZS1jaGFuZ2VmZG9tYWlubGFyYm9yLXVwZGF0ZWdpZk1hdGNoaW1vZGVsSGFzaGljYW5kaWRhdGV4R3NoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFham9uQ29uZmxpY3RlbWVyZ2Vqb3BlcmF0aW9uc4mmY2tleWRlZGl0ZGtpbmRqZWRpdFNvdXJjZWR0ZXh0ZmjDqWxsb2ZvdXRwdXRkdGV4dGZzb3VyY2WlY2VuZAZka2luZGZzb3VyY2VkcGF0aGgvbm90ZS5tZGVzdGFydABmb2JqZWN0eEdzaGEyNTY6YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWdsaW5lYWdlgaNjZW5kBmVzdGFydABmc291cmNlpWNlbmQGZGtpbmRmc291cmNlZHBhdGhoL25vdGUubWRlc3RhcnQAZm9iamVjdHhHc2hhMjU2OmFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWGlYmF0pWNlbmQGZGtpbmRmc291cmNlZHBhdGhoL25vdGUubWRlc3RhcnQGZm9iamVjdHhHc2hhMjU2OmFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFja2V5ZG1vdmVka2luZGptb3ZlU291cmNlZHNpZGVmYmVmb3JlZnNvdXJjZaVjZW5kBmRraW5kZnNvdXJjZWRwYXRoaC9ub3RlLm1kZXN0YXJ0AGZvYmplY3R4R3NoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhpmJhdKVjZW5kBmRraW5kZnNvdXJjZWRwYXRoaC9ub3RlLm1kZXN0YXJ0BmZvYmplY3R4R3NoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY2tleWRjb3B5ZGtpbmRqY29weVNvdXJjZWRzaWRlZWFmdGVyZm91dHB1dGRjb3B5ZnNvdXJjZaZjZW5kBmRraW5kZm91dHB1dGVzdGFydABmY2hhbmdlbmZpeHR1cmUtY2hhbmdlZm91dHB1dGR0ZXh0aW9wZXJhdGlvbmRlZGl0pGNrZXlqbW92ZS1lbnRyeWRraW5kaW1vdmVFbnRyeWZzb3VyY2WiZGtpbmRlZW50cnlkcGF0aGgvbm90ZS5tZGtkZXN0aW5hdGlvbmcvbmV3Lm1kpWNrZXlqY29weS1lbnRyeWRraW5kaWNvcHlFbnRyeWZvdXRwdXRlZW50cnlmc291cmNlomRraW5kZWVudHJ5ZHBhdGhoL25vdGUubWRrZGVzdGluYXRpb25oL2NvcHkubWSjY2tleWxyZW1vdmUtZW50cnlka2luZGtyZW1vdmVFbnRyeWZzb3VyY2WiZGtpbmRlZW50cnlkcGF0aGgvbm90ZS5tZKVja2V5a2FsdGVybmF0aXZlZGtpbmRvZWRpdEFsdGVybmF0aXZlZHRleHRmZWRpdGVkZm91dHB1dGR0ZXh0ZnNvdXJjZaZjZW5kBmRraW5ka2FsdGVybmF0aXZlZXN0YXJ0AGVzdGF0ZWh1cF9zdGF0ZWhjb25mbGljdGpjb25mbGljdF8xa2FsdGVybmF0aXZlbWFsdGVybmF0aXZlXzGnY2tleWdyZXNvbHZlZGtpbmRvcmVzb2x2ZUNvbmZsaWN0ZHRleHRocmVzb2x2ZWRlc3RhdGVodXBfc3RhdGVmb3V0cHV0ZHRleHRoY29uZmxpY3RqY29uZmxpY3RfMWxhbHRlcm5hdGl2ZXOCbWFsdGVybmF0aXZlXzFtYWx0ZXJuYXRpdmVfMqNja2V5ZHVuZG9ka2luZG11bmRvT3BlcmF0aW9uZnRhcmdldKJmY2hhbmdlam9sZF9jaGFuZ2Vpb3BlcmF0aW9uZGVkaXQ=",
+      "digest": "sha256:5ac6635c332e333cd8676248197fa6152019421033a6895838d8bf71159fad0a"
+    },
+    {
+      "name": "opaque-accepted-state",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "resolve",
+            "kind": "resolveConflict",
+            "state": "opaque:accepted/state",
+            "conflict": "conflict_1",
+            "alternatives": [
+              "alternative_1",
+              "alternative_2"
+            ],
+            "text": "resolved",
+            "output": "text"
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      },
+      "canonicalCBORBase64": "qGRiYXNlZ3VwX2Jhc2VkdHJlZWt0cl9zZW1hbnRpY2ZjaGFuZ2VuZml4dHVyZS1jaGFuZ2VmZG9tYWlubGFyYm9yLXVwZGF0ZWdpZk1hdGNoaW1vZGVsSGFzaGljYW5kaWRhdGV4R3NoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFham9uQ29uZmxpY3RlbWVyZ2Vqb3BlcmF0aW9uc4GnY2tleWdyZXNvbHZlZGtpbmRvcmVzb2x2ZUNvbmZsaWN0ZHRleHRocmVzb2x2ZWRlc3RhdGV1b3BhcXVlOmFjY2VwdGVkL3N0YXRlZm91dHB1dGR0ZXh0aGNvbmZsaWN0amNvbmZsaWN0XzFsYWx0ZXJuYXRpdmVzgm1hbHRlcm5hdGl2ZV8xbWFsdGVybmF0aXZlXzI=",
+      "digest": "sha256:506a1e276207ff255607d601ebeb1529bd7960d2f58be129cfa957501f32f2a3"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown-kind",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "guessIntent",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "unknown-field",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ],
+            "residual": "x"
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "unknown-ref-field",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6,
+              "basis": "guess"
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "negative-range",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": -1,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "fractional-range",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 1.5
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "unsafe-integer",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 9007199254740992
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "reversed-range",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 7,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "invalid-path",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/../note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "non-nfc-path",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/é.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "invalid-hash",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "abc",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "wrong-ref-kind",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "invalid-side",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "move",
+            "kind": "moveSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "at": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 6,
+              "end": 6
+            },
+            "side": "inside"
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "duplicate-alternative",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "resolve",
+            "kind": "resolveConflict",
+            "state": "up_state",
+            "conflict": "conflict_1",
+            "alternatives": [
+              "a",
+              "a"
+            ],
+            "text": "resolved",
+            "output": "text"
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "lineage-outside-text",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 7
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "overlapping-lineage",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 4
+              },
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 2,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "boolean-offset",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": true,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "empty-operations",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "duplicate-operation-key",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          },
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "invalid-change",
+      "candidate": {
+        "change": "with spaces",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          },
+          {
+            "key": "move",
+            "kind": "moveSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "at": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 6,
+              "end": 6
+            },
+            "side": "before"
+          },
+          {
+            "key": "copy",
+            "kind": "copySource",
+            "source": {
+              "kind": "output",
+              "change": "fixture-change",
+              "operation": "edit",
+              "output": "text",
+              "start": 0,
+              "end": 6
+            },
+            "at": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 6,
+              "end": 6
+            },
+            "side": "after",
+            "output": "copy"
+          },
+          {
+            "key": "move-entry",
+            "kind": "moveEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            },
+            "destination": "/new.md"
+          },
+          {
+            "key": "copy-entry",
+            "kind": "copyEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            },
+            "destination": "/copy.md",
+            "output": "entry"
+          },
+          {
+            "key": "remove-entry",
+            "kind": "removeEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            }
+          },
+          {
+            "key": "alternative",
+            "kind": "editAlternative",
+            "source": {
+              "kind": "alternative",
+              "state": "up_state",
+              "conflict": "conflict_1",
+              "alternative": "alternative_1",
+              "start": 0,
+              "end": 6
+            },
+            "text": "edited",
+            "output": "text"
+          },
+          {
+            "key": "resolve",
+            "kind": "resolveConflict",
+            "state": "up_state",
+            "conflict": "conflict_1",
+            "alternatives": [
+              "alternative_1",
+              "alternative_2"
+            ],
+            "text": "resolved",
+            "output": "text"
+          },
+          {
+            "key": "undo",
+            "kind": "undoOperation",
+            "target": {
+              "change": "old_change",
+              "operation": "edit"
+            }
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "missing-operations",
+      "candidate": {
+        "change": "fixture-change",
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "missing-change",
+      "candidate": {
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          },
+          {
+            "key": "move",
+            "kind": "moveSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "at": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 6,
+              "end": 6
+            },
+            "side": "before"
+          },
+          {
+            "key": "copy",
+            "kind": "copySource",
+            "source": {
+              "kind": "output",
+              "change": "fixture-change",
+              "operation": "edit",
+              "output": "text",
+              "start": 0,
+              "end": 6
+            },
+            "at": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 6,
+              "end": 6
+            },
+            "side": "after",
+            "output": "copy"
+          },
+          {
+            "key": "move-entry",
+            "kind": "moveEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            },
+            "destination": "/new.md"
+          },
+          {
+            "key": "copy-entry",
+            "kind": "copyEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            },
+            "destination": "/copy.md",
+            "output": "entry"
+          },
+          {
+            "key": "remove-entry",
+            "kind": "removeEntry",
+            "source": {
+              "kind": "entry",
+              "path": "/note.md"
+            }
+          },
+          {
+            "key": "alternative",
+            "kind": "editAlternative",
+            "source": {
+              "kind": "alternative",
+              "state": "up_state",
+              "conflict": "conflict_1",
+              "alternative": "alternative_1",
+              "start": 0,
+              "end": 6
+            },
+            "text": "edited",
+            "output": "text"
+          },
+          {
+            "key": "resolve",
+            "kind": "resolveConflict",
+            "state": "up_state",
+            "conflict": "conflict_1",
+            "alternatives": [
+              "alternative_1",
+              "alternative_2"
+            ],
+            "text": "resolved",
+            "output": "text"
+          },
+          {
+            "key": "undo",
+            "kind": "undoOperation",
+            "target": {
+              "change": "old_change",
+              "operation": "edit"
+            }
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "entry-is-not-range-lineage",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "entry",
+                  "path": "/note.md"
+                },
+                "start": 0,
+                "end": 6
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "split-utf8-output",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 2
+                },
+                "start": 0,
+                "end": 2
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    },
+    {
+      "name": "different-lineage-length",
+      "candidate": {
+        "change": "fixture-change",
+        "operations": [
+          {
+            "key": "edit",
+            "kind": "editSource",
+            "source": {
+              "kind": "source",
+              "path": "/note.md",
+              "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "start": 0,
+              "end": 6
+            },
+            "text": "héllo",
+            "output": "text",
+            "lineage": [
+              {
+                "source": {
+                  "kind": "source",
+                  "path": "/note.md",
+                  "object": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "start": 0,
+                  "end": 6
+                },
+                "start": 0,
+                "end": 4
+              }
+            ]
+          }
+        ],
+        "candidate": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ifMatch": "modelHash",
+        "objects": [],
+        "deltas": []
+      }
+    }
+  ]
+}

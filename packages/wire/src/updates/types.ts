@@ -87,6 +87,8 @@ export interface AcceptedTransition extends TransitionPayload {
 }
 
 export interface CandidateUpdate extends TransitionPayload {
+  change: string;
+  operations: import("./operations.ts").SourceOperation[] | null;
   candidate: ObjectHash;
   /** Which hash must still match its value at base for the candidate to be accepted. */
   ifMatch: IfMatch;

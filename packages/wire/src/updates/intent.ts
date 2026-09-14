@@ -3,7 +3,7 @@ import type { ObjectHash } from "../objects.ts";
 import type { CandidateUpdate, OnConflict, UpdateRequest } from "./types.ts";
 
 export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash };
-export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifMatch" | "onConflict"> & { base: UpdateIntentBase };
+export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifMatch" | "onConflict" | "change" | "operations"> & { base: UpdateIntentBase };
 
 /** `onConflict` at its effective value: merge unless the request says reject. */
 export function effectiveOnConflict(request: Pick<CandidateUpdate, "onConflict">): OnConflict {
@@ -12,7 +12,9 @@ export function effectiveOnConflict(request: Pick<CandidateUpdate, "onConflict">
 
 function intent(tree: string, request: UpdateIntent) {
   return {
-    version: "updates-v1",
+    domain: "arbor-update",
+    change: request.change,
+    operations: request.operations,
     tree,
     base: request.base,
     candidate: request.candidate,

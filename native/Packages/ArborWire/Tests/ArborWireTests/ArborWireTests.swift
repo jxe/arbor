@@ -293,11 +293,12 @@ struct UpdateProtocolTests {
         let tree = identity["tree"] as! String
         let ifMatch = identity["ifMatch"] as! String
         let onConflict = identity["onConflict"] as? String
-        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
-        #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict) == identity["digest"] as? String)
+        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate, change: identity["change"] as! String, ifMatch: ifMatch, onConflict: onConflict).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
+        #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate, change: identity["change"] as! String, ifMatch: ifMatch, onConflict: onConflict) == identity["digest"] as? String)
         let later = try #require(fixture["laterElement"] as? [String: Any])
         let second = WireCandidateUpdate(
             candidate: later["candidate"] as! String,
+            change: later["change"] as! String,
             ifMatch: later["ifMatch"] as! String,
             onConflict: later["onConflict"] as? String,
             objects: []
@@ -305,8 +306,27 @@ struct UpdateProtocolTests {
         #expect(updateRequestDigests(
             tree: tree,
             base: value,
-            updates: [WireCandidateUpdate(candidate: candidate, ifMatch: ifMatch, onConflict: onConflict, objects: []), second]
+            updates: [WireCandidateUpdate(candidate: candidate, change: identity["change"] as! String, ifMatch: ifMatch, onConflict: onConflict, objects: []), second]
         ).last == later["digest"] as? String)
+    }
+
+    @Test("Semantic operations preserve all fields and match shared digests")
+    func semanticOperations() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-operations.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for row in fixture["valid"] as! [[String: Any]] {
+            let data = try JSONSerialization.data(withJSONObject: row["candidate"]!)
+            let value = try JSONDecoder().decode(WireCandidateUpdate.self, from: data)
+            let restored = try JSONDecoder().decode(WireCandidateUpdate.self, from: JSONEncoder().encode(value))
+            #expect(restored == value)
+            let bytes = canonicalUpdateIntent(tree: fixture["tree"] as! String, base: WireUpdateBase(root: value.candidate, update: fixture["base"] as! String), candidate: value.candidate, change: value.change, operations: value.operations)
+            #expect(bytes.base64EncodedString() == row["canonicalCBORBase64"] as? String)
+            #expect(canonicalCBORHash(bytes) == row["digest"] as? String)
+        }
+        for row in fixture["invalid"] as! [[String: Any]] {
+            let data = try JSONSerialization.data(withJSONObject: row["candidate"]!)
+            #expect(throws: (any Error).self, "\(row["name"]!)") { try JSONDecoder().decode(WireCandidateUpdate.self, from: data) }
+        }
     }
 
     @Test("Swift encodes and rejects the shared canonical CBOR value vectors")
@@ -520,19 +540,6 @@ struct UpdateProtocolTests {
         let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
         let snapshot = WireSnapshot(root: root.hash, objects: [file, root])
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
-        let requestDigest = updateRequestDigest(
-            tree: "tr_retry",
-            base: WireUpdateBase(root: baseHash, update: "up_base"),
-            candidate: root.hash
-        )
-        let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
-        """.utf8)
-        await WireURLProtocolStub.state.install { _, attempt in
-            attempt == 1
-                ? (500, Data(#"{"error":"server-busy","message":"retry","retryable":true}"#.utf8))
-                : (201, response)
-        }
         let client = ArborWireClient(
             origin: URL(string: "https://canopy.test")!,
             credential: "device-token",
@@ -544,9 +551,19 @@ struct UpdateProtocolTests {
             base: .init(root: baseHash, update: "up_base"),
             snapshot: snapshot
         )
+        let requestDigest = prepared.requestDigest
+        let response = Data("""
+        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
+        """.utf8)
+        await WireURLProtocolStub.state.install { _, attempt in
+            attempt == 1
+                ? (500, Data(#"{"error":"server-busy","message":"retry","retryable":true}"#.utf8))
+                : (201, response)
+        }
         _ = try await client.submitUpdate(prepared)
         let captured = await WireURLProtocolStub.state.snapshot()
         #expect(captured.count == 2)
+        #expect(!captured.bodies[0].isEmpty)
         #expect(captured.bodies[0] == captured.bodies[1])
         #expect(captured.idempotencyKeys == [nil, nil])
     }
@@ -584,6 +601,29 @@ struct UpdateProtocolTests {
             #expect(error.conflict.conflicts.first?.reason == "binary-conflict")
         }
         #expect(await WireURLProtocolStub.state.snapshot().count == 1)
+    }
+
+    @Test("Unsupported operations preserve the request and are not retried")
+    func unsupportedOperations() async throws {
+        await WireURLProtocolStub.state.install { _, _ in
+            (422, Data(#"{"error":"unsupported-operation","message":"Operations require a server upgrade","retryable":false}"#.utf8))
+        }
+        let client = ArborWireClient(origin: URL(string: "https://canopy.test")!, credential: "token", session: wireStubSession(), retryDelay: { _ in })
+        let snapshot = try wireTestSnapshot("text")
+        let operation = try WireSourceOperation(["kind": .string("undoOperation"), "key": .string("undo"), "target": .object(["change": .string("prior"), "operation": .string("edit")])])
+        let update = WireCandidateUpdate(candidate: snapshot.root, change: "durable-change", operations: [operation], objects: snapshot.objects)
+        let prepared = try await client.prepareUpdates(tree: "tr_test", base: .init(root: snapshot.root, update: "up_base"), updates: [update])
+        do {
+            _ = try await client.submitUpdate(prepared)
+            Issue.record("Expected unsupported operation")
+        } catch let error as WireHTTPError {
+            #expect(error.code == "unsupported-operation")
+            #expect(!error.retryable)
+        }
+        let captured = await WireURLProtocolStub.state.snapshot()
+        #expect(captured.count == 1)
+        #expect(captured.bodies.first == prepared.body)
+        #expect(try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body).updates == [update])
     }
 
     @Test("Pairing claims never send an existing credential")
@@ -736,7 +776,18 @@ private actor WireURLProtocolStubState {
 
     func response(for request: URLRequest) -> (Int, Data) {
         count += 1
-        bodies.append(request.httpBody ?? Data())
+        var body = request.httpBody ?? Data()
+        if request.httpBody == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        bodies.append(body)
         idempotencyKeys.append(request.value(forHTTPHeaderField: "Idempotency-Key"))
         return handler?(request, count) ?? (500, Data())
     }

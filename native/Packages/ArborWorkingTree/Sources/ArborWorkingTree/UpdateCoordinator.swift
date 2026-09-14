@@ -45,6 +45,16 @@ public actor UpdateCoordinator {
         self.files = try UpdateControlFiles(root: stateRoot)
         self.faultInjector = faultInjector
         self.control = try files.load()
+        // An incompatible or altered durable request must remain on disk for recovery.
+        for attempt in [control.attempt, control.conflict?.attempt].compactMap({ $0 }) {
+            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
+            guard request.base == attempt.base.update,
+                  request.updates.last?.candidate == attempt.candidate,
+                  attempt.digest == attempt.allRequestDigests.last,
+                  updateRequestDigests(tree: attempt.tree, base: attempt.base, updates: request.updates) == attempt.allRequestDigests else {
+                throw ArborWireValidationError.invalidValue("Durable update intent does not match its digests")
+            }
+        }
         self.transportAvailable = transportAvailable
         self.machine = UpdateMachine.State(transportAvailable: transportAvailable)
         self.machineOptions = UpdateMachine.Options(publicationDelay: publicationDelay, publicationMaxDelay: publicationMaxDelay)
@@ -758,7 +768,7 @@ public actor UpdateCoordinator {
             dispatch(.authenticationFailed(reason: error.code))
             return control.presentation
         } catch {
-            if error is UpdateError || error is ArborWireValidationError {
+            if error is UpdateError || error is ArborWireValidationError || (error as? WireHTTPError)?.code == "unsupported-operation" {
                 terminal = true
                 dispatch(.validationFailed(reason: String(describing: error)))
             } else {

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResultJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse } from "@arbor/wire";
+import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse } from "@arbor/wire";
 import { buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
 import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
@@ -106,11 +106,9 @@ function watchDescriptor(
 const MAX_WATCH_TRANSITIONS_PER_FRAME = 64;
 const MAX_WATCH_TRANSITION_FRAME_BYTES = 1024 * 1024;
 
-function updateJSON(value: UpdateResponse | UpdateConflictResult, legacy: boolean): unknown {
+function updateJSON(value: UpdateResponse | UpdateConflictResult): unknown {
   if ("error" in value) return encodeUpdateConflictJSON(value);
-  if (!legacy) return encodeUpdateResponseJSON(value);
-  const result = value.results[0]!;
-  return { ...encodeUpdateResultJSON(result), observedThrough: value.observedThrough };
+  return encodeUpdateResponseJSON(value);
 }
 
 function accountDescriptor(origin: string, canopy: CanopyDaemon, account: CanopyAccount): RemoteAccountDescriptor {
@@ -436,16 +434,7 @@ export async function serveCanopy(options: {
           if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
           const treeID = decodeURIComponent(updates[1]!);
           const body = await request.json() as Record<string, unknown>;
-          const legacy = !Array.isArray(body.updates);
-          const update = decodeUpdateRequestJSON(legacy
-            ? { base: body.base, updates: [{
-                candidate: body.candidate,
-                ifMatch: body.ifMatch,
-                ...(body.onConflict === undefined ? {} : { onConflict: body.onConflict }),
-                objects: body.objects,
-                deltas: body.deltas,
-              }] }
-            : body);
+          const update = decodeUpdateRequestJSON(body);
           const tree = canopy.get(treeID);
           // A null base activates a reserved tree, which has no descriptor yet;
           // Canopy checks the reservation and the administrator device.
@@ -461,7 +450,7 @@ export async function serveCanopy(options: {
             authentication?.subject,
             authentication ?? undefined,
           );
-          return json(updateJSON(result.result, legacy), result.status);
+          return json(updateJSON(result.result), result.status);
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
@@ -716,6 +705,7 @@ export async function serveCanopy(options: {
           });
         }
         if (error instanceof UpdateProtocolError) {
+          if (error.code === "unsupported-operation") return wireError(error.code, error.message, 422);
           if (error.code === "base-not-retained") {
             return wireError("resync-required", error.message, 409, true, { kind: "server-update" });
           }

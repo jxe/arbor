@@ -255,7 +255,9 @@ resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
 size lookup, or payload sniffing is needed. The spine always describes the
 folder as it is now, even when the response is blocked.
 
-**Pending, verbatim.** When the daemon holds a stored update string for the
+**Pending, verbatim.** Each candidate includes its original `change` and explicit
+`operations` fields; adoption must retain both even when object envelopes are
+repacked. Snapshot clients emit `operations: null`. When the daemon holds a stored update string for the
 tree (`pending` in its sync state), it is returned verbatim, as the exact
 `{ base, updates }` request body it will send to Canopy, only when
 `base` equals the accepted update and the last element's `candidate` equals

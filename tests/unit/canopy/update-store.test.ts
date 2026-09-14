@@ -37,6 +37,7 @@ describe("accepted-update transaction store", () => {
       tree: "tr_test",
       root: B,
       previousRoot: A,
+      expectedUpdate: store.current("tr_test")!.id,
       expectedRoot: A,
       kind: "accepted",
       acceptedAt: 2,
@@ -64,6 +65,7 @@ describe("accepted-update transaction store", () => {
       tree: "tr_test",
       root: C,
       previousRoot: B,
+      expectedUpdate: store.current("tr_test")!.id,
       expectedRoot: B,
       kind: "accepted",
       acceptedAt: 2,
@@ -73,6 +75,17 @@ describe("accepted-update transaction store", () => {
     expect(store.list("tr_test")).toHaveLength(1);
     expect(db.query("SELECT * FROM reflog").all()).toHaveLength(0);
     expect((db.query("SELECT ref FROM trees WHERE id = 'tr_test'").get() as { ref: string }).ref).toBe(A);
+  });
+
+  test("accepted identity guards commits even when projection bytes are unchanged", () => {
+    const initial = store.current("tr_test")!;
+    const input = { tree: "tr_test", root: A, previousRoot: A, expectedRoot: A, expectedUpdate: initial.id, kind: "accepted" as const, acceptedAt: 2 };
+    const metadata = store.commit(input)!;
+    expect(metadata.root).toBe(initial.root);
+    expect(metadata.id).not.toBe(initial.id);
+    expect(store.commit({ ...input, root: B, acceptedAt: 3 })).toBeNull();
+    expect(store.current("tr_test")!.id).toBe(metadata.id);
+    expect(store.list("tr_test")).toHaveLength(2);
   });
 
   test("ignores legacy status rows while accepting their cursors as replay anchors", () => {
@@ -90,6 +103,7 @@ describe("accepted-update transaction store", () => {
       tree: "tr_test",
       root: B,
       previousRoot: A,
+      expectedUpdate: store.current("tr_test")!.id,
       expectedRoot: A,
       kind: "accepted",
       acceptedAt: 3,

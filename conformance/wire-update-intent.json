@@ -4,22 +4,26 @@
     "tree": "tr_atlas",
     "base": "1",
     "candidate": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
-    "canonicalCBORBase64": "pmRiYXNlYTFkdHJlZWh0cl9hdGxhc2dpZk1hdGNoaW1vZGVsSGFzaGd2ZXJzaW9uanVwZGF0ZXMtdjFpY2FuZGlkYXRleEdzaGEyNTY6NTg5MWI1YjUyMmQ1ZGYwODZkMGZmMGIxMTBmYmQ5ZDIxYmI0ZmM3MTYzYWYzNGQwODI4NmEyZTg0NmY2YmUwM2pvbkNvbmZsaWN0ZW1lcmdl",
-    "digest": "sha256:6decc8e7532e5886800e7c0bdaaac7d103eb734aeda9c7ff459142f168dab909",
+    "canonicalCBORBase64": "qGRiYXNlYTFkdHJlZWh0cl9hdGxhc2ZjaGFuZ2VwZml4dHVyZS1jaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlZ2lmTWF0Y2hpbW9kZWxIYXNoaWNhbmRpZGF0ZXhHc2hhMjU2OjU4OTFiNWI1MjJkNWRmMDg2ZDBmZjBiMTEwZmJkOWQyMWJiNGZjNzE2M2FmMzRkMDgyODZhMmU4NDZmNmJlMDNqb25Db25mbGljdGVtZXJnZWpvcGVyYXRpb25z9g==",
+    "digest": "sha256:df3b75cab79f5767fafc16b0bcea1a66f72f1d2860ece65a8479bfe39f0df12a",
     "ifMatch": "modelHash",
-    "onConflict": "merge"
+    "onConflict": "merge",
+    "change": "fixture-change-1",
+    "operations": null
   },
   "laterElement": {
     "tree": "tr_atlas",
     "base": {
-      "requestDigest": "sha256:6decc8e7532e5886800e7c0bdaaac7d103eb734aeda9c7ff459142f168dab909",
+      "requestDigest": "sha256:df3b75cab79f5767fafc16b0bcea1a66f72f1d2860ece65a8479bfe39f0df12a",
       "candidate": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
     },
     "candidate": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "canonicalCBORBase64": "pmRiYXNlomljYW5kaWRhdGV4R3NoYTI1Njo1ODkxYjViNTIyZDVkZjA4NmQwZmYwYjExMGZiZDlkMjFiYjRmYzcxNjNhZjM0ZDA4Mjg2YTJlODQ2ZjZiZTAzbXJlcXVlc3REaWdlc3R4R3NoYTI1Njo2ZGVjYzhlNzUzMmU1ODg2ODAwZTdjMGJkYWFhYzdkMTAzZWI3MzRhZWRhOWM3ZmY0NTkxNDJmMTY4ZGFiOTA5ZHRyZWVodHJfYXRsYXNnaWZNYXRjaGltb2RlbEhhc2hndmVyc2lvbmp1cGRhdGVzLXYxaWNhbmRpZGF0ZXhHc2hhMjU2OmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJqb25Db25mbGljdGVtZXJnZQ==",
-    "digest": "sha256:cb11c79e92cc9f6242ce7c625f39fae077e52ea27225fa5179bdf23851c02b4b",
+    "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGV4R3NoYTI1Njo1ODkxYjViNTIyZDVkZjA4NmQwZmYwYjExMGZiZDlkMjFiYjRmYzcxNjNhZjM0ZDA4Mjg2YTJlODQ2ZjZiZTAzbXJlcXVlc3REaWdlc3R4R3NoYTI1NjpkZjNiNzVjYWI3OWY1NzY3ZmFmYzE2YjBiY2VhMWE2NmY3MmYxZDI4NjBlY2U2NWE4NDc5YmZlMzlmMGRmMTJhZHRyZWVodHJfYXRsYXNmY2hhbmdlcGZpeHR1cmUtY2hhbmdlLTJmZG9tYWlubGFyYm9yLXVwZGF0ZWdpZk1hdGNoaW1vZGVsSGFzaGljYW5kaWRhdGV4R3NoYTI1NjpiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiam9uQ29uZmxpY3RlbWVyZ2Vqb3BlcmF0aW9uc/Y=",
+    "digest": "sha256:9fb3f40b4687717fe3641adc9ab14856c14896609a2781dce801a4d245ef0b2f",
     "ifMatch": "modelHash",
-    "onConflict": "merge"
+    "onConflict": "merge",
+    "change": "fixture-change-2",
+    "operations": null
   },
   "envelopeIndependence": {
     "description": "Two plural requests with the same tree, base, candidates, ifMatch, and onConflict but different object envelopes have identical element digests. Envelopes are transport, not intent: an adopter may re-pack a persisted request's objects and still prove the same identity.",
@@ -56,8 +60,12 @@
       ]
     ],
     "digests": [
-      "sha256:6decc8e7532e5886800e7c0bdaaac7d103eb734aeda9c7ff459142f168dab909",
-      "sha256:cb11c79e92cc9f6242ce7c625f39fae077e52ea27225fa5179bdf23851c02b4b"
+      "sha256:df3b75cab79f5767fafc16b0bcea1a66f72f1d2860ece65a8479bfe39f0df12a",
+      "sha256:9fb3f40b4687717fe3641adc9ab14856c14896609a2781dce801a4d245ef0b2f"
+    ],
+    "changes": [
+      "fixture-change-1",
+      "fixture-change-2"
     ]
   },
   "replayCases": [

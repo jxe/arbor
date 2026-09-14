@@ -52,6 +52,7 @@ struct UpdateMachineTests {
         let vector = try #require(fixture["envelopeIndependence"] as? [String: Any])
         let tree = try #require(vector["tree"] as? String)
         let candidates = try #require(vector["candidates"] as? [String])
+        let changes = try #require(vector["changes"] as? [String])
         let base = WireUpdateBase(root: candidates[0], update: try #require(vector["base"] as? String))
         let expected = try #require(vector["digests"] as? [String])
         let ifMatch = try #require(vector["ifMatch"] as? String)
@@ -68,6 +69,7 @@ struct UpdateMachineTests {
                 }
                 updates.append(WireCandidateUpdate(
                     candidate: candidate,
+                    change: changes[index],
                     ifMatch: ifMatch,
                     onConflict: vector["onConflict"] as? String,
                     objects: objects

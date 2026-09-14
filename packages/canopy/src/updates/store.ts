@@ -33,6 +33,7 @@ export interface AcceptedUpdateInput {
 
 export interface AcceptedCommitInput extends AcceptedUpdateInput {
   expectedRoot: ObjectHash;
+  expectedUpdate: string;
 }
 
 export class AcceptedUpdateStore {
@@ -186,6 +187,7 @@ export class AcceptedUpdateStore {
   commit(input: AcceptedCommitInput, withinTransaction?: () => void): AcceptedUpdate | null {
     let accepted: AcceptedUpdate | null = null;
     this.db.transaction(() => {
+      if (this.current(input.tree)?.id !== input.expectedUpdate) return;
       const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
         input.root,
         input.acceptedAt,

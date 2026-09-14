@@ -1,3 +1,4 @@
+import { decodeOperations, validOperationID } from "./operations.ts";
 import { decodeWireDirectory, hashObject, wireEntryObject, type WireEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import type {
   AcceptedTransition,
@@ -33,6 +34,8 @@ export interface UpdateRequestJSON {
 }
 
 export interface CandidateUpdateJSON {
+  change: string;
+  operations: import("./operations.ts").SourceOperation[] | null;
   candidate: ObjectHash;
   ifMatch: IfMatch;
   onConflict?: OnConflict;
@@ -225,24 +228,21 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
   };
 }
 
-export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
+function requestElements(value: unknown): { base: string | null; updates: unknown[] } {
   if (!value || typeof value !== "object") throw new Error("Update body must be a JSON object");
-  const body = value as Record<string, unknown> & { base?: unknown; updates?: unknown };
-  if (body.base !== null && (typeof body.base !== "string" || !body.base)) {
-    throw new Error("Update requires a base update id or null for activation");
-  }
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => !["base", "updates"].includes(key))) throw new Error("Unknown request field");
+  if (body.base !== null && (typeof body.base !== "string" || !body.base)) throw new Error("Update requires a base update id or null for activation");
   if (!Array.isArray(body.updates) || body.updates.length === 0) throw new Error("Update requires a nonempty updates array");
-  return {
-    base: body.base,
-    updates: body.updates.map((update, index) => decodeCandidateUpdateJSON(update, body.base === null && index === 0)),
-  };
+  return { base: body.base, updates: body.updates };
 }
 
-export function decodeCandidateUpdateJSON(value: unknown, activation = false): CandidateUpdate {
+function candidateIntent(value: unknown, activation: boolean): Pick<CandidateUpdate, "change" | "operations" | "candidate" | "ifMatch" | "onConflict"> {
   if (!value || typeof value !== "object") throw new Error("Update element must be a JSON object");
   const body = value as Record<string, unknown> & {
     candidate?: unknown; ifMatch?: unknown; onConflict?: unknown; objects?: unknown; deltas?: unknown;
   };
+  if (Object.keys(body).some((key) => !["change", "operations", "candidate", "ifMatch", "onConflict", "objects", "deltas"].includes(key))) throw new Error("Unknown update field");
   if (typeof body.candidate !== "string" || !HASH.test(body.candidate)) throw new Error("Update requires a candidate root");
   if (body.ifMatch !== "bytesHash" && body.ifMatch !== "modelHash") throw new Error("Update requires ifMatch of bytesHash or modelHash");
   if (body.onConflict !== undefined && body.onConflict !== "reject" && body.onConflict !== "merge") {
@@ -250,17 +250,41 @@ export function decodeCandidateUpdateJSON(value: unknown, activation = false): C
   }
   if (body.ifMatch === "bytesHash" && body.onConflict === "merge") throw new Error("A bytesHash match cannot merge");
   if (activation && body.ifMatch !== "bytesHash") throw new Error("Activation matches on bytesHash");
+  if (!validOperationID(body.change)) throw new Error("Update requires a change identity");
+  const operations = decodeOperations(body.operations);
+  return {
+    change: body.change as string, operations, candidate: body.candidate as ObjectHash,
+    ifMatch: body.ifMatch,
+    ...(body.onConflict !== undefined ? { onConflict: body.onConflict } : {}),
+  };
+}
+
+/** Validate in-process requests without re-encoding their potentially large object payloads. */
+export function validateUpdateRequestIntent(request: UpdateRequest): void {
+  const body = requestElements(request);
+  const seen = new Set<string>();
+  for (const [index, value] of body.updates.entries()) {
+    const intent = candidateIntent(value, body.base === null && index === 0);
+    if (seen.has(intent.change)) throw new Error("Duplicate change identity");
+    seen.add(intent.change);
+  }
+}
+
+export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
+  const body = requestElements(value);
+  const updates = body.updates.map((update, index) => decodeCandidateUpdateJSON(update, body.base === null && index === 0));
+  if (new Set(updates.map((update) => update.change)).size !== updates.length) throw new Error("Duplicate change identity");
+  return { base: body.base, updates };
+}
+
+export function decodeCandidateUpdateJSON(value: unknown, activation = false): CandidateUpdate {
+  const intent = candidateIntent(value, activation);
+  const body = value as Record<string, unknown>;
   const objects = decodeObjectEnvelopes(body.objects);
   const deltas = decodeObjectDeltas(body.deltas);
   assertDistinctResults(objects, deltas, "Object delta result also supplied as a complete object");
   if (activation && deltas.length) throw new Error("Activation has no base to apply deltas against");
-  return {
-    candidate: body.candidate as ObjectHash,
-    ifMatch: body.ifMatch,
-    ...(body.onConflict !== undefined ? { onConflict: body.onConflict } : {}),
-    objects,
-    deltas,
-  };
+  return { ...intent, objects, deltas };
 }
 
 export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJSON {
@@ -272,6 +296,8 @@ export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJS
 
 export function encodeCandidateUpdateJSON(update: CandidateUpdate): CandidateUpdateJSON {
   return {
+    change: update.change,
+    operations: decodeOperations(update.operations),
     candidate: update.candidate,
     ifMatch: update.ifMatch,
     ...(update.onConflict !== undefined ? { onConflict: update.onConflict } : {}),

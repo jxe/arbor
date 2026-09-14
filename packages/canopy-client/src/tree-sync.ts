@@ -2,6 +2,7 @@ import type { SharedTreePlacement } from "@arbor/stores";
 import {
   WireClient,
   WireUpdateConflict,
+  WireUnsupportedOperation,
   applyTransitionPayload,
   decodeCandidateUpdateJSON,
   decodeWireDirectory,
@@ -84,6 +85,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  */
 export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
   readonly conflicts = new Set<string>();
+  private readonly unsupported = new Map<string, string>();
   private readonly queued = new Map<string, TreeRefWatchEvent[]>();
   private readonly watches = new Map<string, { abort: AbortController; done: Promise<void> }>();
   private closed = false;
@@ -347,6 +349,13 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     const { trees } = this.deps;
     trees.setSyncState(workspace.tree, "syncing");
     let placement = initialPlacement;
+    let pending = await pendingTreeUpdate(workspace.tree);
+    const pendingIdentity = pending ? updatesFromPending(pending).map((update) => update.change).join("/") : "";
+    if (this.unsupported.get(workspace.tree) === pendingIdentity) {
+      trees.setSyncState(workspace.tree, "error");
+      return;
+    }
+    this.unsupported.delete(workspace.tree);
     if (this.conflicts.has(workspace.tree) || await treeConflict(workspace.tree)) {
       trees.setSyncState(workspace.tree, "conflict");
       this.conflicts.add(workspace.tree);
@@ -372,7 +381,6 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       this.conflicts.add(workspace.tree);
       return;
     }
-    let pending = await pendingTreeUpdate(workspace.tree);
     let local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || !placement.update) {
       if (local.root === remote.root) {
@@ -393,7 +401,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       await this.pullCurrent(workspace, placement, client, remoteTrees, current);
       return;
     }
-    if (local.root === remote.root) {
+    if (local.root === remote.root && (!pending || updatesFromPending(pending).every((update) => update.operations === null))) {
       await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update, conflicted: remote.conflicted });
       await saveAcceptedTreeObjects(workspace.tree, local);
       if (pending) await clearPendingTreeUpdate(workspace.tree);
@@ -489,6 +497,11 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         if (this.queued.get(workspace.tree)?.length) void this.deps.requestSync().catch(() => {});
         return;
       } catch (error) {
+        if (error instanceof WireUnsupportedOperation) {
+          this.unsupported.set(workspace.tree, submittedUpdates.map((update) => update.change).join("/"));
+          trees.setSyncState(workspace.tree, "error");
+          throw error;
+        }
         if (error instanceof WireUpdateConflict) {
           // A conflict after Canopy trimmed an accepted prefix can name the
           // preceding submitted candidate as its base. That root is durable

@@ -18,6 +18,7 @@ import {
 import { parseMarkdown } from "@arbor/editor";
 import { decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
 import {
+  validateUpdateRequestIntent,
   decodeWireDirectory,
   encodeWireDirectory,
   hashObject,
@@ -180,7 +181,7 @@ export class RefConflictError extends Error {
 }
 
 export class UpdateProtocolError extends Error {
-  constructor(readonly code: "base-not-retained" | "server-busy" | "activation-conflict", message: string) {
+  constructor(readonly code: "base-not-retained" | "server-busy" | "activation-conflict" | "unsupported-operation", message: string) {
     super(message);
     this.name = "UpdateProtocolError";
   }
@@ -518,6 +519,7 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("Pairing is invalid, expired, or already used");
     }
     const account = this.account(pairing.accountID)!;
+    const expectedUpdate = this.currentUpdate(account.configTree!)!.id;
     const current = await this.accountConfigGraph(account);
     if (current.devices[input.deviceID]) throw new Error("DeviceID is already active");
     const next = v2Graph(current)
@@ -551,6 +553,7 @@ export class CanopyDaemon implements AsyncDisposable {
       root: nextSnapshot.root,
       previousRoot: configTree.ref,
       expectedRoot: configTree.ref,
+      expectedUpdate,
       kind: "accepted",
       acceptedAt: now,
       subject: `pairing:${id}`,
@@ -980,6 +983,11 @@ export class CanopyDaemon implements AsyncDisposable {
     credentialSubject?: string,
     authentication?: CanopyAuthentication,
   ): Promise<StoredUpdateResponse> {
+    validateUpdateRequestIntent(request);
+    // Preflight the whole batch: unsupported semantics must never accept a prefix.
+    for (const [index, update] of request.updates.entries()) {
+      if (update.operations !== null) throw new UpdateProtocolError("unsupported-operation", `Update ${index} (${update.change}) contains operations not yet supported by Canopy`);
+    }
     const digests = updateRequestDigests(treeID, request);
     const completed: UpdateResult[] = [];
     let accepted = false;
@@ -1124,6 +1132,7 @@ export class CanopyDaemon implements AsyncDisposable {
         root: nextRoot,
         previousRoot: remoteTree.ref,
         expectedRoot: remoteTree.ref,
+        expectedUpdate: remoteUpdate.id,
         kind,
         acceptedAt: now,
         subject,

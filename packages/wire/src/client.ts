@@ -50,6 +50,14 @@ export class WireUpdateConflict extends Error {
   }
 }
 
+export class WireUnsupportedOperation extends Error {
+  readonly retryable = false;
+  constructor(readonly result: ArborError) {
+    super(result.message);
+    this.name = "WireUnsupportedOperation";
+  }
+}
+
 export interface RemoteAccountDescriptor {
   id: string;
   /** Optional Canopy-specific presentation hint; never account identity. */
@@ -110,7 +118,6 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
     throw new Error("Malformed tree.update change");
   }
   if (descriptor.conflicted !== undefined && typeof descriptor.conflicted !== "boolean") throw new Error("Malformed conflict signal");
-  if (descriptor.extensions !== undefined && (!Array.isArray(descriptor.extensions) || descriptor.extensions.some(id => typeof id !== "string" || !id.length))) throw new Error("Malformed extension identifiers");
   const transitions = change.transitions.map(decodeAcceptedTransitionJSON);
   let previous: AcceptedTransition | undefined;
   for (const transition of transitions) {
@@ -331,9 +338,11 @@ export class WireClient {
     tree: string,
     base: string | null,
     snapshot: TreeSnapshot,
-    options: { deltas?: ObjectDelta[]; ifMatch?: IfMatch; onConflict?: OnConflict } = {},
+    options: { change?: string; deltas?: ObjectDelta[]; ifMatch?: IfMatch; onConflict?: OnConflict } = {},
   ): Promise<UpdateResult> {
     const update: CandidateUpdate = {
+      change: options.change ?? crypto.randomUUID(),
+      operations: null,
       candidate: snapshot.root,
       ifMatch: options.ifMatch ?? (base === null ? "bytesHash" : "modelHash"),
       ...(options.onConflict !== undefined ? { onConflict: options.onConflict } : {}),
@@ -351,6 +360,10 @@ export class WireClient {
       headers: this.headers(true),
       body: JSON.stringify(encodeUpdateRequestJSON(request)),
     });
+    if (response.status === 422) {
+      const body = await response.clone().json() as ArborError;
+      if (body.error === "unsupported-operation" && body.retryable === false) throw new WireUnsupportedOperation(body);
+    }
     if (response.status === 409) {
       const body = await response.json() as { error?: unknown; message?: unknown };
       if (body.error === "conflict") {
