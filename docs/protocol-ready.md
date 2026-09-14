@@ -10,7 +10,7 @@ The TypeScript Wire client exposes `WireUnsupportedOperation`; the daemon retain
 
 [Preparation evidence and remaining joint steps](protocol-cutover-preparation.md) records the integration onto newer main, successful native builds, disposable cutover rehearsal, and device checks. It supersedes the original worktree test counts below.
 
-The live cutover is to be performed together with Joe, in a separate session after this work is reviewed. Do not execute these steps as part of implementation or verification.
+The coordinated live cutover completed with Joe on 2026-09-14. Canopy, Arbor Sync, macOS, and iOS now run the protocol-ready contract from commit `e1e2531`. The procedure below is retained as the upgrade and rollback reference; it is not an instruction to repeat the cutover.
 
 There is one current Wire request shape and digest contract. The singular request adapter is removed. This code change does not deploy any service, change Quagmire pins, migrate live data, or reset history. No database schema change is required for this milestone: Canopy has not yet accepted operation provenance.
 
@@ -37,4 +37,12 @@ Cross-language fixtures live in `conformance/wire-operations.json` and `conforma
 - Repository Markdown validation checked 697 relative links in 163 files: no newly broken links; 11 existing broken historical/fixture links remain. `git diff --check` passed.
 - Focused coverage includes whole-batch rejection before a valid prefix or activation; persistence of operation-bearing requests and snapshot successors; adopted operations surviving native restart at equal roots; changed durable request bases failing closed; and accepted-update CAS at unchanged roots.
 
-All runtime verification used disposable test services and state. Live cutover remains pending our joint session.
+The preparation checks above used disposable services and state. The subsequent live cutover is recorded below.
+
+## Live cutover verification, 2026-09-14
+
+Railway deployment `81d7dbe6-624c-4b03-8924-dff34e448684` is healthy. Signed macOS and physical-iPhone builds were installed, and the source-backed Arbor Sync daemon was restarted from the same revision. Quagmire remains at the tested local revision recorded in the preparation report; published pins are unchanged. No data migration or reset occurred.
+
+All 70 original accepted-update rows survived byte-for-byte. A temporary snapshot with a durable change ID and explicit null operations was accepted as update 1652; an exact request replay returned the same response without another accepted update. An operation-bearing request returned nonretryable `422 unsupported-operation` without changing the accepted state. Both devices adopted the temporary note. Removing it through the Mac filesystem synchronized as update 1653 and restored the exact original root. The attempted short-lived daemon pending-record capture missed the pending window; acceptance by the strict new server and subsequent clean state verified the client submission.
+
+Final Mac filesystem hashes, daemon descriptors, authenticated Canopy snapshots, and iPhone working-tree/control state agree. All three Mac placements are idle. The phone is current at update 1653 without pending requests or conflicts, and all 104 materialized nodes retain their original content and structure. The final accepted history has 72 rows: the original 70 plus test addition/removal. Fresh backups and private verification artifacts are preserved at `/Users/joe/arbor-protocol-backup-20260914.sFnsIx/`.
