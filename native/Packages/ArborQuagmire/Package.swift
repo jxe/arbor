@@ -8,7 +8,7 @@ let package = Package(
     dependencies: [
         .package(path: "../ArborSyncClient"),
         .package(path: "../ArborKit"),
-        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.6.0")
+        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.7.0")
     ],
     targets: [
         .target(
