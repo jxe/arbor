@@ -1,6 +1,6 @@
 # Accepted-state links: one foundational cutover
 
-Status: PREPARATION ONLY. Schema 7 → 8. No live data has been migrated.
+Status: PREPARATION ONLY. Schema 7 → 8. Preserved-backup rehearsal passed; no live data has been migrated.
 Coordinate the live client/server upgrade with Joe after the remaining client
 compatibility gates in [Reliability 011](../../plans/reliability/011-compatible-accepted-ambiguity.md).
 
@@ -38,10 +38,10 @@ nothing. Old binaries cannot safely open the new schema.
 4. Compare all pre-existing accepted-record fields and observation rows exactly,
    plus tree refs, object inventory and authored file bytes. Serve only the copy
    with the new build and run the protocol/client convergence gates.
-5. Finish client disk-format rehearsal: native saved placement/visit descriptors
-   from the installed build may omit the now-required `conflicted` field. These
-   caches need an explicit disk upgrade or refresh path before installation. Audit
-   durable rejected responses as well. The server migration does not alter them.
+5. Verify native saved placement/visit descriptors with the disk-only compatibility
+   reader. Legacy missing flags become false in memory; active Wire decoding stays
+   strict. The [preserved-backup rehearsal](rehearsal.md) passed. Audit fresh durable
+   rejected responses as well; neither the cache reader nor server migration alters them.
 6. Only after those gates, coordinate backups, upgrades and verification on the
    Mac, iPhone, filesystem daemon and Canopy. Retain rollback artifacts until exact
    state/byte comparisons and continued offline/restart syncing pass.
@@ -55,4 +55,5 @@ replace newer accepted state with an old backup as an automatic fallback.
 Two disposable SQLite tests pass: exact history/provenance preservation with
 same-root links and idempotent rerun, and transactional refusal of incomplete old
 history. A migrated successor retains its predecessor identity after the predecessor
-is pruned. This is a synthetic migration rehearsal, not a live-backup rehearsal.
+is pruned. The subsequent [preserved-backup rehearsal](rehearsal.md) also passed;
+its historical queue audit does not establish current live readiness.

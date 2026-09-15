@@ -1,4 +1,5 @@
 import ArborWire
+import CanopyClient
 import Foundation
 
 enum ArborSupportDirectories {
@@ -123,7 +124,7 @@ actor NativePlacementStore {
     }
 
     private func loadCollection() throws -> NativePlacementCollection {
-        let data = try Data(contentsOf: url)
+        let data = try SavedTreeDescriptorUpgrade.placements(Data(contentsOf: url))
         if let collection = try? JSONDecoder().decode(NativePlacementCollection.self, from: data) {
             guard collection.version == 2 else {
                 throw ArborWireValidationError.invalidValue("Unsupported native placement collection")

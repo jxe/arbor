@@ -17,8 +17,10 @@ The [active adoption checkpoint](update-wire-contract.md#active-accepted-state-a
 records consolidated request/read encoding across Canopy and both client languages.
 Accepted-state links and flags use schema 8, with a history-preserving offline
 migration. The filesystem daemon and native watcher keep observation progress
-separate from accepted identity. Native disk-format preparation and rehearsal on
-actual backup copies remain before the single coordinated cutover. Subsequent
+separate from accepted identity. Native cache compatibility and a
+[preserved-backup rehearsal](../migrations/006-accepted-state-links/rehearsal.md)
+pass; fresh live audits, backups and joint installation remain before the single
+coordinated cutover. Subsequent
 operation releases deploy verified server acceptance before client emission,
 without capability advertisement.
 

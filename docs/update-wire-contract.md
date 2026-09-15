@@ -199,11 +199,16 @@ full-suite run hit collection-sandbox and CLI timeouts; the unchanged full suite
 passed when rerun without the competing Swift build. No timeout or assertion was
 relaxed. Repository file/section checks introduce no new broken links.
 
-Remaining before cutover: native persisted placement/visit descriptor compatibility
-(the installed format can omit `conflicted`), old pending/rejected-response recovery,
-and a rehearsal on actual backup copies. The current binary must not be installed
-until those gates pass. Detailed inspection, operation execution and review UI still
-follow independently under the server-first release order.
+Native saved placement/visit compatibility now adapts legacy missing flags only on
+disk reads, leaving network decoding strict and source caches unchanged. The
+[preserved-backup rehearsal](../migrations/006-accepted-state-links/rehearsal.md)
+passed for Canopy and saved Mac/iPhone placements. Both native platform builds,
+focused cache tests, migration tests, type checking and the protocol gate pass.
+
+Remaining before cutover: fresh live queue/rejected-response audits, synchronized
+backups and the coordinated installation and verification gate. Historical backup
+checks do not establish current live readiness. Detailed inspection, operation
+execution and review UI follow independently under the server-first release order.
 
 ## Accepted read transport checkpoint
 

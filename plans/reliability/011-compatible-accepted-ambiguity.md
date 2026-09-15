@@ -30,14 +30,13 @@ as the owning implementation lands. Keep existing conformance suites passing.
 
 The [active request/read implementation](../../docs/update-wire-contract.md#active-accepted-state-adoption)
 and [offline schema migration](../../migrations/006-accepted-state-links/README.md)
-are in place. Rehearse native saved placement/visit descriptors from the installed
-build: they can omit the now-required `conflicted` field. Provide an explicit disk
-upgrade or refresh path without weakening active Wire decoding. Audit old durable
-rejection records as well as transmitted uncertain requests, offline clients and
-adopted prefixes. Resolve old requests with their original build/bytes/semantics/digests;
-never rewrite historical receipts or translate pending work in place. Rehearse the
-schema migration on actual backup copies, a clean-queue upgrade and backup restoration
-before activation. Keep transport object/delta codecs.
+are in place, with [native cache compatibility and preserved-backup evidence](../../migrations/006-accepted-state-links/rehearsal.md).
+Audit fresh live durable rejection records, transmitted uncertain requests, offline
+clients and adopted prefixes. Resolve old requests with their original
+build/bytes/semantics/digests; never rewrite historical receipts or translate pending
+work in place. Coordinate fresh synchronized backups, clean-queue upgrades and
+exact state/byte verification with Joe. Verify continued offline/restart syncing
+and retain matching rollback artifacts. Keep transport object/delta codecs.
 
 Port or explicitly archive old-format experiments; retain their historical evidence.
 Complete material-based inspection as accepted alternatives become available.
