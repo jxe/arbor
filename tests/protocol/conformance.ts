@@ -32,7 +32,7 @@ const authorityState = join(sandbox, "canopy");
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 
 try {
-  await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/wire/update-intent.test.ts", "tests/unit/wire/operations.test.ts", "tests/unit/wire/authored-contract.test.ts", "tests/unit/wire/accepted-contract.test.ts", "tests/unit/wire/authored-transport.test.ts"]);
+  await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/wire/update-intent.test.ts", "tests/unit/wire/operations.test.ts", "tests/unit/wire/authored-contract.test.ts", "tests/unit/wire/accepted-contract.test.ts", "tests/unit/wire/accepted-transport.test.ts", "tests/unit/wire/authored-transport.test.ts"]);
 
   // One local Canopy with an owner account; the control-mode daemon below
   // places `treeDir` under that account so the Swift suites can exercise the

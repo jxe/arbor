@@ -14,9 +14,13 @@ basis, unresolved signal, pending requests and newer local edits. Accepted confl
 must not create a local hold or pause sync. Clients need no downloaded identity map,
 merge engine or review cache to perform ordinary editing.
 
-Use one unversioned contract and coordinated upgrades. Verify stale/offline clients
-before activation. If compatibility cannot be assured, add an explicit guard first.
-Never fall back to a server that discards already accepted alternatives.
+Use one unversioned contract with one foundational, coordinated client/server
+cutover. Every client installed at that cutover must remain safe with later server
+conflict capabilities, without requiring review UI or detailed operation emission.
+Later additive capabilities ship independently through the server-first release order and
+compatibility gates below. This does not promise compatibility for arbitrary future
+breaking changes to existing semantics. Never fall back to a server that discards
+already accepted alternatives.
 
 The [shared scenarios](../../conformance/accepted-ambiguity.json) are planned semantic
 requirements, not executable conformance claims. Convert them to executable evidence
@@ -40,6 +44,52 @@ continuity, stale pages, off-page dependencies and historical receipts. Complete
 format-specific projection/action validation before enabling non-text controls.
 Inspection action labels identify review capabilities, not opcodes.
 
+### Foundational cutover gate
+
+Finish these requirements before the single live client/server cutover:
+
+- Adopt the consolidated request, receipt and watch contracts, including opaque
+  accepted identity, predecessor chains and same-root unresolved-state changes.
+- Make baseline snapshot clients continue syncing and editing accepted conflicts
+  without downloading decisions or understanding their formats. Preserve pending
+  work and newer local bytes during acknowledgement and remote materialization.
+  Canopy owns hidden-alternative preservation and prevents ordinary saves from
+  becoming implicit resolution; clients do not reproduce that merge logic.
+- Keep baseline clients tolerant of unknown optional read fields, decision kinds
+  and action labels. Continue ordinary sync; do not invent mutation semantics for
+  unfamiliar review actions. No capability-discovery endpoint, protocol-version
+  ladder or negotiation handshake is needed.
+- Establish server-first release ordering: implement, deploy and verify acceptance
+  semantics on every destination authority used by a client before releasing that
+  client's emission of those semantics. Verify supported reference/value forms and
+  resolution behavior, not just recognition of an operation name. Record that
+  prerequisite with each operation's release evidence.
+- Retain whole-batch unsupported-semantics preflight as a failure safeguard. Preserve
+  the original request on rejection; an uncertain outcome requires exact retry.
+  Never silently strip already-authored operations or resolution declarations from
+  durable pending requests. If a definitively rejected request is explicitly
+  reauthored, retain the work and assign fresh identity.
+- Preserve a baseline client build as a compatibility test artifact. Test it against
+  a server accepting unresolved text, structural and opaque/binary decisions,
+  including hidden-alternative preservation under ordinary snapshots. Until those
+  engines exist, use disposable protocol scenarios to exercise the actual client
+  queues, restart, same-root watch changes and newer local edits. Those scenarios
+  establish client behavior, not future server merge correctness.
+- Test unsupported suffix preflight and unknown read extensions. A client sent to
+  an authority lacking its required operation support must fail without losing work;
+  that combination is a release-order error, not a supported advanced-editing mode.
+  Add actual server execution/preservation cases as each capability is implemented;
+  keep the baseline client in the release compatibility matrix.
+
+The cutover does not require every operation, production conflict creation, full
+inspection or a resolution UI. Settle old-format queues with the original build,
+verify backups and complete the gate with Joe. Thereafter an operation-aware client
+ships after the corresponding server acceptance support is deployed and verified;
+there is no requirement to update them simultaneously. Baseline clients continue
+snapshots while server capabilities grow. Merge rules and review UI improve
+independently within the deployed server contract. A server storage migration may still require its
+own rehearsal, but must preserve accepted state without requiring client migration.
+
 ## 2. Prepare Canopy to validate and retain intent
 
 Implement each operation family's validation, exact candidate correspondence and
@@ -62,7 +112,7 @@ alternative correspondence or resolve decisions through ordinary saves.
 ## 4. Accept and track unresolved text decisions
 
 Implement competing replacements, ordinary projection, durable alternatives and
-bounded inspection. Commit state, provenance, projection and signal atomically.
+paged inspection. Commit state, provenance, projection and signal atomically.
 Continue ordinary edits, including snapshots from clients without review UI; preserve
 hidden alternatives and open decisions. Accept representable ambiguity rather than
 rejecting merely because attribution is uncertain. Reject invalid or unsupported
@@ -81,8 +131,10 @@ newer local edits. A failed inspection fetch must not stop ordinary sync.
 Provide one usable end-to-end text resolution path with exact accepted-state and
 alternative guards. Fetch evidence on demand. Preserve user-authored drafts and
 pending requests; stale evidence requires refresh before resolution. Canopy enforces
-all resolution semantics. Coordinate everyday activation after this path and client
-compatibility have been verified. Test fallback that stops creating new decisions
+all resolution semantics. Ship this path after server resolution support is deployed
+and verified, respecting per-decision actions. A usable resolution path may be a product readiness gate
+for enabling new conflict creation, but does not require upgrading every client or
+another wire cutover. Test fallback that stops creating new decisions
 while retaining, serving and permitting resolution of existing ones.
 
 ## 6. Improve operation coverage and merge rules incrementally
@@ -109,5 +161,6 @@ losing or duplicating B. Never invent independence merely from different paths.
 Durable inspection caching, offline review, polished comparison/navigation and other
 review conveniences are deferred. They do not gate intent emission or accepted
 conflicts. Essential local-edit, draft and pending-request durability remains required.
-Archive this plan only after the first compatible slice is activated and its evidence
-is recorded; keep later operation/rule/UI work in 008–010.
+Archive this plan only after the foundational cutover and first accepted-conflict
+slice pass the mixed-capability gates and their evidence is recorded; keep later
+operation/rule/UI work in 008–010.

@@ -1,0 +1,1455 @@
+{
+  "description": "Complete accepted read bindings and payload validation; runtime adoption and durable client replay remain separate gates.",
+  "tree": "transport-tree",
+  "snapshot": {
+    "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+    "objects": [
+      {
+        "hash": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+        "bytes": "QSBwYXJhZ3JhcGguCg=="
+      },
+      {
+        "hash": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+        "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjUwMGE4OTJiZDdhYWZmNzFjN2FlMjc1ZWVlYjI5NDFlNzY3ZWM5NTRmYjU5MzI1NDAzMDg1NzFjMzFjZWFhZDlkbmFtZWdwYWdlLm1k"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "same-root decision followed by content in one batch",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": true,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "sparse accepted transport",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 0,
+                      "length": 13
+                    }
+                  },
+                  {
+                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                  }
+                ]
+              }
+            ],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": true,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "metadata-only accepted state has empty payload",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-é",
+          "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          }
+        ]
+      },
+      "valid": true,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "historical receipt is independent of observation head",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "reconciliation": {
+              "objects": [
+                {
+                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+                },
+                {
+                  "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+                }
+              ],
+              "deltas": []
+            }
+          }
+        ],
+        "observedThrough": "cursor-independent-of-accepted-ids"
+      },
+      "valid": true
+    },
+    {
+      "name": "unchanged may repeat the same accepted identity",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "reconciliation": {
+              "objects": [
+                {
+                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+                },
+                {
+                  "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+                }
+              ],
+              "deltas": []
+            }
+          },
+          {
+            "outcome": "unchanged",
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "observedThrough": "cursor-independent-of-accepted-ids"
+      },
+      "valid": true
+    },
+    {
+      "name": "unknown read extensions remain data",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true,
+              "futureProvenance": {
+                "anything": true
+              }
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ],
+        "futureReadField": {
+          "rule": "unrecognized"
+        }
+      },
+      "valid": true,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "same root cannot conceal wrong predecessor identity",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "wrong",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "omitted metadata-only update is a gap",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "reordered batch fails",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          },
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "wrong confirmed identity even at same root",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "different",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "opaque IDs are not Unicode-normalized",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "wrong tree rejected",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "other",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "descriptor identity must match final transition",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "other",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "descriptor conflict signal must match final transition",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": false,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "missing conflict signal rejected",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "activation is not a watch transition",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": null,
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "missing transport array rejected",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "duplicate objects rejected",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              },
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "wrong complete object bytes rejected",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "YQ=="
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "noncanonical base64 rejected",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "reconciliation": {
+              "objects": [
+                {
+                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                  "bytes": "YR=="
+                },
+                {
+                  "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+                }
+              ],
+              "deltas": []
+            }
+          }
+        ],
+        "observedThrough": "cursor-independent-of-accepted-ids"
+      },
+      "valid": false
+    },
+    {
+      "name": "malformed known reconciliation is not an extension",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "reconciliation": null
+          }
+        ],
+        "observedThrough": "cursor-independent-of-accepted-ids"
+      },
+      "valid": false
+    },
+    {
+      "name": "old outcome rejected",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "merged",
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "reconciliation": {
+              "objects": [
+                {
+                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+                },
+                {
+                  "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+                }
+              ],
+              "deltas": []
+            }
+          }
+        ],
+        "observedThrough": "cursor-independent-of-accepted-ids"
+      },
+      "valid": false
+    },
+    {
+      "name": "invalid transition digest rejected",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "bad"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "duplicate delta result rejected",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-é",
+              "tree": "transport-tree",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+              "previous": {
+                "id": "accepted-before",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [],
+            "deltas": []
+          },
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 0,
+                      "length": 13
+                    }
+                  },
+                  {
+                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                  }
+                ]
+              },
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 0,
+                      "length": 13
+                    }
+                  },
+                  {
+                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                  }
+                ]
+              }
+            ],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    }
+  ]
+}

@@ -66,7 +66,7 @@ old build before upgrading; it cannot be translated into the new request identit
 The maintained protocol gate runs the target TS tests and Swift suites alongside
 existing deployed-format compatibility tests.
 
-## Next implementation cutover
+## One foundational cutover
 
 [Plan 011](../plans/reliability/011-compatible-accepted-ambiguity.md) owns the sequence.
 The request-side implementation is complete in this worktree. Snapshot constructors
@@ -79,7 +79,23 @@ resolution declarations; grammar support never implies semantic execution.
 
 Next adopt the accepted-state/read contract: simplified outcomes, predecessor ID/root
 chains and required unresolved signals, then inspection as accepted decisions become
-available. Keep both client languages and the server aligned through that change.
+available. Include baseline client compatibility in this same cutover, as required by Plan 011.
+No capability-discovery endpoint or negotiation mechanism is needed.
+
+After that foundation, deploy and verify server acceptance of each new operation
+and its input forms before releasing clients that send them. These are separate
+releases with a dependency, not simultaneous upgrades. Baseline clients continue
+ordinary snapshot editing through accepted conflicts; Canopy preserves hidden
+alternatives and enforces resolution. Unknown optional read extensions do not stop
+ordinary sync. Merge rules and review UI can improve independently within the
+existing contract. Keep whole-batch unsupported-semantics rejection and immutable
+request recovery as safeguards against release-order mistakes.
+
+Preserve baseline client builds and test them against newer servers. The commitment
+covers additive capabilities, not arbitrary changes to existing request semantics.
+Server rollback must continue honoring all semantics and accepted state already in
+use by released clients; disabling new conflict creation must not discard existing
+alternatives or their resolution paths.
 
 Before live cutover, audit all offline/native and filesystem queues and adopted
 prefixes. Resolve unknown outcomes with the original request body and old build.
@@ -146,6 +162,37 @@ fixed decision or alternative count cap is introduced by the target models. Thes
 checks verify contract decoding and identity continuity, not new server execution.
 Repository-wide file-link and section-link checks introduce no new broken references;
 `git diff --check` passes.
+
+## Accepted read transport checkpoint
+
+The staged TS and Swift read models now validate watch transition payloads and
+submission reconciliation, using the existing complete-object/delta transport.
+They require both predecessor identity and root, retain empty same-root transitions,
+bind the final accepted state and unresolved signal to the descriptor, and keep
+accepted IDs independent of observation cursors. Unknown read extensions survive
+round trips; malformed known reconciliation fields do not pass as extensions.
+Watch binding validation is separate from descriptor policy validation and requires
+observation replay deduplication before checking the confirmed client basis.
+
+[Shared accepted-transport fixtures](../conformance/wire-accepted-transport.json)
+cover 24 positive/negative cases, including identity gaps concealed by equal roots,
+omitted metadata transitions, exact Unicode identity, historical receipts, complete
+object hashes, duplicate results and sparse transport. Both languages reconstruct
+exact fixture graph bytes after a metadata-only transition followed by a content
+transition. The maintained protocol gate includes these cases.
+
+These checks are preparatory: active HTTP response codecs, server accepted-state
+storage and client replay/coordinator paths still use the prior read representation.
+This checkpoint does not establish durable client handling of accepted conflicts or
+cutover readiness. Next wire the checked shapes through those paths and verify
+observation replay/HTTP races, restart and local edits against disposable servers.
+Retain historical accepted identities, request digests and provenance while adding
+predecessor identity access; do not reset history to simplify adoption.
+
+Checkpoint verification: 683 product tests, 59 focused read tests, 33 standalone
+ArborWire Swift tests, type checking and the full protocol gate pass. The protocol
+gate also passes 58 WorkingTree Swift tests against disposable services. Repository
+file/section link checks introduce no new broken references; `git diff --check` passes.
 
 ## Main integration boundary
 

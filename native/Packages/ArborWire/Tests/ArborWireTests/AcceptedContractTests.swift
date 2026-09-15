@@ -42,6 +42,41 @@ struct AcceptedContractTests {
             } else { #expect(throws:(any Error).self,"\(c["name"] ?? "case")") { try decode() } }
         }
     }
+    @Test("Complete accepted read transport and confirmed identity bindings")
+    func transport() throws {
+        let root=ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath:$0) }
+            ?? URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../conformance").standardizedFileURL
+        let file=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:root.appending(path:"wire-accepted-transport.json"))) as? [String:Any])
+        for c in try #require(file["cases"] as? [[String:Any]]) {
+            let data=try JSONSerialization.data(withJSONObject:#require(c["value"]))
+            func decode() throws -> Data {
+                if c["kind"] as? String == "watch" {
+                    let change=try JSONDecoder().decode(WireAcceptedWatchChangeContract.self,from:data)
+                    let basis=try #require(c["basis"] as? [String:String])
+                    try change.validateBasis(tree:#require(file["tree"] as? String),id:#require(basis["id"]),root:#require(basis["root"]))
+                    if ["same-root decision followed by content in one batch", "sparse accepted transport"].contains(c["name"] as? String ?? "") {
+                        let snapshotData=try JSONSerialization.data(withJSONObject:#require(file["snapshot"]))
+                        var snapshot=try JSONDecoder().decode(WireSnapshot.self,from:snapshotData)
+                        let transitions=try #require(change.fields["transitions"]?.items)
+                        for raw in transitions {
+                            let transition=try #require(raw.fields)
+                            let update=try #require(transition["update"]?.fields)
+                            let payload=try AcceptedReadValidation.payload(raw)
+                            snapshot=try WireTransitionReplay.applying(payload,to:snapshot,root:#require(update["root"]?.text))
+                        }
+                        #expect(snapshot.root==change.fields["descriptor"]?.fields?["root"]?.text)
+                        #expect(snapshot.objects.count==2)
+                        #expect(snapshot.objects.contains { String(data:$0.bytes,encoding:.utf8)=="A paragraph.\nA second paragraph.\n" })
+                    }
+                    return try JSONEncoder().encode(change)
+                }
+                return try JSONEncoder().encode(JSONDecoder().decode(WireSubmissionResponseContract.self,from:data))
+            }
+            if c["valid"] as? Bool == true {
+                #expect(try JSONDecoder().decode(WireReadValue.self,from:decode())==JSONDecoder().decode(WireReadValue.self,from:data))
+            } else { #expect(throws:(any Error).self,"\(c["name"] ?? "case")") { try decode() } }
+        }
+    }
     @Test("Resolution groups have no fixed count limit")
     func largeResolution() throws {
         let alternatives=(0..<1025).map { WireSemanticValue.string("a\($0)") }

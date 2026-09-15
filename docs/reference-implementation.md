@@ -11,6 +11,16 @@ This document records replaceable architecture and operating choices in the curr
 - [`@arbor/data`](../packages/data/README.md) — the implemented query, observation, and mutation runtime.
 - [Product-completion plans](../plans/README.md#product-completion) — compiler, presentation, activation, hosting, and agent work that remains.
 
+## Consolidated Wire adoption
+
+The [adoption checkpoint](update-wire-contract.md#accepted-read-transport-checkpoint)
+distinguishes active request encoding from staged accepted-state/read validation.
+The latter now checks complete reconciliation/watch payloads and predecessor
+identity bindings in both languages, but active read routes and durable client replay
+still require adoption. Deployment uses one coordinated foundational cutover;
+subsequent operation releases deploy verified server acceptance before client
+emission, without capability advertisement.
+
 ## Local service ownership
 
 Arbor Sync retains one process and the existing loopback API. `server.ts` supplies

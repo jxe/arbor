@@ -72,11 +72,48 @@ public struct WireSubmissionResponseContract: Codable, Sendable, Equatable {
             let r = try AcceptedReadValidation.object(raw); try AcceptedReadValidation.required(r,["outcome","update","requestDigest"])
             try AcceptedReadValidation.check(["unchanged","accepted"].contains(r["outcome"]?.text ?? ""))
             try AcceptedReadValidation.state(AcceptedReadValidation.object(r["update"])); try AcceptedReadValidation.hash(r["requestDigest"])
+            if let payload=r["reconciliation"] { _ = try AcceptedReadValidation.payload(payload) }
         }
     }
     public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(fields) }
 }
-private enum AcceptedReadValidation {
+/// Validates accepted-state bindings and transport; descriptor policy validation
+/// remains the descriptor decoder's responsibility. Deduplicate observation replay
+/// before calling validateBasis. Observation cursors are not accepted identities.
+public struct WireAcceptedWatchChangeContract: Codable, Sendable, Equatable {
+    public let fields: [String: WireReadValue]
+    public init(from decoder: Decoder) throws {
+        fields = try decoder.singleValueContainer().decode([String: WireReadValue].self)
+        let descriptor=try AcceptedReadValidation.object(fields["descriptor"])
+        try validate(tree: AcceptedReadValidation.string(descriptor["id"]), basis: nil)
+    }
+    public func encode(to encoder: Encoder) throws { var c=encoder.singleValueContainer(); try c.encode(fields) }
+    public func validateBasis(tree: String, id: String, root: String) throws {
+        try validate(tree: tree, basis: ["id":.string(id),"root":.string(root)])
+    }
+    private func validate(tree: String, basis: [String: WireReadValue]?) throws {
+        let d=try AcceptedReadValidation.object(fields["descriptor"])
+        try AcceptedReadValidation.required(d,["id","update","root","conflicted"])
+        try AcceptedReadValidation.token(.string(tree))
+        try AcceptedReadValidation.check(AcceptedReadValidation.equal(d["id"],.string(tree)))
+        try AcceptedReadValidation.token(d["update"]); try AcceptedReadValidation.hash(d["root"])
+        guard case .bool=d["conflicted"] else { try AcceptedReadValidation.check(false); return }
+        let transitions=try AcceptedReadValidation.array(fields["transitions"])
+        try AcceptedReadValidation.check(!transitions.isEmpty)
+        let updates=try transitions.map { raw -> WireAcceptedStateContract in
+            let t=try AcceptedReadValidation.object(raw)
+            try AcceptedReadValidation.required(t,["update","objects","deltas"])
+            let update=try JSONDecoder().decode(WireAcceptedStateContract.self,from:JSONEncoder().encode(t["update"]))
+            try AcceptedReadValidation.check(update.fields["previous"] != .null)
+            _ = try AcceptedReadValidation.payload(raw)
+            if let digest=t["requestDigest"] { try AcceptedReadValidation.hash(digest) }
+            return update
+        }
+        try WireAcceptedStateContract.validateChain(tree:tree,previous:basis ?? updates[0].fields["previous"]?.fields,updates:updates,head:["id":d["update"]!,"root":d["root"]!])
+        try AcceptedReadValidation.check(updates.last!.fields["conflicted"]==d["conflicted"])
+    }
+}
+enum AcceptedReadValidation {
     typealias Obj = [String: WireReadValue]
     static func check(_ ok: Bool) throws { if !ok { throw ArborWireValidationError.invalidValue("Invalid accepted-state contract") } }
     static func object(_ v: WireReadValue?) throws -> Obj { guard let o=v?.fields else { throw ArborWireValidationError.invalidValue("Expected object") }; return o }
@@ -117,6 +154,23 @@ private enum AcceptedReadValidation {
         try check(t>=0 && t<=9_007_199_254_740_991 && t.rounded()==t)
         if v["subject"] != .null { try token(v["subject"]) }
         if v["previous"] != .null { let p=try object(v["previous"]); try required(p,["id","root"]); try token(p["id"]); try hash(p["root"]); try check(!equal(p["id"],v["id"])) }
+    }
+    static func payload(_ raw: WireReadValue) throws -> WireTransitionPayload {
+        let v=try object(raw)
+        for raw in try array(v["objects"]) {
+            let envelope=try object(raw), text=try string(envelope["bytes"])
+            guard let bytes=Data(base64Encoded:text), bytes.base64EncodedString()==text else {
+                throw ArborWireValidationError.invalidValue("Noncanonical object base64")
+            }
+        }
+        let payload=try JSONDecoder().decode(WireTransitionPayload.self,from:JSONEncoder().encode(raw))
+        var instructions=0, inserted=0
+        for delta in payload.deltas {
+            instructions += delta.instructions.count
+            for instruction in delta.instructions { if case .insert(let bytes)=instruction { inserted += bytes.count } }
+        }
+        try check(payload.deltas.count<=10_000 && instructions<=100_000 && inserted<=64*1024*1024)
+        return payload
     }
     static func inspection(_ v: Obj) throws {
         let decisions=try page(v,"decisions"); try required(v,["root","conflicted"]); try hash(v["root"])

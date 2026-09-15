@@ -26,7 +26,12 @@ Acceptance: fixtures for malformed and stale references, cross-tree references, 
 
 ## 2. Enable in useful slices
 
-For each row, land server execution and fixtures first, then enable client emission in the coordinated release. Update `status.md` with the exact supported subset.
+Follow [011](011-compatible-accepted-ambiguity.md)'s single foundational cutover.
+For each row, implement, deploy and verify server acceptance support first, then
+release client emission of the supported input forms. Keep baseline snapshot clients
+working throughout. Record the server prerequisite and verified destinations with
+the release evidence; no runtime support advertisement is needed. Update `status.md`
+with the exact supported subset. No per-operation coordinated release is required.
 
 | Slice | Operations | Required discriminating cases |
 | --- | --- | --- |

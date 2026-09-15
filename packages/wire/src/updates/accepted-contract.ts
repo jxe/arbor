@@ -1,4 +1,6 @@
 /** Target read contracts; active HTTP codecs retain the deployed encoding until cutover. */
+import { decodeTransitionPayloadJSON, type TransitionPayloadJSON } from "./json.ts";
+import { hashObject } from "../objects.ts";
 import { decodeMaterialRef, type MaterialRef, type EntryDestination } from "./authored-contract.ts";
 export interface StateLink { id: string; root: string }
 export interface AcceptedState {
@@ -89,10 +91,44 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
   }
   return v as DecisionPage;
 }
-export interface SubmissionReceipt { outcome: SubmissionOutcome; update: AcceptedState; requestDigest: string }
+export interface SubmissionReceipt { outcome: SubmissionOutcome; update: AcceptedState; requestDigest: string; reconciliation?: TransitionPayloadJSON }
 export interface SubmissionResponse { results: SubmissionReceipt[]; observedThrough: string }
 export function decodeSubmissionResponse(raw: unknown): SubmissionResponse {
   const v=obj(raw); required(v,["results","observedThrough"]); token(v.observedThrough); check(Array.isArray(v.results) && v.results.length>0);
-  for(const raw of v.results) { const r=obj(raw); required(r,["outcome","update","requestDigest"]); check(["unchanged","accepted"].includes(r.outcome)); decodeAcceptedState(r.update); hash(r.requestDigest); }
+  for(const raw of v.results) { const r=obj(raw); required(r,["outcome","update","requestDigest"]); check(["unchanged","accepted"].includes(r.outcome)); decodeAcceptedState(r.update); hash(r.requestDigest); if (Object.hasOwn(r,"reconciliation")) validateReadPayload(r.reconciliation); }
   return v as SubmissionResponse;
+}
+
+/** Validate known transfer fields without discarding open read extensions. */
+export function validateReadPayload(raw: unknown): void {
+  const v=obj(raw), payload=decodeTransitionPayloadJSON(v);
+  check(payload.objects.length===v.objects.length);
+  for (const object of payload.objects) check(hashObject(object.bytes)===object.hash);
+}
+export interface AcceptedReadTransition extends TransitionPayloadJSON {
+  update: AcceptedState; requestDigest?: string;
+}
+export interface AcceptedWatchChange {
+  descriptor: { id: string; update: string; root: string; conflicted: boolean };
+  transitions: AcceptedReadTransition[];
+}
+/** The caller must deduplicate observation replay before checking its confirmed basis.
+ * A cursor is never compared to an accepted ID. Descriptor policy fields are
+ * validated by the tree descriptor decoder; this checks the accepted-state binding.
+ */
+export function decodeAcceptedWatchChange(raw: unknown, tree: string, basis?: StateLink): AcceptedWatchChange {
+  const v=obj(raw); required(v,["descriptor","transitions"]);
+  const d=obj(v.descriptor); required(d,["id","update","root","conflicted"]);
+  token(tree); check(d.id===tree); token(d.update); hash(d.root); check(typeof d.conflicted==="boolean");
+  check(Array.isArray(v.transitions) && v.transitions.length>0);
+  const updates=v.transitions.map((raw: unknown)=>{
+    const t=obj(raw); required(t,["update","objects","deltas"]);
+    const update=decodeAcceptedState(t.update); check(update.previous!==null);
+    validateReadPayload(t);
+    if(Object.hasOwn(t,"requestDigest")) hash(t.requestDigest);
+    return update;
+  });
+  validateAcceptedChain(tree,basis ?? updates[0]!.previous,updates,{id:d.update,root:d.root});
+  check(updates.at(-1)!.conflicted===d.conflicted);
+  return v as AcceptedWatchChange;
 }
