@@ -51,7 +51,7 @@ Regenerate the vectors with `bun tools/canonical-cbor-vectors.ts`.
 
 `wire-authored-updates.json` binds the consolidated target request grammar and exact
 CBOR/digests in TypeScript and Swift. `wire-accepted-state.json` binds target accepted
-states, simplified receipts, material-reference inspection and open rule evidence.
+states, simplified receipts, material-reference inspection.
 Both are ahead of active HTTP codecs. `repeatDecisions` in read fixtures duplicates
 the sole decision with IDs `decision_0`, `decision_1`, etc.; it tests absence of a
 fixed count cap without duplicating fixture text. The previous deployed-format

@@ -368,8 +368,8 @@ link establishes accepted order within a tree; it is null only for activation.
 It names both predecessor identity and projected root. A same-root semantic update
 therefore advances the identity chain even when no new object bytes are required.
 Rule execution, automatic resolution and restoration are provenance, not mutually
-exclusive accepted-update kinds. Detailed evidence is read separately under
-[source intent §8](10-source-intent.md#8-rule-evidence).
+exclusive accepted-update kinds. Rule evidence is retained under the semantic
+requirements in [source intent §6](10-source-intent.md#6-format-aware-merge-rules-and-explicit-automatic-resolution).
 
 The transition may carry complete `objects`, [deltas](#25-sparse-transfer-with-object-deltas),
 or both. `transitions` is nonempty and ordered. The first predecessor must match the
@@ -447,6 +447,171 @@ no retained root of that tree are `404`, so this route is not a global object
 oracle. A client may use it to refetch one missing or corrupt object of a
 retained root instead of downloading a complete snapshot. Because objects are immutable and addressed by their bytes,
 successful responses can be cached and reused after verification.
+
+#### 1.2.2 Material references and selectors
+
+```ts
+type Material =
+  | { kind: "basis"; path: string; object: Hash }
+  | { kind: "operation"; change: string; operation: string }
+  | { kind: "alternative"; state: string; conflict: string; alternative: string };
+
+type Ref = {
+  material: Material;
+  within?: string[];
+  range?: [number, number];
+};
+type EntryDestination = { parent: Ref; name: string };
+```
+
+Change, operation, conflict and alternative keys are 1–128 ASCII letters, digits,
+underscores or hyphens.
+
+All references are scoped to the addressed TreeID and remain subject to current
+authorization. On reads, `basis` names the exact object at a logical path in the
+requested accepted state. On writes, it names that object in the element's authored
+basis. For the first element this is the accepted state at request `base`;
+for later elements it is the preceding submitted candidate together with its authored
+semantic effects, not merely its root hash. Paths are NFC, absolute and at most
+4096 UTF-8 bytes; `/` is permitted to reference the tree root or a destination parent.
+Other paths have no trailing slash, empty/dot components, backslashes or NUL.
+Root material cannot itself be moved, removed or replaced as an entry.
+
+`operation` names a retained material result. On writes, it may also name the result
+of an earlier operation in this change or submitted prefix. Forward references, cycles and references to an
+operation with no material result are invalid. An operation result is not a backend
+graph ID and does not inherently create a new origin. The authority retains its
+immutable binding and the provenance needed to transport selections through later
+changes. Missing history requires an explicit failure, never fuzzy text matching.
+
+`alternative` names material in an exact retained accepted `state`. State IDs are
+opaque, nonempty strings of at most 1024 UTF-8 bytes. Conflict and alternative IDs
+come from the authority. The state identifies the reviewed alternative revision;
+bytes, display order and current paths cannot substitute for identity.
+
+Omitting selectors means the complete material. A nonempty `within` array selects
+a descendant of directory material using names at the identified basis/result/state,
+not current path lookup. Components obey the path-name rules, have a combined
+slash-joined length of at most 4096 UTF-8 bytes, and number at most 256. A `range`
+then selects text in that material or descendant: two nonnegative safe integers
+(`<= 2^53 - 1`) defining a half-open UTF-8 byte range on scalar boundaries. A
+zero-width range is an insertion point. No range means the entire selected text
+for source operations and the entire selected entry for entry operations. Applying
+text ranges to binary or directory material is invalid. Entry references cannot
+have ranges. Logical boundaries never grant access to another TreeID's interior.
+
+The authority resolves the identified selection before transporting its identity
+through changes; it MUST NOT retarget by matching current names or bytes. For an
+entry destination, `parent` identifies a directory and `name` is one NFC component.
+The authored destination slot, including its observed occupant or absence, is part
+of the basis. Concurrent moves or occupants are reconciled rather than overwritten.
+Text insertion uses `at: Ref` and `side: "before" | "after"` at the selected edges.
+
+Editors open ordinary source with its accepted update and file hash. They need no
+per-character identity map or provenance graph. Format-aware analysis may map blocks,
+keys or symbols to exact source; it does not introduce a separate identity namespace.
+
+#### 1.2.3 Reading conflicts
+
+`GET /.arbor/trees/{tree}/conflicts?state={acceptedUpdate}` lists decisions in an
+exact retained accepted state. Optional `after` continues an opaque page token;
+optional `conflict` selects one decision. Each query field occurs at most once;
+`state` is required, nonempty and exact. `after` and `conflict` are mutually exclusive.
+The authority authorizes every read, including continuation pages. Unknown or
+unauthorized trees, unavailable states and unknown selected decisions return `404`;
+malformed or mismatched page tokens return `400`. A page token is bound to tree,
+accepted state and traversal position, never an authorization grant.
+
+```ts
+type DecisionPage = {
+  tree: TreeID; state: string; root: Hash; conflicted: boolean;
+  decisions: Decision[];
+  next: string | null;
+};
+type Decision = {
+  id: string;
+  kind: string;
+  affected: Ref[];
+  selected: string;
+  alternatives: Array<{
+    id: string; revision: string;
+    value: { text: string } | { file: Hash } | { directory: Hash }
+         | { tree: TreeID } | { absent: true };
+    placement?: EntryDestination;
+    contributions: Array<{ change: string; operation: string | null }>;
+  }>;
+  dependencies: string[];
+  actions: string[];
+};
+```
+
+There is no fixed protocol cap on decisions, alternatives, dependencies,
+contributions or aggregate inspection text. In particular, accepting the 33rd
+unresolved decision is not an error. Page size is a transfer choice, never a limit
+on accepted conflict state. Documented storage/resource constraints remain honest
+implementation failures; a full response or absent automatic merge rule must not
+be misreported as a resolved tree or an unsupported decision count.
+
+`tree`, `state` and `root` must match the requested accepted context on every page.
+`conflicted` describes the entire state, not just the current page. `next: null`
+ends the traversal. A complete traversal yields each decision once in stable order,
+with no omission or duplication. Pages remain at their original accepted state even
+if current advances. A nonterminal page must make progress and return a different
+continuation token; unavailable retained evidence requires explicit failure. A
+resolved state has no decisions and no continuation. A filtered read returns the
+one requested complete decision, with `next: null`; it does not claim to enumerate
+all tree decisions. Clients cannot infer resolution from an empty partial result.
+
+Each decision record contains its complete alternative and dependency sets; it is
+not split into partial choices. Dependencies may name decisions on other pages.
+The client may fetch those by `conflict` at the same state. Not appearing on this
+page does not mean a dependency is missing or resolved. Before preparing a joint
+resolution the client obtains the evidence required for the affected dependency
+closure. Unrelated sync requires neither a complete traversal nor that closure.
+The authority still validates all guards and combinations at acceptance.
+
+`affected` uses the same material references as updates. A `basis` reference is
+interpreted at the page's `state`. Absence decisions can address a destination parent
+or retained material rather than inventing a nonexistent file path. Whole-entry,
+placement and text selections therefore share the same identity vocabulary.
+An alternative is addressed in a mutation by an `alternative` material reference
+using this page's state and its decision/alternative IDs. Its value supplies exact
+text or the existing explicitly typed entry representation; `absent` represents
+nonexistence. `placement`, when present, identifies the proposed parent and name
+for an entry value, not a second independent copy. It is invalid for text or absence.
+
+Decision and alternative IDs are stable across continuation. Revisions change when
+value, placement, contributions or other meaningful alternative evidence changes;
+earlier revisions remain associated with retained accepted states. Equal bytes do
+not collapse alternatives. Contributions identify authored input rather than a full
+transitive history download. Null `operation` explicitly denotes a snapshot input.
+Selected identity must name an alternative. The authority retains and verifies its
+correspondence to the ordinary projection; clients validate exact source and placement
+before attaching actionable controls. A text value must match the selected projected
+UTF-8 range. A directory/file kind is never guessed from bytes. Unknown decision
+kinds or actions may be displayed as unavailable, but cannot authorize invented
+mutation behavior. Core read fields may be extended without changing their meaning.
+
+For entry-valued alternatives, authorized object reads are scoped to that alternative:
+`GET /.arbor/trees/{tree}/conflicts/{conflict}/alternatives/{alternative}/objects/{hash}?state={acceptedUpdate}`.
+The hash must be reachable from the explicitly typed alternative at that exact retained
+state; arbitrary historical or unrelated objects are `404`. The response is immutable
+object bytes and must hash to the requested hash. Tree-boundary entries do not grant
+access to the nested tree's interior. This route supplements ordinary projected-root
+object reads without broadening their authorization. Inline text requires no extra read.
+
+Known review actions remain `editAlternative` and `resolveConflict`: capability
+labels rather than mutation opcodes. They produce ordinary operations and resolution
+declarations. Requests remain subject to current authorization and guarded evidence.
+Optional offline inspection caching does not grant current-state authority.
+
+IDs and references use [§1.2.2](#122-material-references-and-selectors) syntax. Decisions, alternatives, dependencies, actions and
+contributions must be unique within their stated scopes; dependencies cannot refer to
+self but cycles between decisions are permitted. Empty alternative sets, invalid
+selected IDs, malformed references and invalid values fail decoding. Open decisions
+have at least two alternatives. Responses are private and must not be stored by shared
+HTTP caches. The [target read vectors](../conformance/wire-accepted-state.json) bind
+paired TypeScript and Swift models; they do not assert server execution.
 
 ## 2. Updates and writes
 

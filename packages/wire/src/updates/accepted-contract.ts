@@ -1,5 +1,5 @@
 /** Target read contracts; active HTTP codecs retain the deployed encoding until cutover. */
-import { decodeMaterialRef, type MaterialRef, type EntryDestination, type ResolutionDeclaration } from "./authored-contract.ts";
+import { decodeMaterialRef, type MaterialRef, type EntryDestination } from "./authored-contract.ts";
 export interface StateLink { id: string; root: string }
 export interface AcceptedState {
   id: string; tree: string; root: string; previous: StateLink | null;
@@ -20,16 +20,6 @@ export interface DecisionPage {
   tree: string; state: string; root: string; conflicted: boolean;
   decisions: InspectedDecision[]; next: string | null;
 }
-export type JSONValue = null | boolean | number | string | JSONValue[] | { [key: string]: JSONValue };
-export interface RuleEvidencePage {
-  tree: string; state: string;
-  records: {
-    id: string; rule: { id: string; revision: string };
-    evaluated: { state: string; materials: MaterialRef[]; contributions: Contribution[]; decisions: ResolutionDeclaration[] };
-    outcome: "resolved" | "unresolved" | "not-applicable"; decisions: string[]; details: JSONValue;
-  }[];
-  next: string | null;
-}
 type Obj = Record<string, any>;
 function check(ok: unknown): asserts ok { if (!ok) throw new Error("Invalid accepted-state contract"); }
 function obj(v: unknown): Obj { check(v && typeof v === "object" && !Array.isArray(v)); return v as Obj; }
@@ -39,19 +29,11 @@ function token(v: unknown) { str(v); check(v.length > 0 && new TextEncoder().enc
 function id(v: unknown) { check(typeof v === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(v)); }
 function hash(v: unknown) { check(typeof v === "string" && /^sha256:[a-f0-9]{64}$/.test(v)); }
 function ids(v: unknown, nonempty = false) { check(Array.isArray(v) && (!nonempty || v.length > 0) && new Set(v).size === v.length); v.forEach(id); }
-function json(v: unknown): void {
-  if (v === null || typeof v === "boolean") return;
-  if (typeof v === "number") { check(Number.isFinite(v)); return; }
-  if (typeof v === "string") { str(v); return; }
-  if (Array.isArray(v)) { v.forEach(json); return; }
-  Object.values(obj(v)).forEach(json);
-}
 function contributionList(raw: unknown) {
   check(Array.isArray(raw)); const seen = new Set();
   for (const x of raw) { const v=obj(x); required(v,["change","operation"]); id(v.change); if(v.operation !== null) id(v.operation);
     const key=JSON.stringify([v.change,v.operation]); check(!seen.has(key)); seen.add(key); }
 }
-function guard(raw: unknown) { const v=obj(raw); required(v,["state","conflict","alternatives"]); token(v.state); id(v.conflict); ids(v.alternatives,true); }
 function page(raw: unknown, field: string): Obj {
   const v=obj(raw); required(v,["tree","state",field,"next"]); token(v.tree); token(v.state);
   check(Array.isArray(v[field])); if(v.next !== null) { token(v.next); check(v[field].length>0); }
@@ -106,18 +88,6 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
     check(alternatives.has(d.selected));
   }
   return v as DecisionPage;
-}
-export function decodeRuleEvidencePage(raw: unknown): RuleEvidencePage {
-  const v=page(raw,"records"), seen=new Set();
-  for(const raw of v.records) {
-    const r=obj(raw); required(r,["id","rule","evaluated","outcome","decisions","details"]); id(r.id); check(!seen.has(r.id)); seen.add(r.id);
-    const rule=obj(r.rule); required(rule,["id","revision"]); token(rule.id); token(rule.revision);
-    const e=obj(r.evaluated); required(e,["state","materials","contributions","decisions"]); token(e.state);
-    check(Array.isArray(e.materials)); e.materials.forEach((m:unknown)=>decodeMaterialRef(m)); contributionList(e.contributions);
-    check(Array.isArray(e.decisions)); e.decisions.forEach(guard); check(new Set(e.decisions.map((d:Obj)=>d.conflict)).size===e.decisions.length);
-    check(["resolved","unresolved","not-applicable"].includes(r.outcome)); ids(r.decisions); json(r.details);
-  }
-  return v as RuleEvidencePage;
 }
 export interface SubmissionReceipt { outcome: SubmissionOutcome; update: AcceptedState; requestDigest: string }
 export interface SubmissionResponse { results: SubmissionReceipt[]; observedThrough: string }

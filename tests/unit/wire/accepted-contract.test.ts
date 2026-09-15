@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import vectors from "../../../conformance/wire-accepted-state.json";
-import { decodeAcceptedState, decodeDecisionPage, decodeRuleEvidencePage, decodeSubmissionResponse, validateAcceptedChain } from "../../../packages/wire/src/updates/accepted-contract.ts";
+import { decodeAcceptedState, decodeDecisionPage, decodeSubmissionResponse, validateAcceptedChain } from "../../../packages/wire/src/updates/accepted-contract.ts";
 import { decodeAuthoredRequestIntent } from "../../../packages/wire/src/updates/authored-contract.ts";
 for (const c of vectors.cases) test(`target reads: ${c.name}`,()=>{
   const value:any=structuredClone(c.value);
@@ -9,7 +9,6 @@ for (const c of vectors.cases) test(`target reads: ${c.name}`,()=>{
     switch(c.kind) {
       case "state":return decodeAcceptedState(value);
       case "inspection":return decodeDecisionPage(value);
-      case "evidence":return decodeRuleEvidencePage(value);
       case "response":return decodeSubmissionResponse(value);
       case "chain":return validateAcceptedChain(value.tree,value.previous,value.updates,value.head);
       default:throw new Error("Unexpected fixture kind");

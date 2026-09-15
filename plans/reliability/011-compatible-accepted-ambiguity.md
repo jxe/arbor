@@ -36,7 +36,7 @@ changing digests, prefix identity stability, restart and recovery before activat
 
 Port or explicitly archive old-format experiments; retain their historical evidence.
 Adopt the target read models with simplified receipt outcomes, predecessor identity
-chains, explicit unresolved signals, material-based inspection and open rule evidence.
+chains, explicit unresolved signals, material-based inspection.
 Implement state-bound page tokens and alternative-scoped object authorization; no
 fixed decision count cap may become an acceptance policy. Test metadata-only batch
 continuity, stale pages, off-page dependencies and historical receipts. Complete

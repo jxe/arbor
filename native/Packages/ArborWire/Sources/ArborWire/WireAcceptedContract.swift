@@ -1,6 +1,6 @@
 import Foundation
 
-/// Open JSON evidence. Rule-specific fields are data, not mutation semantics.
+/// JSON read fields, including unknown extensions, are data rather than mutation semantics.
 public indirect enum WireReadValue: Codable, Sendable, Equatable {
     case null, bool(Bool), number(Double), string(String), array([WireReadValue]), object([String: WireReadValue])
     public init(from decoder: Decoder) throws {
@@ -62,11 +62,6 @@ public struct WireDecisionPageContract: Codable, Sendable, Equatable {
         for (k,v) in [("tree",tree),("state",state),("root",root)] { try AcceptedReadValidation.check(AcceptedReadValidation.equal(fields[k], .string(v))) }
     }
 }
-public struct WireRuleEvidencePageContract: Codable, Sendable, Equatable {
-    public let fields: [String: WireReadValue]
-    public init(from decoder: Decoder) throws { fields = try decoder.singleValueContainer().decode([String: WireReadValue].self); try AcceptedReadValidation.evidence(fields) }
-    public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(fields) }
-}
 public struct WireSubmissionResponseContract: Codable, Sendable, Equatable {
     public let fields: [String: WireReadValue]
     public init(from decoder: Decoder) throws {
@@ -111,9 +106,6 @@ private enum AcceptedReadValidation {
             try check(seen.insert(key).inserted)
         }
     }
-    static func guardValue(_ raw: WireReadValue) throws {
-        let v=try object(raw); try required(v,["state","conflict","alternatives"]); try token(v["state"]); try id(v["conflict"]); try ids(v["alternatives"],nonempty:true)
-    }
     static func page(_ v: Obj, _ field: String) throws -> [WireReadValue] {
         try required(v,["tree","state",field,"next"]); try token(v["tree"]); try token(v["state"])
         let a=try array(v[field]); if v["next"] != .null { try token(v["next"]); try check(!a.isEmpty) }; return a
@@ -154,18 +146,6 @@ private enum AcceptedReadValidation {
                 }
             }
             try check(names.contains(d["selected"]!.text!))
-        }
-    }
-    static func evidence(_ v: Obj) throws {
-        let records=try page(v,"records"); var seen=Set<String>()
-        for raw in records {
-            let r=try object(raw); try required(r,["id","rule","evaluated","outcome","decisions","details"])
-            try id(r["id"]); try check(seen.insert(r["id"]!.text!).inserted)
-            let rule=try object(r["rule"]); try required(rule,["id","revision"]); try token(rule["id"]); try token(rule["revision"])
-            let e=try object(r["evaluated"]); try required(e,["state","materials","contributions","decisions"]); try token(e["state"])
-            for m in try array(e["materials"]) { try reference(m) }; try contributions(e["contributions"])
-            let ds=try array(e["decisions"]); for d in ds { try guardValue(d) }; try check(Set(ds.map { $0.fields!["conflict"]!.text! }).count==ds.count)
-            try check(["resolved","unresolved","not-applicable"].contains(r["outcome"]?.text ?? "")); try ids(r["decisions"])
         }
     }
 }

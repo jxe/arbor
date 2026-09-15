@@ -27,7 +27,6 @@ struct AcceptedContractTests {
                         }
                     }
                     return try JSONEncoder().encode(page)
-                case "evidence":return try JSONEncoder().encode(JSONDecoder().decode(WireRuleEvidencePageContract.self,from:data))
                 case "response":return try JSONEncoder().encode(JSONDecoder().decode(WireSubmissionResponseContract.self,from:data))
                 case "chain":
                     let fields=try JSONDecoder().decode([String:WireReadValue].self,from:data)

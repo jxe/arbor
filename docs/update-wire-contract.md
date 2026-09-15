@@ -84,9 +84,12 @@ fetch dependency closure as needed. There is no fixed decision/alternative count
 in inspection or resolution declarations. Paging bounds transfers, not accepted state.
 Alternative object reads authorize reachability from the exact reviewed alternative.
 
-Rule evidence has stable rule/revision, evaluated inputs and outcome fields with an
-open JSON `details` value owned by that rule. Unknown details cannot grant authority.
-The target state/evidence routes and object reads are specified but not active.
+[Tree operations](../spec/01-tree-operations.md#123-reading-conflicts) owns conflict
+inspection and its shared material-reference types. The target conflict and alternative
+object reads are specified but not active. There is no dedicated rule-evidence route
+or response model: the specification requires retained rule identity, evaluated inputs
+and resulting decisions, with additional fields defined by each rule. Unknown fields
+cannot grant authority.
 
 [TypeScript read models](../packages/wire/src/updates/accepted-contract.ts),
 [Swift read models](../native/Packages/ArborWire/Sources/ArborWire/WireAcceptedContract.swift)
@@ -95,7 +98,7 @@ target shapes independently of active HTTP codecs. Their grammar checks do not p
 projection correspondence, server authorization, paging traversal or semantic execution.
 Keep active read/write codecs compatible until coordinated adoption replaces them.
 
-The accepted-state consolidation passes 742 product tests, 32 standalone ArborWire
+Historically, the experimental accepted-state consolidation passed 742 product tests, 32 standalone ArborWire
 Swift tests, type checking and the cross-language/live compatibility gate. The 37
 shared read/chain vectors cover opaque predecessor identity, same-root transitions,
 simplified outcomes, off-page dependencies and open rule-specific details. Additional
@@ -120,3 +123,15 @@ cross-language/live protocol gate and type checking pass. Repository-wide file a
 section links introduce no new broken references, and `git diff --check` passes.
 The different product count reflects leaving experiment-only tests and the superseded
 inspection implementation on their branch rather than claiming them as main support.
+
+## Tree-read ownership cleanup
+
+Conflict inspection and its shared reference types now live in tree operations.
+The speculative rule-evidence endpoint and paired response models have been removed;
+semantic evidence retention remains required. The shared read fixtures now contain
+32 cases, including explicit-null snapshot contribution validation through inspection.
+
+Verification: 547 product tests, 79 focused authored/read-contract tests, 30 standalone
+ArborWire Swift tests and type checking pass. Repository-wide relative file and section
+links introduce no new broken references, and `git diff --check` passes. Active codecs,
+server behavior and deployment remain unchanged.
