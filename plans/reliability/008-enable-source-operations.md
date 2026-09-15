@@ -10,7 +10,7 @@ checkout. Target semantic models here do not implement execution.
 
 ## Outcome and boundaries
 
-Enable each operation in [the source-intent contract](../../spec/10-source-intent.md) only when Canopy can validate, execute, reconcile, and persist it safely and clients can emit it durably. Current clients send `operations: null`; Canopy recognizes the grammar but rejects every operation-bearing batch with `422 unsupported-operation`. Preserve that fail-closed behavior for every operation not yet enabled. No API version fork, silent snapshot fallback, or residual field.
+Enable each operation in [the source-intent contract](../../spec/10-source-intent.md) only when Canopy can validate, execute, reconcile, and persist it safely and clients can emit it durably. Current clients send `operations: null`; source-built Canopy accepts the [exact-basis subset](../../docs/exact-source-execution.md), while deployed Canopy still rejects operation-bearing batches. Preserve that fail-closed behavior for every operation not yet enabled. No API version fork, silent snapshot fallback, or residual field.
 
 Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Canopy's update/store path, `packages/canopy-client/src/sync-state.ts`, Swift `WireOperations.swift`, `WireModels.swift`, and `ArborWorkingTree/UpdateCoordinator.swift` before implementing. Recheck Quagmire ownership and the exact-source ledger before editor changes; follow repository local-workspace and release-pin instructions.
 
@@ -18,9 +18,10 @@ Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Cano
 
 The [exact-basis executor and candidate validator](../../docs/exact-source-execution.md)
 and atomic evidence storage are implemented and tested. Schema 9 migration 007
-preserves existing history in disposable tests; live rehearsal remains. These pieces
-are not connected to public acceptance. The acceptance requirements below remain
-before any operation is enabled.
+preserves existing history in disposable tests; live rehearsal remains. Public
+acceptance now executes the exact-basis subset and atomically stores evidence,
+including equal-byte edits. Stale accepted bases return structured conflicts;
+causal concurrency and accepted ambiguity remain before client emission.
 
 - Implement exact basis resolution for accepted updates and preceding submitted candidates. Check object reachability, file hashes, UTF-8 boundaries, TreeID scope, authorization, and immutable origin bindings. Resolve output references in causal order; reject forward references, cycles, retired origins, and contradictory reused change identities.
 - Persist admitted operation records, origin bindings, derivation, and any unresolved state atomically with accepted update/ref/observation. Include provenance-only transitions even when the projected root is unchanged. Supply a bounded retention and resynchronization policy before exposing retained outputs.

@@ -1,4 +1,5 @@
-import { SourceIntentStore } from "./updates/source-intent-store.ts";
+import { validateSourceEditCandidate, UnsupportedSourceEdit } from "./updates/source-edits.ts";
+import { SourceIntentStore, type SourceIntent } from "./updates/source-intent-store.ts";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -986,7 +987,10 @@ export class CanopyDaemon implements AsyncDisposable {
     validateUpdateRequestIntent(request);
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
-      if (update.operations !== null || update.resolves.length) throw new UpdateProtocolError("unsupported-operation", `Update ${index} (${update.change}) contains operations or resolutions not yet supported by Canopy`);
+      if (update.resolves.length || update.operations?.some(operation => operation.kind !== "editSource") ||
+          (request.base === null && update.operations !== null)) {
+        throw new UpdateProtocolError("unsupported-operation", `Update ${index} (${update.change}) contains operations or resolutions not yet supported by Canopy`);
+      }
     }
     const digests = updateRequestDigests(treeID, request);
     const completed: UpdateResult[] = [];
@@ -998,6 +1002,28 @@ export class CanopyDaemon implements AsyncDisposable {
         throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree");
       }
       baseRoot = baseUpdate.root;
+    }
+    // Execute all operation forms before accepting any prefix: some unsupported
+    // forms (overlap and lineage) can only be identified against the actual basis.
+    const intents = new Map<number, SourceIntent>();
+    if (request.updates.some(update => update.operations !== null)) {
+      if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
+      let basis = baseRoot!;
+      const objects = new Map<ObjectHash, Uint8Array>();
+      for (const [index, update] of request.updates.entries()) {
+        for (const object of update.objects) objects.set(object.hash, object.bytes);
+        for (const object of await this.objects.reconstructDeltas(basis, update.deltas, objects)) objects.set(object.hash, object.bytes);
+        if (update.operations !== null) {
+          try {
+            const result = await validateSourceEditCandidate(basis, update.candidate, update.operations, hash => this.objects.load(hash, objects));
+            intents.set(index, { change: update.change, operations: update.operations, evidence: result.evidence });
+          } catch (error) {
+            if (error instanceof UnsupportedSourceEdit) throw new UpdateProtocolError("unsupported-operation", error.message);
+            throw error;
+          }
+        }
+        basis = update.candidate;
+      }
     }
     // A recorded later digest proves every earlier element ran, including no-ops
     // without accepted rows. Those elements must not recheck a now-stale guard.
@@ -1011,6 +1037,7 @@ export class CanopyDaemon implements AsyncDisposable {
         if (this.acceptedRequest(treeID, policy.subject, digests[index]!)) { recordedThrough = index; break; }
       }
     }
+    let basisUpdate = request.base;
     const proposed = new Map<ObjectHash, Uint8Array>();
     for (const [index, update] of request.updates.entries()) {
       const requestDigest = digests[index]!;
@@ -1020,6 +1047,7 @@ export class CanopyDaemon implements AsyncDisposable {
         completed.push(activation.result as UpdateResult);
         accepted ||= activation.result.outcome !== "unchanged";
         baseRoot = update.candidate;
+        basisUpdate = activation.result.update.id;
         continue;
       }
       const reconstructed = await this.objects.reconstructDeltas(baseRoot, update.deltas, proposed);
@@ -1040,6 +1068,8 @@ export class CanopyDaemon implements AsyncDisposable {
         linkDigest,
         credentialSubject,
         index < recordedThrough,
+        basisUpdate!,
+        intents.get(index),
       );
       if ("error" in result.result) {
         result.result.details.completed = completed;
@@ -1049,6 +1079,7 @@ export class CanopyDaemon implements AsyncDisposable {
       completed.push(result.result);
       accepted ||= result.result.outcome !== "unchanged";
       baseRoot = update.candidate;
+      basisUpdate = result.result.update.id;
     }
     return {
       status: accepted ? 201 : 200,
@@ -1067,6 +1098,8 @@ export class CanopyDaemon implements AsyncDisposable {
     linkDigest?: string,
     credentialSubject?: string,
     provenAcceptedPrefix = false,
+    basisUpdate?: string,
+    sourceIntent?: SourceIntent,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
@@ -1087,6 +1120,9 @@ export class CanopyDaemon implements AsyncDisposable {
         result: await this.withReconciliation({ outcome: "unchanged", update: current, requestDigest }, request.candidate, proposed),
       };
     }
+    if (new SourceIntentStore(this.db).get(treeID, request.change)) {
+      throw new Error("Authored change identity is already bound to a different accepted request");
+    }
     await this.validateGraph(request.candidate, proposed);
     await policy.validateCandidate(request.candidate, proposed);
 
@@ -1097,8 +1133,14 @@ export class CanopyDaemon implements AsyncDisposable {
         throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
       }
       const preconditionFailed = request.ifCurrent !== undefined && request.ifCurrent !== remoteUpdate.id;
-      const reconciled = preconditionFailed
+      // Equal roots do not prove equal intent. Until causal reconciliation is
+      // available, authored edits require the exact accepted basis identity too.
+      const sourceBasisChanged = sourceIntent !== undefined &&
+        (basisUpdate !== remoteUpdate.id || baseRoot !== remoteTree.ref || remoteUpdate.conflicted);
+      const reconciled = preconditionFailed || sourceBasisChanged
         ? { outcome: "rejected" as const, root: request.candidate, generated: new Map<ObjectHash, Uint8Array>(), conflicts: [{ path: "/", reason: "node-conflict" as const }] }
+        : sourceIntent
+        ? { outcome: "accepted" as const, root: request.candidate, generated: new Map<ObjectHash, Uint8Array>() }
         : await reconcileUpdate(
         baseRoot,
         request.candidate,
@@ -1129,7 +1171,7 @@ export class CanopyDaemon implements AsyncDisposable {
           status: 409,
           result: {
             error: "conflict",
-            message: preconditionFailed ? "Accepted state no longer matches ifCurrent" : policy.conflict.message,
+            message: preconditionFailed ? "Accepted state no longer matches ifCurrent" : sourceBasisChanged ? "Authored source basis changed; causal reconciliation is not yet available" : policy.conflict.message,
             retryable: false,
             tree: treeID,
             details: {
@@ -1167,6 +1209,7 @@ export class CanopyDaemon implements AsyncDisposable {
         ...(merge ? { merge } : {}),
         requestDigest,
         transition,
+        sourceIntent,
       }, prepared.withinTransaction);
       if (!accepted) continue;
       prepared.afterCommit?.(accepted);
