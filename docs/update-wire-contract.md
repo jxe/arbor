@@ -205,10 +205,11 @@ disk reads, leaving network decoding strict and source caches unchanged. The
 passed for Canopy and saved Mac/iPhone placements. Both native platform builds,
 focused cache tests, migration tests, type checking and the protocol gate pass.
 
-Remaining before cutover: fresh live queue/rejected-response audits, synchronized
-backups and the coordinated installation and verification gate. Historical backup
-checks do not establish current live readiness. Detailed inspection, operation
-execution and review UI follow independently under the server-first release order.
+The [joint live cutover](../migrations/006-accepted-state-links/live-cutover.md)
+completed September 15 with exact history/byte preservation, request replay and
+Mac/iPhone restart checks. Ordinary-use/offline observation remains. Detailed
+inspection, operation execution and review UI follow independently under the
+server-first release order.
 
 ## Accepted read transport checkpoint
 

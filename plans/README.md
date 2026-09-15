@@ -12,7 +12,7 @@ The [consolidated target contract](../docs/update-wire-contract.md) and its pair
 models now live on main. The sequence is spec, Canopy validation/retention, client
 emission, accepted conflicts, client resolution, then incremental operation and
 merge-rule improvements. [Reliability 011](reliability/011-compatible-accepted-ambiguity.md)
-owns compatible adoption and coordinated activation. Review caching and other
+owns remaining compatible adoption after the completed foundational cutover. Review caching and other
 conveniences are deferred. Experimental execution remains on its separate branch.
 
 1. [Reliability 008 — Enable operations and editor emission](reliability/008-enable-source-operations.md), one validated operation family at a time.
@@ -20,6 +20,8 @@ conveniences are deferred. Experimental execution remains on its separate branch
 3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
 
 ## What to do soon
+
+- [Reliability 012 — Native synchronization progress](reliability/012-native-sync-progress.md): investigate the automatic-submission stall and stale phone watch exposed by cutover preflight.
 
 The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
 

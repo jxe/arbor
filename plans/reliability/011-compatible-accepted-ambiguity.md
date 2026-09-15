@@ -28,15 +28,10 @@ as the owning implementation lands. Keep existing conformance suites passing.
 
 ## 1. Adopt the consolidated contract compatibly
 
-The [active request/read implementation](../../docs/update-wire-contract.md#active-accepted-state-adoption)
-and [offline schema migration](../../migrations/006-accepted-state-links/README.md)
-are in place, with [native cache compatibility and preserved-backup evidence](../../migrations/006-accepted-state-links/rehearsal.md).
-Audit fresh live durable rejection records, transmitted uncertain requests, offline
-clients and adopted prefixes. Resolve old requests with their original
-build/bytes/semantics/digests; never rewrite historical receipts or translate pending
-work in place. Coordinate fresh synchronized backups, clean-queue upgrades and
-exact state/byte verification with Joe. Verify continued offline/restart syncing
-and retain matching rollback artifacts. Keep transport object/delta codecs.
+The [foundational cutover is complete](../../migrations/006-accepted-state-links/live-cutover.md).
+Observe continued ordinary-use/offline syncing and retain matching rollback artifacts.
+Address the [Native automatic-progress stall](012-native-sync-progress.md) exposed
+by preflight. Keep transport object/delta codecs.
 
 Port or explicitly archive old-format experiments; retain their historical evidence.
 Complete material-based inspection as accepted alternatives become available.

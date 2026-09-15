@@ -19,8 +19,8 @@ Accepted-state links and flags use schema 8, with a history-preserving offline
 migration. The filesystem daemon and native watcher keep observation progress
 separate from accepted identity. Native cache compatibility and a
 [preserved-backup rehearsal](../migrations/006-accepted-state-links/rehearsal.md)
-pass; fresh live audits, backups and joint installation remain before the single
-coordinated cutover. Subsequent
+pass. The [single coordinated cutover](../migrations/006-accepted-state-links/live-cutover.md)
+completed September 15; ordinary-use/offline observation remains. Subsequent
 operation releases deploy verified server acceptance before client emission,
 without capability advertisement.
 

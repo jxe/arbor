@@ -1,8 +1,9 @@
 # Accepted-state links: one foundational cutover
 
-Status: PREPARATION ONLY. Schema 7 → 8. Preserved-backup rehearsal passed; no live data has been migrated.
-Coordinate the live client/server upgrade with Joe after the remaining client
-compatibility gates in [Reliability 011](../../plans/reliability/011-compatible-accepted-ambiguity.md).
+Status: LIVE CUTOVER COMPLETE. Schema 7 → 8, September 15, 2026.
+See the [live verification](live-cutover.md). Retain this migration and backups
+through ordinary-use/offline observation; the procedure below is historical and
+must not be repeated on live data.
 
 ## What changes
 
