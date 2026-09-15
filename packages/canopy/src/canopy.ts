@@ -1017,7 +1017,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (baseRoot === null) {
         const activation = await this.activateFromUpdate(treeID, update, requestDigest, authentication, index < recordedThrough);
         completed.push(activation.result as UpdateResult);
-        accepted ||= activation.result.outcome !== "current";
+        accepted ||= activation.result.outcome !== "unchanged";
         baseRoot = update.candidate;
         continue;
       }
@@ -1046,7 +1046,7 @@ export class CanopyDaemon implements AsyncDisposable {
         return { status: result.status, result: result.result };
       }
       completed.push(result.result);
-      accepted ||= result.result.outcome !== "current";
+      accepted ||= result.result.outcome !== "unchanged";
       baseRoot = update.candidate;
     }
     return {
@@ -1083,7 +1083,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!current) throw new UpdateProtocolError("base-not-retained", "Accepted prefix state is unavailable");
       return {
         status: 200,
-        result: await this.withReconciliation({ outcome: "current", update: current, requestDigest }, request.candidate, proposed),
+        result: await this.withReconciliation({ outcome: "unchanged", update: current, requestDigest }, request.candidate, proposed),
       };
     }
     await this.validateGraph(request.candidate, proposed);
@@ -1109,14 +1109,14 @@ export class CanopyDaemon implements AsyncDisposable {
         return {
           status: 200,
           result: await this.withReconciliation(
-            { outcome: "current", update: remoteUpdate, requestDigest },
+            { outcome: "unchanged", update: remoteUpdate, requestDigest },
             request.candidate,
             proposed,
           ),
         };
       }
       const nextRoot = reconciled.root;
-      const kind: AcceptedUpdate["kind"] = reconciled.outcome === "merged" ? "merged" : "accepted";
+      const kind: "accepted" | "merged" = reconciled.outcome === "merged" ? "merged" : "accepted";
       const merge = reconciled.outcome === "merged" ? reconciled.merge : undefined;
       const objects = new Map([...proposed, ...reconciled.generated]);
       if (reconciled.outcome === "rejected" || (reconciled.outcome === "merged" && reconciled.conflicts.length)) {
@@ -1173,7 +1173,7 @@ export class CanopyDaemon implements AsyncDisposable {
       return {
         status: 201,
         result: await this.withReconciliation(
-          { outcome: kind === "merged" ? "merged" : "accepted", update: accepted, requestDigest },
+          { outcome: "accepted", update: accepted, requestDigest },
           request.candidate,
           proposed,
         ),
@@ -1201,7 +1201,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (existing) {
       const current = this.currentUpdate(treeID);
       if ((existing.ref === request.candidate || provenAcceptedPrefix) && current) {
-        return { status: 200, result: { outcome: "current", update: current, requestDigest } };
+        return { status: 200, result: { outcome: "unchanged", update: current, requestDigest } };
       }
       throw new UpdateProtocolError("activation-conflict", `TreeID is already active with different content: ${treeID}`);
     }
@@ -1370,6 +1370,10 @@ export class CanopyDaemon implements AsyncDisposable {
     return () => listeners.delete(listener);
   }
 
+  observationForUpdate(update: string): ObservationRecord | null {
+    return this.observations.forUpdate(update);
+  }
+
   /** Retained observation records strictly after `cursor` for one tree. */
   observationsAfter(tree: string, cursor: string | null) {
     return this.observations.after(tree, cursor);
@@ -1380,7 +1384,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private notifyAccepted(update: AcceptedUpdate): void {
-    const record = this.observations.get(update.id);
+    const record = this.observations.forUpdate(update.id);
     if (record) this.notifyObservation(record);
   }
 

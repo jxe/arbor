@@ -19,7 +19,7 @@
   "accepted": {
     "root": "sha256:f67d4ba9f8bedaba285d7342328777dc5d5a89a667c808980a384340757ddc0e",
     "update": "upd_0001",
-    "cursor": "upd_0001"
+    "cursor": null
   },
   "spine": "omdvYmplY3RzgkgjIE5vdGVzCljVomR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkZmlsZXhHc2hhMjU2OjM2NWQwYjg0YWU2M2MyYWZjMjkzZGVkZDJiMDBiZGYwZGM4ZDZlZjcwYzkyOTdkOTBmOWU1NjgyYWIwZDcyZWVkbmFtZWlfaW5kZXgubWSiZGZpbGV4R3NoYTI1NjpmMDVmY2FiZjcyOTE3ZGM0NWIxNjQyMzAxZDg0ODQxNGJhZTE5MzYzYjEyMzJlNDUzOWU4YjY3MTM0NzI3MmJlZG5hbWVpcGhvdG8uYmluZ3ZlcnNpb24B",
   "observedThrough": "1f8b3c6d-observed:7",

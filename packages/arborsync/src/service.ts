@@ -45,8 +45,8 @@ export { resolveUserPath } from "@arbor/canopy-client";
 /** What a loopback client needs to open a placed tree as its own working tree. */
 export interface TreeBootstrap {
   tree: LocalTreeDescriptor;
-  /** The daemon's accepted base; `cursor` is the Wire watch cursor, which equals the update id. */
-  accepted: { root: Hash; update: string; cursor: string };
+  /** The daemon's accepted base; `cursor` is the Wire watch cursor, which is independent of the accepted update id. */
+  accepted: { root: Hash; update: string; cursor: string | null };
   /** Base64 of a sparse CBOR snapshot bundle: every directory object and every Markdown file object. */
   spine: string;
   /** Local page-body mtimes, Unix milliseconds, keyed by tree-relative logical path. */
@@ -200,7 +200,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const [conflict, pending] = await Promise.all([treeConflict(tree), pendingTreeUpdate(tree)]);
     const response: TreeBootstrap = {
       tree: descriptor,
-      accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.update },
+      accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.cursor ?? null },
       spine,
       modifiedAtByPath,
       observedThrough: this.events.currentCursor(),

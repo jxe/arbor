@@ -1,4 +1,10 @@
-import type { MergeSummary, ObjectHash, UpdateConflict } from "@arbor/wire";
+export type MergeSummary =
+  | { version: "markdown-additive-v1"; approximatePlacements: number }
+  | { version: "account-config-v1"; mergedFields: number }
+  | { version: "account-config-v2"; mergedFields: number }
+  | { version: "collection-file-rows-v1"; mergedRows: number };
+
+import type { ObjectHash, UpdateConflict } from "@arbor/wire";
 import { decideUpdate } from "./decision.ts";
 import { mergeWireTrees, type MergeResult } from "./merge.ts";
 

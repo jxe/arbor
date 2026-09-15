@@ -263,7 +263,7 @@ public actor ArborWireClient {
                             }
                             if kind == "resync-required" {
                                 let event = try JSONDecoder().decode(WireResyncObservation.self, from: Data(frame.data.utf8))
-                                guard event.cursor == id, event.kind == kind else {
+                                guard event.cursor.utf8.elementsEqual(id.utf8), event.kind == kind else {
                                     throw ArborWireValidationError.malformedSSE("Resync frame fields disagree")
                                 }
                                 throw WireHTTPError(status: 409, code: "resync-required", message: event.change.reason, retryable: true)
@@ -272,25 +272,31 @@ public actor ArborWireClient {
                                 throw ArborWireValidationError.malformedSSE("Unsupported tree watch event")
                             }
                             let event = try JSONDecoder().decode(WireTreeRefObservation.self, from: Data(frame.data.utf8))
-                            guard event.cursor == id, event.kind == kind, event.tree == tree else {
+                            guard event.cursor.utf8.elementsEqual(id.utf8), event.kind == kind, event.tree == tree else {
                                 throw ArborWireValidationError.malformedSSE("Observation frame fields disagree")
                             }
                             let descriptor = try event.change.descriptor.validated()
                             let transitions = event.change.transitions
                             guard !transitions.isEmpty,
-                                  transitions.last?.update.id == descriptor.update,
+                                  transitions.last?.update.id.utf8.elementsEqual(descriptor.update.utf8) == true,
                                   transitions.last?.update.root == descriptor.root,
-                                  (transitions.last?.update.conflicted ?? false) == (descriptor.conflicted ?? false) else {
+                                  transitions.last?.update.conflicted == descriptor.conflicted else {
                                 throw ArborWireValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
                             }
+                            var seen = Set<Data>()
+                            if let predecessor = transitions.first?.update.previous { seen.insert(Data(predecessor.id.utf8)) }
                             for (index, transition) in transitions.enumerated() {
+                                guard seen.insert(Data(transition.update.id.utf8)).inserted else {
+                                    throw ArborWireValidationError.malformedSSE("Repeated accepted identity")
+                                }
                                 _ = try transition.validated()
                                 guard transition.update.tree == tree else {
                                     throw ArborWireValidationError.malformedSSE("Tree ref transition belongs to another tree")
                                 }
                                 if index > 0 {
                                     let previous = transitions[index - 1].update
-                                    guard transition.update.previousRoot == previous.root else {
+                                    guard transition.update.previous?.root == previous.root,
+                                          transition.update.previous?.id.utf8.elementsEqual(previous.id.utf8) == true else {
                                         throw ArborWireValidationError.malformedSSE("Tree ref transition batch is not contiguous")
                                     }
                                 }

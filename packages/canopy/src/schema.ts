@@ -5,18 +5,18 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
 /**
  * Stamped into `meta.schema_version` when the database is created. A stored
  * value that differs from this constant means the data root was written by an
- * incompatible build; the operator deletes it and re-bootstraps (or runs the
- * offline migration tool, which sets the stamp). "1" is the implicit stamp of
+ * incompatible build; the operator runs the offline migration tool after backing up retained
+ * history. The migration sets the stamp. "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "7";
+export const CANOPY_SCHEMA_VERSION = "8";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
   boundaries: ["path", "tree_id", "parent_tree"],
   reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
   accepted_updates: [
-    "id", "tree_id", "root", "previous_root", "kind", "accepted_at", "subject",
+    "id", "tree_id", "root", "previous_root", "previous_id", "conflicted", "kind", "accepted_at", "subject",
     "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest", "transition_json",
   ],
   accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
@@ -137,7 +137,7 @@ export function assertCanopySchemaVersion(db: Database): void {
   if (stamp !== CANOPY_SCHEMA_VERSION) {
     throw new Error(
       `Canopy data root was written by schema version ${stamp ?? "1 (unstamped)"} but this build requires ${CANOPY_SCHEMA_VERSION}: `
-      + "run the migration for this version, or delete the Canopy data root and re-bootstrap",
+      + "run the offline migration for this version after backing up retained history",
     );
   }
 }

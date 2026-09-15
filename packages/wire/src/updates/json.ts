@@ -1,3 +1,4 @@
+import { decodeAcceptedState, decodeSubmissionResponse, validateReadPayload } from "./accepted-contract.ts";
 import { authoredIntentFromTransport, decodeAuthoredUpdateRequestJSON, decodeAuthoredCandidateJSON, encodeAuthoredUpdateRequestJSON, encodeAuthoredCandidateJSON } from "./authored-transport.ts";
 import { decodeAuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
 import { decodeWireDirectory, hashObject, wireEntryObject, type WireEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
@@ -5,7 +6,6 @@ import type {
   AcceptedTransition,
   AcceptedTransitionPayload,
   AcceptedUpdate,
-  MergeSummary,
   ObjectDelta,
   UpdateConflict,
   UpdateConflictResult,
@@ -172,32 +172,8 @@ export function encodeAcceptedTransitionJSON(transition: AcceptedTransition): Ac
   };
 }
 
-const ACCEPTED_KINDS = new Set(["initial", "accepted", "merged", "restored"]);
-
 export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
-  if (!value || typeof value !== "object") throw new Error("Accepted update must be an object");
-  const record = value as Record<string, unknown>;
-  if (typeof record.id !== "string" || !record.id || typeof record.tree !== "string" || !record.tree
-    || typeof record.root !== "string" || !HASH.test(record.root)
-    || (record.previousRoot !== null && (typeof record.previousRoot !== "string" || !HASH.test(record.previousRoot)))
-    || typeof record.kind !== "string" || !ACCEPTED_KINDS.has(record.kind)
-    || !Number.isSafeInteger(record.acceptedAt)
-    || (record.subject !== null && typeof record.subject !== "string")
-    || (record.conflicted !== undefined && typeof record.conflicted !== "boolean")
-    || (record.merge !== undefined && (!record.merge || typeof record.merge !== "object"))) {
-    throw new Error("Invalid accepted update");
-  }
-  return {
-    id: record.id,
-    tree: record.tree,
-    root: record.root as ObjectHash,
-    previousRoot: record.previousRoot as ObjectHash | null,
-    kind: record.kind as AcceptedUpdate["kind"],
-    acceptedAt: record.acceptedAt as number,
-    subject: record.subject as string | null,
-    ...(record.conflicted === undefined ? {} : { conflicted: record.conflicted as boolean }),
-    ...(record.merge ? { merge: record.merge as MergeSummary } : {}),
-  };
+  return decodeAcceptedState(value) as AcceptedUpdate;
 }
 
 /** Decode one watch transition, verifying every complete object's hash. */
@@ -205,6 +181,8 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
   if (!value || typeof value !== "object") throw new Error("Accepted transition must be an object");
   const record = value as { update?: unknown; requestDigest?: unknown };
   const update = decodeAcceptedUpdateJSON(record.update);
+  if (update.previous === null) throw new Error("Activation cannot be replayed as a watch transition");
+  validateReadPayload(value);
   const payload = decodeTransitionPayloadJSON(value);
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
@@ -259,6 +237,7 @@ export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
 
 /** Decode a transition payload, verifying every complete object's hash. */
 function decodeVerifiedTransitionPayload(value: unknown): TransitionPayload {
+  validateReadPayload(value);
   const payload = decodeTransitionPayloadJSON(value);
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
@@ -387,7 +366,7 @@ export function encodeUpdateResultJSON(result: UpdateResult): UpdateResultJSON {
   return { ...rest, ...(reconciliation ? { reconciliation: encodeTransitionPayloadJSON(reconciliation) } : {}) };
 }
 
-const OUTCOMES = new Set(["current", "accepted", "merged"]);
+const OUTCOMES = new Set(["unchanged", "accepted"]);
 
 export function decodeUpdateResultJSON(value: unknown): UpdateResult {
   if (!value || typeof value !== "object") throw new Error("Update result must be an object");
@@ -411,6 +390,7 @@ export function encodeUpdateResponseJSON(response: UpdateResponse): UpdateRespon
 }
 
 export function decodeUpdateResponseJSON(value: unknown): UpdateResponse {
+  decodeSubmissionResponse(value);
   if (!value || typeof value !== "object") throw new Error("Update response must be an object");
   const record = value as { results?: unknown; observedThrough?: unknown };
   if (!Array.isArray(record.results) || record.results.length === 0 || typeof record.observedThrough !== "string" || !record.observedThrough) {

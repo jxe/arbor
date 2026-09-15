@@ -13,13 +13,14 @@ This document records replaceable architecture and operating choices in the curr
 
 ## Consolidated Wire adoption
 
-The [adoption checkpoint](update-wire-contract.md#accepted-read-transport-checkpoint)
-distinguishes active request encoding from staged accepted-state/read validation.
-The latter now checks complete reconciliation/watch payloads and predecessor
-identity bindings in both languages, but active read routes and durable client replay
-still require adoption. Deployment uses one coordinated foundational cutover;
-subsequent operation releases deploy verified server acceptance before client
-emission, without capability advertisement.
+The [active adoption checkpoint](update-wire-contract.md#active-accepted-state-adoption)
+records consolidated request/read encoding across Canopy and both client languages.
+Accepted-state links and flags use schema 8, with a history-preserving offline
+migration. The filesystem daemon and native watcher keep observation progress
+separate from accepted identity. Native disk-format preparation and rehearsal on
+actual backup copies remain before the single coordinated cutover. Subsequent
+operation releases deploy verified server acceptance before client emission,
+without capability advertisement.
 
 ## Local service ownership
 

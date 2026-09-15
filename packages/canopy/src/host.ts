@@ -64,6 +64,7 @@ function descriptor(origin: string, tree: CanopyTree, access: AccessLevel = "rea
     },
     root: tree.ref as RemoteTreeDescriptor["root"],
     update: "",
+    conflicted: false,
   };
 }
 
@@ -88,11 +89,12 @@ function watchDescriptor(
   tree: CanopyTree,
   transitions: AcceptedTransition[],
   access: ReadWriteAccess,
+  cursor: string,
 ): ObservationEvent<"tree.update", { descriptor: RemoteTreeDescriptor; transitions: unknown[]; requestDigest?: ObjectHash }> {
   const final = transitions.at(-1);
   if (!final) throw new Error("Tree ref frame requires at least one accepted transition");
   return {
-    cursor: final.update.id,
+    cursor,
     tree: tree.id,
     kind: "tree.update",
     change: {
@@ -479,11 +481,15 @@ export async function serveCanopy(options: {
             }
             const frames: string[] = [];
             let batch: AcceptedTransition[] = [];
-            const frame = (items: AcceptedTransition[]) => encodeSSEFrame({
-              id: items.at(-1)!.update.id,
-              event: "tree.update",
-              data: watchDescriptor(publicOrigin, current, items, access),
-            });
+            const frame = (items: AcceptedTransition[]) => {
+              const observation = canopy.observationForUpdate(items.at(-1)!.update.id);
+              if (!observation) throw new Error("Accepted transition has no observation boundary");
+              return encodeSSEFrame({
+                id: observation.cursor,
+                event: "tree.update",
+                data: watchDescriptor(publicOrigin, current, items, access, observation.cursor),
+              });
+            };
             for (const transition of transitions) {
               const candidate = [...batch, transition];
               if (batch.length && (candidate.length > MAX_WATCH_TRANSITIONS_PER_FRAME || Buffer.byteLength(frame(candidate)) > MAX_WATCH_TRANSITION_FRAME_BYTES)) {

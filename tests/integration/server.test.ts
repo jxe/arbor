@@ -471,7 +471,7 @@ describe("arborsync bootstrap and credential routes", () => {
         kind: "server-update",
         completed: [],
         failedIndex: 0,
-        current: { id: accepted.update, tree, root: accepted.root as never, previousRoot: null, kind: "initial", acceptedAt: 0, subject: null },
+        current: { id: accepted.update, tree, root: accepted.root as never, previous: null, conflicted: false, acceptedAt: 0, subject: null },
         base: accepted.root as never,
         candidate: accepted.root as never,
         draft: { root: accepted.root as never, objects: [], deltas: [] },

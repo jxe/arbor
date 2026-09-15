@@ -28,16 +28,19 @@ as the owning implementation lands. Keep existing conformance suites passing.
 
 ## 1. Adopt the consolidated contract compatibly
 
-The [request-side implementation and recovery checks](../../docs/update-wire-contract.md)
-are in place. Complete the read-side adoption below, then audit transmitted uncertain
-requests, offline clients and adopted prefixes before cutover. Resolve old uncertain
-requests with their original build/bytes/semantics/digests; never rewrite historical
-receipts or translate a pending request in place. Rehearse upgrading a clean queue
-and restoring backups before activation. Keep transport object/delta codecs.
+The [active request/read implementation](../../docs/update-wire-contract.md#active-accepted-state-adoption)
+and [offline schema migration](../../migrations/006-accepted-state-links/README.md)
+are in place. Rehearse native saved placement/visit descriptors from the installed
+build: they can omit the now-required `conflicted` field. Provide an explicit disk
+upgrade or refresh path without weakening active Wire decoding. Audit old durable
+rejection records as well as transmitted uncertain requests, offline clients and
+adopted prefixes. Resolve old requests with their original build/bytes/semantics/digests;
+never rewrite historical receipts or translate pending work in place. Rehearse the
+schema migration on actual backup copies, a clean-queue upgrade and backup restoration
+before activation. Keep transport object/delta codecs.
 
 Port or explicitly archive old-format experiments; retain their historical evidence.
-Adopt the target read models with simplified receipt outcomes, predecessor identity
-chains, explicit unresolved signals, material-based inspection.
+Complete material-based inspection as accepted alternatives become available.
 Implement state-bound page tokens and alternative-scoped object authorization; no
 fixed decision count cap may become an acceptance policy. Test metadata-only batch
 continuity, stale pages, off-page dependencies and historical receipts. Complete
@@ -48,8 +51,9 @@ Inspection action labels identify review capabilities, not opcodes.
 
 Finish these requirements before the single live client/server cutover:
 
-- Adopt the consolidated request, receipt and watch contracts, including opaque
-  accepted identity, predecessor chains and same-root unresolved-state changes.
+- Verify adoption of the consolidated request, receipt and watch contracts against
+  installed client disk formats and real backup copies, including opaque accepted
+  identity, predecessor chains and same-root unresolved-state changes.
 - Make baseline snapshot clients continue syncing and editing accepted conflicts
   without downloading decisions or understanding their formats. Preserve pending
   work and newer local bytes during acknowledgement and remote materialization.

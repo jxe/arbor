@@ -52,14 +52,12 @@ private actor ClosureTransport: UpdateTransport {
                 snapshots[known.root] = known
             }
             switch final.result {
-            case let .accepted(update), let .current(update):
+            case let .accepted(update), let .unchanged(update):
                 if let snapshot = snapshots[update.root] {
                     current = snapshot
                     currentUpdate = update.id
                     currentObservedThrough = update.id
                 }
-            case .merged:
-                break
             }
         }
         return response
@@ -744,8 +742,7 @@ struct UpdateCoordinatorTests {
                 id: "up_remote",
                 tree: tree,
                 root: remote.root,
-                previousRoot: initial.root,
-                kind: "accepted",
+                previous: .init(id: "up_initial", root: initial.root),
                 acceptedAt: 1_800_000_000_000
             )
             let transition = WireAcceptedTransition(
@@ -785,15 +782,15 @@ struct UpdateCoordinatorTests {
                 at: root.appending(path: "replica"), transport: transport
             )
             let update = WireAcceptedUpdate(id: "up_conflicted", tree: tree, root: initial.root,
-                previousRoot: initial.root, kind: "accepted", acceptedAt: 1, conflicted: true)
+                previous: .init(id: "up_initial", root: initial.root), acceptedAt: 1, conflicted: true)
             var remote = descriptor(tree: tree, snapshot: initial, update: update.id)
             remote.conflicted = true
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
-            let result = try await coordinator.observe(WireWatchEvent(id: update.id, tree: remote,
+            let result = try await coordinator.observe(WireWatchEvent(id: "observation-metadata", tree: remote,
                 transitions: [.init(update: update, objects: [], deltas: [])]))
             #expect(result.state == .current)
             #expect(result.acceptedConflicted == true)
-            #expect(try await workingTree.heads().acceptedCursor == update.id)
+            #expect(try await workingTree.heads().acceptedCursor == "observation-metadata")
             let restarted = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
             #expect(try await restarted.presentation().acceptedConflicted == true)
         }
@@ -926,7 +923,7 @@ struct UpdateCoordinatorTests {
             ))
             #expect(result.state == .current)
             #expect(await transport.requests.count == 2)
-            #expect(try await workingTree.heads().acceptedCursor == "up_local")
+            #expect(try await workingTree.heads().acceptedCursor == nil)
         }
     }
 
@@ -1214,21 +1211,14 @@ struct UpdateCoordinatorTests {
                 let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
                 let merged = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\nLocal\nRemote\n")
                 let transport = ClosureTransport(initial: initial) { prepared, _ in
-                    let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
-                    let summary = WireMergeSummary(version: "markdown-additive-v1", approximatePlacements: 0)
                     let update = WireAcceptedUpdate(
                         id: "up_merged",
                         tree: tree,
                         root: merged.root,
-                        previousRoot: initial.root,
-                        kind: "merged",
-                        acceptedAt: 1_800_000_000_000,
-                        baseRoot: initial.root,
-                        candidateRoot: request.candidate,
-                        remoteRoot: initial.root,
-                        merge: summary
+                        previous: .init(id: "up_initial", root: initial.root),
+                        acceptedAt: 1_800_000_000_000
                     )
-                    return WireUpdateResponse(result: .merged(update, summary), requestDigest: prepared.requestDigest, reconciliation: WireTransitionPayload(objects: merged.objects), observedThrough: update.id)
+                    return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, reconciliation: WireTransitionPayload(objects: merged.objects), observedThrough: update.id)
                 }
                 let workingTree = try await placeWorkingTree(
                     tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -1249,7 +1239,7 @@ struct UpdateCoordinatorTests {
                 )
                 await #expect(throws: InjectedSyncCrash.self) { _ = try await crashing.syncOnce() }
                 let resumed = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
-                #expect(try await resumed.syncOnce().state == .autoMerged)
+                #expect(try await resumed.syncOnce().state == .current)
                 #expect(try await workingTree.heads().acceptedRoot == merged.root)
                 let requests = await transport.requests
                 #expect(requests.count == 2)
@@ -1627,13 +1617,13 @@ struct UpdateCoordinatorPhase3Tests {
                 .init(name: "note.md", file: localNote.hash),
                 .init(name: "photo.bin", file: photo2.hash),
             ]))
-            let summary = WireMergeSummary(version: "markdown-additive-v1", approximatePlacements: 0)
+
             let update = WireAcceptedUpdate(
-                id: "up_merged", tree: tree, root: mergedRoot.hash, previousRoot: rootDirectory.hash, kind: "merged",
-                acceptedAt: 1_800_000_000_000, baseRoot: rootDirectory.hash, candidateRoot: request.candidate, remoteRoot: rootDirectory.hash, merge: summary
+                id: "up_merged", tree: tree, root: mergedRoot.hash, previous: .init(id: "up_initial", root: rootDirectory.hash),
+                acceptedAt: 1_800_000_000_000
             )
             return WireUpdateResponse(
-                result: .merged(update, summary),
+                result: .accepted(update),
                 requestDigest: prepared.requestDigest,
                 reconciliation: WireTransitionPayload(objects: [mergedRoot], deltas: [delta]),
                 observedThrough: update.id
@@ -1645,7 +1635,7 @@ struct UpdateCoordinatorPhase3Tests {
             let session = try await WorkingTreeProvider(workingTree: workingTree).openDocument(reference)
             let base = try await session.snapshot()
             _ = try await session.admit(source: base.source + "Local\n", baseContentRevision: base.contentRevision)
-            #expect(try await coordinator.syncOnce().state == .autoMerged)
+            #expect(try await coordinator.syncOnce().state == .current)
             #expect(await platform.fetches == 1)
             #expect(await platform.fetched == [photo.hash])
             #expect(try await workingTree.heads().acceptedUpdate == "up_merged")
@@ -1918,12 +1908,8 @@ private func accepted(id: String, tree: String, root: String, base: String, cand
         id: id,
         tree: tree,
         root: root,
-        previousRoot: base,
-        kind: "accepted",
-        acceptedAt: 1_800_000_000_000,
-        baseRoot: base,
-        candidateRoot: candidate,
-        remoteRoot: base
+        previous: .init(id: "up_initial", root: base),
+        acceptedAt: 1_800_000_000_000
     )
 }
 

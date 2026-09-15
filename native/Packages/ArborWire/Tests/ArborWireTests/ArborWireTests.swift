@@ -274,15 +274,6 @@ struct UpdateProtocolTests {
         }
     }
 
-    @Test("Merge summaries recognize semantic collection-file row merges")
-    func collectionFileMergeSummary() throws {
-        let value = WireMergeSummary(version: "collection-file-rows-v1", mergedRows: 3)
-        #expect(try value.validated() == value)
-        #expect(throws: ArborWireValidationError.self) {
-            _ = try WireMergeSummary(version: "collection-file-rows-v1").validated()
-        }
-    }
-
     @Test("Active request codec and identities match the shared authored vectors")
     func activeAuthoredContract() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-authored-updates.json"))
@@ -419,7 +410,7 @@ struct UpdateProtocolTests {
         let response = try #require(submit["response"] as? [String: Any])
         let body = try JSONSerialization.data(withJSONObject: try #require(response["body"] as? [String: Any]))
         let responseValue = try JSONDecoder().decode(WireUpdateResponse.self, from: body)
-        guard case let .current(update) = responseValue.result else { Issue.record("Expected current result"); return }
+        guard case let .unchanged(update) = responseValue.result else { Issue.record("Expected current result"); return }
         #expect(update.id == "1")
         let snapshotCase = try #require(cases.first { $0["name"] as? String == "read-accepted-snapshot" })
         let request = try #require(snapshotCase["request"] as? [String: Any])
@@ -441,12 +432,11 @@ struct UpdateProtocolTests {
         let finalRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", file: finalFile.hash)]))
         let firstUpdate = WireAcceptedUpdate(
             id: "2", tree: "tr_notes", root: firstRoot.hash,
-            previousRoot: baseRoot.hash, kind: "accepted", acceptedAt: 1
+            previous: .init(id: "1", root: baseRoot.hash), acceptedAt: 1
         )
         let finalUpdate = WireAcceptedUpdate(
             id: "3", tree: "tr_notes", root: finalRoot.hash,
-            previousRoot: firstRoot.hash, kind: "merged", acceptedAt: 2,
-            merge: .init(version: "markdown-additive-v1", approximatePlacements: 0)
+            previous: .init(id: "2", root: firstRoot.hash), acceptedAt: 2
         )
         // Deltas address canonical object bytes: the file header carries the
         // payload length, so it is inserted and payload ranges are copied.
@@ -534,7 +524,7 @@ struct UpdateProtocolTests {
         )
         let requestDigest = prepared.requestDigest
         let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
+        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
         """.utf8)
         await WireURLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -559,7 +549,7 @@ struct UpdateProtocolTests {
             "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}"
         }.joined(separator: ",")
         let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)],"deltas":[]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previous":{"id":"prior","root":"\(base)"},"conflicted":false,"acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)],"deltas":[]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
         """.utf8)
         await WireURLProtocolStub.state.install { _, _ in (409, response) }
         let client = ArborWireClient(
@@ -640,7 +630,7 @@ struct UpdateProtocolTests {
         let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
         let bundle = try WireSnapshotBundleCodec.encode(snapshot)
         let descriptor = """
-        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1"},"observedThrough":"up_1"}
+        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1","conflicted":false},"observedThrough":"up_1"}
         """
         await WireURLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {

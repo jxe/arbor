@@ -10,7 +10,8 @@
       "parentTree": "tr_alice"
     },
     "update": "1",
-    "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+    "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+    "conflicted": false
   },
   "cases": [
     {
@@ -35,7 +36,8 @@
               "parentTree": "tr_alice"
             },
             "update": "1",
-            "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+            "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+            "conflicted": false
           },
           "observedThrough": "1"
         }
@@ -90,16 +92,16 @@
         "body": {
           "results": [
             {
-              "outcome": "current",
+              "outcome": "unchanged",
               "requestDigest": "sha256:6745bae87ecaa1769d22085cedca1b1e1ae5c34bd4913f58b0dedf945a64869a",
               "update": {
                 "id": "1",
                 "tree": "tr_atlas",
                 "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
-                "previousRoot": null,
-                "kind": "initial",
                 "acceptedAt": 1787529600000,
-                "subject": null
+                "subject": null,
+                "previous": null,
+                "conflicted": false
               }
             }
           ],
@@ -146,10 +148,10 @@
                 "id": "3",
                 "tree": "tr_new",
                 "root": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
-                "previousRoot": null,
-                "kind": "initial",
                 "acceptedAt": 1787529700000,
-                "subject": "device:dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+                "subject": "device:dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "previous": null,
+                "conflicted": false
               }
             }
           ],
@@ -179,7 +181,8 @@
               "parentTree": "tr_alice"
             },
             "update": "1",
-            "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+            "root": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+            "conflicted": false
           },
           "observedThrough": "1"
         }

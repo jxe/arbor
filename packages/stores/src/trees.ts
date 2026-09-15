@@ -29,6 +29,7 @@ export interface SharedTreePlacement {
   endpoint: string;
   ref?: string;
   update?: string;
+  cursor?: string;
   replica?: boolean;
 }
 
@@ -53,6 +54,7 @@ interface PlacementSyncMetadata {
   conflicted?: boolean;
   ref?: string;
   update?: string;
+  cursor?: string;
   access?: "read" | "write";
 }
 

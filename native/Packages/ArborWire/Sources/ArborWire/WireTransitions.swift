@@ -14,7 +14,16 @@ public enum WireTransitionReplay {
         }
         var snapshot = basis
         var tree: String?
+        var previous: WireAcceptedUpdate?
+        var seen = Set<Data>()
         for transition in transitions {
+            guard seen.insert(Data(transition.update.id.utf8)).inserted else { throw ArborWireValidationError.invalidValue("Repeated accepted identity") }
+            if let previous {
+                guard transition.update.previous?.id.utf8.elementsEqual(previous.id.utf8) == true else {
+                    throw ArborWireValidationError.invalidValue("Accepted predecessor identity mismatch")
+                }
+            }
+            previous = transition.update
             if let tree, transition.update.tree != tree {
                 throw ArborWireValidationError.invalidValue("Accepted transition batch crosses trees")
             }
@@ -30,7 +39,7 @@ public enum WireTransitionReplay {
         mode: WireObjectGraph.ValidationMode = .complete
     ) throws -> WireSnapshot {
         _ = try transition.validated()
-        guard transition.update.previousRoot == basis.root else {
+        guard transition.update.previous?.root == basis.root else {
             throw ArborWireValidationError.invalidValue("Accepted transition basis root mismatch")
         }
         return try applying(

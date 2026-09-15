@@ -52,6 +52,7 @@ struct AcceptedContractTests {
             func decode() throws -> Data {
                 if c["kind"] as? String == "watch" {
                     let change=try JSONDecoder().decode(WireAcceptedWatchChangeContract.self,from:data)
+                    _ = try JSONDecoder().decode([WireAcceptedTransition].self,from:JSONEncoder().encode(change.fields["transitions"]))
                     let basis=try #require(c["basis"] as? [String:String])
                     try change.validateBasis(tree:#require(file["tree"] as? String),id:#require(basis["id"]),root:#require(basis["root"]))
                     if ["same-root decision followed by content in one batch", "sparse accepted transport"].contains(c["name"] as? String ?? "") {
@@ -70,6 +71,7 @@ struct AcceptedContractTests {
                     }
                     return try JSONEncoder().encode(change)
                 }
+                _ = try JSONDecoder().decode(WireUpdateResponse.self,from:data)
                 return try JSONEncoder().encode(JSONDecoder().decode(WireSubmissionResponseContract.self,from:data))
             }
             if c["valid"] as? Bool == true {

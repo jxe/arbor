@@ -398,11 +398,11 @@ private actor PairingURLProtocolState {
                     "profileTree": "tr_profileexact",
                     "profileURL": "https://canopy.test/~joe",
                     "community": [
-                        "id": "tr_community", "kind": "ordinary", "access": "read", "root": zero, "update": "up_community",
+                        "id": "tr_community", "kind": "ordinary", "access": "read", "root": zero, "update": "up_community", "conflicted": false,
                         "canonical": ["path": "/", "endpoint": "https://canopy.test/.well-known/arbor"],
                     ],
                     "configuration": [
-                        "id": "tr_configexact", "kind": "account-configuration", "access": "write", "root": one, "update": "up_config",
+                        "id": "tr_configexact", "kind": "account-configuration", "access": "write", "root": one, "update": "up_config", "conflicted": false,
                     ],
                     "writableProfiles": [],
                     "device": ["id": id, "label": label],

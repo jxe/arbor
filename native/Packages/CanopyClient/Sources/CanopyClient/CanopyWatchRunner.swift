@@ -39,13 +39,21 @@ public struct CanopyWatchRunner: Sendable {
         var reconnectAttempt = 0
         while !Task.isCancelled {
             do {
+                if lastEventID == nil {
+                    _ = try await coordinator.recoverWatchGap()
+                    lastEventID = try await coordinator.watchCursor()
+                }
                 let events = try await client.watch(tree: tree, lastEventID: lastEventID)
                 reconnectAttempt = 0
                 for try await event in events {
                     try Task.checkCancellation()
-                    lastEventID = event.id
                     guard event.tree.id == tree else { continue }
                     _ = try await coordinator.observe(event)
+                    lastEventID = try await coordinator.watchCursor()
+                    if lastEventID == nil {
+                        _ = try await coordinator.recoverWatchGap()
+                        lastEventID = try await coordinator.watchCursor()
+                    }
                     await onChange()
                 }
             } catch is CancellationError {

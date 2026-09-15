@@ -82,7 +82,7 @@ describe("REST v1 protocol fixtures", () => {
     const pending = await json<TreeBootstrap>("bootstrap-pending.json");
     const credential = await json<TreeCredential>("credential.json");
     expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
-    expect(clean.accepted.cursor).toBe(clean.accepted.update);
+    expect(clean.accepted.cursor).toBeNull();
     expect(clean.modifiedAtByPath).toEqual({ "/": 1789473600000 });
     expect(clean.blocked).toBeUndefined();
     expect(clean.pending).toBeUndefined();
@@ -260,14 +260,14 @@ describe("REST v1 protocol fixtures", () => {
     expect(activation.base).toBeNull();
     expect(updateRequestDigests("tr_new", activation)).toEqual([activate.request.derivedRequestDigest!]);
     expect(activationResponse.results[0]!.requestDigest).toBe(activate.request.derivedRequestDigest!);
-    expect(decodeAcceptedUpdateJSON(activationResponse.results[0]!.update)).toMatchObject({ tree: "tr_new", root: activationUpdate.candidate, previousRoot: null, kind: "initial" });
+    expect(decodeAcceptedUpdateJSON(activationResponse.results[0]!.update)).toMatchObject({ tree: "tr_new", root: activationUpdate.candidate, previous: null, conflicted: false });
     const submit = byName.get("submit-current-update")!;
     const request = decodeUpdateRequestJSON(submit.request.body);
     const submitResponse = submit.response.body as { results: Array<{ requestDigest: string; update: unknown }> };
     expect(updateRequestDigests("tr_atlas", request)).toEqual([submit.request.derivedRequestDigest!]);
     expect(submitResponse.results[0]!.requestDigest).toBe(submit.request.derivedRequestDigest!);
     const current = decodeAcceptedUpdateJSON(submitResponse.results[0]!.update);
-    expect(current).toMatchObject({ id: "1", tree: "tr_atlas", kind: "initial", previousRoot: null });
+    expect(current).toMatchObject({ id: "1", tree: "tr_atlas", previous: null, conflicted: false });
     expect(current.root).toBe(request.updates[0]!.candidate);
     const watch = parseSSEFrame(byName.get("watch-ref")!.response.frame!.trim())!;
     const watched = JSON.parse(watch.data) as { cursor: string; tree: string; kind: string; change: { descriptor: unknown } };

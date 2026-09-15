@@ -135,7 +135,9 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       signal.addEventListener("abort", stopConnection, { once: true });
       let resync = false;
       try {
-        for await (const event of client.watch(tree, placement.update, { signal: connection.signal })) {
+        const cursor = placement.cursor ?? (await client.descriptor(tree)).observedThrough;
+        if (!placement.cursor) void this.deps.requestSync();
+        for await (const event of client.watch(tree, cursor, { signal: connection.signal })) {
           backoff = INITIAL_WATCH_BACKOFF_MS;
           if (event.kind === "tree.update" && "transitions" in event) {
             const queue = this.queued.get(tree) ?? [];
@@ -268,6 +270,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         ...placement,
         ref: current.tree.root,
         update: current.tree.update,
+        cursor: current.observedThrough,
         conflicted: current.tree.conflicted,
         access: current.tree.access === "none" ? "read" : current.tree.access,
       });
@@ -299,22 +302,25 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     const transitions = events.flatMap((event) => event.transitions);
     const final = transitions.at(-1);
     if (!final) return false;
-    if (final.update.id === placement.update) {
+    if (final.update.id === placement.update && final.update.root === placement.ref) {
+      await this.deps.trees.updateSyncMetadata({ ...placement, cursor: events.at(-1)!.cursor, conflicted: final.update.conflicted });
       // The pass that submitted this update already materialized it.
       this.deps.trees.setSyncState(workspace.tree, "idle");
       return true;
     }
-    if (transitions[0]!.update.previousRoot !== placement.ref) return false;
+    if (transitions[0]!.update.previous?.root !== placement.ref || transitions[0]!.update.previous?.id !== placement.update) return false;
     const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (local.root !== placement.ref) return false;
 
     let objects: Map<ObjectHash, Uint8Array> = new Map(local.objects);
     let expected: ObjectHash = placement.ref;
+    let expectedID = placement.update;
     try {
       for (const transition of transitions) {
-        if (transition.update.previousRoot !== expected) return false;
+        if (transition.update.previous?.root !== expected || transition.update.previous?.id !== expectedID) return false;
         objects = applyTransitionPayload(objects, transition);
         expected = transition.update.root;
+        expectedID = transition.update.id;
       }
     } catch {
       return false;
@@ -332,6 +338,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
         ...placement,
         ref: final.update.root,
         update: final.update.id,
+        cursor: events.at(-1)!.cursor,
         conflicted: final.update.conflicted,
         access: descriptor.access === "none" ? "read" : descriptor.access,
       });
@@ -365,14 +372,13 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     const current = await client.descriptor(workspace.tree);
     const remote = current.tree;
     if (!remote.update) throw new Error("Server does not advertise accepted updates for this tree");
-    if (
-      placement.access !== remote.access
-      || (placement.ref === remote.root && placement.update !== remote.update)
-    ) {
+    // Access can refresh immediately. Accepted identity must wait until the local
+    // snapshot is known clean; equal remote roots can hide a metadata transition
+    // that a newer local edit was not authored against.
+    if (placement.access !== remote.access) {
       placement = {
         ...placement,
         access: remote.access === "none" ? "read" : remote.access,
-        ...(placement.ref === remote.root ? { update: remote.update, conflicted: remote.conflicted } : {}),
       };
       await trees.updateSyncMetadata(placement);
     }
@@ -384,7 +390,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     let local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || !placement.update) {
       if (local.root === remote.root) {
-        await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update, conflicted: remote.conflicted });
+        await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update, cursor: current.observedThrough, conflicted: remote.conflicted });
         await saveAcceptedTreeObjects(workspace.tree, local);
         trees.setSyncState(workspace.tree, "idle");
         this.conflicts.delete(workspace.tree);
@@ -401,10 +407,9 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       await this.pullCurrent(workspace, placement, client, remoteTrees, current);
       return;
     }
-    if (local.root === remote.root && (!pending || updatesFromPending(pending).every((update) => update.operations === null))) {
-      await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update, conflicted: remote.conflicted });
+    if (local.root === remote.root && !pending) {
+      await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update, cursor: current.observedThrough, conflicted: remote.conflicted });
       await saveAcceptedTreeObjects(workspace.tree, local);
-      if (pending) await clearPendingTreeUpdate(workspace.tree);
       trees.setSyncState(workspace.tree, "idle");
       this.conflicts.delete(workspace.tree);
       return;
@@ -455,6 +460,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
               ...placement,
               ref: accepted.root,
               update: accepted.id,
+              cursor: undefined,
               conflicted: accepted.conflicted,
             };
             await trees.updateSyncMetadata(placement);
@@ -486,6 +492,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
             ...placement,
             ref: accepted.root,
             update: accepted.id,
+              cursor: undefined,
               conflicted: accepted.conflicted,
           });
           await this.confirmMaterialized(workspace, client, remoteTrees, accepted.root, "Materialized accepted tree does not match its server root");

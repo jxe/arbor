@@ -54,7 +54,7 @@ describe("Canopy schema version stamp", () => {
     db.run("CREATE TABLE boundaries (path TEXT PRIMARY KEY, tree_id TEXT NOT NULL UNIQUE REFERENCES trees(id), parent_tree TEXT, kind TEXT NOT NULL)");
     db.run("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     db.close();
-    await expect(CanopyDaemon.open(root, bootstrap)).rejects.toThrow(/schema version 1 \(unstamped\).*delete the Canopy data root and re-bootstrap/);
+    await expect(CanopyDaemon.open(root, bootstrap)).rejects.toThrow(/schema version 1 \(unstamped\).*run the offline migration/);
     // The refused database is left untouched for the operator's migration tool.
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
@@ -66,6 +66,6 @@ describe("Canopy schema version stamp", () => {
     const db = new Database(join(root, "canopy.sqlite3"));
     db.run("UPDATE meta SET value = 'future' WHERE key = 'schema_version'");
     db.close();
-    await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version future.*delete the Canopy data root and re-bootstrap/);
+    await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version future.*run the offline migration/);
   });
 });

@@ -1,14 +1,20 @@
 import { expect, test } from "bun:test";
 import { applyObjectDelta } from "../../../packages/wire/src/updates/apply.ts";
-import { decodeObjectEnvelopes, decodeTransitionPayloadJSON, verifyTreeSnapshotGraph } from "../../../packages/wire/src/updates/json.ts";
+import { decodeAcceptedTransitionJSON, decodeUpdateResponseJSON, decodeObjectEnvelopes, decodeTransitionPayloadJSON, verifyTreeSnapshotGraph } from "../../../packages/wire/src/updates/json.ts";
 import { hashObject, type ObjectHash } from "../../../packages/wire/src/objects.ts";
 import vectors from "../../../conformance/wire-accepted-transport.json";
 import { decodeAcceptedWatchChange, decodeSubmissionResponse } from "../../../packages/wire/src/updates/accepted-contract.ts";
 for (const c of vectors.cases) test(`accepted transport: ${c.name}`, () => {
   const value = structuredClone(c.value);
-  const decode = () => c.kind === "watch"
-    ? decodeAcceptedWatchChange(value, vectors.tree, c.basis)
-    : decodeSubmissionResponse(value);
+  const decode = () => {
+    if (c.kind === "watch") {
+      const change = decodeAcceptedWatchChange(value, vectors.tree, c.basis);
+      change.transitions.forEach(decodeAcceptedTransitionJSON);
+      return change;
+    }
+    decodeUpdateResponseJSON(value);
+    return decodeSubmissionResponse(value);
+  };
   if (c.valid) expect<unknown>(decode()).toEqual(value);
   else expect(decode).toThrow();
 });

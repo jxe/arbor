@@ -237,7 +237,7 @@ with `details.kind: "unsynchronized"`). The response is:
 ```ts
 {
   tree: LocalTreeDescriptor,
-  accepted: { root: Hash, update: string, cursor: string },   // cursor === update
+  accepted: { root: Hash, update: string, cursor: string | null },   // independent observation boundary; null requires refresh
   spine: string,          // base64 sparse CBOR snapshot bundle
   modifiedAtByPath: Record<string, number>, // logical page path -> Unix milliseconds
   pending?: { base: string | null, updates: CandidateUpdateJSON[], requestDigests: Hash[] },
@@ -432,3 +432,8 @@ bootstrap with a sparse spine and one omitted binary), `bootstrap-pending.json`
 The bootstrap spine uses typed `file` and `directory` entries. Every directory
 and Markdown file is present; other file payloads may be omitted. File sizes
 remain unknown until read; there is no bootstrap `files` classification map.
+
+The local tree descriptor may carry `conflicted` for its accepted base. This is
+independent of the daemon's rejected-edit `sync: "conflict"` status and does not hold
+ordinary synchronization. A null bootstrap accepted cursor requires a fresh Canopy
+observation boundary; it must not be replaced with the accepted update ID.

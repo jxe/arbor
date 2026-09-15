@@ -2,11 +2,11 @@
 
 The [portable update contract](../spec/01-tree-operations.md#21-the-update-request)
 and [material/resolution semantics](../spec/10-source-intent.md) define the target.
-The request-side implementation in this worktree now uses the consolidated encoding
-in active TypeScript and Swift clients, durable request construction and Canopy
-validation. Installed apps and Canopy have not been upgraded. Accepted-state and
-watch response codecs still use the previous shape; their adoption is the next part
-of Plan 011. This is a staged implementation of one unversioned contract.
+The implementation in this worktree uses the consolidated request and accepted-state
+encoding in active TypeScript/Swift clients and Canopy. Accepted receipts now use
+`unchanged | accepted`; watch replay checks predecessor identity and root. Installed
+apps and Canopy have not been upgraded. The [active adoption checkpoint](#active-accepted-state-adoption)
+records verification and remaining cutover gates. This is one unversioned contract.
 
 ## Target request
 
@@ -39,7 +39,7 @@ The semantic models exclude transport arrays. The complete request codecs below
 combine them with the existing object/delta transport. Vectors use synthetic object hashes: grammar and digest
 agreement does not prove graph reachability, source attribution or server execution.
 The request models are wired into active submission and pending-request encoding.
-The read models remain staged. Historical old-format vectors retain their original
+The read models now also validate active decoding. Historical old-format vectors retain their original
 bytes and digests; the experimental authority remains on its separate branch.
 
 ## Complete request codec
@@ -77,9 +77,10 @@ The existing conservative snapshot merge engine remains in use. Canopy rejects a
 entire batch with `422 unsupported-operation` if any element has operations or
 resolution declarations; grammar support never implies semantic execution.
 
-Next adopt the accepted-state/read contract: simplified outcomes, predecessor ID/root
-chains and required unresolved signals, then inspection as accepted decisions become
-available. Include baseline client compatibility in this same cutover, as required by Plan 011.
+Accepted-state/read adoption now includes simplified outcomes, predecessor ID/root
+chains and required unresolved signals. Inspection follows as accepted decisions
+become available. Complete baseline client disk-format compatibility in this same
+cutover, as required by Plan 011.
 No capability-discovery endpoint or negotiation mechanism is needed.
 
 After that foundation, deploy and verify server acceptance of each new operation
@@ -149,9 +150,9 @@ cannot grant authority.
 [TypeScript read models](../packages/wire/src/updates/accepted-contract.ts),
 [Swift read models](../native/Packages/ArborWire/Sources/ArborWire/WireAcceptedContract.swift)
 and [shared read/chain vectors](../conformance/wire-accepted-state.json) validate the
-target shapes independently of active HTTP codecs. Their grammar checks do not prove
+target shapes through the active HTTP codecs as well as standalone models. These checks do not prove
 projection correspondence, server authorization, paging traversal or semantic execution.
-Keep active read/write codecs compatible until coordinated adoption replaces them.
+Installation of the consolidated codecs remains part of the coordinated cutover.
 
 Historically, the experimental accepted-state consolidation passed 742 product tests, 32 standalone ArborWire
 Swift tests, type checking and the cross-language/live compatibility gate. The 37
@@ -163,9 +164,50 @@ checks verify contract decoding and identity continuity, not new server executio
 Repository-wide file-link and section-link checks introduce no new broken references;
 `git diff --check` passes.
 
+## Active accepted-state adoption
+
+Canopy, TypeScript and Swift now use the target accepted-state and receipt models
+on active HTTP/watch paths. Shared transport fixtures run through active decoders.
+Private merge summaries stay in Canopy storage; they no longer determine a wire
+outcome or expose a server-specific merge kind to clients.
+
+Schema 8 stores predecessor IDs and unresolved flags. The
+[offline migration](../migrations/006-accepted-state-links/README.md) preserves all
+existing accepted-record fields, observation rows, digests and objects. Retention
+can remove a predecessor later without changing its successor's link. New snapshots
+preserve an existing unresolved flag. Production creation and resolution of retained
+alternatives remain unimplemented; synthetic metadata tests do not claim otherwise.
+
+Filesystem placements persist observation cursors separately from accepted IDs and
+expose unresolved state independently of rejected-edit sync status. Equal bytes
+cannot discard pending requests or advance the authored basis of newer local edits.
+Native replay binds the first predecessor to its confirmed state. Historical receipt
+acknowledgement clears no unseen observation range; the watcher refreshes its
+snapshot boundary when it has no confirmed cursor. Bootstrap represents that cursor
+as null rather than substituting an accepted ID.
+
+Tests exercise continued filesystem editing/restart with a synthetic unresolved
+signal, native metadata-only replay with an independent observation cursor, sparse
+reconciliation, request recovery, exact history preservation and failed migration
+rollback. These are disposable fixtures and services, not checks of installed apps.
+
+Verification: 685 product tests pass, followed by 48 focused client/authority/read
+checks after adding independent-cursor replay assertions. Type checking, 32 standalone
+ArborWire Swift tests and the full protocol gate pass; the latter includes 58
+WorkingTree Swift tests. Both offline migration tests pass. An earlier concurrent
+full-suite run hit collection-sandbox and CLI timeouts; the unchanged full suite
+passed when rerun without the competing Swift build. No timeout or assertion was
+relaxed. Repository file/section checks introduce no new broken links.
+
+Remaining before cutover: native persisted placement/visit descriptor compatibility
+(the installed format can omit `conflicted`), old pending/rejected-response recovery,
+and a rehearsal on actual backup copies. The current binary must not be installed
+until those gates pass. Detailed inspection, operation execution and review UI still
+follow independently under the server-first release order.
+
 ## Accepted read transport checkpoint
 
-The staged TS and Swift read models now validate watch transition payloads and
+Historical preparation before active adoption: the staged TS and Swift read models now validate watch transition payloads and
 submission reconciliation, using the existing complete-object/delta transport.
 They require both predecessor identity and root, retain empty same-root transitions,
 bind the final accepted state and unresolved signal to the descriptor, and keep

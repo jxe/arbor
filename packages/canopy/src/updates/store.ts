@@ -1,10 +1,10 @@
+import type { MergeSummary } from "./reconcile.ts";
 import { Database } from "bun:sqlite";
 import {
   decodeTransitionPayloadJSON,
   encodeTransitionPayloadJSON,
   type AcceptedTransitionPayload,
   type AcceptedUpdate,
-  type MergeSummary,
   type ObjectHash,
   type UpdateResult,
 } from "@arbor/wire";
@@ -19,7 +19,8 @@ export interface AcceptedUpdateInput {
   tree: string;
   root: ObjectHash;
   previousRoot: ObjectHash | null;
-  kind: AcceptedUpdate["kind"];
+  conflicted?: boolean;
+  kind: "initial" | "accepted" | "merged" | "restored";
   acceptedAt: number;
   subject?: string | null;
   /** Reconciliation provenance retained privately; never part of the wire `AcceptedUpdate`. */
@@ -50,6 +51,8 @@ export class AcceptedUpdateStore {
         tree_id TEXT NOT NULL REFERENCES trees(id),
         root TEXT NOT NULL,
         previous_root TEXT,
+        previous_id TEXT,
+        conflicted INTEGER NOT NULL DEFAULT 0,
         kind TEXT NOT NULL,
         accepted_at INTEGER NOT NULL,
         subject TEXT,
@@ -76,7 +79,9 @@ export class AcceptedUpdateStore {
       tree_id: string;
       root: ObjectHash;
       previous_root: ObjectHash | null;
-      kind: AcceptedUpdate["kind"];
+      previous_id: string | null;
+      conflicted: number;
+      kind: "initial" | "accepted" | "merged" | "restored";
       accepted_at: number;
       subject: string | null;
       merge_summary: string | null;
@@ -85,11 +90,10 @@ export class AcceptedUpdateStore {
       id: record.id,
       tree: record.tree_id,
       root: record.root,
-      previousRoot: record.previous_root,
-      kind: record.kind,
+      previous: record.previous_id === null ? null : { id: record.previous_id, root: record.previous_root! },
+      conflicted: Boolean(record.conflicted),
       acceptedAt: record.accepted_at,
       subject: record.subject,
-      ...(record.merge_summary ? { merge: JSON.parse(record.merge_summary) as MergeSummary } : {}),
     };
   }
 
@@ -132,7 +136,7 @@ export class AcceptedUpdateStore {
     return {
       status: 201,
       result: {
-        outcome: accepted.kind === "merged" ? "merged" : "accepted",
+        outcome: "accepted",
         update: accepted,
         requestDigest: digest as ObjectHash,
       },
@@ -159,17 +163,21 @@ export class AcceptedUpdateStore {
 
   /** The accepted update's id is the ordinal of the `tree.update` observation that records it. */
   private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
+    const prior = this.current(input.tree);
+    if (input.previousRoot !== (prior?.root ?? null)) throw new Error("Accepted predecessor does not match current state");
     const observation = this.observations.appendAccepted({ tree: input.tree, createdAt: input.acceptedAt });
     const id = observation.cursor;
     this.db.run(`
       INSERT INTO accepted_updates
-        (id, tree_id, root, previous_root, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, tree_id, root, previous_root, previous_id, conflicted, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       id,
       input.tree,
       input.root,
       input.previousRoot,
+      prior?.id ?? null,
+      (input.conflicted ?? prior?.conflicted ?? false) ? 1 : 0,
       input.kind,
       input.acceptedAt,
       input.subject ?? null,

@@ -72,6 +72,11 @@ export class ObservationLog {
     return row ? toRecord(row) : null;
   }
 
+  forUpdate(update: string): ObservationRecord | null {
+    const row = this.db.query("SELECT * FROM observations WHERE update_id = ? ORDER BY ordinal DESC LIMIT 1").get(update) as ObservationRow | null;
+    return row ? toRecord(row) : null;
+  }
+
   latestCursor(tree?: string): string | null {
     const row = (tree
       ? this.db.query("SELECT cursor FROM observations WHERE tree_id = ? AND update_id IS NOT NULL ORDER BY ordinal DESC LIMIT 1").get(tree)

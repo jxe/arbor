@@ -27,7 +27,8 @@
         "parentTree": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"
       },
       "update": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "conflicted": false
     },
     "accessEntries": [
       {

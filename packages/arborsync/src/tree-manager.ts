@@ -34,10 +34,10 @@ function descriptorCanonical(placement: TreePlacement, parentTree: string | null
 }
 
 /** The accepted Canopy base a placement derives from, in Wire vocabulary. */
-function acceptedBase(placement: { ref?: string | null; update?: string | null }): { root?: Hash; update?: string } {
+function acceptedBase(placement: { ref?: string | null; update?: string | null; conflicted?: boolean }): { root?: Hash; update?: string; conflicted?: boolean } {
   return {
     ...(placement.ref ? { root: placement.ref as Hash } : {}),
-    ...(placement.update ? { update: placement.update } : {}),
+    ...(placement.update ? { update: placement.update, conflicted: placement.conflicted ?? false } : {}),
   };
 }
 
@@ -730,14 +730,14 @@ export class TreeManager implements AsyncDisposable {
   async updateSyncMetadata(placement: SharedTreePlacement): Promise<LocalTreeDescriptor> {
     const root = this.known.get(placement.tree);
     if (!root?.placement || root.placement.path !== placement.path) throw new Error(`Unknown configured placement: ${placement.tree}`);
-    root.placement = { ...root.placement, ref: placement.ref, update: placement.update, conflicted: placement.conflicted, access: placement.access };
+    root.placement = { ...root.placement, ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access };
     this.workspaces.get(placement.tree)?.updateTreeDescriptor({
       access: placement.access,
       ...acceptedBase(placement),
     });
     await savePlacementSyncMetadata(
       placement.tree,
-      { ref: placement.ref, update: placement.update, conflicted: placement.conflicted, access: placement.access },
+      { ref: placement.ref, update: placement.update, cursor: placement.cursor, conflicted: placement.conflicted, access: placement.access },
       placement.configurationTree,
     );
     this.invalidateDescriptors();

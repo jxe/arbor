@@ -124,7 +124,7 @@ describe("governed account-configuration Canopy server", () => {
       updates,
     });
     expect(response.results.map(({ outcome }) => outcome)).toEqual(["accepted", "accepted"]);
-    expect(response.results[1]!.update.previousRoot).toBe(response.results[0]!.update.root);
+    expect(response.results[1]!.update.previous?.root).toBe(response.results[0]!.update.root);
     expect(response.observedThrough).toBe(response.results[1]!.update.id);
     expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(before + 2);
 
@@ -176,10 +176,10 @@ describe("governed account-configuration Canopy server", () => {
       objects:[...candidate.objects].map(([hash,bytes])=>({hash,bytes})),deltas:[],
     }]};
     const response = await client.submitUpdates(baseline.current.tree.id,request);
-    expect(response.results.map(r=>r.outcome)).toEqual(["current","accepted"]);
+    expect(response.results.map(r=>r.outcome)).toEqual(["unchanged","accepted"]);
     const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
     const replay = await client.submitUpdates(baseline.current.tree.id,request);
-    expect(replay.results.map(r=>r.outcome)).toEqual(["current","accepted"]);
+    expect(replay.results.map(r=>r.outcome)).toEqual(["unchanged","accepted"]);
     expect(replay.results[1]!.update.id).toBe(response.results[1]!.update.id);
     expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(count);
   });
@@ -300,7 +300,7 @@ describe("governed account-configuration Canopy server", () => {
       },
     };
     const advanced = await submitConfiguration(baseline.current, changed);
-    if (advanced.outcome !== "accepted" && advanced.outcome !== "merged") throw new Error("Expected accepted configuration update");
+    if (advanced.outcome !== "accepted") throw new Error("Expected accepted configuration update");
     const advancedSnapshot = await client.snapshot(treeID, advanced.update.root);
     expect((await client.snapshot(treeID, baseline.snapshot.root)).objects).toEqual(baseline.snapshot.objects);
 
@@ -321,7 +321,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(await Promise.all(hiddenResponses.map((response) => response.text()))).toEqual(["Not found", "Not found", "Not found"]);
 
     const restored = await client.submitUpdate(treeID, advanced.update.id, baseline.snapshot);
-    if (restored.outcome !== "accepted" && restored.outcome !== "merged") throw new Error("Expected restored configuration root");
+    if (restored.outcome !== "accepted") throw new Error("Expected restored configuration root");
     expect(restored.update.root).toBe(baseline.snapshot.root);
     expect(restored.update.id).not.toBe(baseline.current.tree.update);
     expect(running.canopy.acceptedUpdates(treeID).filter(({ root }) => root === baseline.snapshot.root).length).toBeGreaterThanOrEqual(2);
@@ -381,7 +381,7 @@ describe("governed account-configuration Canopy server", () => {
       },
     };
     const first = await submitConfiguration(baseline.current, firstGraph);
-    if (first.outcome !== "accepted" && first.outcome !== "merged") throw new Error("Expected an accepted update");
+    if (first.outcome !== "accepted") throw new Error("Expected an accepted update");
 
     const afterFirst = await currentConfig();
     const secondGraph = {
@@ -393,11 +393,14 @@ describe("governed account-configuration Canopy server", () => {
       },
     };
     const second = await submitConfiguration(afterFirst.current, secondGraph);
-    if (second.outcome !== "accepted" && second.outcome !== "merged") throw new Error("Expected an accepted update");
+    if (second.outcome !== "accepted") throw new Error("Expected an accepted update");
 
+    const database = new Database(join(dataRoot, "canopy.sqlite3"));
+    database.run("UPDATE observations SET cursor = 'observation-batch' WHERE update_id = ?", [second.update.id]);
+    database.close();
     const abort = new AbortController();
     const response = await fetch(
-      `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.tree.update}`,
+      `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
       { headers: { authorization: `Bearer ${token}` }, signal: abort.signal },
     );
     expect(response.status).toBe(200);
@@ -417,13 +420,22 @@ describe("governed account-configuration Canopy server", () => {
       id?: string;
       cursor: string;
       change: { descriptor: { update: string; ref: string }; transitions: Array<{
-        update: { id: string; previousRoot: string; root: string };
+        update: { id: string; previous: { id: string; root: string }; root: string };
       }> };
     };
     expect(event.change.transitions.map(({ update }) => update.id)).toEqual([first.update.id, second.update.id]);
-    expect(Number(event.change.transitions[1]!.update.id)).toBeGreaterThan(Number(event.change.transitions[0]!.update.id));
-    expect(event.change.transitions[1]!.update.previousRoot).toBe(event.change.transitions[0]!.update.root);
-    expect(event.cursor).toBe(second.update.id);
+    expect(event.change.transitions[1]!.update.previous.id).toBe(event.change.transitions[0]!.update.id);
+    expect(event.change.transitions[1]!.update.previous?.root).toBe(event.change.transitions[0]!.update.root);
+    expect(event.cursor).toBe("observation-batch");
+    expect(event.cursor).not.toBe(second.update.id);
+    const replayAbort = new AbortController();
+    for await (const decoded of client.watch(baseline.current.tree.id, baseline.current.observedThrough, { signal: replayAbort.signal })) {
+      expect(decoded.cursor).toBe("observation-batch");
+      if (decoded.kind === "tree.update") expect(decoded.descriptor.update).toBe(second.update.id);
+      else throw new Error("Expected accepted transition replay");
+      replayAbort.abort();
+      break;
+    }
     expect(event.change.descriptor).toMatchObject({ update: second.update.id, root: second.update.root });
   });
 
@@ -475,7 +487,7 @@ describe("governed account-configuration Canopy server", () => {
     const activationChange = crypto.randomUUID();
     const activated = await client.submitUpdate(treeID, null, initial, { change: activationChange });
     expect(activated.outcome).toBe("accepted");
-    expect(activated.update).toMatchObject({ tree: treeID, root: initial.root, previousRoot: null, kind: "initial" });
+    expect(activated.update).toMatchObject({ tree: treeID, root: initial.root, previous: null, conflicted: false });
     expect(running.canopy.get(treeID)).toMatchObject({
       id: treeID,
       kind: "ordinary",
@@ -597,12 +609,11 @@ describe("governed account-configuration Canopy server", () => {
       mergeBase.tree.update,
       await snapshotWithCollectionFiles(treePath),
     );
-    expect(merged.outcome).toBe("merged");
-    if (merged.outcome !== "merged") throw new Error("Expected a merged update");
+    expect(merged.outcome).toBe("accepted");
+    if (merged.outcome !== "accepted") throw new Error("Expected a merged update");
     expect(running.canopy.acceptedTransition(merged.update.id)?.update).toMatchObject({
       id: merged.update.id,
-      kind: "merged",
-      previousRoot: remoteAccepted.update.root,
+            previous: { id: remoteAccepted.update.id, root: remoteAccepted.update.root },
     });
     // The result carries the transition from the candidate to the accepted root.
     const mergedCandidate = await snapshotWithCollectionFiles(treePath);
@@ -639,7 +650,7 @@ describe("governed account-configuration Canopy server", () => {
       devices: { ...graph.devices, [administrator]: { ...graph.devices[administrator]!, label } },
     });
     const first = await submitConfiguration(baseline.current, relabel(baseline.graph, "Log order one"));
-    if (first.outcome !== "accepted" && first.outcome !== "merged") throw new Error("Expected an accepted update");
+    if (first.outcome !== "accepted") throw new Error("Expected an accepted update");
 
     const treeID = generateArborID("tr");
     const treePath = join(dataRoot, "log-order-tree");
@@ -664,13 +675,13 @@ describe("governed account-configuration Canopy server", () => {
         },
       },
     });
-    if (declared.outcome !== "accepted" && declared.outcome !== "merged") throw new Error("Expected an accepted update");
+    if (declared.outcome !== "accepted") throw new Error("Expected an accepted update");
     await mkdir(treePath);
     await writeFile(join(treePath, "note.md"), "# Log order\n");
     await client.submitUpdate(treeID, null, await resolveSnapshot(await snapshotDirectory(treePath)));
     const afterActivation = await currentConfig();
     const third = await submitConfiguration(afterActivation.current, relabel(afterActivation.graph, "Log order three"));
-    if (third.outcome !== "accepted" && third.outcome !== "merged") throw new Error("Expected an accepted update");
+    if (third.outcome !== "accepted") throw new Error("Expected an accepted update");
 
     const frames = await readWatchFrames(
       `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,

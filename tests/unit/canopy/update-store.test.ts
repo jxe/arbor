@@ -88,6 +88,23 @@ describe("accepted-update transaction store", () => {
     expect(store.list("tr_test")).toHaveLength(2);
   });
 
+  test("persists unresolved metadata and predecessor links independently of projection and observation", () => {
+    const initial = store.current("tr_test")!;
+    const metadata = store.commit({ tree: "tr_test", root: A, previousRoot: A,
+      expectedRoot: A, expectedUpdate: initial.id, kind: "accepted", acceptedAt: 2, conflicted: true })!;
+    const next = store.commit({ tree: "tr_test", root: B, previousRoot: A,
+      expectedRoot: A, expectedUpdate: metadata.id, kind: "merged", acceptedAt: 3,
+      merge: { version: "markdown-additive-v1", approximatePlacements: 1 } })!;
+    expect(next.conflicted).toBe(true);
+    expect(next.previous).toEqual({ id: metadata.id, root: A });
+    expect(Object.hasOwn(next, "merge")).toBe(false);
+    expect(Object.hasOwn(next, "kind")).toBe(false);
+    expect(new AcceptedUpdateStore(db).get(next.id)).toEqual(next);
+    db.run("UPDATE observations SET cursor = 'independent-observation' WHERE update_id = ?", [next.id]);
+    expect(new ObservationLog(db).forUpdate(next.id)!.cursor).toBe("independent-observation");
+    expect(store.get(next.id)!.id).toBe(next.id);
+  });
+
   test("ignores legacy status rows while accepting their cursors as replay anchors", () => {
     const observations = new ObservationLog(db);
     const initial = store.current("tr_test")!;

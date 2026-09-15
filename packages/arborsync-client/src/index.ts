@@ -81,7 +81,7 @@ export type BootstrapCandidateUpdate = import("@arbor/wire").CandidateUpdateJSON
 export interface TreeBootstrap {
   tree: LocalTreeDescriptor;
   /** The daemon's accepted base; `cursor` equals `update` and seeds a Wire watch. */
-  accepted: { root: string; update: string; cursor: string };
+  accepted: { root: string; update: string; cursor: string | null };
   /** Base64 sparse CBOR snapshot bundle: every directory object plus every Markdown file object. */
   spine: string;
   /** Local page-body mtimes, Unix milliseconds, keyed by tree-relative logical path. */

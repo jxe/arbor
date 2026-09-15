@@ -1,3 +1,4 @@
+import { decodeAcceptedWatchChange } from "./updates/accepted-contract.ts";
 import type {
   AcceptedTransition,
   UpdateConflictResult,
@@ -115,20 +116,8 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
   if (!descriptor || descriptor.id !== tree || !Array.isArray(change.transitions) || !change.transitions.length) {
     throw new Error("Malformed tree.update change");
   }
-  if (descriptor.conflicted !== undefined && typeof descriptor.conflicted !== "boolean") throw new Error("Malformed conflict signal");
+  decodeAcceptedWatchChange(change, tree);
   const transitions = change.transitions.map(decodeAcceptedTransitionJSON);
-  let previous: AcceptedTransition | undefined;
-  for (const transition of transitions) {
-    if (transition.update.tree !== tree) throw new Error("Watch transition names another tree");
-    if (previous && transition.update.previousRoot !== previous.update.root) {
-      throw new Error("Watch transitions are not contiguous");
-    }
-    previous = transition;
-  }
-  const final = transitions.at(-1)!;
-  if (final.update.id !== descriptor.update || final.update.root !== descriptor.root || final.update.id !== cursor || (final.update.conflicted ?? false) !== (descriptor.conflicted ?? false)) {
-    throw new Error("Watch descriptor does not end at its final transition");
-  }
   const requestDigest = change.requestDigest;
   if (requestDigest !== undefined && (typeof requestDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(requestDigest))) {
     throw new Error("Malformed tree.update request digest");
@@ -266,7 +255,7 @@ export class WireClient {
   async descriptor(tree: string): Promise<CurrentTree> {
     const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}`, { headers: this.headers() }));
     const value = await response.json() as { tree: RemoteTreeDescriptor; observedThrough: EventCursor };
-    if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update) throw new Error("Tree descriptor does not match its tree");
+    if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update || typeof value.tree.conflicted !== "boolean" || typeof value.observedThrough !== "string" || !value.observedThrough) throw new Error("Tree descriptor does not match its tree");
     return { tree: value.tree, observedThrough: value.observedThrough };
   }
 

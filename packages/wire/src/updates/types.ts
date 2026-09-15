@@ -1,12 +1,6 @@
 import type { AuthoredUpdateIntent } from "./authored-contract.ts";
 import type { ObjectHash } from "../objects.ts";
 
-export type MergeSummary =
-  | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "account-config-v1"; mergedFields: number }
-  | { version: "account-config-v2"; mergedFields: number }
-  | { version: "collection-file-rows-v1"; mergedRows: number };
-
 export interface UpdateConflict {
   path: string;
   reason:
@@ -34,22 +28,15 @@ export interface ServerDevice {
 
 export type { PairingOffer } from "@arbor/core";
 
-/**
- * One accepted tree state. `id` is the decimal observation ordinal that
- * recorded it, so it is also the update's `tree.update` watch cursor and orders
- * accepted updates within their tree.
- */
+/** Accepted identities and observation cursors occupy independent domains. */
 export interface AcceptedUpdate {
-  /** Independent of root: ordinary projection edits never imply resolution. */
-  conflicted?: boolean;
   id: string;
   tree: string;
   root: ObjectHash;
-  previousRoot: ObjectHash | null;
-  kind: "initial" | "accepted" | "merged" | "restored";
+  previous: { id: string; root: ObjectHash } | null;
   acceptedAt: number;
   subject: string | null;
-  merge?: MergeSummary;
+  conflicted: boolean;
 }
 
 export type ObjectDeltaInstruction =
@@ -93,15 +80,11 @@ export interface UpdateRequest {
   updates: CandidateUpdate[];
 }
 
-/**
- * The authority's answer to a candidate. `update` is the accepted update that
- * now stands: the untouched current one for `current`, or the newly accepted
- * or merged one; `merge` on it is present only when a merge rule ran.
- * `reconciliation` is the transition from the candidate root to `update.root`
- * and is present whenever the two differ.
+/** Historical acceptance receipt; observation progress is carried separately.
+ * Reconciliation transforms the authored candidate into the returned projection.
  */
 export interface UpdateResult {
-  outcome: "current" | "accepted" | "merged";
+  outcome: "unchanged" | "accepted";
   update: AcceptedUpdate;
   requestDigest: ObjectHash;
   reconciliation?: TransitionPayload;

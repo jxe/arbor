@@ -135,8 +135,8 @@ export function canonicalArborLocator(canonical: Pick<CanonicalTreeDescriptor, "
  * the accepted base a placement derives from.
  */
 export interface RemoteTreeDescriptor extends TreeDescriptor {
-  /** Accepted alternatives remain unresolved; absence is equivalent to false. */
-  conflicted?: boolean;
+  /** Accepted alternatives remain unresolved; this signal is required. */
+  conflicted: boolean;
   /** The bytes hash of the current accepted tree state: the wire root. */
   root: Hash;
   update: string;
@@ -149,6 +149,8 @@ export interface RemoteTreeDescriptor extends TreeDescriptor {
  * from and are absent until the first accepted state is installed.
  */
 export interface LocalTreeDescriptor extends TreeDescriptor {
+  /** Accepted unresolved state; independent of rejected-edit sync status. */
+  conflicted?: boolean;
   /** Account routing identity for hosted and configuration trees. */
   configurationTree?: TreeID;
   root?: Hash;

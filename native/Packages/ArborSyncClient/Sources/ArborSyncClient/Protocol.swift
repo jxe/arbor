@@ -91,6 +91,7 @@ public struct TreeDescriptor: Codable, Sendable, Equatable {
 /// display name, and synchronization state. `root` and `update` are the
 /// accepted Canopy base this placement derives from, absent until one exists.
 public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
+    public var conflicted: Bool?
     public var id: String
     public var configurationTree: String?
     public var kind: String
@@ -216,9 +217,9 @@ public struct ArborSyncErrorEnvelope: Codable, Sendable, Equatable {
 public struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
     public var root: String
     public var update: String
-    public var cursor: String
+    public var cursor: String?
 
-    public init(root: String, update: String, cursor: String) {
+    public init(root: String, update: String, cursor: String?) {
         self.root = root
         self.update = update
         self.cursor = cursor

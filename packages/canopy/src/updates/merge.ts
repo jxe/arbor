@@ -1,9 +1,9 @@
+import type { MergeSummary } from "./reconcile.ts";
 import type { OnConflict } from "./reconcile.ts";
 import {
   decodeWireDirectory,
   encodeWireDirectory,
   hashObject,
-  type MergeSummary,
   type ObjectHash,
   type UpdateConflict,
   type WireDirectory,

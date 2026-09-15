@@ -65,7 +65,7 @@ public func canonicalArborLocator(endpoint: String, path: String) -> String {
 }
 
 public struct WireTreeDescriptor: Codable, Sendable, Equatable {
-    public var conflicted: Bool?
+    public var conflicted: Bool
     public var id: String
     public var kind: String
     public var access: String
@@ -86,7 +86,7 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
         access: String,
         canonical: WireCanonicalDescriptor?,
         update: String,
-        conflicted: Bool? = nil
+        conflicted: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -199,89 +199,43 @@ public struct WireLocatorResolution: Codable, Sendable, Equatable {
     public var observedThrough: String
 }
 
-public struct WireMergeSummary: Codable, Sendable, Equatable {
-    public var version: String
-    public var approximatePlacements: Int?
-    public var mergedFields: Int?
-    public var mergedRows: Int?
-
-    public init(version: String, approximatePlacements: Int? = nil, mergedFields: Int? = nil, mergedRows: Int? = nil) {
-        self.version = version
-        self.approximatePlacements = approximatePlacements
-        self.mergedFields = mergedFields
-        self.mergedRows = mergedRows
-    }
-
-    public func validated() throws -> Self {
-        if version == "markdown-additive-v1" {
-            guard let approximatePlacements, approximatePlacements >= 0 else {
-                throw ArborWireValidationError.invalidValue("Malformed merge summary")
-            }
-        } else if version == "account-config-v1" {
-            guard let mergedFields, mergedFields >= 0 else {
-                throw ArborWireValidationError.invalidValue("Malformed account configuration merge summary")
-            }
-        } else if version == "collection-file-rows-v1" {
-            guard let mergedRows, mergedRows >= 0 else {
-                throw ArborWireValidationError.invalidValue("Malformed collection-file merge summary")
-            }
-        } else { throw ArborWireValidationError.invalidValue("Unknown merge summary") }
-        return self
-    }
+public struct WireAcceptedLink: Codable, Sendable, Equatable {
+    public var id: String
+    public var root: String
+    public init(id: String, root: String) { self.id = id; self.root = root }
 }
 
 public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
-    public var conflicted: Bool?
     public var id: String
     public var tree: String
     public var root: String
-    public var previousRoot: String?
-    public var kind: String
+    public var previous: WireAcceptedLink?
     public var acceptedAt: Double
     public var subject: String?
-    public var baseRoot: String?
-    public var candidateRoot: String?
-    public var remoteRoot: String?
-    public var merge: WireMergeSummary?
-
-    public init(
-        id: String,
-        tree: String,
-        root: String,
-        previousRoot: String? = nil,
-        kind: String,
-        acceptedAt: Double,
-        subject: String? = nil,
-        baseRoot: String? = nil,
-        candidateRoot: String? = nil,
-        remoteRoot: String? = nil,
-        merge: WireMergeSummary? = nil,
-        conflicted: Bool? = nil
-    ) {
-        self.id = id
-        self.tree = tree
-        self.root = root
-        self.previousRoot = previousRoot
-        self.kind = kind
-        self.acceptedAt = acceptedAt
-        self.subject = subject
-        self.baseRoot = baseRoot
-        self.candidateRoot = candidateRoot
-        self.remoteRoot = remoteRoot
-        self.merge = merge
-        self.conflicted = conflicted
+    public var conflicted: Bool
+    public init(id: String, tree: String, root: String, previous: WireAcceptedLink? = nil,
+                acceptedAt: Double, subject: String? = nil, conflicted: Bool = false) {
+        self.id=id; self.tree=tree; self.root=root; self.previous=previous
+        self.acceptedAt=acceptedAt; self.subject=subject; self.conflicted=conflicted
     }
-
+    private enum CodingKeys: String, CodingKey { case id, tree, root, previous, acceptedAt, subject, conflicted }
+    public init(from decoder: Decoder) throws {
+        let value=try WireAcceptedStateContract(from:decoder)
+        let f=value.fields
+        id=f["id"]!.text!; tree=f["tree"]!.text!; root=f["root"]!.text!
+        previous=f["previous"]?.fields.map { WireAcceptedLink(id:$0["id"]!.text!,root:$0["root"]!.text!) }
+        if case .number(let time)=f["acceptedAt"]! { acceptedAt=time } else { throw ArborWireValidationError.invalidValue("Invalid accepted time") }
+        subject=f["subject"]?.text
+        if case .bool(let flag)=f["conflicted"]! { conflicted=flag } else { throw ArborWireValidationError.invalidValue("Missing conflict signal") }
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c=encoder.container(keyedBy:CodingKeys.self)
+        try c.encode(id,forKey:.id); try c.encode(tree,forKey:.tree); try c.encode(root,forKey:.root)
+        try c.encode(previous,forKey:.previous); try c.encode(acceptedAt,forKey:.acceptedAt)
+        try c.encode(subject,forKey:.subject); try c.encode(conflicted,forKey:.conflicted)
+    }
     public func validated() throws -> Self {
-        guard !id.isEmpty, !tree.isEmpty, acceptedAt.isFinite else {
-            throw ArborWireValidationError.invalidValue("Malformed accepted update identity")
-        }
-        try validateObjectHash(root)
-        for hash in [previousRoot, baseRoot, candidateRoot, remoteRoot].compactMap({ $0 }) { try validateObjectHash(hash) }
-        guard ["initial", "accepted", "merged", "restored"].contains(kind) else {
-            throw ArborWireValidationError.invalidValue("Unknown accepted update kind")
-        }
-        if let merge { _ = try merge.validated() }
+        _ = try JSONDecoder().decode(WireAcceptedStateContract.self,from:JSONEncoder().encode(self))
         return self
     }
 }
@@ -474,15 +428,16 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         update = try values.decode(WireAcceptedUpdate.self, forKey: .update)
-        objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        deltas = try values.decode([WireObjectDelta].self, forKey: .deltas)
+        let payload = try AcceptedReadValidation.payload(WireReadValue(from: decoder))
+        objects = payload.objects
+        deltas = payload.deltas
         requestDigest = try values.decodeIfPresent(String.self, forKey: .requestDigest)
         _ = try validated()
     }
 
     public func validated() throws -> Self {
         _ = try update.validated()
-        guard update.previousRoot != nil else {
+        guard update.previous != nil else {
             throw ArborWireValidationError.invalidValue("Initial accepted update cannot be replayed as a transition")
         }
         if let requestDigest { try validateObjectHash(requestDigest) }
@@ -794,9 +749,8 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
 }
 
 public enum WireUpdateResult: Sendable, Equatable {
-    case current(WireAcceptedUpdate)
+    case unchanged(WireAcceptedUpdate)
     case accepted(WireAcceptedUpdate)
-    case merged(WireAcceptedUpdate, WireMergeSummary)
 }
 
 public struct WireUpdateElementResult: Sendable, Equatable, Codable {
@@ -818,7 +772,9 @@ public struct WireUpdateElementResult: Sendable, Equatable, Codable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         requestDigest = try values.decode(String.self, forKey: .requestDigest)
         try validateObjectHash(requestDigest)
-        reconciliation = try values.decodeIfPresent(WireTransitionPayload.self, forKey: .reconciliation)
+        if values.contains(.reconciliation) {
+            reconciliation = try AcceptedReadValidation.payload(values.decode(WireReadValue.self, forKey: .reconciliation))
+        } else { reconciliation = nil }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -865,13 +821,8 @@ extension WireUpdateResult: Codable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let update = try values.decode(WireAcceptedUpdate.self, forKey: .update).validated()
         switch try values.decode(String.self, forKey: .outcome) {
-        case "current": self = .current(update)
+        case "unchanged": self = .unchanged(update)
         case "accepted": self = .accepted(update)
-        case "merged":
-            guard let merge = update.merge else {
-                throw DecodingError.dataCorruptedError(forKey: .update, in: values, debugDescription: "Merged update carries no merge summary")
-            }
-            self = .merged(update, merge)
         default:
             throw DecodingError.dataCorruptedError(forKey: .outcome, in: values, debugDescription: "Unknown server update outcome")
         }
@@ -880,14 +831,11 @@ extension WireUpdateResult: Codable {
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case let .current(update):
-            try values.encode("current", forKey: .outcome)
+        case let .unchanged(update):
+            try values.encode("unchanged", forKey: .outcome)
             try values.encode(update, forKey: .update)
         case let .accepted(update):
             try values.encode("accepted", forKey: .outcome)
-            try values.encode(update, forKey: .update)
-        case let .merged(update, _):
-            try values.encode("merged", forKey: .outcome)
             try values.encode(update, forKey: .update)
         }
     }

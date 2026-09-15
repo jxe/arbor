@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon, serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/arborsync-client";
+import { Database } from "bun:sqlite";
+import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
 import { serveCanopy } from "@arbor/canopy";
 import { canonicalArborLocator, generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
@@ -232,7 +234,7 @@ describe("private self-sync", () => {
     await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
       && (await author.running.service.trees.descriptors())
         .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    expect(host.canopy.acceptedUpdates(tree).at(-1)?.kind).toBe("accepted");
+    expect(host.canopy.acceptedUpdates(tree).at(-1)?.previous).not.toBeNull();
     await author.close();
 
     const reader = await launch(stateB, treeB);
@@ -520,7 +522,37 @@ describe("private self-sync", () => {
     }
   }, 20_000);
 
-  test("discards a stale pending update when local state already matches Canopy", async () => {
+  test("filesystem sync persists unresolved metadata and an independent cursor without holding edits", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    const daemon = await ArborSyncDaemon.openControl({ autoSync: false });
+    const db = new Database(join(hostState, "canopy.sqlite3"));
+    const store = new AcceptedUpdateStore(db);
+    try {
+      await daemon.synchronizeNow();
+      const prior = store.current(tree)!;
+      const metadata = store.commit({ tree, root: prior.root, previousRoot: prior.root,
+        expectedRoot: prior.root, expectedUpdate: prior.id, kind: "accepted", acceptedAt: Date.now(),
+        conflicted: true, transition: { objects: [], deltas: [] } })!;
+      db.run("UPDATE observations SET cursor = 'fixture-metadata-cursor' WHERE update_id = ?", [metadata.id]);
+      await daemon.synchronizeNow();
+      expect(daemon.trees.placementFor(tree)?.cursor).toBe("fixture-metadata-cursor");
+      expect((await daemon.trees.descriptors()).find(d => d.id === tree)).toMatchObject({ conflicted: true, sync: "idle" });
+      await writeFile(join(treeA, "unresolved-sync.txt"), "An ordinary edit while review is unavailable.\n");
+      await daemon.synchronizeNow();
+      expect(await pendingTreeUpdate(tree)).toBeUndefined();
+      expect(await treeConflict(tree)).toBeUndefined();
+      expect(store.current(tree)!.conflicted).toBe(true);
+      expect(store.current(tree)!.previous!.id).toBe(metadata.id);
+    } finally { await daemon[Symbol.asyncDispose](); db.close(); }
+    const restarted = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      expect(restarted.trees.placementFor(tree)?.conflicted).toBe(true);
+      await restarted.synchronizeNow();
+      expect((await restarted.trees.descriptors()).find(d => d.id === tree)).toMatchObject({ conflicted: true, sync: "idle" });
+    } finally { await restarted[Symbol.asyncDispose](); }
+  });
+
+  test("preserves rejected pending intent even when local projection already matches Canopy", async () => {
     process.env.ARBOR_DATA_HOME = stateA;
     const owner = new WireClient(host.url, token);
     const account = await owner.account();
@@ -546,9 +578,9 @@ describe("private self-sync", () => {
 
     const service = await ArborSyncDaemon.openControl({ autoSync: false });
     try {
-      await service.synchronizeNow();
-      expect(await pendingTreeUpdate(configurationTree)).toBeUndefined();
-      expect((await service.trees.descriptors()).find(({ id }) => id === configurationTree)?.sync).toBe("idle");
+      const pendingBefore = await pendingTreeUpdate(configurationTree);
+      await expect(service.synchronizeNow()).rejects.toThrow("Unsupported account configuration path");
+      expect(await pendingTreeUpdate(configurationTree)).toEqual(pendingBefore);
       expect((await owner.descriptor(configurationTree)).tree).toEqual(remote.tree);
     } finally {
       await service[Symbol.asyncDispose]();
