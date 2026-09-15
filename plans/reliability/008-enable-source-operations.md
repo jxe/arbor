@@ -1,6 +1,6 @@
 # Reliability 008: Enable source operations incrementally
 
-Status: READY after the Protocol-ready cutover. Priority: P1. Work in a separate worktree. This plan owns operation execution and editor emission; [009](009-canopy-provenance-merges.md) owns merge intelligence, and [010](010-client-conflict-review.md) owns review UX.
+Status: IN PROGRESS after the foundational cutover. Priority: P1. Work on main per Joe. This plan owns operation execution and editor emission; [009](009-canopy-provenance-merges.md) owns merge intelligence, and [010](010-client-conflict-review.md) owns review UX.
 
 Historical experiment evidence remains on `codex/source-intent-experiment`, through
 `b76870b` for the source-edit engine and `e5fd139` for the later contract work.
@@ -15,6 +15,10 @@ Enable each operation in [the source-intent contract](../../spec/10-source-inten
 Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Canopy's update/store path, `packages/canopy-client/src/sync-state.ts`, Swift `WireOperations.swift`, `WireModels.swift`, and `ArborWorkingTree/UpdateCoordinator.swift` before implementing. Recheck Quagmire ownership and the exact-source ledger before editor changes; follow repository local-workspace and release-pin instructions.
 
 ## 1. Build the smallest execution foundation
+
+The [exact-basis executor and candidate validator](../../docs/exact-source-execution.md)
+are implemented and tested. They are not connected to acceptance; durable provenance
+and the acceptance requirements below remain before any operation is enabled.
 
 - Implement exact basis resolution for accepted updates and preceding submitted candidates. Check object reachability, file hashes, UTF-8 boundaries, TreeID scope, authorization, and immutable origin bindings. Resolve output references in causal order; reject forward references, cycles, retired origins, and contradictory reused change identities.
 - Persist admitted operation records, origin bindings, derivation, and any unresolved state atomically with accepted update/ref/observation. Include provenance-only transitions even when the projected root is unchanged. Supply a bounded retention and resynchronization policy before exposing retained outputs.

@@ -1,6 +1,6 @@
 # Native publication progress investigation
 
-September 15, 2026. Worktree fix; not installed or deployed.
+September 15, 2026. Fix on main; not installed or deployed.
 
 Cutover preflight preserved a durable Mac Native head with no prepared request,
 while its status detail still described a previous successful merge. Sync Now
