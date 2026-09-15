@@ -742,16 +742,33 @@ public actor UpdateCoordinator {
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
         guard control.conflict == nil, control.hold == nil else { return try await presentation() }
-        if control.attempt == nil, control.nextBase == nil, try await workingTree.heads().pendingRoot == nil {
-            // A head equal to the accepted base needs no request (rule 11).
+        let priorMachine = machine
+        let currentHeads = try await workingTree.heads()
+        if control.attempt == nil, control.nextBase == nil, currentHeads.pendingRoot == nil {
+            // Reading the working tree can yield to a newer admission. Do not
+            // retire that admission's scheduling state using an older snapshot.
+            guard machine == priorMachine else {
+                syncAgain = true
+                return try await presentation()
+            }
+            // The shared provider may acknowledge the candidate before this
+            // publication pass runs. Its no-work exit must finish preparation;
+            // otherwise later local heads inherit `preparing: true` with no task.
+            if let root = currentHeads.acceptedRoot, let update = currentHeads.acceptedUpdate {
+                machine.base = .init(root: root, update: update, cursor: currentHeads.acceptedCursor, conflicted: control.acceptedConflicted)
+                machine.phase = .current
+                run(.cancelTimers)
+            }
             return try await presentation()
         }
-        let attempt: UpdateAttempt
-        if control.attempt != nil, extendExistingAttempt {
-            attempt = try await extendAttemptToCurrent()
-        } else if let existing = control.attempt { attempt = existing }
-        else { attempt = try await createAttempt(admission: admission) }
+        var preparedAttempt: UpdateAttempt?
         do {
+            let attempt: UpdateAttempt
+            if control.attempt != nil, extendExistingAttempt {
+                attempt = try await extendAttemptToCurrent()
+            } else if let existing = control.attempt { attempt = existing }
+            else { attempt = try await createAttempt(admission: admission) }
+            preparedAttempt = attempt
             control.presentation = WorkspaceSyncPresentation(
                 state: .uploading,
                 detail: "Submitting one durable root intent",
@@ -764,6 +781,7 @@ public actor UpdateCoordinator {
             try faultInjector.reached(.duringUpload)
             return try await submit(attempt)
         } catch let error as WireUpdateConflictError {
+            guard let attempt = preparedAttempt else { throw error }
             return try await recordConflict(try error.conflict.validated(), attempt: attempt, retained: attempt)
         } catch let error as WireHTTPError where error.status == 401 || error.status == 403 {
             control.presentation.state = error.code == "device-revoked" ? .revoked : .authenticationFailure
@@ -777,7 +795,7 @@ public actor UpdateCoordinator {
                 terminal = true
                 dispatch(.validationFailed(reason: String(describing: error)))
             } else {
-                dispatch(.transportFailed(id: attempt.digest))
+                dispatch(.transportFailed(id: preparedAttempt?.digest))
             }
             control.presentation.state = .offline
             control.presentation.detail = String(describing: error)

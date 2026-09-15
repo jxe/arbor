@@ -21,7 +21,7 @@ conveniences are deferred. Experimental execution remains on its separate branch
 
 ## What to do soon
 
-- [Reliability 012 — Native synchronization progress](reliability/012-native-sync-progress.md): investigate the automatic-submission stall and stale phone watch exposed by cutover preflight.
+- [Reliability 012 — Native synchronization progress](reliability/012-native-sync-progress.md): investigate the Mac automatic-submission stall exposed by cutover preflight.
 
 The near-term direction is intentionally broad. Refine these into smaller executable plans only after the relevant measurements and design choices are clear.
 

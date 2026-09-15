@@ -111,6 +111,20 @@ private struct OnePointFault: UpdateFaultInjector {
     }
 }
 
+private final class FirstPreparationFault: UpdateFaultInjector, @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    func reached(_ point: UpdateFailurePoint) throws {
+        guard point == .beforeRequestPersistence else { return }
+        let fail = lock.withLock { () -> Bool in
+            if fired { return false }
+            fired = true
+            return true
+        }
+        if fail { throw InjectedSyncCrash() }
+    }
+}
+
 @Suite("Working-tree update coordinator")
 struct UpdateCoordinatorTests {
     @Test("Old-format uncertain requests remain intact and are never submitted by the upgraded coordinator")
@@ -563,6 +577,83 @@ struct UpdateCoordinatorTests {
             #expect(successor.updates.first?.candidate == (try await workingTree.heads().materializedRoot))
             #expect(try await workingTree.heads().pendingRoot == nil)
             #expect(await coordinator.syncState.kind == "current")
+        }
+    }
+
+    @Test("A preparation failure is reported and reconnect retries the preserved head")
+    func preparationFailureCanResume() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_preparation_failure"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n")
+            let transport = ClosureTransport(initial: initial) { prepared, _ in
+                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+                let update = accepted(id: "up_recovered", tree: tree, root: request.candidate, base: initial.root, candidate: request.candidate)
+                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, observedThrough: update.id)
+            }
+            let workingTree = try await placeWorkingTree(tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"), at: root.appending(path: "replica"), transport: transport)
+            let stateRoot = root.appending(path: "sync")
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot,
+                faultInjector: FirstPreparationFault(), publicationDelay: .milliseconds(10), publicationMaxDelay: .milliseconds(30))
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
+            let before = try await session.snapshot()
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: before.contentRevision,
+                edits: [.init(utf8Range: before.source.utf8.count..<before.source.utf8.count, replacement: "Keep this edit\n")]))
+            for _ in 0..<100 where await coordinator.syncState.kind != "offline" { try await Task.sleep(for: .milliseconds(5)) }
+            #expect(await coordinator.syncState.kind == "offline")
+            #expect(try await coordinator.presentation().detail?.contains("InjectedSyncCrash") == true)
+            let retained = try #require(try UpdateControlFiles(root: stateRoot).load().head)
+            #expect(await transport.requests.isEmpty)
+            await coordinator.setTransportAvailable(false)
+            await coordinator.setTransportAvailable(true)
+            #expect(await transport.requests.count == 1)
+            #expect(try await workingTree.heads().acceptedRoot == retained.root)
+            #expect(try await workingTree.heads().pendingRoot == nil)
+        }
+    }
+
+    @Test("Filesystem acknowledgement before publication does not strand the next native edit")
+    func filesystemAcknowledgementBeforePublication() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_external_ack"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let transport = ClosureTransport(initial: initial) { prepared, call in
+                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+                let update = accepted(id: "up_native_\(call)", tree: tree, root: request.candidate, base: initial.root, candidate: request.candidate)
+                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, observedThrough: update.id)
+            }
+            let workingTree = try await placeWorkingTree(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"), transport: transport
+            )
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport,
+                stateRoot: root.appending(path: "sync"), publicationDelay: .milliseconds(100), publicationMaxDelay: .milliseconds(200))
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
+            let first = try await session.snapshot()
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: first.contentRevision,
+                edits: [.init(utf8Range: first.source.utf8.count..<first.source.utf8.count, replacement: "First\n")]))
+            for _ in 0..<50 where await coordinator.syncState.kind != "locally-pending" {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            #expect(await coordinator.syncState.kind == "locally-pending")
+            let acknowledged = try await workingTree.heads().materializedRoot
+            // The shared filesystem provider learns the daemon accepted these exact bytes
+            // before Native's trailing publication task begins its pass.
+            try await workingTree.recordAccepted(root: acknowledged, update: "up_external", cursor: "cursor_external")
+            try await Task.sleep(for: .milliseconds(300))
+            #expect(await transport.requests.isEmpty)
+            #expect(await coordinator.syncState.kind == "current")
+            let second = try await session.snapshot()
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: second.contentRevision,
+                edits: [.init(utf8Range: second.source.utf8.count..<second.source.utf8.count, replacement: "Second\n")]))
+            for _ in 0..<100 where try await workingTree.heads().pendingRoot != nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(await transport.requests.count == 1)
+            let request = try #require(await transport.requests.first)
+            #expect(try JSONDecoder().decode(WireUpdateRequest.self, from: request.body).base == "up_external")
+            #expect(try await workingTree.heads().pendingRoot == nil)
         }
     }
 

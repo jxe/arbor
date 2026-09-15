@@ -38,8 +38,9 @@ Preflight found an unsent Mac Native head despite a presentation describing its
 previous successful merge. Joe confirmed its intended edits. The exact saved and
 filesystem versions were preserved; normal UI Sync Now accepted the intended bytes
 as 1857 and cleared the record. No recovery record was manually changed or deleted.
-The phone also needed Sync Now to catch up before shutdown. The automatic-progress
-cause is not established; [Reliability 012](../../plans/reliability/012-native-sync-progress.md)
+The phone also needed Sync Now to catch up before shutdown; Joe subsequently
+clarified that this was expected background suspension, not a phone sync defect.
+The Mac automatic-progress cause is not established; [Reliability 012](../../plans/reliability/012-native-sync-progress.md)
 owns reproduction and correction.
 
 Live restart and round-trip checks passed. Longer ordinary-use/offline observation
