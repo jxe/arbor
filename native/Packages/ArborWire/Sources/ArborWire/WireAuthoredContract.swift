@@ -126,24 +126,30 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
         guard let updates = v["updates"]?.items else { throw ArborWireValidationError.invalidValue("Expected updates") }
         try check(!updates.isEmpty); var changes = Set<String>()
         for raw in updates {
-            let u = try object(raw); try keys(u, ["change", "candidate", "operations", "resolves"], ["ifCurrent"])
-            try id(u["change"]); try check(changes.insert(u["change"]!.text!).inserted); try hash(u["candidate"])
-            if u["ifCurrent"] != nil { try token(u["ifCurrent"]) }
-            guard let resolves = u["resolves"]?.items else { throw ArborWireValidationError.invalidValue("Expected resolves") }
-            var decisions = Set<String>()
-            for raw in resolves {
-                let r = try object(raw); try keys(r, ["state", "conflict", "alternatives"]); try token(r["state"]); try id(r["conflict"])
-                try check(decisions.insert(r["conflict"]!.text!).inserted)
-                guard let a = r["alternatives"]?.items else { throw ArborWireValidationError.invalidValue("Expected alternatives") }
-                try check(!a.isEmpty); for v in a { try id(v) }
-                try check(Set(a.map { $0.text! }).count == a.count)
-            }
-            if u["operations"] != .null {
-                guard let ops = u["operations"]?.items else { throw ArborWireValidationError.invalidValue("Expected operations") }
-                try check(ops.count <= 1024 && (!ops.isEmpty || !resolves.isEmpty))
-                let ids = try ops.map(operation); try check(Set(ids).count == ids.count)
-            }
+            let u = try object(raw)
+            try validateCandidate(u)
+            try check(changes.insert(u["change"]!.text!).inserted)
         }
         if v["base"] == .null { let first = updates[0].fields!; try check(first["ifCurrent"] == nil && first["resolves"]!.items!.isEmpty) }
+    }
+    /// Shared by semantic fixtures and complete transport candidates.
+    static func validateCandidate(_ u: [String: WireSemanticValue]) throws {
+        try keys(u, ["change", "candidate", "operations", "resolves"], ["ifCurrent"])
+        try id(u["change"]); try hash(u["candidate"])
+        if u["ifCurrent"] != nil { try token(u["ifCurrent"]) }
+        guard let resolves = u["resolves"]?.items else { throw ArborWireValidationError.invalidValue("Expected resolves") }
+        var decisions = Set<String>()
+        for raw in resolves {
+            let r = try object(raw); try keys(r, ["state", "conflict", "alternatives"]); try token(r["state"]); try id(r["conflict"])
+            try check(decisions.insert(r["conflict"]!.text!).inserted)
+            guard let a = r["alternatives"]?.items else { throw ArborWireValidationError.invalidValue("Expected alternatives") }
+            try check(!a.isEmpty); for v in a { try id(v) }
+            try check(Set(a.map { $0.text! }).count == a.count)
+        }
+        if u["operations"] != .null {
+            guard let ops = u["operations"]?.items else { throw ArborWireValidationError.invalidValue("Expected operations") }
+            try check(ops.count <= 1024 && (!ops.isEmpty || !resolves.isEmpty))
+            let ids = try ops.map(operation); try check(Set(ids).count == ids.count)
+        }
     }
 }

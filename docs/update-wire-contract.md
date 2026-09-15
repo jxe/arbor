@@ -33,11 +33,35 @@ must preserve unnamed decisions, and stale dependent evidence invalidates resolu
 - [Shared grammar and identity vectors](../conformance/wire-authored-updates.json).
 
 These models decode the semantic portion of requests and compute exact CBOR/digests.
-Transport arrays are deliberately outside these models and remain governed by the
-existing object/delta codecs. Vectors use synthetic object hashes: grammar and digest
+The semantic models exclude transport arrays. The complete request codecs below
+combine them with the existing object/delta transport. Vectors use synthetic object hashes: grammar and digest
 agreement does not prove graph reachability, source attribution or server execution.
 They are not wired into endpoint submission, active persistence or the experimental
 authority. The existing deployed codecs and their historical vectors are unchanged.
+
+## Complete request codec
+
+The [TypeScript request codec](../packages/wire/src/updates/authored-transport.ts) and
+[Swift request codec](../native/Packages/ArborWire/Sources/ArborWire/WireAuthoredTransport.swift)
+combine authored semantics with complete objects and sparse deltas. They validate
+required fields, complete-object hashes, unique result hashes, canonical base64,
+delta quotas and activation restrictions. Semantic validation is shared with the
+existing target models; source execution, reachability and candidate correspondence
+remain authority checks.
+
+The [complete-request vectors](../conformance/wire-authored-transport.json) cover 24
+transport cases with real object bytes and exact semantic identities. Both languages
+also run all 43 semantic vectors through the complete codec. Complete and sparse
+encodings reconstruct the same candidate graph and carry the same digest. Tests
+persist and reload requests, append a successor, and verify that the original
+candidate and digest remain unchanged. These are codec persistence tests, not proof
+that the active queue has adopted the new format.
+
+Legacy `ifMatch` and `onConflict` fields fail closed. There is no translation or
+alternate endpoint. These codecs are not connected to active submission yet; an
+uncertain deployed-format request must still be settled with its original codec.
+The maintained protocol gate runs the target TS tests and Swift suites alongside
+existing deployed-format compatibility tests.
 
 ## Next implementation cutover
 
@@ -135,3 +159,8 @@ Verification: 547 product tests, 79 focused authored/read-contract tests, 30 sta
 ArborWire Swift tests and type checking pass. Repository-wide relative file and section
 links introduce no new broken references, and `git diff --check` passes. Active codecs,
 server behavior and deployment remain unchanged.
+
+The complete-request checkpoint passes 617 product tests, 70 focused transport tests,
+33 standalone ArborWire Swift tests, type checking and the full cross-language/live
+protocol gate. Relative file/section checks introduce no new broken references and
+`git diff --check` passes. Live installations are unchanged.

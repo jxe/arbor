@@ -1,6 +1,6 @@
 # Reliability 011: Activate accepted ambiguity without blocking filesystem sync
 
-Status: READY. Priority: P1. This plan owns sequencing for
+Status: IN PROGRESS. Priority: P1. This plan owns sequencing for
 [008](008-enable-source-operations.md), [009](009-canopy-provenance-merges.md) and
 [010](010-client-conflict-review.md), which retain implementation ownership.
 The spec may remain ahead of implementation. Coordinate live activation with Joe;
@@ -24,8 +24,8 @@ as the owning implementation lands. Keep existing conformance suites passing.
 
 ## 1. Adopt the consolidated contract compatibly
 
-Use the [target contract and paired models](../../docs/update-wire-contract.md).
-Replace active TS/Swift request codecs, builders, digest calculation and durable
+Use the [target semantic models and complete request codecs](../../docs/update-wire-contract.md).
+Connect the complete codecs to active TS/Swift submission, builders, digest calculation and durable
 queue fields together with Canopy decoding and exact accepted-state preconditions.
 Keep transport object/delta codecs. Resolve transmitted uncertain requests with their
 original bytes/semantics/digests before retiring the old encoding; never rewrite

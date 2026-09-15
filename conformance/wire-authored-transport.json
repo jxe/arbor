@@ -1,0 +1,748 @@
+{
+  "description": "Complete target request codec vectors. Grammar, exact object bytes and identity only; acceptance and source operation execution remain separate checks.",
+  "tree": "transport-tree",
+  "basis": {
+    "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+    "objects": [
+      {
+        "hash": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+        "bytes": "QSBwYXJhZ3JhcGguCg=="
+      },
+      {
+        "hash": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7",
+        "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjUwMGE4OTJiZDdhYWZmNzFjN2FlMjc1ZWVlYjI5NDFlNzY3ZWM5NTRmYjU5MzI1NDAzMDg1NzFjMzFjZWFhZDlkbmFtZWdwYWdlLm1k"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "complete snapshot transport",
+      "valid": true,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "canonicalCBORBase64": "qGRiYXNlb2FjY2VwdGVkLWJlZm9yZWR0cmVlbnRyYW5zcG9ydC10cmVlZmNoYW5nZWhjaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3aWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "sparse transport has the same intent",
+      "valid": true,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 0,
+                      "length": 13
+                    }
+                  },
+                  {
+                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "canonicalCBORBase64": "qGRiYXNlb2FjY2VwdGVkLWJlZm9yZWR0cmVlbnRyYW5zcG9ydC10cmVlZmNoYW5nZWhjaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3aWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "already retained objects need no transport",
+      "valid": true,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [],
+            "deltas": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "canonicalCBORBase64": "qGRiYXNlb2FjY2VwdGVkLWJlZm9yZWR0cmVlbnRyYW5zcG9ydC10cmVlZmNoYW5nZWhjaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3aWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "activation with complete graph",
+      "valid": true,
+      "value": {
+        "base": null,
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:0edadf3427dff389d273c6f347cb11c91ba7140633caa16ec082317403a766e7",
+          "canonicalCBORBase64": "qGRiYXNl9mR0cmVlbnRyYW5zcG9ydC10cmVlZmNoYW5nZWhjaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3aWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "empty binary object",
+      "valid": true,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "bytes": ""
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "canonicalCBORBase64": "qGRiYXNlb2FjY2VwdGVkLWJlZm9yZWR0cmVlbnRyYW5zcG9ydC10cmVlZmNoYW5nZWhjaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3aWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "append suffix retains original prefix",
+      "valid": true,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 0,
+                      "length": 13
+                    }
+                  },
+                  {
+                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "change": "change-2",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [],
+            "deltas": [],
+            "ifCurrent": "accepted-next"
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "canonicalCBORBase64": "qGRiYXNlb2FjY2VwdGVkLWJlZm9yZWR0cmVlbnRyYW5zcG9ydC10cmVlZmNoYW5nZWhjaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3aWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        },
+        {
+          "digest": "sha256:09472304bb65f9b14e474cc0b7a5a5515d216ec8d6693c39fad8aeed2dcd0f3c",
+          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3bXJlcXVlc3REaWdlc3R4R3NoYTI1NjpmYWMwYTI2MDY2MmI3ZWFmZjNmMmYxZjI4YmJhYTNiM2NhMTdmMDk4MGM3YjUyMmU3NTc0MGNjYjk3Yzg1MjNkZHRyZWVudHJhbnNwb3J0LXRyZWVmY2hhbmdlaGNoYW5nZS0yZmRvbWFpbmxhcmJvci11cGRhdGVocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjBhMjQ0ZWRhNTI4Njk0ZmEwODA4MmEyNmJmZmM0Y2JmNGI0MzI0ZjEwZTBkNjEwYTM0M2YzZGQxMGU4OGM0MzdpaWZDdXJyZW50bWFjY2VwdGVkLW5leHRqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "same root explicit resolution",
+      "valid": true,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": [],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "decision",
+                "alternatives": [
+                  "mine",
+                  "theirs"
+                ]
+              }
+            ],
+            "objects": [],
+            "deltas": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:24fa39e4e378d971a7686b2012c91460c6ea134b4d46de9acdf4ac7ffc485267",
+          "canonicalCBORBase64": "qGRiYXNlb2FjY2VwdGVkLWJlZm9yZWR0cmVlbnRyYW5zcG9ydC10cmVlZmNoYW5nZWhjaGFuZ2UtMWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVjaXNpb25sYWx0ZXJuYXRpdmVzgmRtaW5lZnRoZWlyc2ljYW5kaWRhdGV4R3NoYTI1NjowYTI0NGVkYTUyODY5NGZhMDgwODJhMjZiZmZjNGNiZjRiNDMyNGYxMGUwZDYxMGEzNDNmM2RkMTBlODhjNDM3aWlmQ3VycmVudPZqb3BlcmF0aW9uc4A="
+        }
+      ]
+    },
+    {
+      "name": "legacy ifMatch must not be translated",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "ifMatch": "modelHash"
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy onConflict must not be ignored",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "onConflict": "merge"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown request intent",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": []
+          }
+        ],
+        "residual": {}
+      }
+    },
+    {
+      "name": "unknown candidate intent",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "residual": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing resolves",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing objects",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "deltas": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing deltas",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong complete object hash",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate complete object",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              },
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "noncanonical object base64",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+                "bytes": "YR=="
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "base64 missing padding",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+                "bytes": "YQ"
+              }
+            ],
+            "deltas": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "complete and delta result overlap",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 0,
+                      "length": 13
+                    }
+                  },
+                  {
+                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "activation forbids delta basis",
+      "valid": false,
+      "value": {
+        "base": null,
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 0,
+                      "length": 13
+                    }
+                  },
+                  {
+                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty delta instructions",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty delta insert",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "insert": ""
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "overflowing copy",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "copy": {
+                      "offset": 9007199254740991,
+                      "length": 1
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "noncanonical delta insert",
+      "valid": false,
+      "value": {
+        "base": "accepted-before",
+        "updates": [
+          {
+            "change": "change-1",
+            "candidate": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+            "operations": null,
+            "resolves": [],
+            "objects": [
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [
+              {
+                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "instructions": [
+                  {
+                    "insert": "YR=="
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
