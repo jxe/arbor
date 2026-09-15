@@ -169,8 +169,8 @@ enum ArborVisitSnapshot {
         return Sparse(spine: spine)
     }
 
-    /// The replacement a visit installs: the sparse spine bridged with the file
-    /// sizes it dropped.
+    /// The replacement a visit installs: the sparse spine with omitted file
+    /// payloads retained as hash references.
     static func replacement(
         _ snapshot: WireSnapshot,
         tree: TreeID,

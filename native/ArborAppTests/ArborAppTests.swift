@@ -304,8 +304,15 @@ struct ArborAppTests {
         let complete = WireSnapshot(root: root.hash, objects: [root, nestedDirectory, markdown, image])
         let sparse = try ArborVisitSnapshot.sparsified(complete)
         #expect(Set(sparse.spine.objects.map(\.hash)) == [root.hash, nestedDirectory.hash, markdown.hash])
-        #expect(sparse.files["/cover.png"]?.size == 4)
-        #expect(sparse.files["/assets/photo.png"]?.mediaType == "image/png")
+        let objects = try WireObjectGraph.validate(sparse.spine, mode: .sparseFiles)
+        #expect(objects[image.hash] == nil)
+        guard case let .directory(rootEntries, _)? = objects[root.hash],
+              case let .directory(nestedEntries, _)? = objects[nestedDirectory.hash] else {
+            Issue.record("Sparse snapshot must retain both directories")
+            return
+        }
+        #expect(rootEntries.first { $0.name == "cover.png" }?.file == image.hash)
+        #expect(nestedEntries.first { $0.name == "photo.png" }?.file == image.hash)
         let replacement = try ArborVisitSnapshot.replacement(complete, tree: "tr_visit", update: "up_visit", cursor: "up_visit")
         #expect(replacement.root == root.hash)
         #expect(replacement.nodes.map(\.path).sorted() == ["/", "/assets", "/assets/photo.png", "/cover.png", "/note"])
