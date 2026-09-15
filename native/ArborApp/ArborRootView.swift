@@ -1259,6 +1259,9 @@ struct ArborRootView: View {
         guard !sidebarDismissDragSuppressesTap else { return }
         closeIOSSidebar()
 #endif
+        sidebarSearchText = ""
+        sidebarKeyboardSelection = nil
+        sidebarSearchFocused = false
         Task { await model.navigate(to: location) }
     }
 

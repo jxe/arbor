@@ -78,6 +78,7 @@ private struct ArborNavigationCommands: Commands {
             Button("Restore Page") { commands?.restorePage() }
                 .disabled(commands?.canRestorePage != true)
             Button("Move Page…") { commands?.movePage() }
+                .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(commands?.canMovePage != true)
             Button("Trash Page…") { commands?.movePageToTrash() }
                 .disabled(commands?.canMovePageToTrash != true)
@@ -118,8 +119,8 @@ private struct ArborNavigationCommands: Commands {
             Button("Toggle Sidebar") { commands?.toggleSidebar() }
                 .keyboardShortcut("\\", modifiers: .command)
                 .disabled(commands == nil)
-            Button("Search Sidebar") { commands?.focusSidebarSearch() }
-                .keyboardShortcut("/", modifiers: .command)
+            Button("Jump to Page…") { commands?.focusSidebarSearch() }
+                .keyboardShortcut("p", modifiers: .command)
                 .disabled(commands == nil)
             Toggle("Alphabetical Pages", isOn: sidebarPageOrderBinding(.alphabetical))
                 .keyboardShortcut("1", modifiers: [.command, .option])
@@ -244,12 +245,12 @@ private struct ArborEditorCommandButton: View {
 
 private struct ArborEditorBlockMenuItems: View {
     var body: some View {
-        ArborEditorCommandButton(title: "Turn Selected Block Into…", key: ".", action: .openBlockActionMenu)
+        ArborEditorCommandButton(title: "Block Actions…", key: "/", action: .openBlockActionMenu)
         ArborEditorCommandButton(title: "Create Page from Selected Block…", key: "k", action: .toggleLinkOrDocument)
         ArborEditorCommandButton(title: "Insert Block Below", key: .return, action: .newBlockBelow)
         ArborEditorCommandButton(
             title: "Move Selected Blocks…",
-            key: "m",
+            key: "p",
             modifiers: [.command, .shift],
             action: .openMoveTo
         )
