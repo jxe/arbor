@@ -29,9 +29,9 @@ beforeEach(async () => {
   base = (await client.submitUpdate(tree, descriptor.tree.update, { root, objects })).update.id;
 });
 afterEach(async () => { await stop(); await rm(dir, { recursive: true, force: true }); });
-async function edit(text: string, basis = root): Promise<CandidateUpdate> {
+async function edit(text: string, basis = root, range: [number, number] = [0, 3]): Promise<CandidateUpdate> {
   const file = decodeWireDirectory(objects.get(basis)!).entries.find(e => e.name === "note.md")!.file!;
-  const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range: [0, 3] as [number, number] }, text }];
+  const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range }, text }];
   const executed = await executeExactSourceEdits(basis, operations, async hash => objects.get(hash)!);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
   return { change: crypto.randomUUID(), candidate: executed.root, operations, resolves: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
@@ -128,4 +128,44 @@ test("unauthorized clients and foreign accepted bases cannot submit authored edi
   await expect(client.submitUpdates(tree, { base: foreign.tree.update, updates: [update] })).rejects.toThrow();
   expect(running.canopy.currentUpdate(tree)!.id).toBe(base);
   expect(records()).toHaveLength(0);
+});
+
+test("same-basis independent source edits merge across restart and retain replay receipts", async () => {
+  const a = await edit("A", root, [0,1]), b = await edit("B", root, [1,2]), c = await edit("C", root, [2,3]);
+  await client.submitUpdates(tree, { base, updates: [a] });
+  await stop(); await start();
+  await client.submitUpdates(tree, { base, updates: [b] });
+  const request = { base, updates: [c] };
+  const accepted = await client.submitUpdates(tree, request);
+  const expected = await edit("ABC");
+  expect(accepted.results[0]!.update.root).toBe(expected.candidate);
+  expect(accepted.results[0]!.update.conflicted).toBe(false);
+  expect(records()).toHaveLength(3);
+  const db = new Database(`${dir}/canopy.sqlite3`);
+  const row = db.query("SELECT merge_summary FROM accepted_updates WHERE id = ?").get(accepted.results[0]!.update.id) as { merge_summary: string };
+  expect(JSON.parse(row.merge_summary)).toEqual({ version: "exact-source-disjoint-v1", basis: { id: base, root },
+    contributions: [a,b,c].map(update => ({ change: update.change, operation: "edit" })) });
+  db.close();
+  const replay = await client.submitUpdates(tree, request);
+  expect(replay.results[0]!.update).toEqual(accepted.results[0]!.update);
+  expect(records()).toHaveLength(3);
+  // A baseline snapshot client can edit the merged projection normally.
+  const next = await edit("snapshot", expected.candidate);
+  const snapshot = await client.submitUpdates(tree, { base: accepted.results[0]!.update.id, updates: [{ ...next, operations: null }] });
+  expect(snapshot.results[0]!.update.root).toBe(next.candidate);
+  expect(records()).toHaveLength(3);
+  await running.canopy.verifyIntegrity();
+});
+test("a batch suffix cannot mistake a merged predecessor candidate for the accepted projection", async () => {
+  await client.submitUpdates(tree, { base, updates: [await edit("A", root, [0,1])] });
+  const first = await edit("C", root, [2,3]), second = await edit("x", first.candidate, [1,2]);
+  try { await client.submitUpdates(tree, { base, updates: [first, second] }); throw new Error("Expected conflict"); }
+  catch (error) {
+    expect(error).toBeInstanceOf(WireUpdateConflict);
+    const result = (error as WireUpdateConflict).result;
+    expect(result.details.completed).toHaveLength(1);
+    expect(result.details.failedIndex).toBe(1);
+    expect(result.details.current.root).toBe((await edit("AbC")).candidate);
+  }
+  expect(records()).toHaveLength(2);
 });

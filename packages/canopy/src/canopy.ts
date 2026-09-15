@@ -1,3 +1,4 @@
+import { reconcileSourceEdits } from "./updates/source-reconciliation.ts";
 import { validateSourceEditCandidate, UnsupportedSourceEdit } from "./updates/source-edits.ts";
 import { SourceIntentStore, type SourceIntent } from "./updates/source-intent-store.ts";
 import { mkdir } from "node:fs/promises";
@@ -1133,14 +1134,15 @@ export class CanopyDaemon implements AsyncDisposable {
         throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
       }
       const preconditionFailed = request.ifCurrent !== undefined && request.ifCurrent !== remoteUpdate.id;
-      // Equal roots do not prove equal intent. Until causal reconciliation is
-      // available, authored edits require the exact accepted basis identity too.
-      const sourceBasisChanged = sourceIntent !== undefined &&
-        (basisUpdate !== remoteUpdate.id || baseRoot !== remoteTree.ref || remoteUpdate.conflicted);
-      const reconciled = preconditionFailed || sourceBasisChanged
+      const history = sourceIntent ? this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id) : null;
+      const intentStore = new SourceIntentStore(this.db);
+      const reconciled = preconditionFailed
         ? { outcome: "rejected" as const, root: request.candidate, generated: new Map<ObjectHash, Uint8Array>(), conflicts: [{ path: "/", reason: "node-conflict" as const }] }
         : sourceIntent
-        ? { outcome: "accepted" as const, root: request.candidate, generated: new Map<ObjectHash, Uint8Array>() }
+        ? await reconcileSourceEdits({ id: basisUpdate!, root: baseRoot }, request.candidate, sourceIntent,
+          remoteUpdate, history?.map(update => ({ update, intent: intentStore.forAccepted(update.id),
+            summary: this.acceptedStore.mergeSummary(update.id) })) ?? null,
+          hash => this.objects.load(hash, proposed))
         : await reconcileUpdate(
         baseRoot,
         request.candidate,
@@ -1171,7 +1173,7 @@ export class CanopyDaemon implements AsyncDisposable {
           status: 409,
           result: {
             error: "conflict",
-            message: preconditionFailed ? "Accepted state no longer matches ifCurrent" : sourceBasisChanged ? "Authored source basis changed; causal reconciliation is not yet available" : policy.conflict.message,
+            message: preconditionFailed ? "Accepted state no longer matches ifCurrent" : sourceIntent ? "Authored source contributions could not be reconciled safely" : policy.conflict.message,
             retryable: false,
             tree: treeID,
             details: {

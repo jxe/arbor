@@ -1,6 +1,6 @@
 # Reliability 009: Use source intelligence and provenance in Canopy
 
-Status: READY for fixture/design work; operation-dependent execution follows [008](008-enable-source-operations.md). Priority: P1. This plan owns server reconciliation, accepted conflicts, and explanation evidence. [010](010-client-conflict-review.md) consumes that evidence.
+Status: IN PROGRESS. The first shared-basis disjoint-source rule is implemented alongside [008](008-enable-source-operations.md). Priority: P1. This plan owns server reconciliation, accepted conflicts, and explanation evidence. [010](010-client-conflict-review.md) consumes that evidence.
 
 ## Outcome
 
@@ -13,6 +13,13 @@ and activation. Format rules must distinguish resolved, unresolved and inapplica
 outcomes; record guarded automatic resolutions explicitly rather than relying on
 term cancellation or byte equality. Independent decisions and dependencies must
 remain representable without enumerating whole-document alternatives.
+
+The [source execution checkpoint](../../docs/exact-source-execution.md) records the
+implemented subset: accepted-identity ancestry, original contribution retention,
+shared-basis disjoint edits and immutable rule evidence. Overlap still returns a
+conflict response. Durable alternatives must ship with ordinary snapshot attribution
+and authorized accepted-state inspection; merely persisting a conflict signal is
+insufficient. No live deployment or client emission has been enabled.
 
 ## 1. Establish the decision corpus
 

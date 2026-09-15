@@ -146,6 +146,27 @@ export class AcceptedUpdateStore {
     };
   }
 
+  mergeSummary(update: string): MergeSummary | null {
+    const row = this.db.query("SELECT merge_summary FROM accepted_updates WHERE id = ?").get(update) as { merge_summary: string | null } | null;
+    return row?.merge_summary ? JSON.parse(row.merge_summary) : null;
+  }
+
+  /** Follow accepted identities, never root equality. Missing history is not evidence. */
+  ancestry(basis: string, head: string, limit = 64): AcceptedUpdate[] | null {
+    const chain: AcceptedUpdate[] = [];
+    let current = this.get(head);
+    const seen = new Set<string>();
+    while (current && current.id !== basis) {
+      if (chain.length >= limit || seen.has(current.id)) return null;
+      seen.add(current.id);
+      chain.push(current);
+      const previous = current.previous ? this.get(current.previous.id) : null;
+      if (!previous || previous.tree !== current.tree || previous.root !== current.previous!.root) return null;
+      current = previous;
+    }
+    return current ? chain.reverse() : null;
+  }
+
   matchingRequestDigest(update: string, subject: string): ObjectHash | null {
     const row = this.db.query(`
       SELECT request_digest FROM accepted_updates

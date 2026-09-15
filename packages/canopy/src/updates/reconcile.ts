@@ -1,4 +1,11 @@
+export interface SourceReconciliation {
+  version: "exact-source-disjoint-v1";
+  basis: { id: string; root: ObjectHash };
+  contributions: Array<{ change: string; operation: string }>;
+}
+
 export type MergeSummary =
+  | SourceReconciliation
   | { version: "markdown-additive-v1"; approximatePlacements: number }
   | { version: "account-config-v1"; mergedFields: number }
   | { version: "account-config-v2"; mergedFields: number }

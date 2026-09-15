@@ -128,4 +128,16 @@ describe("accepted-update transaction store", () => {
     expect(observations.latestCursor("tr_test")).toBe(accepted.id);
     expect(observations.after("tr_test", "legacy-status").records.map((record) => record.updateID)).toEqual([accepted.id]);
   });
+  test("ancestry uses accepted identities and refuses gaps or a traversal beyond its bound", () => {
+    const initial = store.current("tr_test")!;
+    const first = store.insert({ tree: "tr_test", root: A, previousRoot: A, kind: "accepted", acceptedAt: 2 });
+    const second = store.insert({ tree: "tr_test", root: A, previousRoot: A, kind: "accepted", acceptedAt: 3 });
+    expect(store.ancestry(initial.id, second.id)).toEqual([first, second]);
+    expect(store.ancestry(initial.id, second.id, 1)).toBeNull();
+    expect(store.ancestry(second.id, second.id)).toEqual([]);
+    db.run("DELETE FROM observations WHERE update_id = ?", [first.id]);
+    db.run("DELETE FROM accepted_updates WHERE id = ?", [first.id]);
+    expect(store.ancestry(initial.id, second.id)).toBeNull();
+  });
+
 });

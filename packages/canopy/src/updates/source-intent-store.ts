@@ -70,6 +70,11 @@ export class SourceIntentStore {
       operations: JSON.parse(row.operations_json), evidence: JSON.parse(row.evidence_json) } : null;
   }
 
+  forAccepted(update: string): StoredSourceIntent | null {
+    const row = this.db.query("SELECT tree_id, change_id FROM authored_changes WHERE accepted_id = ?").get(update) as { tree_id: string; change_id: string } | null;
+    return row ? this.get(row.tree_id, row.change_id) : null;
+  }
+
   /** Additional retention dependencies, including candidates never chosen as projections. */
   roots(): string[] {
     return (this.db.query("SELECT basis_root AS root FROM authored_changes UNION SELECT candidate_root AS root FROM authored_changes").all() as { root: string }[]).map(row => row.root);
