@@ -1,73 +1,405 @@
 # Source intent and provenance
 
-This chapter defines the semantic part of an [update](01-tree-operations.md#21-the-update-request). It uses the same update, result, and watch routes. It requires neither a second API version nor extension negotiation. Implementation availability is recorded in [status](../status.md).
+This chapter defines authored effects, references and resolutions for the ordinary
+[update route](01-tree-operations.md#21-the-update-request). There is one target
+contract, with no API version or negotiation. [Status](../status.md) records the
+reference implementation's progress toward it.
 
 ## 1. An authored change
 
-Every candidate has a required `change` identifier and required `operations` field. Change, operation, output, conflict, and alternative keys are 1–128 ASCII letters, digits, underscores, or hyphens. Accepted update IDs remain opaque under the accepted-update contract. A client generates a fresh change identifier before persisting a newly authored candidate; a randomly generated UUID is suitable. A retry or adopted prefix retains that identifier and its exact operations. The identifier is scoped to the tree for provenance; it is not a credential or a replacement for the credential-scoped request digest. Clients MUST NOT reuse it for different authored intent. A batch MUST contain distinct change identifiers.
+Every candidate has required `change`, `candidate`, `operations` and `resolves`
+fields. `change` identifies an immutable authored change within its TreeID. Change,
+operation, conflict and alternative keys are 1–128 ASCII letters, digits,
+underscores or hyphens. A random UUID is suitable for a new change. Exact retry and
+adoption retain its identity and semantics; clients MUST NOT reuse it for different
+intent. Change identities within a request are distinct.
 
-`operations: null` means the candidate is a snapshot change. A nonempty operation array means that those ordered operations explain the **entire** transition from the candidate's basis to its proposed root. An empty array, omitted field, unknown operation, or unknown semantic field is invalid. There is no residual field. If an editor knows how a paragraph moved but has only snapshot evidence for another edit, it sends an operation-bearing candidate for the move followed by a separate snapshot candidate for the remaining edit.
+`operations: null` means snapshot semantics. Otherwise ordered operations explain
+the entire authored transition, including effects on hidden material. There is no
+residual field. Known operations followed by snapshot-only edits are separate
+candidate elements. `resolves` is always an array; empty means no human-authored
+resolution. An empty operations array is valid only with nonempty `resolves`, for
+an explicit resolution that leaves the projection unchanged. Snapshot candidates
+may also carry explicit resolution declarations; snapshots alone never resolve.
+Unknown semantic fields or operation kinds are invalid.
 
-An operation key is unique within its change. An output key names material introduced by that operation. `(change, operation, output)` is both identity and provenance: it names a creation event without exposing a backend graph identifier or an editor's transient block ID. Moves preserve existing origins; copies introduce a new origin with a derivation from their source. Editing preserves only explicitly verified lineage and creates origins for new material. Equality of bytes alone does not establish shared origin.
+An operation key is unique within its change. `(change, operation)` identifies its
+single material result when it has one; there is no independently named output.
+Result identity and material origin are distinct: a move preserves origins, a copy
+creates new origins with derivation, and an edit preserves only verified lineage.
+Result coordinates describe the result at execution on its authored basis. A result
+may contain several retained or newly created origins. Equal bytes do not establish
+shared origin. A snapshot asserts no fine-grained origins; the authority may derive
+conservative correspondence, but MUST NOT invent move, copy, undo or resolution intent.
 
-Snapshot changes do not assert fine-grained origins. An authority may derive conservative correspondence from source structure, but MUST NOT invent explicit move, copy, undo, or resolution intent. A snapshot no-op need not create accepted history or an origin record. Once operation outputs are supported, the authority MUST enforce their immutable origin bindings and retain enough provenance to validate references for its advertised retention period. An unavailable origin requires resynchronization or review; it never falls back to matching similar text.
-
-## 2. References without a per-character identity download
+## 2. Material references and selectors
 
 ```ts
-type SourceRef =
-  | { kind: "source"; path: string; object: Hash; start: number; end: number }
-  | { kind: "entry"; path: string }
-  | { kind: "output"; change: string; operation: string; output: string;
-      start: number; end: number }
-  | { kind: "alternative"; state: string; conflict: string; alternative: string;
-      start: number; end: number };
+type Material =
+  | { kind: "basis"; path: string; object: Hash }
+  | { kind: "operation"; change: string; operation: string }
+  | { kind: "alternative"; state: string; conflict: string; alternative: string };
+
+type Ref = {
+  material: Material;
+  within?: string[];
+  range?: [number, number];
+};
+type EntryDestination = { parent: Ref; name: string };
+type Lineage = { source: Ref; range: [number, number] };
 type OperationRef = { change: string; operation: string };
-type Lineage = { source: SourceRef; start: number; end: number };
 ```
 
-All references are scoped to the request's TreeID. A `source` identifies an exact UTF-8 source slice in a file object reachable at `path` in the element's basis: the accepted state at request `base` for the first element, or the preceding submitted candidate for later elements. `object` is the exact file hash. Offsets are half-open byte ranges, never UTF-16 indices, grapheme counts, line numbers, or rendered positions. They MUST lie on UTF-8 boundaries in valid source. Zero-width slices are allowed for insertion. No offset addresses the JSON envelope or the surrounding directory object.
+All references are scoped to the request's TreeID and remain subject to current
+authorization. `basis` names the exact object at a logical path in the element's
+authored basis. For the first element this is the accepted state at request `base`;
+for later elements it is the preceding submitted candidate together with its authored
+semantic effects, not merely its root hash. Paths are NFC, absolute and at most
+4096 UTF-8 bytes; `/` is permitted to reference the tree root or a destination parent.
+Other paths have no trailing slash, empty/dot components, backslashes or NUL.
+Root material cannot itself be moved, removed or replaced as an entry.
 
-Paths are NFC, absolute within the tree, and non-root; empty components, trailing slashes, dot components, backslashes, and NUL are invalid. `entry` addresses the exact entry at that path in the basis, including its kind and content. It does not grant permission to cross a nested TreeID boundary. Moving a boundary entry requires the existing boundary authorization; its interior belongs to its own tree.
+`operation` names a retained material result or the result of an earlier operation
+in this change or submitted prefix. Forward references, cycles and references to an
+operation with no material result are invalid. An operation result is not a backend
+graph ID and does not inherently create a new origin. The authority retains its
+immutable binding and the provenance needed to transport selections through later
+changes. Missing history requires an explicit failure, never fuzzy text matching.
 
-An `output` references retained output provenance, or an earlier operation in this change or its submitted prefix. Forward references and cycles are invalid. The authority verifies the referenced origin, range, and visibility at the basis; knowing an identifier never grants access. Output coordinates name the output when created, and provenance transports that material through subsequent accepted changes. They are not guessed positions in the latest projection.
+`alternative` names material in an exact retained accepted `state`. State IDs are
+opaque, nonempty strings of at most 1024 UTF-8 bytes. Conflict and alternative IDs
+come from the authority. The state identifies the reviewed alternative revision;
+bytes, display order and current paths cannot substitute for identity.
 
-An `alternative` names a range of one conflict alternative in the exact accepted `state`. `state` is an accepted update ID. Conflict and alternative keys are opaque identities supplied by the authority. They are not regenerated from display order or content hashes. An edit cannot silently retarget an alternative from a newer conflict state.
+Omitting selectors means the complete material. A nonempty `within` array selects
+a descendant of directory material using names at the identified basis/result/state,
+not current path lookup. Components obey the path-name rules, have a combined
+slash-joined length of at most 4096 UTF-8 bytes, and number at most 256. A `range`
+then selects text in that material or descendant: two nonnegative safe integers
+(`<= 2^53 - 1`) defining a half-open UTF-8 byte range on scalar boundaries. A
+zero-width range is an insertion point. No range means the entire selected text
+for source operations and the entire selected entry for entry operations. Applying
+text ranges to binary or directory material is invalid. Entry references cannot
+have ranges. Logical boundaries never grant access to another TreeID's interior.
 
-An editor can therefore open ordinary Markdown with its existing accepted update and file hash, parse it locally, and emit source ranges only for affected material. It does not need an identity per character or the server's history graph. Format awareness belongs in source correspondence: Markdown paragraphs, frontmatter fields, list items, code symbols, and structured records can map to exact source while preserving the same origin vocabulary. Any richer inspection surface must preserve these identities and guards.
+The authority resolves the identified selection before transporting its identity
+through changes; it MUST NOT retarget by matching current names or bytes. For an
+entry destination, `parent` identifies a directory and `name` is one NFC component.
+The authored destination slot, including its observed occupant or absence, is part
+of the basis. Concurrent moves or occupants are reconciled rather than overwritten.
+Text insertion uses `at: Ref` and `side: "before" | "after"` at the selected edges.
+
+Editors open ordinary source with its accepted update and file hash. They need no
+per-character identity map or provenance graph. Format-aware analysis may map blocks,
+keys or symbols to exact source; it does not introduce a separate identity namespace.
 
 ## 3. Operations
 
-Every row below also has required `key` and `kind` fields. All listed fields are required except `lineage`. Source operations accept `source` or `output` references; entry operations require an `entry` reference. Insertion anchors (`at`) are source/output references, with `side: "before" | "after"` selecting their start or end boundary.
+The target authority supports every operation below. Each has required `key` and
+`kind` fields. All listed fields are required except `lineage`. References may
+select projected material or alternatives; the reference determines the target,
+so there is no separate `editAlternative` operation.
 
-| `kind` | Fields | Authored meaning |
+| `kind` | Fields | Authored meaning and material result |
 | --- | --- | --- |
-| `editSource` | `source, text, output, lineage?` | Replace the selected source with exact UTF-8 text; an empty slice inserts and empty text deletes. |
-| `moveSource` | `source, at, side` | Relocate the same material, preserving its origins and transporting independently authored edits. |
-| `copySource` | `source, at, side, output` | Introduce a distinct copy with derivation from the source; later edits to either copy do not become edits to the other. |
-| `moveEntry` | `source, destination` | Relocate the same tree entry, preserving its identity and descendant provenance. |
-| `copyEntry` | `source, destination, output` | Create a distinct entry/subtree derived from the source, subject to tree boundaries. |
-| `removeEntry` | `source` | Remove the entry observed at the basis; concurrent additions or modifications remain evidence to reconcile, not silently erased history. |
-| `editAlternative` | `source, text, output, lineage?` | Edit the named alternative while leaving the conflict unresolved. |
-| `resolveConflict` | `state, conflict, alternatives, text, output` | Explicitly resolve the exact named alternative set to reviewed source text. |
-| `undoOperation` | `target: OperationRef` | Invert that operation's causal contribution while preserving independent later changes; ambiguity remains a conflict. |
+| `editSource` | `source: Ref, text, lineage?` | Replace selected text; empty selection inserts and empty text deletes. Result is the replacement text, including preserved lineage. |
+| `moveSource` | `source: Ref, at: Ref, side` | Relocate the same material and transport independent edits. Result is the relocated text with its original origins. |
+| `copySource` | `source: Ref, at: Ref, side` | Create a distinct copy of observed text with derivation. Result is the new text; later edits to either copy remain independent. |
+| `moveEntry` | `source: Ref, destination: EntryDestination` | Move the same entry/subtree. Result is the relocated entry with retained descendant identities. |
+| `copyEntry` | `source: Ref, destination: EntryDestination` | Create a distinct entry/subtree derived from observed material. Result is the new subtree. |
+| `removeEntry` | `source: Ref` | Remove the observed entry; concurrent modifications remain evidence to reconcile. No material result. |
+| `replaceEntry` | `source: Ref, value: { file: Hash } \| { directory: Hash } \| Ref` | Replace the selected entry's content/subtree while retaining its outer entry identity. Result is the replaced entry. |
+| `undoOperation` | `target: OperationRef` | Invert the named causal contribution while preserving independent later work. Ambiguity remains a decision. No material result. |
 
-For `resolveConflict`, `alternatives` is the complete, nonempty set the author reviewed, with no duplicates. It is an identity guard, not a list of display indices. The authority MUST reject a stale or incomplete set rather than silently resolving newly arrived alternatives. This text form resolves source conflicts; entry, binary, and structural conflicts that cannot be represented by these operations remain unsupported until a complete contract exists.
+`replaceEntry` supports whole-file/binary and subtree replacement without a text
+payload. A `file` or `directory` value identifies the explicit entry kind and its object supplied
+or reachable under the transport rules. Kind is never inferred from payload bytes.
+Such a value asserts new content, not historical
+lineage. A material value takes the exact content and descendant provenance of a
+referenced entry, including a hidden alternative. It does not assert a copy or permit
+two simultaneous placements of one entry identity. A deliberate duplicate uses
+`copyEntry`. Boundary attachment kind/authorization and all model constraints remain
+in force. Creation at an absent location can use a separate snapshot candidate;
+`replaceEntry` requires an existing entry in its authored basis.
 
-`lineage` maps nonoverlapping, ascending output ranges to verified source ranges. Each mapping MUST preserve the exact referenced bytes and their origin. Unmapped output bytes are new material. The authority validates claims against retained source and MUST reject false lineage. Omission supplies no preservation claim. Lineage is neither an instruction to normalize formatting nor permission to infer copy identity from equal text.
+`lineage` maps ascending nonoverlapping ranges in the replacement text to verified
+source selections. Each mapping MUST preserve exact bytes and origin. Unmapped text
+is new material. False lineage is invalid. Omission supplies no preservation claim;
+lineage is not normalization or inferred copy intent.
 
-Operations are ordered. Basis references retain their original meaning as prior operations transform the working result; references to newly introduced material use output identities. Effects compose against that basis, not arbitrary offsets in successive rendered documents. Executing the complete array on its exact basis MUST reproduce the supplied candidate graph, including untouched bytes. Unsupported overlapping effects, ambiguous attachment, stale alternatives, and invalid identity bindings MUST fail rather than select an arbitrary target. Independent operation-bearing and snapshot elements remain separate accepted-history boundaries.
+Operations execute in order against their authored semantic basis. Basis references
+retain their meaning as earlier operations transform material; use operation-result
+references for newly introduced material. The result MUST reproduce `candidate`,
+including untouched bytes, while retaining all declared hidden/provenance effects.
+Contradictory authored effects, false references and unexplained candidate changes
+fail. Valid effects that become incompatible through concurrency are retained as
+unresolved decisions when representable within the contract bounds.
 
-Wire limits are 1–1024 operations per semantic candidate, at most 1024 lineage segments per edit, at most 1024 reviewed alternatives, and at most 1 MiB of UTF-8 text per text field. Offsets are nonnegative integers no larger than `2^53 - 1`. These limits also apply to Swift; JSON numbers must not lose precision. Implementations may impose documented overall request/object limits independently.
+Limits: at most 1024 operations per candidate, 1024 lineage segments per edit, and
+1 MiB of UTF-8 text per text field. Implementations may impose documented overall
+request/object limits. Grammar validation does not establish source reachability,
+UTF-8 boundaries in stored objects, candidate correspondence or authorization; the
+authority validates those before acceptance.
 
-## 4. Acceptance, unsupported operations, and conflicts
+## 4. Acceptance and explicit resolution
 
-The candidate graph is the proposed materialization; operations explain how the author produced it. Both belong to request identity. Complete objects and object deltas remain interchangeable transport. An authority MUST NOT discard operations, use them only as unverified suggestions, or accept the candidate through snapshot-only fallback.
+[Tree operations §2.3](01-tree-operations.md#23-accepting-and-merging) is the single
+acceptance procedure for snapshots and operations. Reconciliation is the default;
+optional `ifCurrent` guards exact accepted identity. There is no resolved-only write
+mode. A consumer that requires resolved material checks that condition when consuming
+it. Operations and candidate are both semantic intent, never unchecked hints or a
+snapshot fallback. Provenance, decisions and projected state commit atomically.
 
-Before accepting any element of a request, an authority validates its operation grammar and preflights operation support across the entire batch. A well-formed operation the authority does not support returns HTTP `422`, `error: "unsupported-operation"`, and `retryable: false`, without accepting any prefix, storing submitted objects, or changing accepted/watch state. Malformed semantics return `400 invalid-request`. These preflight failures differ from a supported operation's reconciliation conflict, where the existing sequential `409` contract retains the completed prefix. An unsupported request remains durable at its client; it must not be converted into snapshots or retried as a network outage.
+```ts
+type ResolutionDeclaration = {
+  state: string;
+  conflict: string;
+  alternatives: string[];
+};
+```
 
-Supporting an operation means validating its references, authorization, complete effect and candidate correspondence, persisting its necessary provenance atomically with acceptance, and implementing safe conflict behavior. Merely recognizing its JSON shape is insufficient. A server may implement operations incrementally under this single contract; clients may begin emitting each only once their coordinated server upgrade supports it.
+A declaration in `resolves` explicitly endorses the candidate's resulting projection
+for the named decision. It does not carry its own replacement language or clear an
+arbitrary flag. The operations or snapshot describe the authored result; the
+declaration supplies resolution intent and guards. For hidden material to become
+the chosen result, the candidate must materialize it using the appropriate ordinary
+operations. Editing a hidden alternative alone does not select it.
 
-An accepted state can retain unresolved alternatives with `conflicted: true`. Its root remains an ordinary file graph. Ordinary source edits and snapshot writes MUST NOT imply resolution. Only an explicit resolution with matching accepted-state and alternative guards clears the corresponding conflict. Editing an alternative back to old base bytes still leaves it unresolved. An accepted metadata-only change receives a new update ID and watch cursor even if its root is unchanged; concurrency checks must include accepted identity, not just root equality.
+`state` identifies the exact reviewed accepted evidence. `alternatives` is the
+complete nonempty set of reviewed alternative IDs, with no duplicates. The authority
+loads their revisions, contributions and dependencies at that state and compares the
+relevant evidence with current. New or changed alternatives, affected locations,
+projection choices or dependencies invalidate the review. Unrelated advancement need
+not invalidate it when the authority proves the guarded decision unchanged. `ifCurrent`
+is available when the caller requires no accepted advancement at all.
 
-The internal representation of origins and unresolved alternatives is replaceable. A composable conflict expression, an operation graph, or another representation conforms only if it preserves these observable semantics. The protocol does not require clients to reproduce Canopy's merge algorithm.
+There is no fixed protocol count limit on declarations or reviewed alternatives.
+A conflict may appear only once. Array order is retained in request identity, but
+all declarations take effect jointly, never sequentially. The authority validates
+that the candidate fully expresses each resolved choice and preserves all unnamed
+open decisions. Ordinary saves, equal bytes and omission of hidden material never
+resolve a decision implicitly.
+
+Coupled decisions use one candidate with all required operations and declarations.
+The authority validates a coherent combined result against dependencies and model
+constraints, then accepts everything atomically or rejects that candidate. Several
+request elements are not a substitute: they can leave an accepted prefix. A dependency
+does not force joint resolution if an individual choice leaves the other alternatives
+meaningful and correctly attached. New concurrency affecting a resolved choice causes
+rejection, not silent expansion of the person's resolution. Unrelated edits may merge.
+
+Keeping the existing projection can use `operations: []` plus guarded `resolves`.
+It advances accepted identity even with an unchanged root. An automatic rule uses the
+same resolution invariants with separately recorded authority authorship under §6.
+
+## 5. Accepted decisions and continued editing
+
+An authority distinguishes contributions, unresolved decisions and the ordinary
+projected file graph. Decision identity is stable within a tree. Alternatives retain
+identity, revision and provenance; equal bytes, ordering and paths cannot identify
+or collapse them. Decisions may concern content, existence, placement or attachment.
+Independent decisions remain separately reviewable. Dependencies describe constraints
+on valid combinations, not a requirement to enumerate whole-document combinations.
+
+The projection MUST be a valid ordinary file graph without injected conflict markers.
+Its correspondence to alternatives is retained in accepted state. Hidden material
+and its required objects remain available through authorized inspection for the
+advertised retention period. An ordinary edit continues its attributable alternative
+and preserves other alternatives and the open decision. Returning to base bytes or
+matching another alternative is not resolution. When attribution is ambiguous, the
+authority retains that ambiguity if representable; invalid claims, missing required
+evidence and exceeded bounds remain explicit failures.
+
+Accepted unresolved results acknowledge work normally and do not pause sync or stop
+a request's remaining elements. Clients retain exact accepted identity, the unresolved
+signal, the projection underlying authored edits and durable pending local work.
+Canopy owns attribution and resolution semantics on every write path. Clients need
+no downloaded alternative map or inspection cache to perform ordinary editing.
+Incoming materialization must preserve newer unaccepted local edits and their bases.
+Inspection failures may delay review but cannot alone block ordinary synchronization.
+Durable review caching is optional.
+
+Inspection is authorized, bounded and scoped to accepted state. It supplies the
+complete relevant identities, locations, dependencies and actions without requiring
+a full provenance graph. Section 7 specifies text, whole-entry and placement inspection using the same
+material-reference vocabulary.
+
+## 6. Format-aware merge rules and explicit automatic resolution
+
+Merge rules interpret exact source, structural/schema context, provenance and open
+decisions. A filename extension alone is insufficient: Markdown frontmatter and
+embedded code may require different rules from surrounding prose. JSON/YAML object
+keys, array identities, code bindings and supported binary structures may justify
+different outcomes for superficially similar changes.
+
+A rule can justify a resolved result, identify remaining ambiguity and valid choices,
+or decline applicability. The internal rule interface is replaceable. Rules MUST
+account for competing contributions, preserve unaffected bytes and identities, and
+validate the result against the applicable format/model constraints. Keeping two
+independent Markdown insertions may be valid; duplicating one twice-moved paragraph
+is not implied by that policy. Binary content requires an applicable merger or
+explicit alternatives/rejection, not an automatic text fallback.
+
+Clearing an existing decision automatically is an explicit authority resolution. It
+MUST record the accepted state and complete alternative set considered, the rule's
+identity and revision, the result and its provenance mapping, and the justification.
+Human resolution records instead identify the reviewed operation and alternatives.
+Both must preserve independent decisions, validate dependency guards and commit
+atomically with accepted identity and projection. A stale rule result must be
+recomputed or rejected; it cannot silently resolve newly arrived contributions.
+Changing a rule's implementation MUST NOT reinterpret historical resolutions.
+
+For clean automatic merges, the authority must likewise retain the contributions and
+sufficient decision evidence for explanation and reproducibility; it need not create
+a user-visible conflict solely to resolve it immediately. Deterministic rule and
+projection behavior must be specified where promised by the format contract.
+
+The shared decision scenarios in [accepted ambiguity](../conformance/accepted-ambiguity.json)
+cover these semantic obligations. They are scenario requirements, not an additional
+Wire encoding or a claim that the reference implementation supports them already.
+
+## 7. Decision inspection using material references
+
+`GET /.arbor/trees/{tree}/conflicts?state={acceptedUpdate}` lists decisions in an
+exact retained accepted state. Optional `after` continues an opaque page token;
+optional `conflict` selects one decision. Each query field occurs at most once;
+`state` is required, nonempty and exact. `after` and `conflict` are mutually exclusive.
+The authority authorizes every read, including continuation pages. Unknown or
+unauthorized trees, unavailable states and unknown selected decisions return `404`;
+malformed or mismatched page tokens return `400`. A page token is bound to tree,
+accepted state and traversal position, never an authorization grant.
+
+```ts
+type DecisionPage = {
+  tree: TreeID; state: string; root: Hash; conflicted: boolean;
+  decisions: Decision[];
+  next: string | null;
+};
+type Decision = {
+  id: string;
+  kind: string;
+  affected: Ref[];
+  selected: string;
+  alternatives: Array<{
+    id: string; revision: string;
+    value: { text: string } | { file: Hash } | { directory: Hash }
+         | { tree: TreeID } | { absent: true };
+    placement?: EntryDestination;
+    contributions: Array<{ change: string; operation: string | null }>;
+  }>;
+  dependencies: string[];
+  actions: string[];
+};
+```
+
+There is no fixed protocol cap on decisions, alternatives, dependencies,
+contributions or aggregate inspection text. In particular, accepting the 33rd
+unresolved decision is not an error. Page size is a transfer choice, never a limit
+on accepted conflict state. Documented storage/resource constraints remain honest
+implementation failures; a full response or absent automatic merge rule must not
+be misreported as a resolved tree or an unsupported decision count.
+
+`tree`, `state` and `root` must match the requested accepted context on every page.
+`conflicted` describes the entire state, not just the current page. `next: null`
+ends the traversal. A complete traversal yields each decision once in stable order,
+with no omission or duplication. Pages remain at their original accepted state even
+if current advances. A nonterminal page must make progress and return a different
+continuation token; unavailable retained evidence requires explicit failure. A
+resolved state has no decisions and no continuation. A filtered read returns the
+one requested complete decision, with `next: null`; it does not claim to enumerate
+all tree decisions. Clients cannot infer resolution from an empty partial result.
+
+Each decision record contains its complete alternative and dependency sets; it is
+not split into partial choices. Dependencies may name decisions on other pages.
+The client may fetch those by `conflict` at the same state. Not appearing on this
+page does not mean a dependency is missing or resolved. Before preparing a joint
+resolution the client obtains the evidence required for the affected dependency
+closure. Unrelated sync requires neither a complete traversal nor that closure.
+The authority still validates all guards and combinations at acceptance.
+
+`affected` uses the same material references as updates. A `basis` reference is
+interpreted at the page's `state`. Absence decisions can address a destination parent
+or retained material rather than inventing a nonexistent file path. Whole-entry,
+placement and text selections therefore share the same identity vocabulary.
+An alternative is addressed in a mutation by an `alternative` material reference
+using this page's state and its decision/alternative IDs. Its value supplies exact
+text or the existing explicitly typed entry representation; `absent` represents
+nonexistence. `placement`, when present, identifies the proposed parent and name
+for an entry value, not a second independent copy. It is invalid for text or absence.
+
+Decision and alternative IDs are stable across continuation. Revisions change when
+value, placement, contributions or other meaningful alternative evidence changes;
+earlier revisions remain associated with retained accepted states. Equal bytes do
+not collapse alternatives. Contributions identify authored input rather than a full
+transitive history download. Null `operation` explicitly denotes a snapshot input.
+Selected identity must name an alternative. The authority retains and verifies its
+correspondence to the ordinary projection; clients validate exact source and placement
+before attaching actionable controls. A text value must match the selected projected
+UTF-8 range. A directory/file kind is never guessed from bytes. Unknown decision
+kinds or actions may be displayed as unavailable, but cannot authorize invented
+mutation behavior. Core read fields may be extended without changing their meaning.
+
+For entry-valued alternatives, authorized object reads are scoped to that alternative:
+`GET /.arbor/trees/{tree}/conflicts/{conflict}/alternatives/{alternative}/objects/{hash}?state={acceptedUpdate}`.
+The hash must be reachable from the explicitly typed alternative at that exact retained
+state; arbitrary historical or unrelated objects are `404`. The response is immutable
+object bytes and must hash to the requested hash. Tree-boundary entries do not grant
+access to the nested tree's interior. This route supplements ordinary projected-root
+object reads without broadening their authorization. Inline text requires no extra read.
+
+Known review actions remain `editAlternative` and `resolveConflict`: capability
+labels rather than mutation opcodes. They produce ordinary operations and resolution
+declarations. Requests remain subject to current authorization and guarded evidence.
+Optional offline inspection caching does not grant current-state authority.
+
+IDs and references use §1–2 syntax. Decisions, alternatives, dependencies, actions and
+contributions must be unique within their stated scopes; dependencies cannot refer to
+self but cycles between decisions are permitted. Empty alternative sets, invalid
+selected IDs, malformed references and invalid values fail decoding. Open decisions
+have at least two alternatives. Responses are private and must not be stored by shared
+HTTP caches. The [target read vectors](../conformance/wire-accepted-state.json) bind
+paired TypeScript and Swift models; they do not assert server execution.
+
+## 8. Rule evidence
+
+The portable core does not enumerate merge implementations or their private counters.
+`GET /.arbor/trees/{tree}/updates/{state}/evidence` lists rule evaluations recorded
+with that accepted state. It uses the same exact-state authorization and optional
+`after` continuation rules as decision inspection, with `404` for unavailable or
+unauthorized state. Records are immutable evidence, not instructions from a client.
+
+```ts
+type RuleEvidencePage = {
+  tree: TreeID; state: string;
+  records: Array<{
+    id: string;
+    rule: { id: string; revision: string };
+    evaluated: {
+      state: string;
+      materials: Ref[];
+      contributions: Array<{ change: string; operation: string | null }>;
+      decisions: ResolutionDeclaration[];
+    };
+    outcome: "resolved" | "unresolved" | "not-applicable";
+    decisions: string[];
+    details: JSONValue;
+  }>;
+  next: string | null;
+};
+```
+
+The core identifies the rule/revision, exact evaluated state and inputs, outcome,
+and resulting decision identities in the page's recorded accepted state. Each
+record has a stable identity; a page may contain evaluations from several rules
+and formats. `not-applicable` means the rule declined, not that it resolved the
+input. An update need not have rule evidence merely because two independent changes
+were combined. Accepted-state kind and submission outcome do not encode rule choice.
+
+`details` is an open JSON value owned by the named rule and revision. It may contain
+format constraints, explanations, result/provenance mappings or diagnostics. The
+rule defines its schema and promises; unknown details are preserved or ignored,
+never interpreted as generic authorization, resolution intent or executable code.
+Required §6 resolution evidence must remain available, whether represented in the
+core input fields or the rule's specified details. Rule-specific schema changes do
+not require adding another case to a global Wire union. Re-evaluating with a newer
+rule must not rewrite historical evidence. Paging has no fixed record-count cap.

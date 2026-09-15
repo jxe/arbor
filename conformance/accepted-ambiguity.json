@@ -1,0 +1,757 @@
+{
+  "description": "Language-neutral semantic scenarios for the aspirational contract. Labels are symbolic, not Wire DTOs. These are not yet executable implementation conformance claims. Format outcomes include explicit policy/constraint assumptions.",
+  "execution": "planned-contract-scenarios",
+  "spec": [
+    "spec/01-tree-operations.md",
+    "spec/10-source-intent.md",
+    "spec/09-client-synchronization.md"
+  ],
+  "cases": [
+    {
+      "id": "continue-visible-alternative",
+      "area": "decisions",
+      "given": {
+        "base": "Monday\n",
+        "alternatives": {
+          "a": "Tuesday\n",
+          "b": "Wednesday\n"
+        },
+        "projected": "b",
+        "open": [
+          "deadline"
+        ]
+      },
+      "when": [
+        "Edit displayed Wednesday to Wednesday afternoon using its accepted basis."
+      ],
+      "expect": {
+        "alternatives": {
+          "a": "Tuesday\n",
+          "b-continuation": "Wednesday afternoon\n"
+        },
+        "open": [
+          "deadline"
+        ],
+        "remote": "accepted-unresolved"
+      },
+      "forbid": [
+        "Implicit resolution",
+        "Loss of Tuesday",
+        "Identity regenerated from bytes"
+      ]
+    },
+    {
+      "id": "return-to-base",
+      "area": "decisions",
+      "given": {
+        "base": "Monday\n",
+        "alternatives": {
+          "a": "Tuesday\n",
+          "b": "Wednesday\n"
+        },
+        "projected": "b"
+      },
+      "when": [
+        "Edit the displayed alternative back to Monday."
+      ],
+      "expect": {
+        "open": [
+          "deadline"
+        ],
+        "retainedText": [
+          "Tuesday\n",
+          "Monday\n"
+        ]
+      },
+      "forbid": [
+        "Algebraic cancellation clears the decision"
+      ]
+    },
+    {
+      "id": "independent-wording-placement",
+      "area": "decisions",
+      "given": {
+        "entry": "paragraph-1",
+        "open": [
+          "wording",
+          "placement"
+        ]
+      },
+      "when": [
+        "Resolve wording while leaving placement undecided."
+      ],
+      "expect": {
+        "open": [
+          "placement"
+        ],
+        "oneMaterialIdentity": "paragraph-1"
+      },
+      "forbid": [
+        "Four independent copies for two binary decisions",
+        "Implicit placement resolution"
+      ]
+    },
+    {
+      "id": "stale-human-resolution",
+      "area": "decisions",
+      "given": {
+        "reviewedState": "u1",
+        "reviewedAlternatives": [
+          "a",
+          "b"
+        ],
+        "currentState": "u2",
+        "currentAlternatives": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "when": [
+        "Submit resolution guarded by u1 and alternatives a,b."
+      ],
+      "expect": {
+        "resolution": "rejected",
+        "draft": "retained",
+        "retainedAlternatives": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "forbid": [
+        "Silently discard c"
+      ]
+    },
+    {
+      "id": "stale-rule-resolution",
+      "area": "rules",
+      "given": {
+        "rule": {
+          "id": "example-rule",
+          "revision": "r1"
+        },
+        "evaluatedState": "u1",
+        "alternatives": [
+          "a",
+          "b"
+        ],
+        "currentState": "u2",
+        "newContribution": "c"
+      },
+      "when": [
+        "Attempt to commit the evaluated result."
+      ],
+      "expect": {
+        "action": "recompute-or-reject",
+        "retain": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "forbid": [
+        "Resolve the new contribution using old evidence"
+      ]
+    },
+    {
+      "id": "markdown-independent-insertions",
+      "area": "rules",
+      "given": {
+        "format": "Markdown prose",
+        "policy": "Both independently created paragraphs are allowed here; this rule orders them Alpha then Beta.",
+        "insertions": [
+          "Alpha\n\n",
+          "Beta\n\n"
+        ]
+      },
+      "when": [
+        "Apply the applicable validated rule."
+      ],
+      "expect": {
+        "text": "Alpha\n\nBeta\n\n",
+        "origins": "distinct-preserved",
+        "decisionEvidence": "retained"
+      },
+      "forbid": [
+        "Treat keeping both as one shared origin"
+      ]
+    },
+    {
+      "id": "markdown-competing-moves",
+      "area": "rules",
+      "given": {
+        "format": "Markdown prose",
+        "material": "one paragraph",
+        "destinations": [
+          "section-a",
+          "section-b"
+        ]
+      },
+      "when": [
+        "Apply the independent-insertion rule to competing moves."
+      ],
+      "expect": {
+        "rule": "not-applicable",
+        "decision": "placement-unresolved"
+      },
+      "forbid": [
+        "Duplicate the paragraph solely because Markdown permits repeated text"
+      ]
+    },
+    {
+      "id": "code-duplicate-binding",
+      "area": "rules",
+      "given": {
+        "format": "code",
+        "constraints": "No duplicate binding named count in this scope.",
+        "alternatives": [
+          "let count = 1;\n",
+          "let count = 2;\n"
+        ]
+      },
+      "when": [
+        "Consider keeping both declarations."
+      ],
+      "expect": {
+        "decision": "unresolved",
+        "projection": "valid ordinary source choice"
+      },
+      "forbid": [
+        "Resolve by concatenating declarations"
+      ]
+    },
+    {
+      "id": "structured-distinct-keys",
+      "area": "rules",
+      "given": {
+        "format": "JSON",
+        "base": "{\"a\":1,\"b\":1}\n",
+        "left": "{\"a\":2,\"b\":1}\n",
+        "right": "{\"a\":1,\"b\":2}\n",
+        "constraints": "a and b are independent integer fields; preserve this source layout."
+      },
+      "when": [
+        "Apply a key-aware rule."
+      ],
+      "expect": {
+        "text": "{\"a\":2,\"b\":2}\n",
+        "decision": "resolved-with-evidence"
+      },
+      "forbid": [
+        "Normalize unrelated bytes"
+      ]
+    },
+    {
+      "id": "structured-key-dependent",
+      "area": "rules",
+      "given": {
+        "format": "YAML",
+        "constraints": "Two array elements have the same unique id; competing values disagree.",
+        "alternatives": [
+          "- id: x\n  value: 1\n",
+          "- id: x\n  value: 2\n"
+        ]
+      },
+      "when": [
+        "Consider concatenation without a compatible field resolution."
+      ],
+      "expect": {
+        "decision": "unresolved"
+      },
+      "forbid": [
+        "Create duplicate unique keys",
+        "Assume YAML alone establishes array identity"
+      ]
+    },
+    {
+      "id": "binary-without-merger",
+      "area": "rules",
+      "given": {
+        "format": "opaque binary",
+        "baseBase64": "AA==",
+        "leftBase64": "AQ==",
+        "rightBase64": "Ag==",
+        "merger": null
+      },
+      "when": [
+        "Reconcile both changes."
+      ],
+      "expect": {
+        "allowed": [
+          "accepted-unresolved if binary decisions can be preserved and projected",
+          "rejected otherwise"
+        ],
+        "retain": "all required alternatives or client-owned rejected request"
+      },
+      "forbid": [
+        "Text fallback",
+        "Unrecorded last-writer resolution"
+      ]
+    },
+    {
+      "id": "held-file-independent-publication",
+      "area": "filesystem",
+      "given": {
+        "acceptedState": "u1",
+        "held": {
+          "path": "/a.md",
+          "bytes": "draft A\n"
+        },
+        "later": {
+          "path": "/b.md",
+          "bytes": "draft B\n"
+        },
+        "dependencies": "none, proven",
+        "outcomeOfOriginalRequest": "definitively rejected"
+      },
+      "when": [
+        "Capture both drafts durably.",
+        "Publish a separately prepared complete candidate containing only the independent B effect.",
+        "Restart, then review A."
+      ],
+      "expect": {
+        "A": "retained for review",
+        "B": "accepted remotely without waiting for A",
+        "replay": "B is not republished or overwritten",
+        "originalRequest": "immutable"
+      },
+      "forbid": [
+        "Tree-wide pause",
+        "Mark A remotely backed up",
+        "Discard original suffix"
+      ]
+    },
+    {
+      "id": "same-file-independent-region",
+      "area": "filesystem",
+      "given": {
+        "path": "/note.md",
+        "heldRegion": "first paragraph",
+        "laterRegion": "last paragraph",
+        "dependencies": "none, proven by exact source correspondence"
+      },
+      "when": [
+        "Publish the independent region while retaining the ambiguous first-paragraph edit."
+      ],
+      "expect": {
+        "publication": "allowed",
+        "heldBytes": "preserved"
+      },
+      "forbid": [
+        "Whole-file lock solely due to a local ambiguous region",
+        "Publish unexplained residual bytes"
+      ]
+    },
+    {
+      "id": "path-difference-is-not-independence",
+      "area": "filesystem",
+      "given": {
+        "held": "move /folder to /renamed",
+        "later": "edit /folder/note.md",
+        "dependencies": "entry ancestry and placement"
+      },
+      "when": [
+        "Attempt to publish the later edit independently without transporting its guards."
+      ],
+      "expect": {
+        "later": "held until dependency is handled",
+        "capture": "continues"
+      },
+      "forbid": [
+        "Treat different path strings as proof of independence"
+      ]
+    },
+    {
+      "id": "atomic-local-transaction",
+      "area": "filesystem",
+      "given": {
+        "localTransaction": [
+          "update /schema.json",
+          "update /data.json"
+        ],
+        "constraint": "The two changes must stay atomic."
+      },
+      "when": [
+        "One component requires review."
+      ],
+      "expect": {
+        "transaction": "retained as a unit",
+        "otherIndependentTransactions": "continue"
+      },
+      "forbid": [
+        "Split this transaction merely to make progress"
+      ]
+    },
+    {
+      "id": "unknown-acceptance",
+      "area": "filesystem",
+      "given": {
+        "prepared": "immutable request R",
+        "network": "disconnected after possible acceptance",
+        "laterIndependentWork": "durably captured"
+      },
+      "when": [
+        "Reconnect."
+      ],
+      "expect": {
+        "firstAction": "resolve R through exact retry/receipt recovery",
+        "localCapture": "continues"
+      },
+      "forbid": [
+        "Treat uncertainty as definitive rejection",
+        "Rewrite R or create duplicate acceptance"
+      ]
+    },
+    {
+      "id": "remote-advance-over-local-draft",
+      "area": "filesystem",
+      "given": {
+        "acceptedState": "u1",
+        "localDraft": "unaccepted local bytes",
+        "incomingState": "u2 with unresolved alternatives"
+      },
+      "when": [
+        "Download u2.",
+        "Crash during materialization.",
+        "Restart."
+      ],
+      "expect": {
+        "localDraft": "recoverable with its original basis",
+        "acceptedState": "tracked separately from dirty local projection",
+        "conflictSignal": "durable",
+        "status": "distinguishes locally captured from remotely accepted"
+      },
+      "forbid": [
+        "Overwrite the local draft",
+        "Inject conflict sidecars into authored files"
+      ]
+    },
+    {
+      "id": "adopted-rejection-ownership",
+      "area": "filesystem",
+      "given": {
+        "held": "failed adopted element owned by another working tree",
+        "ownWork": "proven independent",
+        "originalOutcome": "definitively rejected"
+      },
+      "when": [
+        "Retain adopted evidence and publish own independent work."
+      ],
+      "expect": {
+        "reviewOwner": "original author",
+        "ownWork": "may proceed under independent-work procedure"
+      },
+      "forbid": [
+        "Resolve foreign-held work",
+        "Rewrite adopted prefix"
+      ]
+    },
+    {
+      "id": "rule-resolution-record",
+      "area": "rules",
+      "given": {
+        "decision": "d1",
+        "state": "u1",
+        "alternatives": [
+          "a",
+          "b"
+        ],
+        "rule": {
+          "id": "format-policy",
+          "revision": "r7"
+        }
+      },
+      "when": [
+        "Commit an applicable automatic resolution.",
+        "Upgrade the rule implementation."
+      ],
+      "expect": {
+        "record": [
+          "u1",
+          "complete alternative set",
+          "rule id and revision",
+          "result",
+          "provenance mapping",
+          "justification"
+        ],
+        "history": "unchanged by upgrade",
+        "atomic": [
+          "resolution",
+          "accepted identity",
+          "projection",
+          "conflict signal"
+        ]
+      },
+      "forbid": [
+        "Resolve solely because hashes match",
+        "Reinterpret old decisions with new rules"
+      ]
+    },
+    {
+      "id": "snapshot-client-without-review",
+      "area": "early-clients",
+      "given": {
+        "situation": "An accepted text decision projects Tuesday and retains hidden Wednesday; the client has the exact accepted basis but no inspection cache."
+      },
+      "when": [
+        "Submit a snapshot changing Tuesday to Tuesday morning."
+      ],
+      "expect": {
+        "remote": "accepted-unresolved",
+        "visible": "Tuesday morning",
+        "hidden": "Wednesday",
+        "decision": "remains-open"
+      },
+      "forbid": [
+        "Requiring a downloaded identity map",
+        "Implicit resolution by snapshot"
+      ]
+    },
+    {
+      "id": "accepted-conflict-does-not-hold-work",
+      "area": "early-clients",
+      "given": {
+        "situation": "A client has a durable pending edit and receives an accepted-unresolved result."
+      },
+      "when": [
+        "Apply the result, restart, and submit a later edit while inspection is unavailable."
+      ],
+      "expect": {
+        "pending": "Accepted effects acknowledged normally; newer local edits preserved",
+        "sync": "Continues without inspection"
+      },
+      "forbid": [
+        "Treating accepted effects as rejected local work",
+        "Pausing sync solely because conflicted is true"
+      ]
+    },
+    {
+      "id": "ambiguous-attribution-is-authority-owned",
+      "area": "early-clients",
+      "given": {
+        "situation": "A snapshot has an exact accepted basis but more than one plausible alternative attribution; the authority supports retaining this ambiguity."
+      },
+      "when": [
+        "Submit the ordinary edit without a client-selected alternative."
+      ],
+      "expect": {
+        "remote": "accepted-unresolved",
+        "alternatives": "Preserve the represented ambiguity"
+      },
+      "forbid": [
+        "Client guessing a merge or resolution",
+        "Rejecting solely because supported ambiguity is unresolved"
+      ]
+    },
+    {
+      "id": "hidden-alternative-edit-advances-identity",
+      "area": "acceptance",
+      "given": {
+        "situation": "Tuesday is projected and Wednesday is hidden in an open decision."
+      },
+      "when": [
+        "Edit the hidden alternative to Thursday without selecting it."
+      ],
+      "expect": {
+        "root": "unchanged",
+        "acceptedIdentity": "new",
+        "hidden": "Thursday",
+        "decision": "open"
+      },
+      "forbid": [
+        "Skipping semantic effects because projected hashes match"
+      ]
+    },
+    {
+      "id": "independent-equal-deletion-is-not-noop",
+      "area": "acceptance",
+      "given": {
+        "situation": "One deletion contribution is accepted; a second author independently deleted the same material from the earlier basis."
+      },
+      "when": [
+        "Accept the second contribution, then explicitly undo only the first."
+      ],
+      "expect": {
+        "secondAcceptance": "new identity despite equal root",
+        "material": "remains deleted by the second contribution"
+      },
+      "forbid": [
+        "Skipping semantic effects because projected hashes match"
+      ]
+    },
+    {
+      "id": "accepted-ambiguity-continues-update-string",
+      "area": "acceptance",
+      "given": {
+        "situation": "An ordered request contains a competing replacement followed by an independent edit."
+      },
+      "when": [
+        "Accept the first element as unresolved, then process the second."
+      ],
+      "expect": {
+        "results": "two successful results",
+        "first": "accepted unresolved",
+        "second": "accepted or merged with prior alternatives preserved"
+      },
+      "forbid": [
+        "Skipping semantic effects because projected hashes match"
+      ]
+    },
+    {
+      "id": "resolve-to-visible-projection-is-not-noop",
+      "area": "acceptance",
+      "given": {
+        "situation": "An open decision projects the exact text the person chooses as its resolution."
+      },
+      "when": [
+        "Submit a guarded explicit resolution choosing those bytes."
+      ],
+      "expect": {
+        "root": "unchanged",
+        "acceptedIdentity": "new",
+        "decision": "resolved"
+      },
+      "forbid": [
+        "Skipping semantic effects because projected hashes match"
+      ]
+    },
+    {
+      "id": "coupled-decisions-one-atomic-candidate",
+      "area": "consolidated-updates",
+      "given": {
+        "situation": "Placement and content decisions constrain the same material."
+      },
+      "when": [
+        "Submit their ordinary operations and both guarded resolution declarations in one candidate."
+      ],
+      "expect": {
+        "acceptance": "both resolutions and effects commit atomically",
+        "failure": "a failed guard accepts neither decision"
+      },
+      "forbid": [
+        "Silently resolving unreviewed contributions"
+      ]
+    },
+    {
+      "id": "dependency-does-not-force-joint-resolution",
+      "area": "consolidated-updates",
+      "given": {
+        "situation": "Choosing a placement leaves every content alternative meaningful and correctly attached."
+      },
+      "when": [
+        "Resolve placement only, preserving the content decision."
+      ],
+      "expect": {
+        "placement": "resolved",
+        "content": "open with preserved alternatives and identity"
+      },
+      "forbid": [
+        "Silently resolving unreviewed contributions"
+      ]
+    },
+    {
+      "id": "stale-dependency-rejects-resolution",
+      "area": "consolidated-updates",
+      "given": {
+        "situation": "After review, a new contribution changes the dependency between two decisions."
+      },
+      "when": [
+        "Submit the earlier coupled resolution."
+      ],
+      "expect": {
+        "result": "rejected without clearing either decision",
+        "work": "candidate and newer contributions preserved"
+      },
+      "forbid": [
+        "Silently resolving unreviewed contributions"
+      ]
+    },
+    {
+      "id": "exact-state-guard-sees-metadata-only-advance",
+      "area": "consolidated-updates",
+      "given": {
+        "situation": "The current accepted root equals the reviewed root, but accepted identity advanced."
+      },
+      "when": [
+        "Submit a candidate with ifCurrent naming the earlier accepted state."
+      ],
+      "expect": {
+        "result": "guard failure despite equal root",
+        "retry": "an already successful exact replay returns its original result before guard evaluation"
+      },
+      "forbid": [
+        "Silently resolving unreviewed contributions"
+      ]
+    },
+    {
+      "id": "unrelated-advance-can-preserve-review",
+      "area": "consolidated-updates",
+      "given": {
+        "situation": "An unrelated file changes after review; the decision, affected location, selection, alternatives and dependencies remain unchanged."
+      },
+      "when": [
+        "Submit a guarded resolution without ifCurrent."
+      ],
+      "expect": {
+        "result": "may accept after proving all reviewed evidence unchanged",
+        "unrelated": "concurrent contribution preserved"
+      },
+      "forbid": [
+        "Silently resolving unreviewed contributions"
+      ]
+    },
+    {
+      "id": "no-fixed-decision-count-cap",
+      "area": "accepted-read-contract",
+      "given": {
+        "situation": "A tree already retains 32 open decisions."
+      },
+      "when": [
+        "Accept another valid representable competing contribution."
+      ],
+      "expect": {
+        "result": "The 33rd decision is retained; inspection may page without blocking acceptance."
+      }
+    },
+    {
+      "id": "same-root-watch-chain-preserves-all-identities",
+      "area": "accepted-read-contract",
+      "given": {
+        "situation": "Several accepted semantic updates share one root."
+      },
+      "when": [
+        "Receive them in one observation frame with its own cursor."
+      ],
+      "expect": {
+        "result": "Validate every predecessor ID/root pair; never infer that unchanged bytes make intermediate transitions redundant."
+      }
+    },
+    {
+      "id": "page-local-absence-is-not-resolution",
+      "area": "accepted-read-contract",
+      "given": {
+        "situation": "A decision depends on a decision listed on a different page at the same accepted state."
+      },
+      "when": [
+        "Fetch that dependency by identity before joint resolution."
+      ],
+      "expect": {
+        "result": "Preserve the dependency; an absent page-local record never means resolved."
+      }
+    },
+    {
+      "id": "open-rule-details-do-not-grant-authority",
+      "area": "accepted-read-contract",
+      "given": {
+        "situation": "A known rule supplies additional rule-specific JSON details."
+      },
+      "when": [
+        "Decode and display supported evidence."
+      ],
+      "expect": {
+        "result": "Retain or ignore unknown details without turning them into operations, permission grants or implicit resolutions."
+      }
+    }
+  ]
+}

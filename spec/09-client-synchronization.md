@@ -109,8 +109,9 @@ adopter already retains a request or a conflict.
    accepted prefix by request digest and reconciles only the new transition.
 5. **Racing evidence.** The response and the matching watch event are
    evidence for the same request. The client correlates by request digest
-   and by accepted update or cursor, applies whichever arrives first, and
-   ignores the other.
+   and accepted identity, applies whichever arrives first, and ignores the duplicate
+   receipt. Observation cursors deduplicate stream frames; they are not accepted
+   IDs and cannot alone prove that a particular request was accepted.
 6. **Validate before advancing.** Every returned object, root, transition
    chain, tree boundary, and request digest is rehashed and validated. The
    confirmed `{ root, update, cursor }` advances only after durable
@@ -124,17 +125,19 @@ adopter already retains a request or a conflict.
    the first failed element. The machine retains the returned successful
    prefix, the failed element at `failedIndex`, and every unattempted suffix
    element from the exact prepared request. It reviews only the failed element
-   against the verified current state. Once the reviewed element is durably
+   against the verified current state. By default, once the reviewed element is durably
    submitted and applied, the machine replays the retained suffix changes in
-   order. A replay applies the exact local change between adjacent original
+   order. The independent-work procedure below permits safe progress without
+   discarding this sequence. A replay applies the exact local change between adjacent original
    candidates to the newly accepted state; if its guards no longer match, that
    element becomes the next client-owned conflict before submission. The
    machine must not collapse the failed element and suffix into the final
    local root, submit an old suffix candidate against a different logical
-   base, or describe unattempted work as conflicted. Further local work
-   remains one successor behind the sequence. **A failed element that lies
+   base, or describe unattempted work as conflicted. Dependent local work
+   remains behind the sequence; proven independent work may proceed under the
+   procedure below. **A failed element that lies
    within an adopted prefix is owned by the working tree that authored it**:
-   the adopter holds (submission paused, the request and any head kept
+   the adopter holds that sequence (its submission paused, its request and head kept
    durable, status reported as conflict with the reason) and defers to the
    author's review flow rather than reviewing the element itself.
    Accepted unresolved state is different: `conflicted: true` on an accepted
@@ -196,3 +199,58 @@ materializes only accepted state. Nothing edits through another client; the
 daemon's folder is itself a working tree whose object store is the folder.
 The two machines compose in sequence, admission first and publication second,
 and must not be merged into one coordinator.
+
+## Accepted conflicts and unaccepted local work
+
+The authority owns conflict attribution, alternative preservation and resolution.
+Clients retain their accepted basis and deliver authored changes; they are not
+required to infer conflict meaning or implement merge rules. An accepted unresolved
+update is accepted work, not a locally held rejection. Hidden alternatives belong to
+the authority's accepted state and do not require a client-side review cache.
+
+In this section, held work means unaccepted local edits after a definitive rejection.
+It does not mean the alternatives of an accepted unresolved decision.
+
+A conflict MUST NOT by itself pause capture of local changes or all synchronization
+for a tree. Accepted unresolved state continues ordinary updates. After a definitive
+rejection, clients MUST keep the rejected candidate and unattempted suffix durable
+while allowing provably independent work to proceed. Uncertain transport outcomes
+must first use the existing exact-retry/receipt procedure; uncertainty is not
+permission to abandon or rewrite a possibly accepted request.
+
+This does not change the Wire's sequential prefix semantics. The client retains the
+original request, basis, rejected and unattempted elements, and later local changes.
+It may prepare a separate candidate against a verified accepted state only after
+establishing that the selected local effects are independent of held work. Different
+paths alone are insufficient: entry ancestry, moves, material/operation-result references,
+structural/schema constraints and user transaction boundaries can introduce
+relationships. A transaction MUST NOT be split if that would change its meaning.
+Unproven independence remains held; the client MUST NOT guess or silently omit work.
+
+Separately prepared work must explain its entire candidate and use fresh change and
+request identity when its semantics or basis change. Original prepared requests stay
+immutable. The client MUST durably record which effects were published separately,
+so later review/replay of held work neither repeats them nor overwrites their results.
+Dependent suffixes retain their original ordering. Adoption does not transfer review
+ownership, and the independent-work procedure grants no authority to resolve a
+foreign-held element. Authentication, authorization and transport failures retain
+their existing constraints; this procedure is not a bypass for them.
+
+Filesystem clients materialize ordinary projected files and keep accepted identity,
+the unresolved signal, and unaccepted work in durable client state outside authored
+files. They need not retain accepted alternatives or inspection evidence locally.
+They MUST retain the exact accepted projection underlying each captured local change.
+The authority establishes whether a snapshot edit continues a displayed alternative.
+When attribution is ambiguous, it retains the ambiguity if representable within the
+contract limits; otherwise it rejects the edit, which remains locally recoverable.
+The client MUST NOT preemptively hold an edit solely because its basis is unresolved.
+Safe edits in another region of the same file may proceed when independence is proven.
+There is no requirement to lock an entire file simply because one region is ambiguous.
+
+Remote advancement MUST preserve unaccepted local bytes and their bases before any
+materialization. The client's accepted remote state and locally edited projection
+must remain distinguishable. Review metadata may be fetched on demand. Offline review
+and durable inspection caching are optional; any locally authored review draft and
+its submission basis remain subject to ordinary local-work durability requirements.
+Status MUST distinguish captured locally, accepted remotely, and unresolved versus
+resolved. A locally retained rejection MUST NOT be reported as remotely backed up.

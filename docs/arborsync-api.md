@@ -3,6 +3,11 @@
 
 The current version is Arbor Sync REST v1.
 
+The [consolidated Canopy Wire contract](update-wire-contract.md) is specified ahead
+of implementation, with paired target models and fixtures. Active Wire submission
+still uses the current encoding; these local REST routes and filesystem scheduling
+do not acquire new capabilities from that specification.
+
 Arbor Sync makes placed folders content-addressable and keeps each one equal
 to Canopy's accepted root in both directions. Everything below is either that
 store's read surface (objects, bootstrap, credential) or the control surface

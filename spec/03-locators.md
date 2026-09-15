@@ -202,10 +202,10 @@ GET /.well-known/arbor[/{path}]
 
 Authenticated account and tree-list reads use explicit envelopes carrying
 `observedThrough`; bare arrays and descriptors are not mutable responses. The
-same snapshot-then-observe rule as the core tree API applies. For an ordinary
-tree, its accepted-update ID is its `observedThrough` cursor unless a later
-event other than an accepted update advances that tree's observation stream; `tree.update` remains
-the content synchronization base.
+same snapshot-then-observe rule as the core tree API applies. The accepted-update
+ID remains the content synchronization base; `observedThrough` independently records
+the read/watch boundary. Clients must not substitute one for the other, even if an
+implementation happens to encode them identically.
 
 Well-known and canonical-path resolution return `LocatorResolution`, using the
 longest readable registered boundary. Inaccessible nested boundaries cannot be

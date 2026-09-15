@@ -149,6 +149,7 @@ type RemoteTreeDescriptor = {
   permissions: string[];
   root: Hash;
   update: string;
+  conflicted: boolean;
   canonical: {
     path: LogicalPath;
     endpoint: string;
@@ -168,15 +169,15 @@ The list is empty when the tree is unreadable or no named permission applies;
 `write` additionally satisfies every tree-local permission without enumerating
 them. The descriptor's `root` is the bytes hash of the current accepted tree state
 and `update` is the accepted-update id that produced this observation.
-`observedThrough` is the cursor after which watching begins. Because accepted
-updates are the only state changes on a portable tree watch, it equals
-`tree.update`; the separate field makes the read-then-watch boundary explicit.
+The enclosing read's `observedThrough` is the cursor after which watching begins.
+It is an observation boundary, not an alias for the accepted `update` identity.
+The read binds the descriptor and this boundary atomically.
 Hosted trees have, in addition, a canonical path, endpoint, and might be nested
 inside a parent tree.
 
 The same root may be accepted again by a later update. Its graph remains the
-same content-addressed snapshot, while the later descriptor's `update` and
-`observedThrough` identify the later observation.
+same content-addressed snapshot, while the later descriptor's `update` identifies
+the new accepted state and the enclosing `observedThrough` gives its read/watch boundary.
 
 #### 1.1.2 Reading an accepted snapshot
 
@@ -333,18 +334,11 @@ type AcceptedUpdate = {
   id: string;
   tree: TreeID;
   root: Hash;
-  previousRoot: Hash | null;
-  kind: "initial" | "accepted" | "merged" | "restored";
+  previous: { id: string; root: Hash } | null;
   acceptedAt: number;
   subject: string | null;
-  conflicted?: boolean;
-  merge?: MergeSummary;
+  conflicted: boolean;
 };
-
-type MergeSummary =
-  | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "account-config-v2"; mergedFields: number }
-  | { version: "collection-file-rows-v1"; mergedRows: number };
 ```
 
 The two arrays are alternative transfer encodings for the result objects
@@ -369,14 +363,30 @@ canonical bytes: `copy` reuses a byte range from the base, while `insert`
 supplies new bytes as canonical padded base64. The receiver applies the
 instructions and requires the produced bytes to hash to `result`.
 
-Accepted updates are ordered within their tree by their `id`. That id is also
-the cursor of the `tree.update` event that records the update.
+Accepted update IDs are opaque identities, not observation cursors. The `previous`
+link establishes accepted order within a tree; it is null only for activation.
+It names both predecessor identity and projected root. A same-root semantic update
+therefore advances the identity chain even when no new object bytes are required.
+Rule execution, automatic resolution and restoration are provenance, not mutually
+exclusive accepted-update kinds. Detailed evidence is read separately under
+[source intent §8](10-source-intent.md#8-rule-evidence).
 
-Every update records one transition from its exact `previousRoot` to `root`, regardless of whether the authority directly accepted, merged, or restored that result.
+The transition may carry complete `objects`, [deltas](#25-sparse-transfer-with-object-deltas),
+or both. `transitions` is nonempty and ordered. The first predecessor must match the
+client's confirmed accepted identity and root; each later predecessor must match the
+preceding transition's identity and root. Update IDs must be distinct, all tree IDs
+must match, and the final pair must match `change.descriptor.update` and its `root`.
+A gap, reordered transition or omitted same-root transition requires resynchronization,
+not a successful root-only check. A client may commit only the final file materialization
+while durably processing every accepted identity and correlating request receipts.
 
-The transition may carry complete `objects`, [deltas](#25-sparse-transfer-with-object-deltas), or both.
-
-`transitions` is nonempty, chains exactly by root (each `previousRoot` is the preceding `root`), and ends at `change.descriptor.update` and `change.descriptor.root`. A client may apply a batch sequentially in memory and commit only the final materialization.
+The SSE `cursor` identifies the observation batch. It advances strictly in the
+observation domain and is the frame's observation boundary; it need not equal any
+accepted ID. The enclosed descriptor identifies the final accepted state. One frame can contain several accepted updates.
+Implementations may happen to encode some IDs and cursors identically, but clients
+MUST NOT derive one from the other or compare their numeric/string values as accepted
+ordering. Replayed frames are deduplicated by observation cursor before applying the
+accepted chain. An overlapping replay must not apply old transitions to a newer head.
 
 For `tree.update`, a transition's `requestDigest` is present only when the stream is authenticated by the exact bearer credential that submitted that accepted request. This allows watchers to identify the revision that includes an update they sent.
 
@@ -389,24 +399,27 @@ obtains its addressed snapshot, and resumes strictly after the descriptor's
 #### Accepted unresolved state
 
 `AcceptedUpdate.conflicted` and `RemoteTreeDescriptor.conflicted` signal that
-an accepted state retains unresolved alternatives. Absence is equivalent to
-`false`; a descriptor and its accepted update MUST agree. This state is distinct
+an accepted state retains unresolved alternatives. The field is required; a descriptor and its accepted update MUST agree. This state is distinct
 from a rejected update's structured `409 conflict` response. The selected `root`
 remains an ordinary valid directory graph with no conflict markers or special
 entries. An accepted change to unresolved state MUST receive a new update id
-and cursor even when `previousRoot === root`; its transition may be empty.
+and cursor even when the predecessor root equals `root`; its transition may be empty.
 Clients MUST durably advance accepted metadata in that case.
 
 Ordinary updates are based on the exact accepted update, not only its projected
 root. Leaving a conflicted region's projected bytes unchanged MUST NOT resolve
-or discard its alternatives. Authorities supporting accepted conflicts MUST
-preserve unresolved state when admitting ordinary changes and may reject a
-change they cannot safely apply. Clients without conflict-review support may
+or discard its alternatives. Authorities MUST preserve unresolved state when admitting ordinary changes.
+Representable ambiguity is accepted under the reconciliation contract; invalid
+claims, failed guards and exceeded limits remain explicit failures. Clients without conflict-review support may
 continue ordinary synchronization and MUST indicate unresolved state rather
 than reporting the tree as conflict-free.
 
 [Source intent and provenance](10-source-intent.md) defines operation identities,
-alternative edits, and explicit resolution on the ordinary update route.
+alternative edits, format-aware explicit automatic resolution, and continued
+editing of accepted decisions on the ordinary update route. The
+[client synchronization contract](09-client-synchronization.md#accepted-conflicts-and-unaccepted-local-work)
+requires safe independent work to continue around held changes without rewriting
+an immutable request or changing sequential prefix semantics.
 These semantics require no extension negotiation or parallel API version.
 Unknown optional response fields remain ignorable; unknown mutation semantics
 must be rejected before accepting any part of their request.
@@ -454,16 +467,18 @@ type UpdateRequest = {
 
 type CandidateUpdate = TransitionPayload & {
   change: string;
-  operations: SourceOperation[] | null;
+  operations: AuthoredOperation[] | null;
   candidate: Hash;
-  ifMatch: "bytesHash" | "modelHash";
-  onConflict?: "reject" | "merge";
+  resolves: ResolutionDeclaration[];
+  ifCurrent?: string;
 };
 ```
 
 `change` is a durable authored-change identity; `operations: null` explicitly
-selects snapshot semantics. A nonempty array fully explains the candidate using
-[source operations](10-source-intent.md). These fields are required, included
+selects snapshot semantics. An array fully explains the candidate using
+[source operations](10-source-intent.md). An empty array is valid only for an explicit resolution with no content edits.
+`resolves` declares guarded decisions endorsed by this candidate; empty means none.
+These fields are required, included
 in request identity, and preserved verbatim in an adopted or retried prefix.
 There is no residual payload or implicit downgrade to snapshot semantics.
 
@@ -471,8 +486,9 @@ There is no residual payload or implicit downgrade to snapshot semantics.
 the string begins, or `null` when its first element activates a reserved tree.
 Each element proposes one distinct accepted-history boundary. The first is
 authored on the root at `base`; every later element is authored on the preceding
-element's submitted `candidate`, whether or not that candidate has received an
-authority response.
+element's submitted `candidate` together with its authored semantic effects, whether
+or not that candidate has received an authority response. Root equality never
+collapses the semantic basis of two elements.
 
 Each element is a client-chosen accepted-history boundary. Nothing requires
 one element per editor transaction: a client normally coalesces an interaction
@@ -492,7 +508,7 @@ same time:
       "change": "change-one",
       "operations": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "ifMatch": "modelHash",
+      "resolves": [],
       "objects": [],
       "deltas": []
     }
@@ -508,7 +524,7 @@ same time:
       "change": "change-one",
       "operations": null,
       "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "ifMatch": "modelHash",
+      "resolves": [],
       "objects": [],
       "deltas": []
     },
@@ -516,7 +532,7 @@ same time:
       "change": "change-two",
       "operations": null,
       "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-      "ifMatch": "modelHash",
+      "resolves": [],
       "objects": [],
       "deltas": []
     }
@@ -527,7 +543,7 @@ same time:
 Within one client epoch, every later request must preserve the exact semantic
 earlier elements and only append. The transport representation of an element's
 objects and deltas may change without changing its identity. A client must not
-rewrite an element's change ID, operations, candidate, or matching policy, or fork two different
+rewrite an element's change ID, operations, candidate, resolution declarations, or precondition, or fork two different
 successors from one prefix. It starts a new epoch only after the previous
 speculative string has been completely acknowledged and its resulting accepted
 transition has been durably applied, using that watchpoint as the new `base`.
@@ -543,9 +559,9 @@ it finds the longest supplied prefix already represented by successful
 credential-scoped request digests in accepted history and trims that prefix.
 If the longer request arrives first it may apply every element; if a shorter
 request arrives first the longer request resumes after it; an old shorter
-request arriving last changes nothing. A previously returned `current` element
+request arriving last changes nothing. A previously returned `unchanged` element
 need not have its own durable resolution record: a later accepted element
-proves its prefix was processed, while an otherwise unresolved `current`
+proves its prefix was processed, while an otherwise unresolved `unchanged`
 element may be evaluated again without creating accepted history.
 
 For each untrimmed element, the logical base root is the preceding submitted
@@ -553,8 +569,9 @@ candidate, not the preceding accepted or merged root. Thus, if `B` to `C1` is
 merged into `M1`, the next element is reconciled as `(base: C1, candidate: C2,
 current: M1)`. Only the incremental `C1` to `C2` change is applied to the
 merged state. Each successful state-changing element is committed and emitted
-on watch separately. A conflict stops the string at that element; its
-successful prefix remains accepted and later elements are not attempted.
+on watch separately. A rejection stops the string at that element; its
+successful prefix remains accepted and later elements are not attempted. An accepted
+unresolved decision is a successful result and does not stop the remaining string.
 
 Each `candidate` names the exact Wire root encoding the desired complete tree
 state. The authority decodes and validates its modeled state and all
@@ -566,69 +583,75 @@ repeated request instead of retaining its submitted candidate graph. The
 [delta rules](#25-sparse-transfer-with-object-deltas) define interchangeable
 transfer representations; they do not change a candidate's identity.
 
-### 2.2 What the write matches
+### 2.2 Reconciliation and exact-state preconditions
 
-`ifMatch` names which hash from the [data-model equality rules](#representation-and-model-equality)
-must still match its value at base, as an ETag does for HTTP `If-Match`:
+Ordinary updates reconcile authored contributions with current accepted state.
+Independent effects combine; format-aware rules may resolve differences; remaining
+representable ambiguity is accepted as explicit decisions. There is no `ifMatch`,
+`onConflict` or resolved-only submission mode. Bytes/model hashes still define
+representation and model equality, but do not substitute for accepted state identity.
 
-- `bytesHash`: the tree's bytes hash must still match, so current must still
-  equal base. Any other change is a conflict and is always rejected; matching
-  on bytes means "exactly what I saw", so a merge would contradict it.
-  Activation uses it, and so does any tool that must replace the tree's exact
-  state.
-- `modelHash`: the model hash of each node the candidate changed must still
-  match. The authority takes every node whose bytes differ between base and
-  candidate—the candidate's *touched* nodes—and checks that each has the same
-  model hash in current as it had at base. A current-side reformat does not
-  conflict, nor does a change elsewhere. `onConflict`, which defaults to
-  `merge`, either rejects a touched-node model conflict or invokes that
-  representation's merge rule.
+An optional `ifCurrent` names the exact accepted update ID required immediately
+before this element is processed. A mismatch rejects that element with `409 conflict`
+without accepting its effects; the completed prefix is retained. Same-root metadata
+advancement also fails the guard. Exact successful replay is recognized before
+rechecking this precondition, so retry returns the original result. The guard is
+per element, not a transaction around the entire request. Callers generally cannot
+predict new accepted IDs for later elements and should not invent them.
 
-A write says what must still match: the bytes hash it saw, or the model hash
-of each node it changed. The authority rejects a write whose match fails,
-unless the write allows a same-node conflict to be resolved by that
-representation's merge rule
-([updates §2](#2-updates-and-writes)). A claim of equality
-uses whichever level the claim is about. Invalidation uses cursors, narrowed
-by precision.
-
-A node's properties are one map however they are edited: a property write
-replaces the complete map under the match it names, cannot change the
-property selected by the applicable identity declaration, and leaves content
-and children alone.
-
-The spelling `ifMatch: "modelHash"` is correct: it selects the complete model
-hash of each touched logical node. A collection file's `childSetHash` proves
-only that node's decoded child-set contribution. It is not a replacement name
-for the update setting.
+Tree activation uses `base: null` and the existing reservation/authorization rules;
+its first element has no `ifCurrent` or resolution declarations because no accepted
+state exists yet. Semantic reference, resolution and model constraints always apply,
+with or without an exact-state precondition. A complete property-map replacement
+still preserves applicable identity declarations and leaves unrelated content alone.
 
 ### 2.3 Accepting and merging
 
-For each untrimmed element, after reconstructing and validating its candidate
-graph, the server makes one of these decisions:
+Acceptance is decided from authored effects and accepted semantic state, not solely
+from the candidate and current root hashes. Semantic state includes contributions,
+origin bindings, unresolved alternatives and explicit resolutions as well as the
+projected file graph. Apply the following procedure to each element after exact
+replay handling in §2.1:
 
-1. If the candidate already equals current, return `current` and create no
-   accepted update.
-2. If the candidate equals the base while current has advanced, return the
-   current accepted update and create no new update.
-3. If current equals the base, atomically accept the candidate and return
-   `accepted`.
-4. Otherwise, if `ifMatch` is `modelHash` and every touched node still
-   matches, or every conflicting
-   node is resolved by a merge rule under `onConflict: "merge"`, merge: the
-   result is current with the candidate's bytes for its touched nodes and the
-   rule's output for any resolved node. Atomically accept it and return
-   `merged`.
-5. Otherwise stop and return `409 conflict` with the current update, structured reasons
-   naming each conflicting node, and the `draft` transition the client keeps.
-   Accepted state does not advance and the rejected candidate does not become
-   history.
+1. Reconstruct the candidate and validate its authored effects against its logical
+   basis. For an operation-bearing update, execution must reproduce the candidate
+   projection while preserving all declared semantic effects, including those not
+   visible in that projection. For a snapshot, derive only the effects justified by
+   the exact observed projection. Validate authorization, references and explicit
+   guards before treating the submission as a no-op.
+2. Enforce the optional exact-state precondition in §2.2. Combine independent
+   contributions and apply
+   applicable format-aware rules. If valid competing effects cannot be uniquely
+   combined, retain them as unresolved decisions within the representation limits
+   of [source intent §5–7](10-source-intent.md#5-accepted-decisions-and-continued-editing).
+   Missing automatic merge rules alone do not require rejection. Ordinary operations
+   and snapshots preserve existing decisions; only guarded explicit resolution
+   closes them.
+3. Compare the resulting semantic state with current. Return `unchanged` without a
+   new accepted update only if there is no new contribution, origin binding,
+   alternative continuation, resolution or projected change to record. A snapshot
+   with no authored change can qualify. Equal candidate/current roots, equal
+   candidate/base roots, or equal alternative bytes do not establish a semantic
+   no-op. An independent deletion contribution, hidden-alternative edit or resolution
+   choosing the existing projection can require a new update with the same root.
+4. Otherwise commit the resulting semantic state and projection atomically. Return
+   `accepted` whether or not reconciliation was needed. The resulting state may have
+   `conflicted: true`; acceptance does not imply resolution. Assign a new accepted
+   update ID and advance observation even if the root is unchanged. Continue processing the remaining elements against their respective
+   authored bases, carrying accepted provenance and decisions through the sequence.
+5. If a required match/guard fails or the effects cannot be validly retained within
+   the contract, reject with the applicable structured error. A reconciliation
+   rejection uses `409 conflict`, with current state, reasons and the draft
+   transition. Preserve the successful prefix and leave later elements unattempted.
+   Never substitute a rejected local draft for accepted alternatives.
 
-A merge rule is the representation-specific way to combine two changes to one
-node: `markdown-additive-v1` for Markdown,
-[`collection-file-rows-v1`](06-child-backings.md#23-accepted-update-validation-and-merge)
-for a collection file, and `account-config-v2` for the governed configuration
-tree. A node with no merge rule, or one the rule cannot combine, is a conflict.
+Format-aware rules may produce a clean merge or explicitly resolve guarded decisions
+under [source intent §6](10-source-intent.md#6-format-aware-merge-rules-and-explicit-automatic-resolution).
+They must honor the applicable model constraints, including
+[collection-file rules](06-child-backings.md#23-accepted-update-validation-and-merge).
+The authority retains unresolved choices when no rule justifies resolution. Concrete
+reference-implementation rule names and rollout limitations belong in implementation
+documentation and status.
 
 ### 2.4 Results, conflicts, and retry
 
@@ -642,29 +665,36 @@ type UpdateResponse = {
 };
 
 type UpdateResult = {
-  outcome: "current" | "accepted" | "merged";
+  outcome: "unchanged" | "accepted";
   update: AcceptedUpdate;
   requestDigest: Hash;
   reconciliation?: TransitionPayload;
 };
 ```
 
-`results` is nonempty and preserves request order. The response status is `201`
-if at least one result is `accepted` or `merged`, including an exact replay of
-such a result, and otherwise `200`. `observedThrough` is the authority's
-observation boundary after the whole string was processed. `update` is the
-accepted update that stands after the decision: the untouched current one for
-`current`, or the newly accepted or merged one. `merge` is present only when a
-merge rule ran; a merge of disjoint nodes carries none. An accepted update's
-`id` is the decimal ordinal of the `tree.update` event that recorded it, so it
-is also that event's cursor and `observedThrough`.
+`results` is nonempty and preserves request order. HTTP status is `201` if at
+least one result is `accepted`, including replay of a previously accepted result;
+otherwise it is `200`. `unchanged` means no semantic transition was committed for
+that element. `accepted` includes direct application, reconciliation, restoration
+and metadata-only changes. How a result was produced is recorded as provenance,
+not duplicated in an outcome enum or accepted-state kind.
+
+`update` is the accepted state standing after that element: existing state for
+`unchanged`, or the newly accepted state for `accepted`. `observedThrough` is the
+observation boundary after the whole string was processed; it is not each result's
+update ID and must not be used as a per-element accepted-state guard. Exact replay
+returns the original per-element receipt even if current has since advanced; the
+response observation boundary must not be taken as proof that its last historical
+receipt is the current head. Observe subsequent updates or refresh the descriptor.
+
 `reconciliation` is present exactly when the accepted root differs from the
 submitted candidate: it is the transition from the candidate root to
 `update.root` under the [deltas](#25-sparse-transfer-with-object-deltas) rules, so
 a superseded, merged, or replayed result is applied with the same code that
-applies a watch frame. An accepted candidate returns none.
+applies a watch frame. A result whose projected root equals the candidate returns none, including
+metadata-only acceptance. Its accepted identity still must be applied.
 
-A conflict uses the shared `ArborError` envelope with
+A rejected reconciliation uses the shared `ArborError` envelope with
 `details.kind: "server-update" | "account-configuration"`. Its details include
 `completed`, the ordered successful prefix results; `failedIndex`; the current
 `AcceptedUpdate`; the logical base and candidate roots; structured conflict
@@ -682,17 +712,19 @@ applied exactly becomes a new client-owned conflict before submission.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
-of `{ domain: "arbor-update", tree, base, change, operations, candidate, ifMatch, onConflict }`, with
-`onConflict` as its effective value, scoped to the authenticated credential.
+of `{ domain: "arbor-update", tree, base, change, operations, candidate, resolves, ifCurrent }`,
+with absent `ifCurrent` encoded as CBOR null. Ordered arrays retain their submitted
+order, including resolution declarations and reviewed alternative IDs. Identity is
+scoped to the authenticated credential.
 For the first element, `base` is the request's accepted update id or `null`.
 For each later element, `base` is
 `{ requestDigest: previousDigest, candidate: previousCandidate }`. This latter
 object is part of semantic identity but is implicit in the ordered JSON request.
 `objects`, `deltas`, and their ordering are
 transport choices and are excluded. An ambiguous retry may therefore replace a
-delta with complete bytes without changing identity. Exact accepted or merged
+delta with complete bytes without changing identity. Exact accepted
 elements replay their original results and create no duplicate accepted update.
-A `current` element may be evaluated again. Clients durably retain their epoch
+An `unchanged` element may be evaluated again. Clients durably retain their epoch
 base, ordered elements, required content, successful-prefix boundary, and any
 conflict draft until the reviewed element and every retained suffix change have
 been applied.
@@ -712,10 +744,12 @@ type ArborError<TDetails = unknown> = {
 
 Three tokens that serve different purposes are often encountered together:
 
-- An accepted-update `id` identifies one durable accepted transition of one
-  tree and is also that transition's `tree.update` cursor.
+- An accepted-update `id` identifies one durable accepted transition of one tree.
+  Its predecessor link gives accepted order; an observation cursor identifies stream
+  progress and may cover several transitions.
 - A client-authored `change` identifies an immutable authored change; operation
-  outputs derive their origin from that change and their operation/output keys.
+  material results are named by that change and their operation keys, without an
+  independently named output. A moved result retains existing origins.
 - A credential-scoped `requestDigest` identifies one canonical update
   semantic request across retries and different object/delta packaging.
 
@@ -813,8 +847,10 @@ directly. The normative client behavior is the update machine in
 A watch event acknowledges candidate intent, not submitted delta bytes: a
 merge may produce a different accepted representation. If an element is
 rejected, the client retains the complete conflict durably, allows further
-local work, and exits only through explicit resolution as a new request at the
-verified current base. Rejected conflicts never appear on watch.
+local work, and exits that rejected sequence only through explicit review and
+resubmission at the verified current base. Proven independent work may proceed
+under the client synchronization contract while the original sequence stays held.
+Rejected conflicts never appear on watch.
 
 ## 4. Encoding details
 

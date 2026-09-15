@@ -47,9 +47,10 @@ reserved. Permission identity is scoped by the tree whose executable mutation
 declares it; the same spelling in another tree is unrelated.
 
 Public access is represented by the `everyone` rule; there is no
-`publicAccess` field. A `write` rule permits updates under either `ifMatch` and
-satisfies every tree-local mutation permission. A narrower grant limited to
-`modelHash` is deferred ([deferred 10](../spec.md#deferred)). A raw link secret
+`publicAccess` field. A `write` rule permits authored updates and satisfies every
+tree-local mutation permission. An exact-state precondition never grants additional
+write authority. Finer-grained write permissions are deferred
+([deferred 10](../spec.md#deferred)). A raw link secret
 never enters YAML.
 
 Rules live in the account's `trees.yaml` ([accounts §3](04-accounts-and-devices.md#3-configuration-yaml));

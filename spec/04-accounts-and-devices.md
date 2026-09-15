@@ -332,17 +332,17 @@ initial snapshot:
 
 ```text
 POST /.arbor/trees/{TreeID}/updates
-{ "base": null, "updates": [{ "candidate": <root>, "ifMatch": "bytesHash", "objects": [...], "deltas": [] }] }
+{ "base": null, "updates": [{ "change": <change-id>, "candidate": <root>, "operations": null, "resolves": [], "objects": [...], "deltas": [] }] }
 ```
 
-Activation is an ordinary update whose base is `null` and whose `ifMatch` is
-`bytesHash`: it has the same request identity, replay, and `UpdateResult` as
+Activation is an ordinary update whose base is `null`, without `ifCurrent` or
+resolution declarations: it has the same request identity, replay, and `UpdateResult` as
 every later update. The server requires authorization and a declaration in the
 submitting account, not a server-visible filesystem placement. It validates
 the graph and any applicable profile invariant, creates the first accepted
 update, applies the declared ACL and canonical boundary, marks the tree active,
 and makes its descriptor and accepted snapshot readable in the same commit.
-First valid activation wins: an identical replay returns `current`, and a
+First valid activation wins: an exact successful replay returns its original result, and a
 different snapshot for an already active TreeID is `conflict`.
 
 Activation emits no separate event on the account-configuration tree. A client
@@ -357,8 +357,7 @@ reservation.
 
 For storage, immutable objects, snapshots, accepted updates, merging, working
 trees, and observation, the account-configuration tree is an ordinary private,
-noncanonical Arbor tree whose updates carry `ifMatch: "modelHash"` with
-`onConflict: "merge"`. It additionally has the closed, code-defined server-side
+noncanonical Arbor tree whose updates use ordinary reconciliation. It additionally has the closed, code-defined server-side
 policy `account-config-v2`; all other trees use `ordinary`. This is not a
 generic policy or plugin mechanism. The `v2` suffix versions the Wire-visible
 merge algorithm; it is not a `version` field in any authored YAML file.

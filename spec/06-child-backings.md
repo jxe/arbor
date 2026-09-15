@@ -253,7 +253,7 @@ its bytes hash, validates the complete key set and requested effects, writes and
 fsyncs a complete replacement, atomically renames it, and fsyncs the containing
 directory where supported. Retry identity and acknowledgement remain owned by
 the mutation contract.
-A [property write](01-tree-operations.md#22-what-the-write-matches) on a row must
+A [property write](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions) on a row must
 match the row's model hash and must preserve the declared key. A logical no-op leaves the source byte-identical. A direct row-property
 write cannot add, remove, or reorder rows.
 Multi-row mutations preserve row order unless the mutation
@@ -283,10 +283,10 @@ never trusts a client-supplied schema fingerprint or child-set hash.
 Formatting-only changes advance the accepted root without changing
 `childSetHash`, so they invalidate no logical query dependency.
 
-The update setting `ifMatch: "modelHash"` compares the complete model hash of
-every touched logical node, not the collection file's narrower `childSetHash`.
-The latter is used while decoding and merging the node's child-set
-contribution. SQLite and Postgres changes instead use the database transaction,
+The complete model hash of a logical node remains distinct from the collection
+file's narrower `childSetHash`, which is used while decoding and merging that
+node's child-set contribution. Neither hash substitutes for an accepted update
+identity or a decision guard. SQLite and Postgres changes instead use the database transaction,
 observation, and semantic-checkpoint contracts; live database storage bytes are
 never submitted or merged as a collection-file object.
 

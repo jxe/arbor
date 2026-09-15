@@ -1,0 +1,1628 @@
+{
+  "description": "Target semantic request grammar and identity. Values omit transport objects/deltas; synthetic object hashes do not assert graph reachability or execution. Runtime submission still uses the deployed encoding until coordinated cutover.",
+  "tree": "tr_fixture",
+  "cases": [
+    {
+      "name": "snapshot",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:3055474734d94649f9d18a16a6f8b952cb6eb35b36cc51020188c0b72ab59f3b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "activation snapshot",
+      "valid": true,
+      "value": {
+        "base": null,
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:ad76f7ba3002d604bfc907fe200d2f764e4a461668d7d89fb3774a6ae87a4c49",
+          "canonicalCBORBase64": "qGRiYXNl9mR0cmVlanRyX2ZpeHR1cmVmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubGFyYm9yLXVwZGF0ZWhyZXNvbHZlc4BpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnP2"
+        }
+      ]
+    },
+    {
+      "name": "exact accepted-state precondition",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": [],
+            "ifCurrent": "accepted-é"
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:65f7e486079b16045fd04f9216d9e704131e7c5f554f003945240ec0fc51302b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudGthY2NlcHRlZC3DqWpvcGVyYXRpb25z9g=="
+        }
+      ]
+    },
+    {
+      "name": "edit hidden alternative without resolution",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "edit",
+                "kind": "editSource",
+                "source": {
+                  "material": {
+                    "kind": "alternative",
+                    "state": "reviewed",
+                    "conflict": "deadline",
+                    "alternative": "b"
+                  }
+                },
+                "text": "Thursday\r\n"
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:a5a00815a1ccab0942436a498025909a7fcea32b8723a785e9b9d0eceef51263",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GkY2tleWRlZGl0ZGtpbmRqZWRpdFNvdXJjZWR0ZXh0alRodXJzZGF5DQpmc291cmNloWhtYXRlcmlhbKRka2luZGthbHRlcm5hdGl2ZWVzdGF0ZWhyZXZpZXdlZGhjb25mbGljdGhkZWFkbGluZWthbHRlcm5hdGl2ZWFi"
+        }
+      ]
+    },
+    {
+      "name": "resolve visible projection without edits",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:7250d91b9c480200cae2b61510b623cdcfa6e3d976582b04a624724e79f9e3e3",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOA"
+        }
+      ]
+    },
+    {
+      "name": "snapshot with explicit guarded resolution",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:5adccd69fc036c584e93acb063989b66d0ad0370d7c2b7eb7581a376e24a829f",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnP2"
+        }
+      ]
+    },
+    {
+      "name": "copy subtree then relocate copied descendant",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "copy"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": [
+                    "chapter.md"
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:bbd97805e185dff0cc1d6ac6fba04d21284aab52e409666252228d77688d7643",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4KkY2tleWRjb3B5ZGtpbmRpY29weUVudHJ5ZnNvdXJjZaFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZHJhZnRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWtkZXN0aW5hdGlvbqJkbmFtZWRjb3B5ZnBhcmVudKFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGEvZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTGkY2tleWRtb3ZlZGtpbmRpbW92ZUVudHJ5ZnNvdXJjZaJmd2l0aGlugWpjaGFwdGVyLm1kaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25kY29weWtkZXN0aW5hdGlvbqJkbmFtZWpjaGFwdGVyLm1kZnBhcmVudKFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvYXJjaGl2ZWZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEx"
+        }
+      ]
+    },
+    {
+      "name": "coupled placement and content resolution",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "note.md"
+                }
+              },
+              {
+                "key": "edit",
+                "kind": "editSource",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "move"
+                  }
+                },
+                "text": "Tuesday\n"
+              }
+            ],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              },
+              {
+                "state": "reviewed",
+                "conflict": "placement",
+                "alternatives": [
+                  "here",
+                  "there"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:b57beda479f19213caf1992b74dbc6cbd0c957948d0b556b739ca89025c8723b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgqNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWKjZXN0YXRlaHJldmlld2VkaGNvbmZsaWN0aXBsYWNlbWVudGxhbHRlcm5hdGl2ZXOCZGhlcmVldGhlcmVpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOCpGNrZXlkbW92ZWRraW5kaW1vdmVFbnRyeWZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL25vdGUubWRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWtkZXN0aW5hdGlvbqJkbmFtZWdub3RlLm1kZnBhcmVudKFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvYXJjaGl2ZWZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExpGNrZXlkZWRpdGRraW5kamVkaXRTb3VyY2VkdGV4dGhUdWVzZGF5CmZzb3VyY2WhaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25kbW92ZQ=="
+        }
+      ]
+    },
+    {
+      "name": "choose binary alternative",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "replace",
+                "kind": "replaceEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/photo.png",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "value": {
+                  "material": {
+                    "kind": "alternative",
+                    "state": "reviewed",
+                    "conflict": "deadline",
+                    "alternative": "b"
+                  }
+                }
+              }
+            ],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:1ba72384496cd7f0790f8f3665ab9232bcf400d4e4692c528b78486110d5afb3",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOBpGNrZXlncmVwbGFjZWRraW5kbHJlcGxhY2VFbnRyeWV2YWx1ZaFobWF0ZXJpYWykZGtpbmRrYWx0ZXJuYXRpdmVlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVrYWx0ZXJuYXRpdmVhYmZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhqL3Bob3RvLnBuZ2ZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEx"
+        }
+      ]
+    },
+    {
+      "name": "replace entry with supplied object",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "replace",
+                "kind": "replaceEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/photo.png",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "value": {
+                  "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:319fdef2404f3aec9c69283314c02d26ce7acc3710ac85930faf99ddb7aea80b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GkY2tleWdyZXBsYWNlZGtpbmRscmVwbGFjZUVudHJ5ZXZhbHVloWRmaWxleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhqL3Bob3RvLnBuZ2ZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEx"
+        }
+      ]
+    },
+    {
+      "name": "remove entry to resolve existence",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "remove",
+                "kind": "removeEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                }
+              }
+            ],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:51a6f458aeb074bf2778d00fb6f58112d8e7b10f65b67504563c9328ac6eb33d",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOBo2NrZXlmcmVtb3ZlZGtpbmRrcmVtb3ZlRW50cnlmc291cmNloWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE="
+        }
+      ]
+    },
+    {
+      "name": "copy text range then move result",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copySource",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    4
+                  ]
+                },
+                "at": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    8,
+                    8
+                  ]
+                },
+                "side": "after"
+              },
+              {
+                "key": "move",
+                "kind": "moveSource",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  }
+                },
+                "at": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    10,
+                    10
+                  ]
+                },
+                "side": "before"
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:d52a1a46fe5dbd1ac3ea6f7781477d8ccb7085dbf4754c35ef3d925e9f4fb8bc",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4KlYmF0omVyYW5nZYIICGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFja2V5ZGNvcHlka2luZGpjb3B5U291cmNlZHNpZGVlYWZ0ZXJmc291cmNlomVyYW5nZYIABGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTGlYmF0omVyYW5nZYIKCmhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFja2V5ZG1vdmVka2luZGptb3ZlU291cmNlZHNpZGVmYmVmb3JlZnNvdXJjZaFobWF0ZXJpYWyjZGtpbmRpb3BlcmF0aW9uZmNoYW5nZWpjaGFuZ2Utb25laW9wZXJhdGlvbmRjb3B5"
+        }
+      ]
+    },
+    {
+      "name": "literal edit preserves verified lineage",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "edit",
+                "kind": "editSource",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    4
+                  ]
+                },
+                "text": "[😀]",
+                "lineage": [
+                  {
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        0,
+                        4
+                      ]
+                    },
+                    "range": [
+                      1,
+                      5
+                    ]
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:5e60b60069eef6241c0e91966e2030bf7ee5df6ad9821d156223e3d8392e2226",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GlY2tleWRlZGl0ZGtpbmRqZWRpdFNvdXJjZWR0ZXh0Zlvwn5iAXWZzb3VyY2WiZXJhbmdlggAEaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL25vdGUubWRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWdsaW5lYWdlgaJlcmFuZ2WCAQVmc291cmNlomVyYW5nZYIABGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE="
+        }
+      ]
+    },
+    {
+      "name": "undo has causal target only",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "undo",
+                "kind": "undoOperation",
+                "target": {
+                  "change": "earlier",
+                  "operation": "delete"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:5b3bd3380a374dc278df7f9c70cf925ca852e750aef30a57b10321dce070b9fd",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GjY2tleWR1bmRvZGtpbmRtdW5kb09wZXJhdGlvbmZ0YXJnZXSiZmNoYW5nZWdlYXJsaWVyaW9wZXJhdGlvbmZkZWxldGU="
+        }
+      ]
+    },
+    {
+      "name": "ordered append-only prefix",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": []
+          },
+          {
+            "change": "change-two",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:3055474734d94649f9d18a16a6f8b952cb6eb35b36cc51020188c0b72ab59f3b",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        },
+        {
+          "digest": "sha256:fe479bd56086b4fb6f17531c85e6223b41573252c6844f73d8486332b3541eee",
+          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExbXJlcXVlc3REaWdlc3R4R3NoYTI1NjozMDU1NDc0NzM0ZDk0NjQ5ZjlkMThhMTZhNmY4Yjk1MmNiNmViMzViMzZjYzUxMDIwMTg4YzBiNzJhYjU5ZjNiZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+        }
+      ]
+    },
+    {
+      "name": "old ifMatch is invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": [],
+            "ifMatch": "modelHash"
+          }
+        ]
+      }
+    },
+    {
+      "name": "old onConflict is invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": [],
+            "onConflict": "reject"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolves required",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "operations explicit",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty operations need resolution",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "null exact precondition invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": [],
+            "ifCurrent": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "activation has no current accepted state",
+      "valid": false,
+      "value": {
+        "base": null,
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": [],
+            "ifCurrent": "u1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "activation cannot resolve",
+      "valid": false,
+      "value": {
+        "base": null,
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate decision declaration",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              },
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty reviewed alternatives",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate reviewed alternatives",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "a"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "old output name invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "edit",
+                "kind": "editSource",
+                "source": {
+                  "material": {
+                    "kind": "alternative",
+                    "state": "reviewed",
+                    "conflict": "deadline",
+                    "alternative": "b"
+                  }
+                },
+                "text": "Thursday\r\n",
+                "output": "out"
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "old editAlternative opcode invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "edit",
+                "kind": "editAlternative",
+                "source": {
+                  "material": {
+                    "kind": "alternative",
+                    "state": "reviewed",
+                    "conflict": "deadline",
+                    "alternative": "b"
+                  }
+                },
+                "text": "Thursday\r\n"
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "root source reference requires object hash",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "copy"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": [
+                    "chapter.md"
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "entry reference cannot have text range",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    1
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "copy"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": [
+                    "chapter.md"
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty descendant selector invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "copy"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": []
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "descendant traversal invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "copy"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": [
+                    ".."
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "destination is a name not path",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "a/b"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": [
+                    "chapter.md"
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "non NFC destination name",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "é"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": [
+                    "chapter.md"
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "replacement has one value representation",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "replace",
+                "kind": "replaceEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/photo.png",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "value": {
+                  "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                  "material": {
+                    "material": {
+                      "kind": "alternative",
+                      "state": "reviewed",
+                      "conflict": "deadline",
+                      "alternative": "b"
+                    }
+                  }
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "unsafe byte offset invalid",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copySource",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    9007199254740992
+                  ]
+                },
+                "at": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    8,
+                    8
+                  ]
+                },
+                "side": "after"
+              },
+              {
+                "key": "move",
+                "kind": "moveSource",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  }
+                },
+                "at": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    10,
+                    10
+                  ]
+                },
+                "side": "before"
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "lineage splits UTF8 scalar",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "edit",
+                "kind": "editSource",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    4
+                  ]
+                },
+                "text": "[😀]",
+                "lineage": [
+                  {
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        0,
+                        4
+                      ]
+                    },
+                    "range": [
+                      1,
+                      3
+                    ]
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate operation identity",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copySource",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    4
+                  ]
+                },
+                "at": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    8,
+                    8
+                  ]
+                },
+                "side": "after"
+              },
+              {
+                "key": "copy",
+                "kind": "moveSource",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  }
+                },
+                "at": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    10,
+                    10
+                  ]
+                },
+                "side": "before"
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate change identity",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": []
+          },
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown resolution member",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [],
+            "resolves": [
+              {
+                "state": "reviewed",
+                "conflict": "deadline",
+                "alternatives": [
+                  "a",
+                  "b"
+                ],
+                "force": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown material kind",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "edit",
+                "kind": "editSource",
+                "source": {
+                  "material": {
+                    "kind": "output",
+                    "state": "reviewed",
+                    "conflict": "deadline",
+                    "alternative": "b"
+                  }
+                },
+                "text": "Thursday\r\n"
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "unbounded state token",
+      "valid": false,
+      "value": {
+        "base": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": null,
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid trailing path separator",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "operations": [
+              {
+                "key": "copy",
+                "kind": "copyEntry",
+                "source": {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/draft/",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  }
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "copy"
+                }
+              },
+              {
+                "key": "move",
+                "kind": "moveEntry",
+                "source": {
+                  "material": {
+                    "kind": "operation",
+                    "change": "change-one",
+                    "operation": "copy"
+                  },
+                  "within": [
+                    "chapter.md"
+                  ]
+                },
+                "destination": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/archive",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "chapter.md"
+                }
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    }
+  ]
+}

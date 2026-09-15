@@ -133,7 +133,7 @@ inline mention links here; accepted implementation work is indexed under
 7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/03-locators.md#2-stable-keys-revisions-and-fragments)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/07-executable-documents.md#4-queries)).
 9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](spec/03-locators.md#1-forms)).
-10. **A write grant limited to `ifMatch: "modelHash"`.** An update matching on the bytes hash can replace a tree's exact state; one matching on model hashes can only contribute to it. `AccessLevel` does not yet distinguish the two ([updates §2.2](spec/01-tree-operations.md#22-what-the-write-matches), [access control §4](spec/05-access-control.md#4-reading-access)).
+10. **Finer-grained write grants** restricting allowed authored effects or explicit resolutions. Exact-state preconditions are concurrency guards, not permissions ([updates §2.2](spec/01-tree-operations.md#22-reconciliation-and-exact-state-preconditions), [access control §4](spec/05-access-control.md#4-reading-access)).
 11. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.
 12. **Placement-specific read-only ceilings** for installations where the same TreeID has several local placements with different effective limits.
 13. **Durable pinned placements of immutable historical revisions.** Revision locators remain read-only even when a client later makes them durable.

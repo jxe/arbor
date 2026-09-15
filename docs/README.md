@@ -17,6 +17,8 @@ Arbor separates portable contracts, current implementation status, usage, produc
 
 ## Reference implementation and product design
 
+- [Consolidated update contract](update-wire-contract.md) — target specification, paired models and coordinated implementation boundary.
+
 - [Reference implementation](reference-implementation.md) — package boundaries, runtime ownership, durability, hosting, clients, and verification machinery.
 - [Local system](local-system.md) — local data home, private state, watchers, visits, credentials, and migration.
 - [Local Arbor REST API](arborsync-api.md) — the implemented loopback client/daemon boundary.

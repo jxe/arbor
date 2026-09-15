@@ -8,6 +8,13 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 
 The [Protocol-ready milestone](../docs/protocol-ready.md) defines and transports intent while preserving snapshot-only behavior. Semantic execution remains explicitly unsupported. Follow these remaining plans:
 
+The [consolidated target contract](../docs/update-wire-contract.md) and its paired
+models now live on main. The sequence is spec, Canopy validation/retention, client
+emission, accepted conflicts, client resolution, then incremental operation and
+merge-rule improvements. [Reliability 011](reliability/011-compatible-accepted-ambiguity.md)
+owns compatible adoption and coordinated activation. Review caching and other
+conveniences are deferred. Experimental execution remains on its separate branch.
+
 1. [Reliability 008 — Enable operations and editor emission](reliability/008-enable-source-operations.md), one validated operation family at a time.
 2. [Reliability 009 — Canopy provenance and source-aware merges](reliability/009-canopy-provenance-merges.md), including accepted alternatives, inspection, and bounded history.
 3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.

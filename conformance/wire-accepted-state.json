@@ -1,0 +1,1815 @@
+{
+  "description": "Target read grammar and identity-chain vectors. Synthetic hashes are not execution evidence. repeatDecisions expands the sole decision with unique id suffixes to exercise absence of a fixed count cap.",
+  "cases": [
+    {
+      "name": "activation state has no predecessor",
+      "kind": "state",
+      "value": {
+        "id": "state-initial",
+        "tree": "tr_test",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "previous": null,
+        "acceptedAt": 1,
+        "subject": null,
+        "conflicted": false
+      },
+      "valid": true
+    },
+    {
+      "name": "same-root semantic successor",
+      "kind": "state",
+      "value": {
+        "id": "state-next",
+        "tree": "tr_test",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "previous": {
+          "id": "state-initial",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "acceptedAt": 1,
+        "subject": null,
+        "conflicted": true
+      },
+      "valid": true
+    },
+    {
+      "name": "text inspection uses material references",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": true
+    },
+    {
+      "name": "more than 32 decisions in one page",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": true,
+      "repeatDecisions": 40
+    },
+    {
+      "name": "dependency outside current page",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [
+              "on-another-page"
+            ],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": "page-2"
+      },
+      "valid": true
+    },
+    {
+      "name": "resolved complete inspection",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": false,
+        "decisions": [],
+        "next": null
+      },
+      "valid": true
+    },
+    {
+      "name": "entry placement versus absence",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "existence",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ],
+                "placement": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "note.md"
+                }
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "absent": true
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": true
+    },
+    {
+      "name": "directory alternative",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "directory": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": true
+    },
+    {
+      "name": "boundary alternative",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "tree": "tr_child"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": true
+    },
+    {
+      "name": "open rule-specific evidence",
+      "kind": "evidence",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-next",
+        "records": [
+          {
+            "id": "eval1",
+            "rule": {
+              "id": "markdown:paragraphs",
+              "revision": "2026.09"
+            },
+            "evaluated": {
+              "state": "state-initial",
+              "materials": [
+                {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ],
+              "contributions": [
+                {
+                  "change": "c1",
+                  "operation": null
+                }
+              ],
+              "decisions": [
+                {
+                  "state": "state-initial",
+                  "conflict": "deadline",
+                  "alternatives": [
+                    "a",
+                    "b"
+                  ]
+                }
+              ]
+            },
+            "outcome": "unresolved",
+            "decisions": [
+              "deadline"
+            ],
+            "details": {
+              "format": "markdown",
+              "confidence": 0.75,
+              "applied": false,
+              "constraints": {
+                "keyUnique": null
+              },
+              "future": [
+                "custom",
+                true,
+                4
+              ]
+            }
+          }
+        ],
+        "next": null
+      },
+      "valid": true
+    },
+    {
+      "name": "rule may decline with arbitrary JSON details",
+      "kind": "evidence",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-next",
+        "records": [
+          {
+            "id": "eval1",
+            "rule": {
+              "id": "markdown:paragraphs",
+              "revision": "2026.09"
+            },
+            "evaluated": {
+              "state": "state-initial",
+              "materials": [
+                {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ],
+              "contributions": [
+                {
+                  "change": "c1",
+                  "operation": null
+                }
+              ],
+              "decisions": [
+                {
+                  "state": "state-initial",
+                  "conflict": "deadline",
+                  "alternatives": [
+                    "a",
+                    "b"
+                  ]
+                }
+              ]
+            },
+            "outcome": "not-applicable",
+            "decisions": [
+              "deadline"
+            ],
+            "details": [
+              "rule-specific",
+              false,
+              2.5,
+              null
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": true
+    },
+    {
+      "name": "accepted results and independent observation cursor",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "state-initial",
+              "tree": "tr_test",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "previous": null,
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": false
+            },
+            "requestDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "state-next",
+              "tree": "tr_test",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "previous": {
+                "id": "state-initial",
+                "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        ],
+        "observedThrough": "batch-cursor-900"
+      },
+      "valid": true
+    },
+    {
+      "name": "unchanged receipt",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "unchanged",
+            "update": {
+              "id": "state-initial",
+              "tree": "tr_test",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "previous": null,
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": false
+            },
+            "requestDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        ],
+        "observedThrough": "batch-cursor-900"
+      },
+      "valid": true
+    },
+    {
+      "name": "identity chain includes same-root transition",
+      "kind": "chain",
+      "value": {
+        "tree": "tr_test",
+        "previous": null,
+        "updates": [
+          {
+            "id": "state-initial",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": null,
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": false
+          },
+          {
+            "id": "state-next",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": {
+              "id": "state-initial",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          }
+        ],
+        "head": {
+          "id": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "opaque accepted IDs use exact Unicode bytes",
+      "kind": "chain",
+      "value": {
+        "tree": "tr_test",
+        "previous": {
+          "id": "opaque-é",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "updates": [
+          {
+            "id": "opaque-é",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          }
+        ],
+        "head": {
+          "id": "opaque-é",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "old merged outcome invalid",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "merged",
+            "update": {
+              "id": "state-initial",
+              "tree": "tr_test",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "previous": null,
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": false
+            },
+            "requestDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "state-next",
+              "tree": "tr_test",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "previous": {
+                "id": "state-initial",
+                "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        ],
+        "observedThrough": "batch-cursor-900"
+      },
+      "valid": false
+    },
+    {
+      "name": "old current outcome invalid",
+      "kind": "response",
+      "value": {
+        "results": [
+          {
+            "outcome": "current",
+            "update": {
+              "id": "state-initial",
+              "tree": "tr_test",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "previous": null,
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": false
+            },
+            "requestDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          {
+            "outcome": "accepted",
+            "update": {
+              "id": "state-next",
+              "tree": "tr_test",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "previous": {
+                "id": "state-initial",
+                "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "requestDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        ],
+        "observedThrough": "batch-cursor-900"
+      },
+      "valid": false
+    },
+    {
+      "name": "predecessor identity required",
+      "kind": "state",
+      "value": {
+        "id": "state-next",
+        "tree": "tr_test",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "previous": {
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "acceptedAt": 1,
+        "subject": null,
+        "conflicted": true
+      },
+      "valid": false
+    },
+    {
+      "name": "state cannot name itself as predecessor",
+      "kind": "state",
+      "value": {
+        "id": "state-next",
+        "tree": "tr_test",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "previous": {
+          "id": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "acceptedAt": 1,
+        "subject": null,
+        "conflicted": true
+      },
+      "valid": false
+    },
+    {
+      "name": "conflicted must be explicit",
+      "kind": "state",
+      "value": {
+        "id": "state-next",
+        "tree": "tr_test",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "previous": {
+          "id": "state-initial",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "acceptedAt": 1,
+        "subject": null
+      },
+      "valid": false
+    },
+    {
+      "name": "empty alternative list",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "selected alternative missing",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "missing",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate decision ID",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          },
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "self dependency invalid",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [
+              "deadline"
+            ],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "absence value must be true",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "existence",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ],
+                "placement": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "note.md"
+                }
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "absent": false
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "value cannot be file and text",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "existence",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                  "text": "bad"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ],
+                "placement": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "note.md"
+                }
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "absent": true
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "placement cannot accompany text",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ],
+                "placement": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "x"
+                }
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "resolved state cannot hide listed decisions",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": false,
+        "decisions": [
+          {
+            "id": "deadline",
+            "kind": "text",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/note.md",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "text": "Tuesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "text": "Wednesday"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": "edit"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "editAlternative",
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "nonterminal page must make progress",
+      "kind": "inspection",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-é",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [],
+        "next": "more"
+      },
+      "valid": false
+    },
+    {
+      "name": "rule identity required",
+      "kind": "evidence",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-next",
+        "records": [
+          {
+            "id": "eval1",
+            "rule": {
+              "revision": "2026.09"
+            },
+            "evaluated": {
+              "state": "state-initial",
+              "materials": [
+                {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ],
+              "contributions": [
+                {
+                  "change": "c1",
+                  "operation": null
+                }
+              ],
+              "decisions": [
+                {
+                  "state": "state-initial",
+                  "conflict": "deadline",
+                  "alternatives": [
+                    "a",
+                    "b"
+                  ]
+                }
+              ]
+            },
+            "outcome": "unresolved",
+            "decisions": [
+              "deadline"
+            ],
+            "details": {
+              "format": "markdown",
+              "confidence": 0.75,
+              "applied": false,
+              "constraints": {
+                "keyUnique": null
+              },
+              "future": [
+                "custom",
+                true,
+                4
+              ]
+            }
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "unknown core rule outcome invalid",
+      "kind": "evidence",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-next",
+        "records": [
+          {
+            "id": "eval1",
+            "rule": {
+              "id": "markdown:paragraphs",
+              "revision": "2026.09"
+            },
+            "evaluated": {
+              "state": "state-initial",
+              "materials": [
+                {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ],
+              "contributions": [
+                {
+                  "change": "c1",
+                  "operation": null
+                }
+              ],
+              "decisions": [
+                {
+                  "state": "state-initial",
+                  "conflict": "deadline",
+                  "alternatives": [
+                    "a",
+                    "b"
+                  ]
+                }
+              ]
+            },
+            "outcome": "maybe",
+            "decisions": [
+              "deadline"
+            ],
+            "details": {
+              "format": "markdown",
+              "confidence": 0.75,
+              "applied": false,
+              "constraints": {
+                "keyUnique": null
+              },
+              "future": [
+                "custom",
+                true,
+                4
+              ]
+            }
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "snapshot contribution needs explicit null",
+      "kind": "evidence",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-next",
+        "records": [
+          {
+            "id": "eval1",
+            "rule": {
+              "id": "markdown:paragraphs",
+              "revision": "2026.09"
+            },
+            "evaluated": {
+              "state": "state-initial",
+              "materials": [
+                {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ],
+              "contributions": [
+                {
+                  "change": "c1"
+                }
+              ],
+              "decisions": [
+                {
+                  "state": "state-initial",
+                  "conflict": "deadline",
+                  "alternatives": [
+                    "a",
+                    "b"
+                  ]
+                }
+              ]
+            },
+            "outcome": "unresolved",
+            "decisions": [
+              "deadline"
+            ],
+            "details": {
+              "format": "markdown",
+              "confidence": 0.75,
+              "applied": false,
+              "constraints": {
+                "keyUnique": null
+              },
+              "future": [
+                "custom",
+                true,
+                4
+              ]
+            }
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "rule details required",
+      "kind": "evidence",
+      "value": {
+        "tree": "tr_test",
+        "state": "state-next",
+        "records": [
+          {
+            "id": "eval1",
+            "rule": {
+              "id": "markdown:paragraphs",
+              "revision": "2026.09"
+            },
+            "evaluated": {
+              "state": "state-initial",
+              "materials": [
+                {
+                  "material": {
+                    "kind": "basis",
+                    "path": "/note.md",
+                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ],
+              "contributions": [
+                {
+                  "change": "c1",
+                  "operation": null
+                }
+              ],
+              "decisions": [
+                {
+                  "state": "state-initial",
+                  "conflict": "deadline",
+                  "alternatives": [
+                    "a",
+                    "b"
+                  ]
+                }
+              ]
+            },
+            "outcome": "unresolved",
+            "decisions": [
+              "deadline"
+            ]
+          }
+        ],
+        "next": null
+      },
+      "valid": false
+    },
+    {
+      "name": "root-only chain cannot hide wrong predecessor",
+      "kind": "chain",
+      "value": {
+        "tree": "tr_test",
+        "previous": null,
+        "updates": [
+          {
+            "id": "state-initial",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": null,
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": false
+          },
+          {
+            "id": "state-next",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": {
+              "id": "missing",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          }
+        ],
+        "head": {
+          "id": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "final identity must match descriptor",
+      "kind": "chain",
+      "value": {
+        "tree": "tr_test",
+        "previous": null,
+        "updates": [
+          {
+            "id": "state-initial",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": null,
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": false
+          },
+          {
+            "id": "state-next",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": {
+              "id": "state-initial",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          }
+        ],
+        "head": {
+          "id": "other",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "reordered same-root transitions invalid",
+      "kind": "chain",
+      "value": {
+        "tree": "tr_test",
+        "previous": null,
+        "updates": [
+          {
+            "id": "state-next",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": {
+              "id": "state-initial",
+              "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          },
+          {
+            "id": "state-initial",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": null,
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": false
+          }
+        ],
+        "head": {
+          "id": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "predecessor root mismatch",
+      "kind": "chain",
+      "value": {
+        "tree": "tr_test",
+        "previous": null,
+        "updates": [
+          {
+            "id": "state-initial",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": null,
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": false
+          },
+          {
+            "id": "state-next",
+            "tree": "tr_test",
+            "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "previous": {
+              "id": "state-initial",
+              "root": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          }
+        ],
+        "head": {
+          "id": "state-next",
+          "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "valid": false
+    }
+  ]
+}

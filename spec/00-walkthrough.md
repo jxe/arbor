@@ -72,8 +72,8 @@ and a sibling `notes/` would supply its children, the edit touches one node
 The laptop builds the new candidate root: a new file object, and new directory
 objects from `notes.md` up to the root. It sends the file as an `ObjectDelta`
 against the previous file object and the small directory objects in full,
-with `base` set to the accepted update id it last observed and
-`ifMatch: "modelHash"`. The server finds current equal to base and answers
+with `base` set to the accepted update id it last observed, a fresh `change`,
+`operations: null` and `resolves: []`. The server finds current equal to base and answers
 `201 accepted` with the new update's id and the request digest ([sparse transfer](01-tree-operations.md#25-sparse-transfer-with-object-deltas),
 [submit](01-tree-operations.md#21-the-update-request)). The root that changed is a bytes hash; the model hash of every node Joe did
 not touch is unchanged
@@ -88,11 +88,11 @@ from the previous root to the new one, as objects and deltas. She applies a
 batch in memory and materializes only its final state
 ([read](01-tree-operations.md#1-reading-trees), [watch](01-tree-operations.md#113-watching)).
 If Alice has write access and edits a different file from the same base, her
-submission's model hashes still match and the server merges it onto Joe's.
-If both edit `notes.md`, that node conflicts; under the default
-`onConflict: "merge"` the `markdown-additive-v1` merge rule combines the two
-edits when it can, and otherwise the server answers `409 conflict` with the
-current update and a complete draft the client keeps
+independent contribution merges onto Joe's.
+If both edit `notes.md`, applicable format-aware rules combine the edits when
+justified; otherwise the server retains representable alternatives in accepted
+state. That unresolved acceptance continues syncing. Invalid contributions,
+failed guards or exceeded bounds can instead produce an explicit rejection
 ([authority decision](01-tree-operations.md#23-accepting-and-merging)).
 
 ## 6. Add a collection

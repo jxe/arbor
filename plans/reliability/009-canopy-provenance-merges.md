@@ -8,6 +8,12 @@ Preserve what each author changed and why that change targets particular materia
 
 Read current source/tests before relying on the [conflict terms experiment](../../docs/conflict-terms-experiment.md) or [intent comparison](../../docs/conflict-intent-comparison.md). They are isolated models, not production backends. Keep the public [source-intent contract](../../spec/10-source-intent.md) independent of the chosen storage/algebra.
 
+Follow [011](011-compatible-accepted-ambiguity.md) for staged compatibility
+and activation. Format rules must distinguish resolved, unresolved and inapplicable
+outcomes; record guarded automatic resolutions explicitly rather than relying on
+term cancellation or byte equality. Independent decisions and dependencies must
+remain representable without enumerating whole-document alternatives.
+
 ## 1. Establish the decision corpus
 
 Turn the thought experiments into end-to-end fixtures with exact base, candidates, operations, arrival permutations, expected ordinary projection, retained alternatives, and provenance. Cover at least:
@@ -31,6 +37,14 @@ Assert order independence where the operations commute, idempotency of exact rep
 Acceptance: adversarial duplicate-content tests, exact UTF-8/source round trips, and bounded performance for large files and long histories. Instrument ambiguous and unsupported cases rather than hiding them in “merged” counts.
 
 ## 3. Persist composable unresolved state
+
+Coordinate the production storage design with [Canopy storage 001](../canopy-storage/001-pack-object-storage.md)
+and [line provenance 006](../smaller-projects/006-line-provenance.md). Origin bindings
+and unresolved alternatives add retention dependencies beyond ordinary roots;
+retain independent deletion contributions, inverse fragments, restoration anchors
+and undo activity even when they project to identical bytes or empty source;
+packing must preserve them. Prototype state serialization is evidence for the
+design, not a production layout or a reason to introduce packfiles prematurely.
 
 Choose the smallest production representation that passes the corpus: composable conflict expressions with provenance may be sufficient; use a richer operation graph where tests demonstrate the need. Compare these choices on nested conflicts, selective undo, move/copy lineage, storage growth, and garbage collection before committing to a graph implementation.
 

@@ -24,7 +24,7 @@ valid case pairs a JSON value with its exact encoding and `sha256:` hash, and
 every invalid case is a byte sequence a decoder must reject. Every structured hashed
 identity (directory object hashes, `updates-v1` and `mutate-v1` digests, query output
 hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding; file object hashes use raw bytes;
-`wire-update-intent.json` shows the update digest derived from it.
+`wire-update-intent.json` records the currently implemented update digest derived from it.
 
 `client-state-machines.json` freezes the transition scenarios of the two
 client state machines: `document-admission` for an editor against its
@@ -48,3 +48,15 @@ Wire object vectors use `bytesBase64` for exact stored bytes: raw payloads for
 files and canonical CBOR for directories. Entry target keys (`file`, `directory`,
 `tree`) determine interpretation; payload bytes never determine file kind.
 Regenerate the vectors with `bun tools/canonical-cbor-vectors.ts`.
+
+`wire-authored-updates.json` binds the consolidated target request grammar and exact
+CBOR/digests in TypeScript and Swift. `wire-accepted-state.json` binds target accepted
+states, simplified receipts, material-reference inspection and open rule evidence.
+Both are ahead of active HTTP codecs. `repeatDecisions` in read fixtures duplicates
+the sole decision with IDs `decision_0`, `decision_1`, etc.; it tests absence of a
+fixed count cap without duplicating fixture text. The previous deployed-format
+`wire-update-intent.json` and `wire-operations.json` remain compatibility evidence.
+
+`accepted-ambiguity.json` records planned semantic scenarios, not executable claims
+that Canopy supports those effects. See the [target contract and adoption boundary](../docs/update-wire-contract.md)
+and [Plan 011](../plans/reliability/011-compatible-accepted-ambiguity.md).
