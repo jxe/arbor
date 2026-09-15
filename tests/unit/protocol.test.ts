@@ -83,6 +83,7 @@ describe("REST v1 protocol fixtures", () => {
     const credential = await json<TreeCredential>("credential.json");
     expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
     expect(clean.accepted.cursor).toBe(clean.accepted.update);
+    expect(clean.modifiedAtByPath).toEqual({ "/": 1789473600000 });
     expect(clean.blocked).toBeUndefined();
     expect(clean.pending).toBeUndefined();
     // The spine is sparse: the root directory and its Markdown child are present, the binary is not.

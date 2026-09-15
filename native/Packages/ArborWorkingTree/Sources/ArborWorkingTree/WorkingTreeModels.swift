@@ -227,6 +227,8 @@ public enum WorkingTreeDirectoryBodyPlacement: String, Codable, Sendable {
 }
 
 public struct WorkingTreeSystemNode: Sendable, Equatable {
+    /// Local presentation metadata; excluded from the Wire snapshot.
+    public var modifiedAt: Date?
     public var path: String
     public var pageID: String?
     public var content: WorkingTreeSystemNodeContent
@@ -236,12 +238,14 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
 
     public init(
         path: String,
+        modifiedAt: Date? = nil,
         pageID: String? = nil,
         content: WorkingTreeSystemNodeContent,
         childrenSource: WorkingTreeCollectionFileDescriptor? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil
     ) {
+        self.modifiedAt = modifiedAt
         self.path = path
         self.pageID = pageID
         self.content = content

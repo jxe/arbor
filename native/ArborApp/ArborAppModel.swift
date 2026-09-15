@@ -847,7 +847,10 @@ final class ArborWorkspaceState {
             tree: TreeID(rawValue: treeID),
             update: bootstrap.accepted.update,
             cursor: bootstrap.accepted.cursor,
-            mode: .sparseFiles
+            mode: .sparseFiles,
+            modifiedAtByPath: bootstrap.modifiedAtByPath.mapValues {
+                Date(timeIntervalSince1970: $0 / 1_000)
+            }
         )
         if bootstrap.spine.root == bootstrap.accepted.root {
             try await workingTree.initializeFromSystem(replacement)

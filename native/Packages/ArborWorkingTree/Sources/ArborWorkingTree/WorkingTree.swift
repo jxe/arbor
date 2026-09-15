@@ -394,10 +394,11 @@ public actor WorkingTree {
                     source: source,
                     childrenSource: node.childrenSource,
                     directoryBodyPlacement: node.directoryBodyPlacement,
-                    shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource
+                    shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource,
+                    modifiedAt: node.modifiedAt
                 )
             case let .markdown(source):
-                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source)
+                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, modifiedAt: node.modifiedAt)
             case let .file(ref, mediaType):
                 var reference = ref
                 if case let .hash(hash, size, type) = ref, size == nil,

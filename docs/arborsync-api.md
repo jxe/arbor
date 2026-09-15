@@ -234,6 +234,7 @@ with `details.kind: "unsynchronized"`). The response is:
   tree: LocalTreeDescriptor,
   accepted: { root: Hash, update: string, cursor: string },   // cursor === update
   spine: string,          // base64 sparse CBOR snapshot bundle
+  modifiedAtByPath: Record<string, number>, // logical page path -> Unix milliseconds
   pending?: { base: string | null, updates: CandidateUpdateJSON[], requestDigests: Hash[] },
   blocked?: "conflict" | "unsettled",
   observedThrough: string,
@@ -254,6 +255,17 @@ resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
 `directory`, or `tree`, so a missing directory is always an error. No file map,
 size lookup, or payload sniffing is needed. The spine always describes the
 folder as it is now, even when the response is blocked.
+
+**Local modification dates.** `modifiedAtByPath` supplies filesystem body-file
+modification times for pages in the spine, scoped to this tree and keyed by
+logical path (`/` for the root page). A directory page uses `_index.md` when
+present, otherwise its sibling Markdown body; directory mtimes and shadowed
+bodies do not count. The daemon checks that each body still matches its snapshot
+hash while reading its timestamp and omits dates it cannot establish. These are
+local filesystem dates, not cross-device edit history. They are presentation
+metadata outside Wire objects, roots, and update digests. Clients preserve them
+when seeding a working tree and distinguish missing dates from old dates. Older
+daemons may omit this field; clients treat omission as an empty map.
 
 **Pending, verbatim.** Each candidate includes its original `change` and explicit
 `operations` fields; adoption must retain both even when object envelopes are

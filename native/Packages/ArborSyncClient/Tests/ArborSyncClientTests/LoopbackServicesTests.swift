@@ -43,6 +43,7 @@ struct LoopbackServicesTests {
         #expect(bootstrap.tree.osPath == "/Users/joe/notes")
         #expect(bootstrap.accepted.cursor == bootstrap.accepted.update)
         #expect(bootstrap.spine.root == bootstrap.accepted.root)
+        #expect(bootstrap.modifiedAtByPath == ["/": 1789473600000])
         #expect(bootstrap.pending == nil)
         #expect(bootstrap.blocked == nil)
         #expect(bootstrap.observedThrough == "1f8b3c6d-observed:7")

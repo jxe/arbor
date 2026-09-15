@@ -1,7 +1,7 @@
 import { localSyncConnections, type SyncConnections } from "./sync-connections.ts";
 import { conflictContent, replaceConflictTarget } from "./conflict-tree.ts";
 import { LocalFileService } from "./local-files.ts";
-import { lstat, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
   Hash,
@@ -20,7 +20,7 @@ import {
   type LocalPlacement,
   type SharedTreePlacement,
 } from "@arbor/stores";
-import { WireClient, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, updateRequestDigests, verifyTreeSnapshotGraph, type CandidateUpdateJSON, type LazyTreeSnapshot, type ObjectHash, type RemoteTreeDescriptor, type UpdateRequest } from "@arbor/wire";
+import { WireClient, hashObject, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, updateRequestDigests, verifyTreeSnapshotGraph, type CandidateUpdateJSON, type LazyTreeSnapshot, type ObjectHash, type RemoteTreeDescriptor, type UpdateRequest } from "@arbor/wire";
 import { resolveUserPath } from "@arbor/canopy-client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
@@ -49,6 +49,8 @@ export interface TreeBootstrap {
   accepted: { root: Hash; update: string; cursor: string };
   /** Base64 of a sparse CBOR snapshot bundle: every directory object and every Markdown file object. */
   spine: string;
+  /** Local page-body mtimes, Unix milliseconds, keyed by tree-relative logical path. */
+  modifiedAtByPath: Record<string, number>;
   /** Every non-Markdown file entry by wire path; the client resolves their objects on demand. */
   /** The daemon's stored update string, verbatim, when it still describes the folder exactly. */
   pending?: { base: string | null; updates: CandidateUpdateJSON[]; requestDigests: string[] };
@@ -69,26 +71,49 @@ export interface ArborSyncDaemonOptions {
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
-async function sparseSpine(_root: string, lazy: LazyTreeSnapshot): Promise<{ spine: string }> {
+async function sparseSpine(root: string, lazy: LazyTreeSnapshot): Promise<{ spine: string; modifiedAtByPath: Record<string, number> }> {
   const spine = new Map<ObjectHash, Uint8Array>();
-  const visit = async (hash: ObjectHash): Promise<void> => {
-    if (spine.has(hash)) return;
+  const bodies: Array<{ path: string; logicalPath: string; hash: ObjectHash; index: boolean }> = [];
+  const indexedDirectories = new Set<string>();
+  const visit = async (hash: ObjectHash, path: string): Promise<void> => {
     const source = lazy.objects.get(hash);
     if (!source) throw new Error(`Snapshot is missing object ${hash}`);
-    const bytes = await source.bytes();
+    const bytes = spine.get(hash) ?? await source.bytes();
     spine.set(hash, bytes);
     for (const entry of decodeWireDirectory(bytes).entries) {
-      if (entry.directory) await visit(entry.directory);
+      const childPath = `${path === "/" ? "" : path}/${entry.name}`;
+      if (entry.directory) await visit(entry.directory, childPath);
       else if (entry.file && entry.name.toLowerCase().endsWith(".md")) {
         const child = lazy.objects.get(entry.file);
         if (!child) throw new Error(`Snapshot is missing Markdown ${entry.file}`);
-        spine.set(entry.file, await child.bytes());
+        spine.set(entry.file, spine.get(entry.file) ?? await child.bytes());
+        const index = entry.name === "_index.md";
+        if (index) indexedDirectories.add(path);
+        bodies.push({ path: childPath, logicalPath: index ? path : childPath.slice(0, -3), hash: entry.file, index });
       }
     }
   };
-  await visit(lazy.root);
+  await visit(lazy.root, "/");
   verifyTreeSnapshotGraph({ root: lazy.root, objects: spine }, "sparse-files");
-  return { spine: Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64") };
+  const modifiedAtByPath: Record<string, number> = {};
+  for (const body of bodies) {
+    // An _index.md body shadows sibling Markdown. Never use the folder's
+    // own mtime, which changes when children are added or removed.
+    if (!body.index && indexedDirectories.has(body.logicalPath)) continue;
+    const file = join(root, body.path.slice(1));
+    try {
+      const before = await stat(file);
+      const bytes = await readFile(file);
+      const after = await stat(file);
+      // A racing filesystem edit must not supply a date for different bytes.
+      if (before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+        || before.size !== after.size || hashObject(bytes) !== body.hash) continue;
+      modifiedAtByPath[body.logicalPath] = after.mtimeMs;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return { spine: Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64"), modifiedAtByPath };
 }
 
 /**
@@ -170,13 +195,14 @@ export class ArborSyncDaemon implements AsyncDisposable {
       (directory, sourceName) => workspace.describeWireCollectionFile(directory, sourceName),
       workspace.objectIndex(),
     );
-    const { spine } = await sparseSpine(workspace.root, lazy);
+    const { spine, modifiedAtByPath } = await sparseSpine(workspace.root, lazy);
 
     const [conflict, pending] = await Promise.all([treeConflict(tree), pendingTreeUpdate(tree)]);
     const response: TreeBootstrap = {
       tree: descriptor,
       accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.update },
       spine,
+      modifiedAtByPath,
       observedThrough: this.events.currentCursor(),
     };
     if (conflict) return { ...response, blocked: "conflict" };

@@ -1,6 +1,6 @@
 import { encodeWireDirectory } from "@arbor/wire";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
@@ -373,9 +373,16 @@ describe("arborsync bootstrap and credential routes", () => {
     return resolveSnapshot(await snapshotDirectory(treeDir));
   }
 
-  test("bootstraps a clean placed tree with a sparse spine and a file map", async () => {
+  test("bootstraps a clean placed tree with a sparse spine and local page dates", async () => {
     const { decodeSparseSnapshotBundle, decodeWireDirectory, hashObject } = await import("@arbor/wire");
+    await utimes(join(treeDir, "note.md"), new Date("2026-09-15T10:00:00Z"), new Date("2026-09-15T10:00:00Z"));
+    await utimes(join(treeDir, "sub", "child.md"), new Date("2026-09-14T10:00:00Z"), new Date("2026-09-14T10:00:00Z"));
     const bootstrap = await placedClient.bootstrap(tree);
+    expect(bootstrap.modifiedAtByPath).toEqual({
+      "/": (await stat(join(treeDir, "_index.md"))).mtimeMs,
+      "/note": (await stat(join(treeDir, "note.md"))).mtimeMs,
+      "/sub/child": (await stat(join(treeDir, "sub", "child.md"))).mtimeMs,
+    });
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!;
     expect(bootstrap.tree.id).toBe(tree);
     expect(bootstrap.blocked).toBeUndefined();
@@ -398,6 +405,36 @@ describe("arborsync bootstrap and credential routes", () => {
     if (root.type !== "directory") throw new Error("Expected a directory root");
     expect(root.entries.find((entry) => entry.name === "photo.bin")?.file).toBe(photoHash);
     expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
+  });
+
+  test("bootstrap dates use active directory bodies and keep identical files' dates separate", async () => {
+    const added = ["dated-one", "dated-two", "dated-shadow"];
+    const old = new Date("2026-08-01T10:00:00Z");
+    const recent = new Date("2026-09-15T10:00:00Z");
+    try {
+      for (const name of added) await mkdir(join(treeDir, name));
+      await writeFile(join(treeDir, "dated-one", "same.md"), "Same bytes\n");
+      await writeFile(join(treeDir, "dated-two", "same.md"), "Same bytes\n");
+      await writeFile(join(treeDir, "dated-one.md"), "Sibling body\n");
+      await writeFile(join(treeDir, "dated-shadow.md"), "Shadowed body\n");
+      await writeFile(join(treeDir, "dated-shadow", "_index.md"), "Active body\n");
+      await utimes(join(treeDir, "dated-one", "same.md"), old, old);
+      await utimes(join(treeDir, "dated-two", "same.md"), recent, recent);
+      await utimes(join(treeDir, "dated-one.md"), old, old);
+      await utimes(join(treeDir, "dated-shadow.md"), recent, recent);
+      await utimes(join(treeDir, "dated-shadow", "_index.md"), old, old);
+      const { modifiedAtByPath: dates } = await placedClient.bootstrap(tree);
+      expect(dates["/dated-one/same"]).toBe(old.getTime());
+      expect(dates["/dated-two/same"]).toBe(recent.getTime());
+      expect(dates["/dated-one"]).toBe(old.getTime());
+      expect(dates["/dated-shadow"]).toBe(old.getTime());
+      expect(dates["/dated-two"]).toBeUndefined();
+    } finally {
+      for (const name of added) {
+        await rm(join(treeDir, name), { recursive: true, force: true });
+        await rm(join(treeDir, name + ".md"), { force: true });
+      }
+    }
   });
 
   test("returns the stored pending update verbatim with client-computable request digests", async () => {

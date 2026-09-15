@@ -158,7 +158,8 @@ enum ArborSidebarPages {
                 guard let date else { return false }
                 return date >= startOfMonth && date < startOfWeek
             }),
-            ("Earlier", { date in date == nil || date! < startOfMonth }),
+            ("Earlier", { date in date.map { $0 < startOfMonth } ?? false }),
+            ("Unknown date", { $0 == nil }),
         ]
         return sections.compactMap { title, includes in
             let matches = ordered.filter { includes($0.modifiedAt) }

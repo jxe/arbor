@@ -392,6 +392,11 @@ struct ArborAppTests {
         #expect(groups.map(\.title) == ["Today", "This Week", "This Month", "Earlier"])
         #expect(groups.map { $0.results.map(\.title) }
             == [["Beta"], ["🌲 Alpha"], ["Monthly"], ["Older"]])
+        let unknown = WorkspaceSearchResult(reference: WorkspaceReference(tree: tree, path: "/unknown"), title: "Unknown")
+        let datedGroups = ArborSidebarPages.recentGroups(results + [unknown], now: now, calendar: calendar)
+        #expect(datedGroups.last?.title == "Unknown date")
+        #expect(datedGroups.last?.results == [unknown])
+        #expect(datedGroups.first { $0.title == "Earlier" }?.results.map(\.title) == ["Older"])
         let linkGroups = ArborSidebarPages.linkCountGroups(results)
         #expect(linkGroups.map(\.title) == ["0 Links", "1 Link", "Multiple Links"])
         #expect(linkGroups.map { $0.results.map(\.title) }

@@ -22,5 +22,8 @@
     "cursor": "upd_0001"
   },
   "spine": "omdvYmplY3RzgkgjIE5vdGVzCljVomR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkZmlsZXhHc2hhMjU2OjM2NWQwYjg0YWU2M2MyYWZjMjkzZGVkZDJiMDBiZGYwZGM4ZDZlZjcwYzkyOTdkOTBmOWU1NjgyYWIwZDcyZWVkbmFtZWlfaW5kZXgubWSiZGZpbGV4R3NoYTI1NjpmMDVmY2FiZjcyOTE3ZGM0NWIxNjQyMzAxZDg0ODQxNGJhZTE5MzYzYjEyMzJlNDUzOWU4YjY3MTM0NzI3MmJlZG5hbWVpcGhvdG8uYmluZ3ZlcnNpb24B",
-  "observedThrough": "1f8b3c6d-observed:7"
+  "observedThrough": "1f8b3c6d-observed:7",
+  "modifiedAtByPath": {
+    "/": 1789473600000
+  }
 }

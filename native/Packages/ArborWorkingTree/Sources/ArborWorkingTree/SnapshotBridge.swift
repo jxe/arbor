@@ -11,7 +11,8 @@ public enum SnapshotBridge {
         tree: TreeID,
         update: String,
         cursor: String? = nil,
-        mode: WireObjectGraph.ValidationMode = .complete
+        mode: WireObjectGraph.ValidationMode = .complete,
+        modifiedAtByPath: [String: Date] = [:]
     ) throws -> WorkingTreeSystemReplacement {
         let sparse = mode == .sparseFiles
         let objects = try WireObjectGraph.validate(snapshot, mode: mode)
@@ -41,6 +42,8 @@ public enum SnapshotBridge {
             guard logicalPaths.insert(node.path).inserted else {
                 throw ArborWireValidationError.invalidValue("Duplicate logical path \(node.path)")
             }
+            var node = node
+            node.modifiedAt = modifiedAtByPath[node.path]
             nodes.append(node)
         }
 

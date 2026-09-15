@@ -134,6 +134,7 @@ public actor ArborSyncRESTClient {
             tree: envelope.tree,
             accepted: envelope.accepted,
             spine: spine,
+            modifiedAtByPath: envelope.modifiedAtByPath ?? [:],
             pending: envelope.pending,
             blocked: envelope.blocked,
             observedThrough: envelope.observedThrough
@@ -325,6 +326,7 @@ private struct TreeBootstrapEnvelope: Decodable {
     var tree: LocalTreeDescriptor
     var accepted: TreeBootstrapAccepted
     var spine: String
+    var modifiedAtByPath: [String: Double]?
     var pending: TreeBootstrapPending?
     var blocked: TreeBootstrapBlock?
     var observedThrough: String

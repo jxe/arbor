@@ -277,6 +277,8 @@ public struct TreeBootstrap: Sendable, Equatable {
     public var accepted: TreeBootstrapAccepted
     /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
     public var spine: WireSnapshot
+    /// Local page-body mtimes in Unix milliseconds, keyed by logical path.
+    public var modifiedAtByPath: [String: Double]
     /// Every payload-less file entry by wire path.
     public var pending: TreeBootstrapPending?
     public var blocked: TreeBootstrapBlock?
@@ -286,6 +288,7 @@ public struct TreeBootstrap: Sendable, Equatable {
         tree: LocalTreeDescriptor,
         accepted: TreeBootstrapAccepted,
         spine: WireSnapshot,
+        modifiedAtByPath: [String: Double] = [:],
         pending: TreeBootstrapPending? = nil,
         blocked: TreeBootstrapBlock? = nil,
         observedThrough: String
@@ -293,6 +296,7 @@ public struct TreeBootstrap: Sendable, Equatable {
         self.tree = tree
         self.accepted = accepted
         self.spine = spine
+        self.modifiedAtByPath = modifiedAtByPath
         self.pending = pending
         self.blocked = blocked
         self.observedThrough = observedThrough
