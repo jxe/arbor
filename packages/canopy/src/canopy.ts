@@ -1,3 +1,4 @@
+import { SourceIntentStore } from "./updates/source-intent-store.ts";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -1400,7 +1401,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     const roots = (this.db.query("SELECT DISTINCT root FROM accepted_updates").all() as Array<{ root: ObjectHash }>)
       .map(({ root }) => root);
-    await this.objects.verifyReachable(roots);
+    await this.objects.verifyReachable([...new Set([...roots, ...new SourceIntentStore(this.db).roots()])]);
   }
 
   /**

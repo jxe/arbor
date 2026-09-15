@@ -8,6 +8,7 @@ import {
   type ObjectHash,
   type UpdateResult,
 } from "@arbor/wire";
+import { SourceIntentStore, type SourceIntent } from "./source-intent-store.ts";
 import { ObservationLog } from "./observations.ts";
 
 export interface StoredAcceptedResponse {
@@ -30,6 +31,7 @@ export interface AcceptedUpdateInput {
   merge?: MergeSummary;
   requestDigest?: string;
   transition?: AcceptedTransitionPayload;
+  sourceIntent?: SourceIntent;
 }
 
 export interface AcceptedCommitInput extends AcceptedUpdateInput {
@@ -70,6 +72,7 @@ export class AcceptedUpdateStore {
       WHERE request_digest IS NOT NULL
     `);
     ObservationLog.createSchema(db);
+    SourceIntentStore.createSchema(db);
   }
 
   private row(value: unknown): AcceptedUpdate | null {
@@ -189,6 +192,11 @@ export class AcceptedUpdateStore {
       input.transition ? JSON.stringify(encodeTransitionPayloadJSON(input.transition)) : null,
     ]);
     this.observations.bindUpdate(id, id);
+    if (input.sourceIntent) {
+      if (!input.baseRoot || !input.candidateRoot) throw new Error("Source intent requires authored basis and candidate roots");
+      new SourceIntentStore(this.db).insert({ ...input.sourceIntent, tree: input.tree,
+        acceptedUpdate: id, basisRoot: input.baseRoot, candidateRoot: input.candidateRoot });
+    }
     return this.get(id)!;
   }
 
