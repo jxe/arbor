@@ -2,9 +2,11 @@
 
 The [portable update contract](../spec/01-tree-operations.md#21-the-update-request)
 and [material/resolution semantics](../spec/10-source-intent.md) define the target.
-The deployed HTTP codec and persisted requests still use the previous protocol-ready
-encoding. This is staged implementation, not a second API version or negotiation.
-Do not submit target-shaped requests through the existing `WireClient` yet.
+The request-side implementation in this worktree now uses the consolidated encoding
+in active TypeScript and Swift clients, durable request construction and Canopy
+validation. Installed apps and Canopy have not been upgraded. Accepted-state and
+watch response codecs still use the previous shape; their adoption is the next part
+of Plan 011. This is a staged implementation of one unversioned contract.
 
 ## Target request
 
@@ -36,8 +38,9 @@ These models decode the semantic portion of requests and compute exact CBOR/dige
 The semantic models exclude transport arrays. The complete request codecs below
 combine them with the existing object/delta transport. Vectors use synthetic object hashes: grammar and digest
 agreement does not prove graph reachability, source attribution or server execution.
-They are not wired into endpoint submission, active persistence or the experimental
-authority. The existing deployed codecs and their historical vectors are unchanged.
+The request models are wired into active submission and pending-request encoding.
+The read models remain staged. Historical old-format vectors retain their original
+bytes and digests; the experimental authority remains on its separate branch.
 
 ## Complete request codec
 
@@ -58,26 +61,38 @@ candidate and digest remain unchanged. These are codec persistence tests, not pr
 that the active queue has adopted the new format.
 
 Legacy `ifMatch` and `onConflict` fields fail closed. There is no translation or
-alternate endpoint. These codecs are not connected to active submission yet; an
-uncertain deployed-format request must still be settled with its original codec.
+alternate endpoint. An uncertain deployed-format request must be settled with the
+old build before upgrading; it cannot be translated into the new request identity.
 The maintained protocol gate runs the target TS tests and Swift suites alongside
 existing deployed-format compatibility tests.
 
 ## Next implementation cutover
 
 [Plan 011](../plans/reliability/011-compatible-accepted-ambiguity.md) owns the sequence.
-Adopt these target models in both active codecs, request construction, hashing,
-Canopy validation/preconditions, durable queues and editor emission together. Preserve
-already transmitted requests and resolve unknown outcomes using the original codec
-and digest before retiring it. Any definitively unaccepted re-authored work gets a
-fresh identity; never translate an uncertain request in place. Preserve accepted
-historical receipts/digests as historical evidence rather than rehashing them.
+The request-side implementation is complete in this worktree. Snapshot constructors
+emit `operations: null` and `resolves: []`; optional `ifCurrent` binds accepted
+identity. Canopy checks replay before the guard and uses the guarded accepted ID
+in its commit comparison, so same-root advancement cannot bypass a precondition.
+The existing conservative snapshot merge engine remains in use. Canopy rejects an
+entire batch with `422 unsupported-operation` if any element has operations or
+resolution declarations; grammar support never implies semantic execution.
 
-After coordinated adoption, remove the superseded active grammar rather than retaining
-an alternate API or permanent translation adapter. Port or archive the isolated
-experiments explicitly; do not mistake old-format experiment passes for new semantic
-execution. Upgrade server validation/retention before enabling each operation family.
-Live activation remains coordinated with Joe; this milestone changes no installation.
+Next adopt the accepted-state/read contract: simplified outcomes, predecessor ID/root
+chains and required unresolved signals, then inspection as accepted decisions become
+available. Keep both client languages and the server aligned through that change.
+
+Before live cutover, audit all offline/native and filesystem queues and adopted
+prefixes. Resolve unknown outcomes with the original request body and old build.
+Neither client silently rewrites an incompatible pending record: the filesystem
+loader rejects it, and native coordinator initialization rejects it before submission
+or persistence. Recovery tests verify that the old bytes remain on disk. Accepted
+historical receipts and digests remain unchanged in Canopy storage. A clean queue
+allows new requests to use the new encoding; pending work requires explicit recovery.
+
+The superseded active operation grammar is removed. Historical experiments and vectors
+remain evidence of their original contract, not new semantic execution. Validation and
+retention must precede emission of each operation family. Live activation remains
+coordinated with Joe; no installation or data migration has occurred.
 
 Remaining specification work includes detailed format-specific resolution constraints. Resolution caching and other conveniences remain deferred.
 
@@ -164,3 +179,21 @@ The complete-request checkpoint passes 617 product tests, 70 focused transport t
 33 standalone ArborWire Swift tests, type checking and the full cross-language/live
 protocol gate. Relative file/section checks introduce no new broken references and
 `git diff --check` passes. Live installations are unchanged.
+
+## Active request adoption verification
+
+The request-side adoption passes 658 product tests, 32 standalone ArborWire Swift
+tests, type checking and the full cross-language/live protocol gate. An additional
+native recovery regression passes: an uncertain request with a valid old-format
+digest remains byte-for-byte intact and is never submitted by the upgraded coordinator.
+The filesystem recovery regression verifies the equivalent pending-record behavior.
+The final live protocol gate includes all 58 working-tree Swift tests.
+Canopy tests cover same-root advancement, replay before stale guards, and preflight
+rejection of a resolution-bearing suffix before accepting its otherwise valid prefix.
+A later recorded digest proves an earlier unrecorded no-op prefix, so retries skip
+stale guards and already-active activation checks without reapplying the prefix.
+These results do not claim accepted-conflict storage or upgraded read responses.
+
+One full product run hit an unchanged filesystem-watcher timing assertion. Its
+21-test file passed in isolation, and the complete rerun passed all 658 tests;
+no watcher implementation or assertion was changed.

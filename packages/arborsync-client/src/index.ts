@@ -75,13 +75,7 @@ export interface ArborSyncRESTClientOptions {
 export type { LocalAccountSummary, PairingOffer, ProfileIdentity } from "@arbor/core";
 
 /** One element of a daemon-stored update string, in the JSON wire shape (`CandidateUpdateJSON` in `@arbor/wire`). */
-export interface BootstrapCandidateUpdate {
-  candidate: string;
-  ifMatch: "bytesHash" | "modelHash";
-  onConflict?: "merge" | "reject";
-  objects: Array<{ hash: string; bytes: string }>;
-  deltas: Array<{ base: string; result: string; instructions: unknown[] }>;
-}
+export type BootstrapCandidateUpdate = import("@arbor/wire").CandidateUpdateJSON;
 
 /** `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own working tree. */
 export interface TreeBootstrap {

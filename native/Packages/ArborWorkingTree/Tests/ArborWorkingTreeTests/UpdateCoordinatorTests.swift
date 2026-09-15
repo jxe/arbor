@@ -1,7 +1,7 @@
 import ArborKit
 import ArborObjectStore
 @testable import ArborWorkingTree
-import ArborWire
+@testable import ArborWire
 import Foundation
 import Testing
 
@@ -115,6 +115,36 @@ private struct OnePointFault: UpdateFaultInjector {
 
 @Suite("Working-tree update coordinator")
 struct UpdateCoordinatorTests {
+    @Test("Old-format uncertain requests remain intact and are never submitted by the upgraded coordinator")
+    func oldRequestRecovery() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_oldrequest"
+            let initial = try snapshot(markdown: "# Retained work\n")
+            let transport = ClosureTransport(initial: initial) { _, _ in throw URLError(.notConnectedToInternet) }
+            let workingTree = try await placeWorkingTree(tree: descriptor(tree:tree,snapshot:initial,update:"up_initial"),at:root.appending(path:"replica"),transport:transport)
+            let oldIntent = CanonicalCBOR.encode(.map([
+                ("domain",.text("arbor-update")),("tree",.text(tree)),("base",.text("up_initial")),
+                ("change",.text("old-change")),("candidate",.text(initial.root)),("operations",.null),
+                ("ifMatch",.text("modelHash")),("onConflict",.text("merge"))
+            ]))
+            let digest = WireObjectCodec.hash(oldIntent)
+            let body = try JSONSerialization.data(withJSONObject:["base":"up_initial","updates":[[
+                "change":"old-change","candidate":initial.root,"operations":NSNull(),"ifMatch":"modelHash","objects":[],"deltas":[]
+            ]]])
+            var control = UpdateControl()
+            control.attempt = UpdateAttempt(tree:tree,base:.init(root:initial.root,update:"up_initial"),candidate:initial.root,generation:1,body:body,requestDigests:[digest],digest:digest,adoptedCount:nil)
+            let state = root.appending(path:"state")
+            let files = try UpdateControlFiles(root:state)
+            try files.write(control)
+            let original = try Data(contentsOf:files.controlURL)
+            #expect(throws: ArborWireValidationError.self) {
+                try UpdateCoordinator(workingTree:workingTree,transport:transport,stateRoot:state)
+            }
+            #expect(try Data(contentsOf:files.controlURL) == original)
+            #expect(await transport.requests.isEmpty)
+        }
+    }
+
     @Test("Adopted operations survive restart even when the candidate root is unchanged")
     func semanticAdoptionRestart() async throws {
         try await withTemporaryRoot { root in

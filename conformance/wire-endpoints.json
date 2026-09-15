@@ -70,7 +70,7 @@
         "headers": {
           "Authorization": "Bearer <account-device-token>"
         },
-        "derivedRequestDigest": "sha256:0ccc5b4ef40e2768f7dbd916d1b46383fe98618d4f01122ee1b606ca407ac795",
+        "derivedRequestDigest": "sha256:6745bae87ecaa1769d22085cedca1b1e1ae5c34bd4913f58b0dedf945a64869a",
         "body": {
           "base": "1",
           "updates": [
@@ -78,9 +78,9 @@
               "candidate": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
               "objects": [],
               "deltas": [],
-              "ifMatch": "modelHash",
               "change": "fixture-submit-current-update-1",
-              "operations": null
+              "operations": null,
+              "resolves": []
             }
           ]
         }
@@ -91,7 +91,7 @@
           "results": [
             {
               "outcome": "current",
-              "requestDigest": "sha256:0ccc5b4ef40e2768f7dbd916d1b46383fe98618d4f01122ee1b606ca407ac795",
+              "requestDigest": "sha256:6745bae87ecaa1769d22085cedca1b1e1ae5c34bd4913f58b0dedf945a64869a",
               "update": {
                 "id": "1",
                 "tree": "tr_atlas",
@@ -115,7 +115,7 @@
         "headers": {
           "Authorization": "Bearer <administrator-device-token>"
         },
-        "derivedRequestDigest": "sha256:afc7d06e2533c6d766cfcd611bee82e470b004204c586b1c5d5c40705aa0a214",
+        "derivedRequestDigest": "sha256:399d03d1e1b356abf9fc8e3d41e321eaee6a9d8a29818b436536eeae0d93db84",
         "body": {
           "base": null,
           "updates": [
@@ -128,9 +128,9 @@
                 }
               ],
               "deltas": [],
-              "ifMatch": "bytesHash",
               "change": "fixture-activate-with-null-base-1",
-              "operations": null
+              "operations": null,
+              "resolves": []
             }
           ]
         }
@@ -141,7 +141,7 @@
           "results": [
             {
               "outcome": "accepted",
-              "requestDigest": "sha256:afc7d06e2533c6d766cfcd611bee82e470b004204c586b1c5d5c40705aa0a214",
+              "requestDigest": "sha256:399d03d1e1b356abf9fc8e3d41e321eaee6a9d8a29818b436536eeae0d93db84",
               "update": {
                 "id": "3",
                 "tree": "tr_new",

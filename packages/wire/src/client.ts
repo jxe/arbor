@@ -1,8 +1,6 @@
 import type {
   AcceptedTransition,
   UpdateConflictResult,
-  IfMatch,
-  OnConflict,
   CandidateUpdate,
   UpdateRequest,
   UpdateResponse,
@@ -338,14 +336,14 @@ export class WireClient {
     tree: string,
     base: string | null,
     snapshot: TreeSnapshot,
-    options: { change?: string; deltas?: ObjectDelta[]; ifMatch?: IfMatch; onConflict?: OnConflict } = {},
+    options: { change?: string; deltas?: ObjectDelta[]; ifCurrent?: string } = {},
   ): Promise<UpdateResult> {
     const update: CandidateUpdate = {
       change: options.change ?? crypto.randomUUID(),
       operations: null,
       candidate: snapshot.root,
-      ifMatch: options.ifMatch ?? (base === null ? "bytesHash" : "modelHash"),
-      ...(options.onConflict !== undefined ? { onConflict: options.onConflict } : {}),
+      resolves: [],
+      ...(options.ifCurrent !== undefined ? { ifCurrent: options.ifCurrent } : {}),
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       deltas: options.deltas ?? [],
     };

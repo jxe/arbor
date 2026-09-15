@@ -194,6 +194,21 @@ test("pending semantic identity survives persistence and appending a snapshot su
   expect(decodeCandidateUpdateJSON(updates[0]).operations).toEqual(pending.operations);
 });
 
+test("old pending requests fail closed and remain byte-for-byte recoverable", async () => {
+  process.env.ARBOR_DATA_HOME = stateA;
+  const id = generateArborID("tr");
+  const snapshot = await resolveSnapshot(await snapshotDirectory(treeA));
+  const {resolves: _resolves,...candidate} = pendingFromSnapshot("up_old",snapshot);
+  const original = JSON.stringify({pending:{...candidate,ifMatch:"modelHash"}});
+  const path = join(stateA,".state","sync",`${Buffer.from(id).toString("base64url")}.json`);
+  await mkdir(join(stateA,".state","sync"),{recursive:true});
+  await writeFile(path,original);
+  try {
+    await expect(pendingTreeUpdate(id)).rejects.toThrow();
+    expect(await readFile(path,"utf8")).toBe(original);
+  } finally { await rm(path); }
+});
+
 describe("private self-sync", () => {
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
@@ -435,7 +450,7 @@ describe("private self-sync", () => {
     successorObjects.set(hashObject(successorRoot), successorRoot);
     const successor: CandidateUpdate = { change: crypto.randomUUID(), operations: null,
       candidate: hashObject(successorRoot),
-      ifMatch: "modelHash",
+      resolves: [],
       objects: [...successorObjects].map(([hash, bytes]) => ({ hash, bytes })),
       deltas: [],
     };
@@ -521,7 +536,7 @@ describe("private self-sync", () => {
     await savePendingTreeUpdate(configurationTree, { change: crypto.randomUUID(), operations: null,
       base: remote.tree.update!,
       candidate: staleRootHash,
-      ifMatch: "modelHash",
+      resolves: [],
       objects: [
         { hash: emptyDirectoryHash, bytes: Buffer.from(emptyDirectory).toString("base64") },
         { hash: staleRootHash, bytes: Buffer.from(staleRoot).toString("base64") },

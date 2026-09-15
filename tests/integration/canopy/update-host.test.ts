@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import semanticFixtures from "../../../conformance/wire-operations.json";
 import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -115,7 +114,7 @@ describe("governed account-configuration Canopy server", () => {
     const snapshots = [snapshotAccountConfig(graphOne), snapshotAccountConfig(graphTwo)];
     const updates = snapshots.map((snapshot) => ({ change: crypto.randomUUID(), operations: null,
       candidate: snapshot.root,
-      ifMatch: "modelHash" as const,
+      resolves: [],
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       deltas: [],
     }));
@@ -137,6 +136,54 @@ describe("governed account-configuration Canopy server", () => {
     expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(before + 2);
   });
 
+  test("exact-state guards reject same-root advancement but historical retries precede guards", async () => {
+    const baseline = await currentConfig();
+    const administrator = baseline.graph.account.admins[0]!;
+    const candidate = snapshotAccountConfig({
+      ...baseline.graph,
+      devices: {...baseline.graph.devices, [administrator]: {...baseline.graph.devices[administrator]!, label: `Guarded ${crypto.randomUUID()}`}},
+    });
+    const request = {base:baseline.current.tree.update,updates:[{
+      change:crypto.randomUUID(),candidate:candidate.root,operations:null,resolves:[],ifCurrent:baseline.current.tree.update,
+      objects:[...candidate.objects].map(([hash,bytes])=>({hash,bytes})),deltas:[],
+    }]};
+    const first = await client.submitUpdates(baseline.current.tree.id,request);
+    const restored = await client.submitUpdate(baseline.current.tree.id,first.results[0]!.update.id,baseline.snapshot);
+    expect(restored.update.root).toBe(baseline.current.tree.root);
+    expect(restored.update.id).not.toBe(baseline.current.tree.update);
+    const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
+    const rejected = await client.submitUpdates(baseline.current.tree.id,{
+      ...request,updates:[{...request.updates[0]!,change:crypto.randomUUID()}],
+    }).catch(error=>error);
+    expect(rejected).toBeInstanceOf(WireUpdateConflict);
+    expect(rejected.result.message).toContain("ifCurrent");
+    const replay = await client.submitUpdates(baseline.current.tree.id,request);
+    expect(replay.results[0]!.update.id).toBe(first.results[0]!.update.id);
+    expect((await client.descriptor(baseline.current.tree.id)).tree.update).toBe(restored.update.id);
+    expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(count);
+  });
+
+  test.each([false, true])("a later accepted digest proves a no-op prefix (activation=%s)", async (activation) => {
+    const baseline = await currentConfig();
+    const administrator = baseline.graph.account.admins[0]!;
+    const candidate = snapshotAccountConfig({...baseline.graph,devices:{...baseline.graph.devices,
+      [administrator]:{...baseline.graph.devices[administrator]!,label:`After no-op ${crypto.randomUUID()}`}}});
+    const request = {base:activation ? null : baseline.current.tree.update,updates:[{
+      change:crypto.randomUUID(),candidate:baseline.snapshot.root,operations:null,resolves:[],
+      ...(activation ? {} : {ifCurrent:baseline.current.tree.update}),objects:[],deltas:[],
+    },{
+      change:crypto.randomUUID(),candidate:candidate.root,operations:null,resolves:[],
+      objects:[...candidate.objects].map(([hash,bytes])=>({hash,bytes})),deltas:[],
+    }]};
+    const response = await client.submitUpdates(baseline.current.tree.id,request);
+    expect(response.results.map(r=>r.outcome)).toEqual(["current","accepted"]);
+    const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
+    const replay = await client.submitUpdates(baseline.current.tree.id,request);
+    expect(replay.results.map(r=>r.outcome)).toEqual(["current","accepted"]);
+    expect(replay.results[1]!.update.id).toBe(response.results[1]!.update.id);
+    expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(count);
+  });
+
   test("unsupported operations reject a complete batch before its valid prefix changes authority", async () => {
     const baseline = await currentConfig();
     const administrator = baseline.graph.account.admins[0]!;
@@ -144,8 +191,8 @@ describe("governed account-configuration Canopy server", () => {
       ...baseline.graph,
       devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label: "Must not be accepted" } },
     });
-    const first = { change: crypto.randomUUID(), operations: null, candidate: snapshot.root, ifMatch: "modelHash", objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })), deltas: [] };
-    const second = { ...first, change: crypto.randomUUID(), operations: semanticFixtures.valid[1]!.candidate.operations };
+    const first = { change: crypto.randomUUID(), operations: null, candidate: snapshot.root, resolves: [], objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })), deltas: [] };
+    const second = { ...first, change: crypto.randomUUID(), operations: [{key: "undo", kind: "undoOperation", target: {change: "prior", operation: "edit"}}] };
     const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
     const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -154,6 +201,12 @@ describe("governed account-configuration Canopy server", () => {
     await expect(client.submitUpdates(baseline.current.tree.id, { base: baseline.current.tree.update, updates: [decodeCandidateUpdateJSON(first), decodeCandidateUpdateJSON(second)] })).rejects.toBeInstanceOf(WireUnsupportedOperation);
     expect(response.status).toBe(422);
     expect(await response.json()).toMatchObject({ error: "unsupported-operation", retryable: false });
+    const resolution = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
+      method: "POST", headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
+      body: JSON.stringify({base:baseline.current.tree.update,updates:[first,{...first,change:crypto.randomUUID(),resolves:[{state:baseline.current.tree.update,conflict:"d",alternatives:["a","b"]}]}]}),
+    });
+    expect(resolution.status).toBe(422);
+    expect(await resolution.json()).toMatchObject({error:"unsupported-operation",retryable:false});
     expect(await client.descriptor(baseline.current.tree.id)).toEqual(baseline.current);
     expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(count);
   });
@@ -166,7 +219,7 @@ describe("governed account-configuration Canopy server", () => {
       body: JSON.stringify({ change: crypto.randomUUID(), operations: null,
         base: baseline.current.tree.update,
         candidate: baseline.current.tree.root,
-        ifMatch: "modelHash",
+        resolves: [],
         objects: [],
         deltas: [],
       }),
@@ -415,7 +468,7 @@ describe("governed account-configuration Canopy server", () => {
     const initial = await resolveSnapshot(await snapshotDirectory(treePath));
     const unsupported = await fetch(`${running.url}/.arbor/trees/${treeID}/updates`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ base: null, updates: [{ change: crypto.randomUUID(), operations: semanticFixtures.valid[1]!.candidate.operations, candidate: initial.root, ifMatch: "bytesHash", objects: [], deltas: [] }] }),
+      body: JSON.stringify({ base: null, updates: [{ change: crypto.randomUUID(), operations: [{key: "undo", kind: "undoOperation", target: {change: "prior", operation: "edit"}}], candidate: initial.root, resolves: [], objects: [], deltas: [] }] }),
     });
     expect(unsupported.status).toBe(422);
     expect(running.canopy.get(treeID)).toBeNull();
@@ -560,13 +613,13 @@ describe("governed account-configuration Canopy server", () => {
     // A bytesHash match refuses any concurrent change and answers with the candidate as the draft.
     await writeFile(renamedPath, `${mergeBaseSource}\nExact line\n`);
     const exact = await snapshotWithCollectionFiles(treePath);
-    const rejected = await client.submitUpdate(treeID, mergeBase.tree.update, exact, { ifMatch: "bytesHash" }).catch((error) => error);
+    const rejected = await client.submitUpdate(treeID, mergeBase.tree.update, exact, { ifCurrent: mergeBase.tree.update }).catch((error) => error);
     expect(rejected).toBeInstanceOf(WireUpdateConflict);
     expect((rejected as WireUpdateConflict).result.details.draft.root).toBe(exact.root);
     expect((rejected as WireUpdateConflict).result.details.conflicts).toEqual([{ path: "/", reason: "node-conflict" }]);
     // Resubmitted against the current update it is a plain acceptance.
     const latest = await client.descriptor(treeID);
-    expect((await client.submitUpdate(treeID, latest.tree.update, exact, { ifMatch: "bytesHash" })).outcome).toBe("accepted");
+    expect((await client.submitUpdate(treeID, latest.tree.update, exact, { ifCurrent: latest.tree.update })).outcome).toBe("accepted");
 
     const changedPath = join(dataRoot, "incompatible-tree");
     await mkdir(changedPath);

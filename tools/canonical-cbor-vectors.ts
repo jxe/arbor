@@ -6,27 +6,37 @@ import { canonicalCBORHash, encodeCanonicalCBOR } from "@arbor/core";
 import { canonicalUpdateIntent, encodeWireDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@arbor/wire";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
-const intentPath = "conformance/wire-update-intent.json";
-const intent = JSON.parse(await readFile(intentPath, "utf8"));
-const digestChanges = new Map<string, string>();
-for (const key of ["identity", "laterElement"]) {
-  const vector = intent[key];
-  if (key === "laterElement") vector.base.requestDigest = intent.identity.digest;
-  const previous = vector.digest;
-  vector.canonicalCBORBase64 = b64(canonicalUpdateIntent(vector.tree, vector));
-  vector.digest = updateRequestDigest(vector.tree, vector);
-  digestChanges.set(previous, vector.digest);
-}
-intent.envelopeIndependence.digests = [intent.identity.digest, intent.laterElement.digest];
-let intentText = JSON.stringify(intent, null, 2);
-for (const [before, after] of digestChanges) intentText = intentText.replaceAll(before, after);
-await writeFile(intentPath, intentText + "\n");
-const endpointsPath = "conformance/wire-endpoints.json";
-let endpoints = await readFile(endpointsPath, "utf8");
 const emptyDirectory = encodeWireDirectory({ type: "directory", entries: [] });
-endpoints = endpoints.replaceAll("__EMPTY_DIRECTORY_HASH__", hashObject(emptyDirectory)).replaceAll("__EMPTY_DIRECTORY_BYTES__", b64(emptyDirectory));
-for (const [before, after] of digestChanges) endpoints = endpoints.replaceAll(before, after);
-await writeFile(endpointsPath, endpoints);
+// Historical wire-update-intent.json and wire-operations.json retain the previous
+// encoding's exact bytes and digests. Do not rehash them through the active codec.
+for (const path of ["conformance/wire-authored-updates.json", "conformance/wire-authored-transport.json"]) {
+  const fixture = JSON.parse(await readFile(path, "utf8"));
+  for (const c of fixture.cases) {
+    if (!c.valid) continue;
+    let base = c.value.base;
+    c.identities = c.value.updates.map((u: any) => {
+      const intent = {...u,base};
+      const bytes = canonicalUpdateIntent(fixture.tree,intent);
+      const digest = updateRequestDigest(fixture.tree,intent);
+      base = {requestDigest:digest,candidate:u.candidate};
+      return {digest,canonicalCBORBase64:b64(bytes)};
+    });
+  }
+  await writeFile(path,JSON.stringify(fixture,null,2)+"\n");
+}
+const endpointsPath = "conformance/wire-endpoints.json";
+const endpoints = JSON.parse(await readFile(endpointsPath,"utf8"));
+for (const c of endpoints.cases) {
+  if (!c.request.body?.updates) continue;
+  const previous = c.request.derivedRequestDigest;
+  const tree = decodeURIComponent(c.request.path.match(/^\/\.arbor\/trees\/([^/]+)\/updates$/)[1]);
+  const digest = updateRequestDigests(tree,c.request.body)[0];
+  if (previous) {
+    const text = JSON.stringify(c).replaceAll(previous,digest);
+    Object.assign(c,JSON.parse(text));
+  }
+}
+await writeFile(endpointsPath,JSON.stringify(endpoints,null,2)+"\n");
 
 // Bootstrap pending requests preserve semantic identity after object rehashing.
 for (const path of ["tests/fixtures/arborsync/bootstrap.json", "tests/fixtures/arborsync/bootstrap-pending.json"]) {

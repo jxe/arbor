@@ -54,7 +54,8 @@ CBOR/digests in TypeScript and Swift. `wire-accepted-state.json` binds target ac
 states, simplified receipts and material-reference inspection.
 `wire-authored-transport.json` combines authored intent with complete objects and
 sparse deltas, testing exact bytes, validation and transport-independent identity.
-All three are ahead of active HTTP adoption. `repeatDecisions` in read fixtures duplicates
+The two authored-request vector sets bind active request codecs; accepted-state
+read vectors remain ahead of active HTTP adoption. `repeatDecisions` in read fixtures duplicates
 the sole decision with IDs `decision_0`, `decision_1`, etc.; it tests absence of a
 fixed count cap without duplicating fixture text. The previous deployed-format
 `wire-update-intent.json` and `wire-operations.json` remain compatibility evidence.

@@ -1,6 +1,10 @@
-import type { IfMatch, MergeSummary, ObjectHash, OnConflict, UpdateConflict } from "@arbor/wire";
+import type { MergeSummary, ObjectHash, UpdateConflict } from "@arbor/wire";
 import { decideUpdate } from "./decision.ts";
 import { mergeWireTrees, type MergeResult } from "./merge.ts";
+
+/** Internal snapshot-engine policy; these are not fields in the Wire request. */
+export type IfMatch = "bytesHash" | "modelHash";
+export type OnConflict = "reject" | "merge";
 
 export type ReconciledUpdate =
   | { outcome: "current" }

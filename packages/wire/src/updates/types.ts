@@ -1,3 +1,4 @@
+import type { AuthoredUpdateIntent } from "./authored-contract.ts";
 import type { ObjectHash } from "../objects.ts";
 
 export type MergeSummary =
@@ -5,9 +6,6 @@ export type MergeSummary =
   | { version: "account-config-v1"; mergedFields: number }
   | { version: "account-config-v2"; mergedFields: number }
   | { version: "collection-file-rows-v1"; mergedRows: number };
-
-export type IfMatch = "bytesHash" | "modelHash";
-export type OnConflict = "reject" | "merge";
 
 export interface UpdateConflict {
   path: string;
@@ -86,15 +84,7 @@ export interface AcceptedTransition extends TransitionPayload {
   requestDigest?: ObjectHash;
 }
 
-export interface CandidateUpdate extends TransitionPayload {
-  change: string;
-  operations: import("./operations.ts").SourceOperation[] | null;
-  candidate: ObjectHash;
-  /** Which hash must still match its value at base for the candidate to be accepted. */
-  ifMatch: IfMatch;
-  /** Under `modelHash`, what to do with a node changed in both places; defaults to `merge`. */
-  onConflict?: OnConflict;
-}
+export interface CandidateUpdate extends TransitionPayload, AuthoredUpdateIntent {}
 
 export interface UpdateRequest {
   /** The accepted update from which this append-only string begins, or null to activate a reserved tree. */

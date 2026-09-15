@@ -1,4 +1,5 @@
-import type { IfMatch, ObjectHash } from "@arbor/wire";
+import type { ObjectHash } from "@arbor/wire";
+import type { IfMatch } from "./reconcile.ts";
 
 export type UpdateDecision = "current" | "accept" | "reject" | "reconcile";
 

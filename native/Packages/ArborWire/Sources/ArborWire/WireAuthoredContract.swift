@@ -1,6 +1,6 @@
 import Foundation
 
-/// Target semantic contract, fixture-tested independently of the deployed HTTP codec.
+/// Shared semantic contract used by the active request codec and conformance fixtures.
 /// Objects and deltas retain their existing transport codecs and are not semantic fields.
 public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
     public let fields: [String: WireSemanticValue]
@@ -83,7 +83,7 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
         if v["range"] != nil { try check(!entry); _ = try range(v["range"]) }
         return v
     }
-    private static func operation(_ raw: WireSemanticValue) throws -> String {
+    static func validateOperation(_ raw: WireSemanticValue) throws -> String {
         let v = try object(raw); try id(v["key"])
         switch v["kind"]?.text {
         case "editSource":
@@ -149,7 +149,7 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
         if u["operations"] != .null {
             guard let ops = u["operations"]?.items else { throw ArborWireValidationError.invalidValue("Expected operations") }
             try check(ops.count <= 1024 && (!ops.isEmpty || !resolves.isEmpty))
-            let ids = try ops.map(operation); try check(Set(ids).count == ids.count)
+            let ids = try ops.map(validateOperation); try check(Set(ids).count == ids.count)
         }
     }
 }

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@arbor/core": "workspace:*",
+    "@arbor/wire": "workspace:*",
     "yaml": "2.8.2"
   }
 }

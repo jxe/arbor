@@ -1,14 +1,9 @@
 import { canonicalCBORHash, encodeCanonicalCBOR } from "@arbor/core";
 import type { ObjectHash } from "../objects.ts";
-import type { CandidateUpdate, OnConflict, UpdateRequest } from "./types.ts";
+import type { CandidateUpdate, UpdateRequest } from "./types.ts";
 
 export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash };
-export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifMatch" | "onConflict" | "change" | "operations"> & { base: UpdateIntentBase };
-
-/** `onConflict` at its effective value: merge unless the request says reject. */
-export function effectiveOnConflict(request: Pick<CandidateUpdate, "onConflict">): OnConflict {
-  return request.onConflict ?? "merge";
-}
+export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "operations"> & { base: UpdateIntentBase };
 
 function intent(tree: string, request: UpdateIntent) {
   return {
@@ -18,8 +13,8 @@ function intent(tree: string, request: UpdateIntent) {
     tree,
     base: request.base,
     candidate: request.candidate,
-    ifMatch: request.ifMatch,
-    onConflict: effectiveOnConflict(request),
+    resolves: request.resolves,
+    ifCurrent: request.ifCurrent ?? null,
   };
 }
 

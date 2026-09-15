@@ -28,7 +28,6 @@
     "updates": [
       {
         "candidate": "sha256:f67d4ba9f8bedaba285d7342328777dc5d5a89a667c808980a384340757ddc0e",
-        "ifMatch": "modelHash",
         "objects": [
           {
             "hash": "sha256:365d0b84ae63c2afc293dedd2b00bdf0dc8d6ef70c9297d90f9e5682ab0d72ee",
@@ -37,11 +36,12 @@
         ],
         "deltas": [],
         "change": "fixture-bootstrap-1",
-        "operations": null
+        "operations": null,
+        "resolves": []
       }
     ],
     "requestDigests": [
-      "sha256:3bb8dcfd5d709ed4696d49c270dba6f8319e559c7f258decb1ec29f8b8c848e1"
+      "sha256:ed6d3fecf4ac55e4d1bc5f980c5ff33db5c95e7978392a77fe3395e33a761e22"
     ]
   },
   "modifiedAtByPath": {

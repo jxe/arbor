@@ -119,8 +119,7 @@ public actor ArborWireClient {
         tree: String,
         base: WireUpdateBase,
         snapshot: WireSnapshot,
-        ifMatch: String = "modelHash",
-        onConflict: String? = nil
+        ifCurrent: String? = nil
     ) throws -> PreparedWireUpdate {
         guard !tree.isEmpty, !base.update.isEmpty else { throw ArborWireValidationError.invalidValue("Update identity is empty") }
         try validateObjectHash(base.root)
@@ -128,8 +127,7 @@ public actor ArborWireClient {
         let request = WireUpdateRequest(
             base: base,
             candidate: snapshot.root,
-            ifMatch: ifMatch,
-            onConflict: onConflict,
+            ifCurrent: ifCurrent,
             objects: snapshot.objects
         )
         return try prepareUpdates(tree: tree, base: base, updates: request.updates)
@@ -400,8 +398,8 @@ public func canonicalUpdateIntent(
     candidate: String,
     change: String,
     operations: [WireSourceOperation]? = nil,
-    ifMatch: String = "modelHash",
-    onConflict: String? = nil
+    resolves: [WireResolutionDeclaration] = [],
+    ifCurrent: String? = nil
 ) -> Data {
     canonicalUpdateIntent(
         tree: tree,
@@ -409,8 +407,8 @@ public func canonicalUpdateIntent(
         candidate: candidate,
         change: change,
         operations: operations,
-        ifMatch: ifMatch,
-        onConflict: onConflict
+        resolves: resolves,
+        ifCurrent: ifCurrent
     )
 }
 
@@ -420,8 +418,8 @@ private func canonicalUpdateIntent(
     candidate: String,
     change: String,
     operations: [WireSourceOperation]? = nil,
-    ifMatch: String,
-    onConflict: String?
+    resolves: [WireResolutionDeclaration],
+    ifCurrent: String?
 ) -> Data {
     CanonicalCBOR.encode(.map([
         ("domain", .text("arbor-update")),
@@ -430,8 +428,8 @@ private func canonicalUpdateIntent(
         ("tree", .text(tree)),
         ("base", base),
         ("candidate", .text(candidate)),
-        ("ifMatch", .text(ifMatch)),
-        ("onConflict", .text(onConflict ?? "merge")),
+        ("resolves", .array(resolves.map { $0.semantic.cbor })),
+        ("ifCurrent", ifCurrent.map(CanonicalCBORValue.text) ?? .null),
     ]))
 }
 
@@ -441,10 +439,10 @@ public func updateRequestDigest(
     candidate: String,
     change: String,
     operations: [WireSourceOperation]? = nil,
-    ifMatch: String = "modelHash",
-    onConflict: String? = nil
+    resolves: [WireResolutionDeclaration] = [],
+    ifCurrent: String? = nil
 ) -> String {
-    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, change: change, operations: operations, ifMatch: ifMatch, onConflict: onConflict))
+    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, change: change, operations: operations, resolves: resolves, ifCurrent: ifCurrent))
 }
 
 public func updateRequestDigests(
@@ -452,7 +450,11 @@ public func updateRequestDigests(
     base: WireUpdateBase,
     updates: [WireCandidateUpdate]
 ) -> [String] {
-    var basis: CanonicalCBORValue = .text(base.update)
+    updateRequestDigests(tree: tree, base: base.update, updates: updates)
+}
+
+public func updateRequestDigests(tree: String, base: String?, updates: [WireCandidateUpdate]) -> [String] {
+    var basis: CanonicalCBORValue = base.map(CanonicalCBORValue.text) ?? .null
     var result: [String] = []
     for update in updates {
         let digest = canonicalCBORHash(canonicalUpdateIntent(
@@ -461,8 +463,8 @@ public func updateRequestDigests(
             candidate: update.candidate,
             change: update.change,
             operations: update.operations,
-            ifMatch: update.ifMatch,
-            onConflict: update.onConflict
+            resolves: update.resolves,
+            ifCurrent: update.ifCurrent
         ))
         result.append(digest)
         basis = .map([

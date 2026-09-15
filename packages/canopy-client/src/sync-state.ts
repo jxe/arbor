@@ -133,7 +133,7 @@ export function pendingFromSnapshot(
     change: crypto.randomUUID(),
     operations: null,
     candidate: snapshot.root,
-    ifMatch: base === null ? "bytesHash" : "modelHash",
+    resolves: [],
     objects: encodeObjectEnvelopes([...snapshot.objects].filter(([hash]) => !retained.has(hash))),
     deltas: [],
     ...(origin ? { origin } : {}),

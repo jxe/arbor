@@ -52,7 +52,6 @@ import {
   type AccountConfigGraphV2,
 } from "./account-policy-v2.ts";
 import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
-import { effectiveOnConflict } from "@arbor/wire";
 import { AcceptedUpdateStore, type AcceptedUpdateInput, type StoredAcceptedResponse } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
@@ -986,7 +985,7 @@ export class CanopyDaemon implements AsyncDisposable {
     validateUpdateRequestIntent(request);
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
-      if (update.operations !== null) throw new UpdateProtocolError("unsupported-operation", `Update ${index} (${update.change}) contains operations not yet supported by Canopy`);
+      if (update.operations !== null || update.resolves.length) throw new UpdateProtocolError("unsupported-operation", `Update ${index} (${update.change}) contains operations or resolutions not yet supported by Canopy`);
     }
     const digests = updateRequestDigests(treeID, request);
     const completed: UpdateResult[] = [];
@@ -999,12 +998,24 @@ export class CanopyDaemon implements AsyncDisposable {
       }
       baseRoot = baseUpdate.root;
     }
+    // A recorded later digest proves every earlier element ran, including no-ops
+    // without accepted rows. Those elements must not recheck a now-stale guard.
+    let recordedThrough = -1;
+    const retainedTree = this.get(treeID);
+    if (retainedTree && this.canWrite(account, treeID, linkDigest)) {
+      const policy = retainedTree.policy.startsWith("account-config-")
+        ? this.accountConfigPolicy(retainedTree, request.updates[0]!, baseRoot ?? retainedTree.ref, account, credentialSubject)
+        : this.ordinaryPolicy(retainedTree, request.updates[0]!, account, linkDigest, credentialSubject);
+      for (let index = digests.length - 1; index >= 0; index--) {
+        if (this.acceptedRequest(treeID, policy.subject, digests[index]!)) { recordedThrough = index; break; }
+      }
+    }
     const proposed = new Map<ObjectHash, Uint8Array>();
     for (const [index, update] of request.updates.entries()) {
       const requestDigest = digests[index]!;
       for (const { hash, bytes } of update.objects) proposed.set(hash, bytes);
       if (baseRoot === null) {
-        const activation = await this.activateFromUpdate(treeID, update, requestDigest, authentication);
+        const activation = await this.activateFromUpdate(treeID, update, requestDigest, authentication, index < recordedThrough);
         completed.push(activation.result as UpdateResult);
         accepted ||= activation.result.outcome !== "current";
         baseRoot = update.candidate;
@@ -1027,6 +1038,7 @@ export class CanopyDaemon implements AsyncDisposable {
         account,
         linkDigest,
         credentialSubject,
+        index < recordedThrough,
       );
       if ("error" in result.result) {
         result.result.details.completed = completed;
@@ -1053,6 +1065,7 @@ export class CanopyDaemon implements AsyncDisposable {
     account: CanopyAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
+    provenAcceptedPrefix = false,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
@@ -1065,6 +1078,14 @@ export class CanopyDaemon implements AsyncDisposable {
     if (replay) {
       return { ...replay, result: await this.withReconciliation(replay.result, request.candidate, proposed) };
     }
+    if (provenAcceptedPrefix) {
+      const current = this.currentUpdate(treeID);
+      if (!current) throw new UpdateProtocolError("base-not-retained", "Accepted prefix state is unavailable");
+      return {
+        status: 200,
+        result: await this.withReconciliation({ outcome: "current", update: current, requestDigest }, request.candidate, proposed),
+      };
+    }
     await this.validateGraph(request.candidate, proposed);
     await policy.validateCandidate(request.candidate, proposed);
 
@@ -1074,12 +1095,15 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!remoteUpdate || remoteUpdate.root !== remoteTree.ref) {
         throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
       }
-      const reconciled = await reconcileUpdate(
+      const preconditionFailed = request.ifCurrent !== undefined && request.ifCurrent !== remoteUpdate.id;
+      const reconciled = preconditionFailed
+        ? { outcome: "rejected" as const, root: request.candidate, generated: new Map<ObjectHash, Uint8Array>(), conflicts: [{ path: "/", reason: "node-conflict" as const }] }
+        : await reconcileUpdate(
         baseRoot,
         request.candidate,
         remoteTree.ref,
         (hash) => this.objects.load(hash, proposed),
-        { ifMatch: request.ifMatch, onConflict: effectiveOnConflict(request), merge: policy.merge },
+        { ifMatch: "modelHash", onConflict: "merge", merge: policy.merge },
       );
       if (reconciled.outcome === "current") {
         return {
@@ -1104,7 +1128,7 @@ export class CanopyDaemon implements AsyncDisposable {
           status: 409,
           result: {
             error: "conflict",
-            message: policy.conflict.message,
+            message: preconditionFailed ? "Accepted state no longer matches ifCurrent" : policy.conflict.message,
             retryable: false,
             tree: treeID,
             details: {
@@ -1168,6 +1192,7 @@ export class CanopyDaemon implements AsyncDisposable {
     request: CandidateUpdate,
     requestDigest: ObjectHash,
     authentication: CanopyAuthentication | undefined,
+    provenAcceptedPrefix = false,
   ): Promise<{ status: number; result: UpdateResult }> {
     if (!authentication) throw new Error("Account authentication is required to activate a tree");
     const replay = this.acceptedRequest(treeID, authentication.subject, requestDigest);
@@ -1175,7 +1200,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const existing = this.get(treeID);
     if (existing) {
       const current = this.currentUpdate(treeID);
-      if (existing.ref === request.candidate && current) {
+      if ((existing.ref === request.candidate || provenAcceptedPrefix) && current) {
         return { status: 200, result: { outcome: "current", update: current, requestDigest } };
       }
       throw new UpdateProtocolError("activation-conflict", `TreeID is already active with different content: ${treeID}`);

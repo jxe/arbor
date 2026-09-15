@@ -1,7 +1,7 @@
-/** Complete consolidated requests, ready for coordinated adoption by active clients and Canopy.
+/** Complete consolidated requests used by Wire clients and Canopy.
  * This module does not send requests or translate the deployed request encoding.
  */
-import { authoredRequestIdentities, decodeAuthoredRequestIntent, type AuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
+import { authoredRequestIdentities, decodeAuthoredRequestIntent, decodeAuthoredCandidateIntent, type AuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
 import { decodeTransitionPayloadJSON, encodeTransitionPayloadJSON, type TransitionPayloadJSON } from "./json.ts";
 import type { TransitionPayload } from "./types.ts";
 import { hashObject } from "../objects.ts";
@@ -26,15 +26,10 @@ export function authoredIntentFromTransport(raw: unknown): AuthoredRequestIntent
 export function decodeAuthoredUpdateRequestJSON(raw: unknown): AuthoredUpdateRequest {
   const intent = authoredIntentFromTransport(raw);
   const values = (raw as { updates: Record<string, unknown>[] }).updates;
-  const updates = intent.updates.map((candidate, index) => {
-    const value = values[index]!;
-    const payload = decodeTransitionPayloadJSON(value);
-    if (payload.objects.length !== (value.objects as unknown[]).length) throw new Error("Duplicate complete object");
-    for (const object of payload.objects) {
-      if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
-    }
-    if (intent.base === null && index === 0 && payload.deltas.length) throw new Error("Activation has no delta basis");
-    return { ...candidate, ...payload };
+  const updates = values.map((value, index) => {
+    const candidate = decodeAuthoredCandidateJSON(value);
+    if (intent.base === null && index === 0 && candidate.deltas.length) throw new Error("Activation has no delta basis");
+    return candidate;
   });
   return { base: intent.base, updates };
 }
@@ -49,4 +44,22 @@ export function encodeAuthoredUpdateRequestJSON(request: AuthoredUpdateRequest):
 
 export function authoredTransportIdentities(tree: string, request: AuthoredUpdateRequest) {
   return authoredRequestIdentities(tree, authoredIntentFromTransport(request));
+}
+
+export function decodeAuthoredCandidateJSON(raw: unknown): AuthoredCandidate {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected candidate");
+  const { objects, deltas, ...fields } = raw as Record<string, unknown>;
+  const intent = decodeAuthoredCandidateIntent(fields);
+  const payload = decodeTransitionPayloadJSON({objects,deltas});
+  if (payload.objects.length !== (objects as unknown[]).length) throw new Error("Duplicate complete object");
+  for (const object of payload.objects) {
+    if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
+  }
+  return { ...intent, ...payload };
+}
+export function encodeAuthoredCandidateJSON(candidate: AuthoredCandidate): AuthoredUpdateIntent & TransitionPayloadJSON {
+  const {objects: _objects,deltas: _deltas,...fields} = candidate;
+  const value = {...decodeAuthoredCandidateIntent(fields),...encodeTransitionPayloadJSON(candidate)};
+  decodeAuthoredCandidateJSON(value);
+  return value;
 }

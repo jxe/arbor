@@ -681,8 +681,7 @@ public actor NativeAccountService {
         let prepared = try await wire.prepareUpdate(
             tree: configuration.id,
             base: WireUpdateBase(root: configuration.root, update: configuration.update),
-            snapshot: candidate,
-            onConflict: "merge"
+            snapshot: candidate
         )
         _ = try await wire.submitUpdate(prepared)
         return try await self.access(tree: tree)

@@ -506,166 +506,78 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
     }
 }
 
+public struct WireResolutionDeclaration: Codable, Sendable, Equatable {
+    public var state: String
+    public var conflict: String
+    public var alternatives: [String]
+    public init(state: String, conflict: String, alternatives: [String]) {
+        self.state = state; self.conflict = conflict; self.alternatives = alternatives
+    }
+    var semantic: WireSemanticValue {
+        .object(["state": .string(state), "conflict": .string(conflict), "alternatives": .array(alternatives.map(WireSemanticValue.string))])
+    }
+}
+
 public struct WireCandidateUpdate: Codable, Sendable, Equatable {
     public var change: String
     public var operations: [WireSourceOperation]?
     public var candidate: String
-    public var ifMatch: String
-    public var onConflict: String?
+    public var resolves: [WireResolutionDeclaration]
+    public var ifCurrent: String?
     public var objects: [WireObjectEnvelope]
     public var deltas: [WireObjectDelta]
 
-    public init(
-        candidate: String,
-        change: String = UUID().uuidString,
-        operations: [WireSourceOperation]? = nil,
-        ifMatch: String = "modelHash",
-        onConflict: String? = nil,
-        objects: [WireObjectEnvelope],
-        deltas: [WireObjectDelta] = []
-    ) {
-        self.change = change
-        self.operations = operations
-        self.candidate = candidate
-        self.ifMatch = ifMatch
-        self.onConflict = onConflict
-        self.objects = objects
-        self.deltas = deltas
+    public init(candidate: String, change: String = UUID().uuidString, operations: [WireSourceOperation]? = nil,
+                resolves: [WireResolutionDeclaration] = [], ifCurrent: String? = nil,
+                objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
+        self.candidate = candidate; self.change = change; self.operations = operations
+        self.resolves = resolves; self.ifCurrent = ifCurrent; self.objects = objects; self.deltas = deltas
     }
-
-    private enum CodingKeys: String, CodingKey { case change, operations, candidate, ifMatch, onConflict, objects, deltas }
-
-    public init(from decoder: Decoder) throws {
-        try validateSemanticFields(decoder, allowed: ["change", "operations", "candidate", "ifMatch", "onConflict", "objects", "deltas"])
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        change = try values.decode(String.self, forKey: .change)
-        guard WireSourceOperation.validID(change), values.contains(.operations) else { throw ArborWireValidationError.invalidValue("Update requires change and explicit operations") }
-        operations = try values.decodeIfPresent([WireSourceOperation].self, forKey: .operations)
-        candidate = try values.decode(String.self, forKey: .candidate)
-        ifMatch = try values.decode(String.self, forKey: .ifMatch)
-        onConflict = try values.decodeIfPresent(String.self, forKey: .onConflict)
-        guard ifMatch == "bytesHash" || ifMatch == "modelHash" else {
-            throw ArborWireValidationError.invalidValue("Update requires ifMatch of bytesHash or modelHash")
-        }
-        if let onConflict, onConflict != "reject", onConflict != "merge" {
-            throw ArborWireValidationError.invalidValue("onConflict must be reject or merge")
-        }
-        if ifMatch == "bytesHash", onConflict == "merge" {
-            throw ArborWireValidationError.invalidValue("A bytesHash match cannot merge")
-        }
-        objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        deltas = try values.decode([WireObjectDelta].self, forKey: .deltas)
-        try validateOperations()
-        let instructionCount = deltas.reduce(0) { $0 + $1.instructions.count }
-        let insertedBytes = deltas.reduce(0) { partial, delta in
-            partial + delta.instructions.reduce(0) { total, instruction in
-                if case let .insert(bytes) = instruction { return total + bytes.count }
-                return total
-            }
-        }
-        guard deltas.count <= 10_000, instructionCount <= 100_000, insertedBytes <= 64 * 1024 * 1024 else {
-            throw ArborWireValidationError.invalidValue("Object deltas exceed transport quotas")
-        }
-        let results = deltas.map(\.result)
-        guard Set(results).count == results.count else {
-            throw ArborWireValidationError.invalidValue("Duplicate object delta result")
-        }
-        let complete = Set(objects.map(\.hash))
-        guard results.allSatisfy({ !complete.contains($0) }) else {
-            throw ArborWireValidationError.invalidValue("Object delta result also supplied as complete object")
-        }
+    var semantic: [String: WireSemanticValue] {
+        var fields: [String: WireSemanticValue] = ["change": .string(change), "candidate": .string(candidate),
+            "operations": operations.map { .array($0.map { .object($0.fields) }) } ?? .null,
+            "resolves": .array(resolves.map(\.semantic))]
+        if let ifCurrent { fields["ifCurrent"] = .string(ifCurrent) }
+        return fields
     }
-
-    private func validateOperations() throws {
-        guard WireSourceOperation.validID(change) else { throw ArborWireValidationError.invalidValue("Invalid change") }
-        if let operations, operations.isEmpty || operations.count > 1024 || Set(operations.map(\.key)).count != operations.count {
-            throw ArborWireValidationError.invalidValue("Invalid operation array")
-        }
+    func authored() throws -> WireAuthoredCandidate {
+        try WireAuthoredCandidate(intent: semantic, payload: .init(objects: objects, deltas: deltas))
     }
-    public func encode(to encoder: Encoder) throws {
-        try validateOperations()
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(change, forKey: .change)
-        try values.encode(operations, forKey: .operations)
-        try values.encode(candidate, forKey: .candidate)
-        try values.encode(ifMatch, forKey: .ifMatch)
-        try values.encodeIfPresent(onConflict, forKey: .onConflict)
-        try values.encode(objects, forKey: .objects)
-        try values.encode(deltas, forKey: .deltas)
+    init(_ decoded: WireAuthoredCandidate) throws {
+        let fields = decoded.intentFields
+        self.init(candidate: fields["candidate"]!.text!, change: fields["change"]!.text!,
+            operations: try fields["operations"]!.items.map { try $0.map { try WireSourceOperation($0.fields!) } },
+            resolves: fields["resolves"]!.items!.map { raw in
+                let r = raw.fields!
+                return WireResolutionDeclaration(state: r["state"]!.text!, conflict: r["conflict"]!.text!, alternatives: r["alternatives"]!.items!.map { $0.text! })
+            }, ifCurrent: fields["ifCurrent"]?.text, objects: decoded.payload.objects, deltas: decoded.payload.deltas)
     }
-
+    public init(from decoder: Decoder) throws { try self.init(WireAuthoredCandidate(from: decoder)) }
+    public func encode(to encoder: Encoder) throws { try authored().encode(to: encoder) }
 }
 
 public struct WireUpdateRequest: Codable, Sendable, Equatable {
-    /// The accepted watchpoint from which this append-only string begins; nil activates a reserved tree.
     public var base: String?
     public var updates: [WireCandidateUpdate]
-
-    public init(base: String?, updates: [WireCandidateUpdate]) {
-        self.base = base
-        self.updates = updates
+    public init(base: String?, updates: [WireCandidateUpdate]) { self.base = base; self.updates = updates }
+    public init(base: String?, candidate: String, ifCurrent: String? = nil,
+                objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
+        self.init(base: base, updates: [WireCandidateUpdate(candidate: candidate, ifCurrent: ifCurrent, objects: objects, deltas: deltas)])
     }
-
-    public init(
-        base: String?,
-        candidate: String,
-        ifMatch: String? = nil,
-        onConflict: String? = nil,
-        objects: [WireObjectEnvelope],
-        deltas: [WireObjectDelta] = []
-    ) {
-        self.init(base: base, updates: [WireCandidateUpdate(
-            candidate: candidate,
-            ifMatch: ifMatch ?? (base == nil ? "bytesHash" : "modelHash"),
-            onConflict: onConflict,
-            objects: objects,
-            deltas: deltas
-        )])
+    public init(base: WireUpdateBase, candidate: String, ifCurrent: String? = nil,
+                objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
+        self.init(base: base.update, candidate: candidate, ifCurrent: ifCurrent, objects: objects, deltas: deltas)
     }
-
-    public init(
-        base: WireUpdateBase,
-        candidate: String,
-        ifMatch: String? = nil,
-        onConflict: String? = nil,
-        objects: [WireObjectEnvelope],
-        deltas: [WireObjectDelta] = []
-    ) {
-        self.init(base: base.update, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict, objects: objects, deltas: deltas)
-    }
-
     public var candidate: String { updates[0].candidate }
-    public var ifMatch: String { updates[0].ifMatch }
-    public var onConflict: String? { updates[0].onConflict }
+    public var ifCurrent: String? { updates[0].ifCurrent }
     public var objects: [WireObjectEnvelope] { updates[0].objects }
     public var deltas: [WireObjectDelta] { updates[0].deltas }
-
-    private enum CodingKeys: String, CodingKey { case base, updates }
-
     public init(from decoder: Decoder) throws {
-        try validateSemanticFields(decoder, allowed: ["base", "updates"])
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        guard values.contains(.base) else { throw ArborWireValidationError.invalidValue("Missing base") }
-        base = try values.decodeIfPresent(String.self, forKey: .base)
-        if let base, base.isEmpty { throw ArborWireValidationError.invalidValue("Empty base") }
-        updates = try values.decode([WireCandidateUpdate].self, forKey: .updates)
-        guard !updates.isEmpty, Set(updates.map(\.change)).count == updates.count else { throw ArborWireValidationError.invalidValue("Update requires a nonempty array of distinct changes") }
-        if base == nil {
-            guard updates[0].ifMatch == "bytesHash" else {
-                throw ArborWireValidationError.invalidValue("Activation matches on bytesHash")
-            }
-            guard updates[0].deltas.isEmpty else {
-                throw ArborWireValidationError.invalidValue("Activation has no base to apply deltas against")
-            }
-        }
+        let request = try WireAuthoredUpdateRequest(from: decoder)
+        self.init(base: request.base, updates: try request.updates.map(WireCandidateUpdate.init))
     }
-
-    /// A nil base is written as an explicit JSON null: activation is a request, not an omission.
     public func encode(to encoder: Encoder) throws {
-        guard !updates.isEmpty, Set(updates.map(\.change)).count == updates.count else { throw ArborWireValidationError.invalidValue("Update requires a nonempty array of distinct changes") }
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(base, forKey: .base)
-        try values.encode(updates, forKey: .updates)
+        try WireAuthoredUpdateRequest(base: base, updates: updates.map { try $0.authored() }).encode(to: encoder)
     }
 }
 

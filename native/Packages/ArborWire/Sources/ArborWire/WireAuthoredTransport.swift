@@ -1,6 +1,6 @@
 import Foundation
 
-/// Complete consolidated request. Adoption by active transport and durable queues is coordinated separately.
+/// Complete consolidated request used by the active Wire request model.
 public struct WireAuthoredUpdateRequest: Codable, Sendable, Equatable {
     public let base: String?
     public let updates: [WireAuthoredCandidate]

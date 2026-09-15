@@ -45,41 +45,21 @@ struct UpdateMachineTests {
         }
     }
 
-    @Test("Element digests are independent of how object envelopes are packed")
+    @Test("Element digests are independent of complete or sparse transport")
     func envelopeIndependence() throws {
-        let data = try Data(contentsOf: conformanceFixtures.appending(path: "wire-update-intent.json"))
-        let fixture = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let vector = try #require(fixture["envelopeIndependence"] as? [String: Any])
-        let tree = try #require(vector["tree"] as? String)
-        let candidates = try #require(vector["candidates"] as? [String])
-        let changes = try #require(vector["changes"] as? [String])
-        let base = WireUpdateBase(root: candidates[0], update: try #require(vector["base"] as? String))
-        let expected = try #require(vector["digests"] as? [String])
-        let ifMatch = try #require(vector["ifMatch"] as? String)
-        let packings = try #require(vector["packings"] as? [[[[String: String]]]])
-        for packing in packings {
-            var updates: [WireCandidateUpdate] = []
-            for (index, candidate) in candidates.enumerated() {
-                var objects: [WireObjectEnvelope] = []
-                for envelope in index < packing.count ? packing[index] : [] {
-                    let hash = try #require(envelope["hash"])
-                    let encoded = try #require(envelope["bytes"])
-                    let bytes = try #require(Data(base64Encoded: encoded))
-                    objects.append(WireObjectEnvelope(hash: hash, bytes: bytes))
-                }
-                updates.append(WireCandidateUpdate(
-                    candidate: candidate,
-                    change: changes[index],
-                    ifMatch: ifMatch,
-                    onConflict: vector["onConflict"] as? String,
-                    objects: objects
-                ))
-            }
-            #expect(updateRequestDigests(tree: tree, base: base, updates: updates) == expected)
+        let data = try Data(contentsOf: conformanceFixtures.appending(path: "wire-authored-transport.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with:data) as? [String: Any])
+        let tree = try #require(fixture["tree"] as? String)
+        let cases = try #require(fixture["cases"] as? [[String: Any]])
+        var digests: [[String]] = []
+        for row in cases.prefix(3) {
+            let body = try JSONSerialization.data(withJSONObject: #require(row["value"]))
+            let request = try JSONDecoder().decode(WireUpdateRequest.self,from:body)
+            digests.append(updateRequestDigests(tree:tree,base:request.base,updates:request.updates))
         }
+        #expect(digests[0] == digests[1])
+        #expect(digests[0] == digests[2])
     }
-
-    // MARK: Decoding
 
     private static func base(_ json: [String: Any]) throws -> UpdateMachine.AcceptedBase {
         .init(

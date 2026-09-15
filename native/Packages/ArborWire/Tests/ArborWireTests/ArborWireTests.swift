@@ -283,49 +283,30 @@ struct UpdateProtocolTests {
         }
     }
 
-    @Test("Canonical semantic intent matches the shared canonical CBOR fixture")
-    func requestIdentity() throws {
-        let data = try Data(contentsOf: fixtures.appending(path: "wire-update-intent.json"))
+    @Test("Active request codec and identities match the shared authored vectors")
+    func activeAuthoredContract() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-authored-updates.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let identity = try #require(fixture["identity"] as? [String: Any])
-        let candidate = identity["candidate"] as! String
-        let value = WireUpdateBase(root: candidate, update: try #require(identity["base"] as? String))
-        let tree = identity["tree"] as! String
-        let ifMatch = identity["ifMatch"] as! String
-        let onConflict = identity["onConflict"] as? String
-        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate, change: identity["change"] as! String, ifMatch: ifMatch, onConflict: onConflict).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
-        #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate, change: identity["change"] as! String, ifMatch: ifMatch, onConflict: onConflict) == identity["digest"] as? String)
-        let later = try #require(fixture["laterElement"] as? [String: Any])
-        let second = WireCandidateUpdate(
-            candidate: later["candidate"] as! String,
-            change: later["change"] as! String,
-            ifMatch: later["ifMatch"] as! String,
-            onConflict: later["onConflict"] as? String,
-            objects: []
-        )
-        #expect(updateRequestDigests(
-            tree: tree,
-            base: value,
-            updates: [WireCandidateUpdate(candidate: candidate, change: identity["change"] as! String, ifMatch: ifMatch, onConflict: onConflict, objects: []), second]
-        ).last == later["digest"] as? String)
-    }
-
-    @Test("Semantic operations preserve all fields and match shared digests")
-    func semanticOperations() throws {
-        let data = try Data(contentsOf: fixtures.appending(path: "wire-operations.json"))
-        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        for row in fixture["valid"] as! [[String: Any]] {
-            let data = try JSONSerialization.data(withJSONObject: row["candidate"]!)
-            let value = try JSONDecoder().decode(WireCandidateUpdate.self, from: data)
-            let restored = try JSONDecoder().decode(WireCandidateUpdate.self, from: JSONEncoder().encode(value))
-            #expect(restored == value)
-            let bytes = canonicalUpdateIntent(tree: fixture["tree"] as! String, base: WireUpdateBase(root: value.candidate, update: fixture["base"] as! String), candidate: value.candidate, change: value.change, operations: value.operations)
-            #expect(bytes.base64EncodedString() == row["canonicalCBORBase64"] as? String)
-            #expect(canonicalCBORHash(bytes) == row["digest"] as? String)
-        }
-        for row in fixture["invalid"] as! [[String: Any]] {
-            let data = try JSONSerialization.data(withJSONObject: row["candidate"]!)
-            #expect(throws: (any Error).self, "\(row["name"]!)") { try JSONDecoder().decode(WireCandidateUpdate.self, from: data) }
+        let tree = try #require(fixture["tree"] as? String)
+        for row in try #require(fixture["cases"] as? [[String: Any]]) {
+            var raw = try #require(row["value"] as? [String: Any])
+            raw["updates"] = try #require(raw["updates"] as? [[String: Any]]).map { u in
+                var value = u; value["objects"] = [Any](); value["deltas"] = [Any](); return value
+            }
+            let bytes = try JSONSerialization.data(withJSONObject: raw)
+            if row["valid"] as? Bool != true {
+                #expect(throws: (any Error).self) { try JSONDecoder().decode(WireUpdateRequest.self,from:bytes) }
+                continue
+            }
+            let request = try JSONDecoder().decode(WireUpdateRequest.self,from:bytes)
+            #expect(try JSONDecoder().decode(WireUpdateRequest.self,from:JSONEncoder().encode(request)) == request)
+            let expected = try #require(row["identities"] as? [[String: String]])
+            #expect(updateRequestDigests(tree:tree,base:request.base,updates:request.updates) == expected.map { $0["digest"]! })
+            if let base = request.base {
+                let u = request.updates[0]
+                let encoded = canonicalUpdateIntent(tree:tree,base:.init(root:u.candidate,update:base),candidate:u.candidate,change:u.change,operations:u.operations,resolves:u.resolves,ifCurrent:u.ifCurrent)
+                #expect(encoded.base64EncodedString() == expected[0]["canonicalCBORBase64"])
+            }
         }
     }
 
@@ -401,7 +382,7 @@ struct UpdateProtocolTests {
             "base": base.update,
             "updates": [[
                 "candidate": request.candidate,
-                "ifMatch": "modelHash",
+                "change": "delta-test", "operations": NSNull(), "resolves": [],
                 "objects": [],
             ]],
         ])
@@ -416,7 +397,7 @@ struct UpdateProtocolTests {
                 "base": base.update,
                 "updates": [[
                     "candidate": "sha256:" + String(repeating: "1", count: 64),
-                    "ifMatch": "modelHash",
+                    "change": "delta-test", "operations": NSNull(), "resolves": [],
                     "objects": [],
                     "deltas": deltas,
                 ]],

@@ -24,15 +24,12 @@ as the owning implementation lands. Keep existing conformance suites passing.
 
 ## 1. Adopt the consolidated contract compatibly
 
-Use the [target semantic models and complete request codecs](../../docs/update-wire-contract.md).
-Connect the complete codecs to active TS/Swift submission, builders, digest calculation and durable
-queue fields together with Canopy decoding and exact accepted-state preconditions.
-Keep transport object/delta codecs. Resolve transmitted uncertain requests with their
-original bytes/semantics/digests before retiring the old encoding; never rewrite
-historical receipts or silently translate pending requests. Audit offline clients
-and adopted prefixes before cutover. Remove superseded grammar after adoption rather
-than adding a permanent versioned API or adapter. Test changed guards and declarations
-changing digests, prefix identity stability, restart and recovery before activation.
+The [request-side implementation and recovery checks](../../docs/update-wire-contract.md)
+are in place. Complete the read-side adoption below, then audit transmitted uncertain
+requests, offline clients and adopted prefixes before cutover. Resolve old uncertain
+requests with their original build/bytes/semantics/digests; never rewrite historical
+receipts or translate a pending request in place. Rehearse upgrading a clean queue
+and restoring backups before activation. Keep transport object/delta codecs.
 
 Port or explicitly archive old-format experiments; retain their historical evidence.
 Adopt the target read models with simplified receipt outcomes, predecessor identity

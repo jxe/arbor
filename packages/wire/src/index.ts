@@ -7,4 +7,4 @@ export * from "./updates/apply.ts";
 export * from "./updates/delta.ts";
 export * from "./client.ts";
 
-export * from "./updates/operations.ts";
+export type { AuthoredOperation as SourceOperation, Material, MaterialRef, EntryDestination, ResolutionDeclaration } from "./updates/authored-contract.ts";

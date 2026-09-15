@@ -1,4 +1,4 @@
-/** Target semantic contract. Not connected to deployed request encoding yet.
+/** Shared semantic contract used by the active request codecs.
  * Transport envelopes remain governed by the existing object/delta codecs.
  */
 import { canonicalCBORHash, encodeCanonicalCBOR } from "@arbor/core";
@@ -92,19 +92,8 @@ export function decodeAuthoredRequestIntent(raw: unknown): AuthoredRequestIntent
   const v = obj(raw); keys(v, ["base", "updates"]); if (v.base !== null) token(v.base);
   require(Array.isArray(v.updates) && v.updates.length > 0); const changes = new Set();
   for (const raw of v.updates) {
-    const u = obj(raw); keys(u, ["change", "candidate", "operations", "resolves"], ["ifCurrent"]);
-    id(u.change); require(!changes.has(u.change)); changes.add(u.change); hash(u.candidate);
-    if (Object.hasOwn(u, "ifCurrent")) token(u.ifCurrent);
-    require(Array.isArray(u.resolves)); const decisions = new Set();
-    for (const raw of u.resolves) {
-      const r = obj(raw); keys(r, ["state", "conflict", "alternatives"]); token(r.state); id(r.conflict);
-      require(!decisions.has(r.conflict)); decisions.add(r.conflict);
-      require(Array.isArray(r.alternatives) && r.alternatives.length > 0 && new Set(r.alternatives).size === r.alternatives.length); r.alternatives.forEach(id);
-    }
-    if (u.operations !== null) {
-      require(Array.isArray(u.operations) && u.operations.length <= 1024 && (u.operations.length > 0 || u.resolves.length > 0));
-      const ops = u.operations.map(operation); require(new Set(ops.map((o: AuthoredOperation) => o.key)).size === ops.length);
-    }
+    const u = decodeAuthoredCandidateIntent(raw);
+    require(!changes.has(u.change)); changes.add(u.change);
   }
   if (v.base === null) { const first = v.updates[0]; require(!Object.hasOwn(first, "ifCurrent") && first.resolves.length === 0); }
   return v as AuthoredRequestIntent;
@@ -122,3 +111,20 @@ export function authoredRequestIdentities(tree: string, request: AuthoredRequest
 }
 
 export { reference as decodeMaterialRef };
+
+export function decodeAuthoredCandidateIntent(raw: unknown): AuthoredUpdateIntent {
+  const u = obj(raw); keys(u, ["change", "candidate", "operations", "resolves"], ["ifCurrent"]);
+  id(u.change); hash(u.candidate);
+  if (Object.hasOwn(u, "ifCurrent")) token(u.ifCurrent);
+  require(Array.isArray(u.resolves)); const decisions = new Set();
+  for (const raw of u.resolves) {
+    const r = obj(raw); keys(r, ["state", "conflict", "alternatives"]); token(r.state); id(r.conflict);
+    require(!decisions.has(r.conflict)); decisions.add(r.conflict);
+    require(Array.isArray(r.alternatives) && r.alternatives.length > 0 && new Set(r.alternatives).size === r.alternatives.length); r.alternatives.forEach(id);
+  }
+  if (u.operations !== null) {
+    require(Array.isArray(u.operations) && u.operations.length <= 1024 && (u.operations.length > 0 || u.resolves.length > 0));
+    const ops = u.operations.map(operation); require(new Set(ops.map((o: AuthoredOperation) => o.key)).size === ops.length);
+  }
+  return u as AuthoredUpdateIntent;
+}
