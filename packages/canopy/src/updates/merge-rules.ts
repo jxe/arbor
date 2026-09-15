@@ -24,6 +24,69 @@ export interface RuleContext {
   conflicts: UpdateConflict[];
 }
 
+/** Source-intent rules validate a causally reconstructed proposal. They do not
+ * infer correspondence or turn a snapshot diff into authored operations. */
+export interface SourceMergeInput {
+  tree: string;
+  path: string;
+  basis: Uint8Array;
+  current: Uint8Array;
+  candidate: Uint8Array;
+  proposed: Uint8Array;
+  contributions: ReadonlyArray<{ change: string; operation: string }>;
+}
+export interface SourceMergeDecision {
+  outcome: "resolved" | "unresolved" | "inapplicable";
+  reason: string;
+}
+/** Inputs and decisions are self-contained data. Evaluation may be local or
+ * delegated later; authorization and commit never belong to the rule process. */
+export interface SourceMergeRule {
+  id: string;
+  revision: number;
+  evaluate(input: SourceMergeInput): SourceMergeDecision | Promise<SourceMergeDecision>;
+}
+export type SourceMergeRuleSelector = (tree: string, path: string) => SourceMergeRule | null;
+
+function sourceTexts(input: SourceMergeInput): string[] | null {
+  try {
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+    return [input.basis, input.current, input.candidate, input.proposed].map(bytes => decoder.decode(bytes));
+  } catch { return null; }
+}
+export const plainTextSourceRule: SourceMergeRule = {
+  id: "plain-text-disjoint", revision: 1,
+  evaluate(input) {
+    return sourceTexts(input)
+      ? { outcome: "resolved", reason: "Disjoint authored selections in scalar text" }
+      : { outcome: "inapplicable", reason: "Source is not scalar UTF-8 text" };
+  },
+};
+export const markdownProseSourceRule: SourceMergeRule = {
+  id: "markdown-prose-disjoint", revision: 1,
+  evaluate(input) {
+    const texts = sourceTexts(input);
+    if (!texts) return { outcome: "inapplicable", reason: "Source is not scalar UTF-8 text" };
+    // A conservative first Markdown rule. Richer rules can validate frontmatter,
+    // code, links and embedded structures without changing causal reconciliation.
+    const prose = (text: string) => !/[`~*_<>{}\[\]\\|#$]/.test(text) &&
+      !/^\ufeff?---(?:\r?\n|$)/.test(text) &&
+      !/^[ \t]*(?:[-=]{2,}|[+]{3,})[ \t]*$/m.test(text) &&
+      !/^(?: {4}|\t|\s*(?:[-+]|\d+[.)])\s)/m.test(text);
+    return texts.every(prose)
+      ? { outcome: "resolved", reason: "Disjoint authored selections preserve plain Markdown prose" }
+      : { outcome: "inapplicable", reason: "Structured Markdown requires another source rule" };
+  },
+};
+
+/** Built-in selection policy. Future Canopy/tree configuration selects rules at
+ * this boundary; extensions are defaults, while each rule examines the source. */
+export const defaultSourceMergeRule: SourceMergeRuleSelector = (_tree, path) => {
+  if (/\.txt$/i.test(path)) return plainTextSourceRule;
+  if (/\.(md|markdown)$/i.test(path)) return markdownProseSourceRule;
+  return null;
+};
+
 function splitLines(source: string): string[] {
   return source.match(/.*?(?:\r\n|\n|\r|$)/g)?.filter(Boolean) ?? [];
 }

@@ -61,7 +61,23 @@ Choose the smallest production representation that passes the corpus: composable
 - Validate explicit alternative edits and resolution using exact accepted state and reviewed alternative-set guards. Commit independent resolutions separately when appropriate; stale reviews retain the person's draft and all newer evidence.
 - Define retention, compaction, backup, pruning, restart, and historical read semantics. Never compact unresolved alternatives or origins still needed by active references into an ordinary snapshot.
 
-## 4. Integrate and measure
+## 4. Rule selection and execution placement
+
+Per-source-format rules own merge validity and resolution policy. The implemented
+source-rule boundary accepts self-contained data and supports asynchronous evaluation;
+keep causal correspondence and authority commits separate from format policy.
+Remaining work:
+
+- Add explicit Canopy defaults and per-tree rule selection/overrides when configuration
+  is introduced. Keep rule identity/revision and evaluated inputs in accepted evidence.
+- Allow rule/merge computation to move to a sidecar if useful. Keep authorization,
+  accepted-state guards and atomic persistence in Canopy; validate returned objects
+  and decisions before committing. Define cancellation, resource limits and worker
+  failure behavior when implementing the process boundary.
+- Preserve historical evidence across rule upgrades and configuration changes. A
+  new rule must not silently reinterpret an old accepted decision or retry receipt.
+
+## 5. Integrate and measure
 
 Replace existing merge decisions incrementally behind the ordinary update path. Keep rejection for unsupported operations and invalid models. Measure merge latency, source-analysis cache use, provenance growth, conflict frequency, and false-merge regressions. Rehearse any storage migration on a copy with exact root/update/inventory comparison; do not reset live history as an optimization.
 

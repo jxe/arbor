@@ -61,6 +61,20 @@ remain contributions: overlap with them is still a conflict. Identical file hash
 different paths do not identify one occurrence. This reuses schema 9 storage; no
 additional wire or schema migration is introduced.
 
+Format validation lives in `merge-rules.ts`, separate from causal reconstruction.
+The built-in selector chooses a plain-text or Markdown-prose rule; each receives
+the exact basis, current, candidate and proposed source plus contribution identities.
+It returns resolved, unresolved or inapplicable. Accepted decisions retain the
+chosen rule identity/revision, input hashes and justification. A different rule can
+validate another format without changing the causal executor.
+
+Evaluation is awaitable and receives detached, self-contained data. That boundary
+can later support a sidecar process. Rule selection receives tree and source path,
+leaving a place for future Canopy/tree policy; persisted configuration and sidecar
+infrastructure are not implemented. Canopy retains authorization, graph validation,
+accepted-state CAS and atomic persistence. Rule changes never reinterpret historical
+receipts or rewrite stored decisions.
+
 The rule requires complete retained history, at most 64 intervening accepted states
 and 4096 combined operations. Snapshot transitions, changed causal bases, unresolved
 states and overlapping/same-anchor peer contributions return the existing structured
@@ -130,3 +144,9 @@ rule evidence across restart, merged receipts, subsequent snapshot editing, and
 candidate/projection separation in a batch suffix. Link and anchor checks added
 no unresolved references. This checkpoint is not deployed and does not enable
 client operation emission or durable accepted ambiguity.
+
+The subsequent format-rule separation passed 720 product tests, typechecking and
+the protocol gate. An asynchronous test rule validates JSON independently of the
+built-in selector, can decline a proposed merge, and cannot mutate executor buffers.
+HTTP coverage verifies retained per-source rule identity and revision. This is an
+execution boundary, not an installed sidecar or user-configurable policy service.

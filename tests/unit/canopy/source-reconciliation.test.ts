@@ -89,3 +89,31 @@ test("concurrency declines structured formats, Markdown structures, and newly in
     expect((await reconcileSourceEdits(f.basis, second.candidate, second.intent, history[0]!.update, history, f.load)).outcome).toBe("rejected");
   }
 });
+
+test("a selected asynchronous format rule owns acceptance and leaves durable input evidence", async () => {
+  const f = fixture('{"a":1,"b":2}', "json"), history: SourceHistoryEntry[] = [];
+  await f.accept(await f.change("first", [5,6], "3"), history);
+  const second = await f.change("second", [11,12], "4"), current = history[0]!.update;
+  const merged = await reconcileSourceEdits(f.basis, second.candidate, second.intent, current, history, f.load,
+    (tree, path) => {
+      expect([tree, path]).toEqual(["tree", "/a.json"]);
+      return { id: "test-json-validation", revision: 7, async evaluate(input) {
+        const detached = structuredClone(input);
+        for (const bytes of [detached.basis, detached.current, detached.candidate, detached.proposed]) {
+          expect(Object.keys(JSON.parse(new TextDecoder().decode(bytes)))).toEqual(["a", "b"]);
+        }
+        expect(detached.contributions).toEqual([{ change: "first", operation: "edit" }, { change: "second", operation: "edit" }]);
+        // Even a local rule must not mutate the causal executor's buffers.
+        input.proposed.fill(0);
+        return { outcome: "resolved", reason: "Test JSON shape validated" };
+      } };
+    });
+  expect(merged.outcome).toBe("merged");
+  if (merged.outcome !== "merged") throw new Error("Expected merge");
+  expect(merged.root).toBe((await f.change("expected", [0,13], '{"a":3,"b":4}')).candidate);
+  expect(merged.merge).toMatchObject({ rules: [{ rule: "test-json-validation", revision: 7, outcome: "resolved",
+    inputs: { proposed: hashObject(new TextEncoder().encode('{"a":3,"b":4}')) } }] });
+  const declined = await reconcileSourceEdits(f.basis, second.candidate, second.intent, current, history, f.load,
+    () => ({ id: "decline", revision: 1, async evaluate() { return { outcome: "unresolved", reason: "Needs review" }; } }));
+  expect(declined.outcome).toBe("rejected");
+});

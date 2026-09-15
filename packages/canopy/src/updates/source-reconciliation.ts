@@ -1,4 +1,5 @@
-import { decodeWireDirectory, type AcceptedUpdate, type ObjectHash, type SourceOperation } from "@arbor/wire";
+import { defaultSourceMergeRule, type SourceMergeRuleSelector } from "./merge-rules.ts";
+import { decodeWireDirectory, hashObject, type AcceptedUpdate, type ObjectHash, type SourceOperation } from "@arbor/wire";
 import { executeExactSourceEdits, UnsupportedSourceEdit } from "./source-edits.ts";
 import type { SourceIntent, StoredSourceIntent } from "./source-intent-store.ts";
 import type { MergeSummary, ReconciledUpdate, SourceReconciliation } from "./reconcile.ts";
@@ -9,17 +10,6 @@ export interface SourceHistoryEntry {
   summary: MergeSummary | null;
 }
 
-function plainProse(path: string, bytes: Uint8Array): boolean {
-  const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-  if (/\.txt$/i.test(path)) return true;
-  if (!/\.(md|markdown)$/i.test(path)) return false;
-  // Deliberately a small recognition rule, not a Markdown parser. Decline markup,
-  // frontmatter, code, links and embedded structures until format-aware rules own them.
-  return !/[`~*_<>{}\[\]\\|#$]/.test(text) &&
-    !/^\ufeff?---(?:\r?\n|$)/.test(text) &&
-    !/^[ \t]*(?:[-=]{2,}|[+]{3,})[ \t]*$/m.test(text) &&
-    !/^(?: {4}|\t|\s*(?:[-+]|\d+[.)])\s)/m.test(text);
-}
 async function fileAt(root: ObjectHash, path: string, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<Uint8Array | null> {
   const parts = path.slice(1).split("/");
   let hash = root;
@@ -44,6 +34,7 @@ export async function reconcileSourceEdits(
   current: AcceptedUpdate,
   history: SourceHistoryEntry[] | null,
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  selectRule: SourceMergeRuleSelector = defaultSourceMergeRule,
 ): Promise<ReconciledUpdate> {
   const rejected = (): ReconciledUpdate => ({ outcome: "rejected", root: candidate,
     generated: new Map(), conflicts: [{ path: "/", reason: "node-conflict" }] });
@@ -88,15 +79,26 @@ export async function reconcileSourceEdits(
     if ((await executeExactSourceEdits(basis.root, operations, load)).root !== current.root) return rejected();
     if (!append(incoming)) return rejected();
     const result = await executeExactSourceEdits(basis.root, operations, load);
+    const rules: NonNullable<SourceReconciliation["rules"]> = [];
     if (history.length) {
       const mergedLoad = async (hash: ObjectHash) => result.generated.get(hash) ?? load(hash);
       for (const [path, object] of files) {
-        const after = await fileAt(result.root, path, mergedLoad);
-        if (!after || !plainProse(path, await load(object)) || !plainProse(path, after)) return rejected();
+        const rule = selectRule(current.tree, path);
+        if (!rule) return rejected();
+        const [before, accepted, authored, proposed] = await Promise.all([
+          load(object), fileAt(current.root, path, load), fileAt(candidate, path, load), fileAt(result.root, path, mergedLoad),
+        ]);
+        if (!accepted || !authored || !proposed) return rejected();
+        const identity = { rule: rule.id, revision: rule.revision };
+        const decision = await rule.evaluate(structuredClone({ tree: current.tree, path, basis: before,
+          current: accepted, candidate: authored, proposed, contributions }));
+        if (decision.outcome !== "resolved") return rejected();
+        rules.push({ path, ...identity, outcome: "resolved", reason: decision.reason,
+          inputs: { basis: object, current: hashObject(accepted), candidate: hashObject(authored), proposed: hashObject(proposed) } });
       }
     }
     return { outcome: "merged", root: result.root, generated: result.generated, conflicts: [],
-      merge: { version: "exact-source-disjoint-v1", basis, contributions } };
+      merge: { version: "exact-source-disjoint-v1", basis, contributions, rules } };
   } catch (error) {
     // Overlap across individually supported requests is a reconciliation conflict,
     // not an unsupported-operation error and never an implicit resolution.

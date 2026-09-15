@@ -143,8 +143,9 @@ test("same-basis independent source edits merge across restart and retain replay
   expect(records()).toHaveLength(3);
   const db = new Database(`${dir}/canopy.sqlite3`);
   const row = db.query("SELECT merge_summary FROM accepted_updates WHERE id = ?").get(accepted.results[0]!.update.id) as { merge_summary: string };
-  expect(JSON.parse(row.merge_summary)).toEqual({ version: "exact-source-disjoint-v1", basis: { id: base, root },
+  expect(JSON.parse(row.merge_summary)).toMatchObject({ version: "exact-source-disjoint-v1", basis: { id: base, root },
     contributions: [a,b,c].map(update => ({ change: update.change, operation: "edit" })) });
+  expect(JSON.parse(row.merge_summary).rules).toMatchObject([{ path: "/note.md", rule: "markdown-prose-disjoint", revision: 1, outcome: "resolved" }]);
   db.close();
   const replay = await client.submitUpdates(tree, request);
   expect(replay.results[0]!.update).toEqual(accepted.results[0]!.update);
