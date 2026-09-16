@@ -4,3 +4,5 @@ export * from "./sync-state.ts";
 export * from "./account-wire.ts";
 export * from "./account-bootstrap.ts";
 export * from "./update-machine.ts";
+
+export * from "./source-admission-queue.ts";

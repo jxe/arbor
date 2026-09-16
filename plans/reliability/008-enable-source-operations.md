@@ -59,8 +59,11 @@ The explicit-alternative slice depends on 009's accepted-conflict storage and in
 The reducers capture exact base source/revision in admission effects. Native passes
 a validated `WorkspaceDocumentIntent` and independently retains its guarded patch;
 legacy recovery records remain readable. This is source-level recovery evidence,
-**not yet** a publication-ready tree basis. Do not remove the working-tree revision
-check merely because the source-level record exists.
+**not by itself** a publication-ready tree basis. The new [source admission queue](../../docs/source-admission-queue.md)
+now captures tree bases atomically and durably retains validated candidate/operation
+chains in Swift and TS, with shared exact-request vectors and restart/failure tests.
+It is not yet connected to session acknowledgement or automatic publication. Do
+not remove the working-tree revision check until that integration is complete.
 
 Ownership: the editor bridge maps editing transactions to exact source edits and
 owns selection, undo and uncommitted editor state. The working-tree client owns
@@ -71,8 +74,8 @@ queue. Keep these policies in client types and transitions rather than requiring
 each editor host to implement them. The future TS working-tree client uses the same
 boundary; a transport-only Wire client does not own editor admission.
 
-- Extend durable heads into authored records binding exact accepted update/root or
-  preceding local candidate, source path/object and candidate graph. Preserve these
+- Integrate the implemented authored records into document sessions and publication,
+  carrying the exact capture through equal-source observations and recovery. Preserve these
   dependencies through coalescing, other-page edits, in-flight requests, restart,
   root-equal transitions, and selection of a hidden alternative. TS and Swift clients
   must enforce these invariants; never silently rebuild an old edit against current.

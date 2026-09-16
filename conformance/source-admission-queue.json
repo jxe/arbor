@@ -1,0 +1,200 @@
+{
+  "description": "Exact source admission queue: dependency identities survive equal roots, restart, and request preparation. Candidate/request bytes are checked by Swift and TypeScript.",
+  "tree": "tr_queue",
+  "sourcePath": "/nested/note.md",
+  "source": "Before 🪴\r\n",
+  "changes": [
+    {
+      "change": "change-a",
+      "basis": {
+        "kind": "accepted",
+        "update": "up_r1"
+      },
+      "revision": "r1",
+      "offset": 0,
+      "length": 6,
+      "expected": "Before",
+      "replacement": "After"
+    },
+    {
+      "change": "change-b",
+      "basis": {
+        "kind": "authored",
+        "change": "change-a"
+      },
+      "revision": "local-a",
+      "offset": 0,
+      "length": 5,
+      "expected": "After",
+      "replacement": "After"
+    },
+    {
+      "change": "change-c",
+      "basis": {
+        "kind": "accepted",
+        "update": "up_r2"
+      },
+      "revision": "r2",
+      "offset": 0,
+      "length": 6,
+      "expected": "Before",
+      "replacement": "After"
+    }
+  ],
+  "requests": {
+    "change-a": {
+      "base": "up_r1",
+      "updates": [
+        {
+          "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+          "change": "change-a",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "After"
+            }
+          ],
+          "resolves": [],
+          "objects": [
+            {
+              "hash": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
+              "bytes": "QWZ0ZXIg8J+qtA0K"
+            },
+            {
+              "hash": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6OWE2MzVmYmMxNzE2Y2FmMTIxN2I0YmFlZThhZWJmOTJjZmNhMmJjZGRmMDVjMDcyMTFlYjNiYzA0Mzg5YTA0YQ=="
+            },
+            {
+              "hash": "sha256:9a635fbc1716caf1217b4baee8aebf92cfca2bcddf05c07211eb3bc04389a04a",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1k"
+            }
+          ],
+          "deltas": []
+        }
+      ]
+    },
+    "change-b": {
+      "base": "up_r1",
+      "updates": [
+        {
+          "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+          "change": "change-a",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "After"
+            }
+          ],
+          "resolves": [],
+          "objects": [
+            {
+              "hash": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
+              "bytes": "QWZ0ZXIg8J+qtA0K"
+            },
+            {
+              "hash": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6OWE2MzVmYmMxNzE2Y2FmMTIxN2I0YmFlZThhZWJmOTJjZmNhMmJjZGRmMDVjMDcyMTFlYjNiYzA0Mzg5YTA0YQ=="
+            },
+            {
+              "hash": "sha256:9a635fbc1716caf1217b4baee8aebf92cfca2bcddf05c07211eb3bc04389a04a",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1k"
+            }
+          ],
+          "deltas": []
+        },
+        {
+          "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+          "change": "change-b",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2"
+                },
+                "range": [
+                  0,
+                  5
+                ]
+              },
+              "text": "After"
+            }
+          ],
+          "resolves": [],
+          "objects": [],
+          "deltas": []
+        }
+      ]
+    },
+    "change-c": {
+      "base": "up_r2",
+      "updates": [
+        {
+          "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+          "change": "change-c",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "After"
+            }
+          ],
+          "resolves": [],
+          "objects": [
+            {
+              "hash": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
+              "bytes": "QWZ0ZXIg8J+qtA0K"
+            },
+            {
+              "hash": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6OWE2MzVmYmMxNzE2Y2FmMTIxN2I0YmFlZThhZWJmOTJjZmNhMmJjZGRmMDVjMDcyMTFlYjNiYzA0Mzg5YTA0YQ=="
+            },
+            {
+              "hash": "sha256:9a635fbc1716caf1217b4baee8aebf92cfca2bcddf05c07211eb3bc04389a04a",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1k"
+            }
+          ],
+          "deltas": []
+        }
+      ]
+    }
+  }
+}

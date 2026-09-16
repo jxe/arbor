@@ -20,8 +20,9 @@ runs the effects.
 The target admission policy is [exact authored basis](../spec/09-client-synchronization.md#exact-authored-basis).
 The reference implementation is in transition: both reducers now capture base source
 and revision in each admission effect; Native delivers a validated source intent and
-retains its guarded patch in independent recovery. The working-tree publication queue
-still needs durable basis/dependency records before stale admissions can be enabled.
+retains its guarded patch in independent recovery. The [durable source admission queue](source-admission-queue.md) now retains tree
+bases and explicit dependencies; document sessions and publication still need to
+consume those records before stale admissions can be enabled.
 The `conflict` phase and `mergeLocally` effect below are legacy compatibility behavior,
 not the target policy for concurrent Canopy edits. Existing recovery remains readable.
 

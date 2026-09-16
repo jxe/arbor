@@ -16,6 +16,32 @@ struct UpdateControlFiles: Sendable {
         try Self.createPrivateDirectory(directory)
     }
 
+    func withSourceAdmissionsLock<T>(_ action: () throws -> T) throws -> T {
+        let descriptor = Darwin.open(directory.appending(path: "source-admissions.lock").path, O_RDWR | O_CREAT, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { flock(descriptor, LOCK_UN) }
+        return try action()
+    }
+
+    func readSourceAdmissions() throws -> [SourceAdmissionRecord] {
+        let url = directory.appending(path: "source-admissions.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode([SourceAdmissionRecord].self, from: Data(contentsOf: url))
+    }
+
+    func writeSourceAdmissions(_ records: [SourceAdmissionRecord]) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try atomicWrite(try encoder.encode(records), to: directory.appending(path: "source-admissions.json"))
+        // Persist a newly created sync directory as well as its journal entry.
+        let parent = Darwin.open(directory.deletingLastPathComponent().path, O_RDONLY)
+        guard parent >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(parent) }
+        guard Darwin.fsync(parent) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    }
+
     func load() throws -> UpdateControl {
         guard FileManager.default.fileExists(atPath: controlURL.path) else { return UpdateControl() }
         var control = try JSONDecoder().decode(UpdateControl.self, from: Data(contentsOf: controlURL))

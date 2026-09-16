@@ -729,6 +729,21 @@ public actor WorkingTree {
         return result
     }
 
+    /// Capture source, tree graph and accepted identity atomically. This does not
+    /// pin the live projection or discard newer work when the editor submits later.
+    public func captureSourceAdmissionBasis(_ reference: WorkspaceReference) throws -> CapturedSourceAdmissionBasis {
+        let node = try resolve(reference)
+        guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }
+        let document = try documentSnapshot(reference), graph = try localSnapshot()
+        let accepted: WireUpdateBase?
+        if control.pendingRoot == nil, let root = control.acceptedRoot, let update = control.acceptedUpdate, root == graph.root {
+            accepted = WireUpdateBase(root: root, update: update)
+        } else { accepted = nil }
+        let sourcePath = node.kind == .markdown || node.directoryBodyPlacement == .siblingMarkdown
+            ? node.path + ".md" : (node.path == "/" ? "/_index.md" : node.path + "/_index.md")
+        return CapturedSourceAdmissionBasis(document: document, graph: graph, accepted: accepted, sourcePath: sourcePath)
+    }
+
     func documentSnapshot(_ reference: WorkspaceReference) throws -> WorkspaceDocumentSnapshot {
         let node = try resolve(reference)
         guard let source = completeSource(for: node), node.kind != .file else { throw WorkingTreeError.notDocument(reference) }
