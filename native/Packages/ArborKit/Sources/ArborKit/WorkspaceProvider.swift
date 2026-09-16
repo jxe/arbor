@@ -193,7 +193,7 @@ public struct WorkspaceDocumentIntent: Hashable, Codable, Sendable {
         guard patch.baseContentRevision == basis.contentRevision else {
             throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: basis.contentRevision)
         }
-        guard try patch.applying(to: basis.source) == source else {
+        guard try Data(patch.applying(to: basis.source).utf8) == Data(source.utf8) else {
             throw WorkspaceProviderError.invalidAction("Source intent does not produce its declared candidate")
         }
     }

@@ -16,6 +16,15 @@ func markdownDisplayTitle() {
 
 @Suite("Workspace coordination")
 struct WorkspaceCoordinatorTests {
+    @Test("Source intent validation uses exact UTF-8, not Unicode canonical equivalence")
+    func sourceIntentUnicodeFidelity() throws {
+        let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_one", path: "/page"), source: "x", contentRevision: "r1")
+        let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<1, replacement: "\u{e9}")])
+        #expect(throws: (any Error).self) {
+            try WorkspaceDocumentIntent(basis: basis, patch: patch, source: "e\u{301}")
+        }
+    }
+
     @Test("Source intents validate their captured basis and candidate even after decoding")
     func sourceIntent() throws {
         let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_one", path: "/page"),
