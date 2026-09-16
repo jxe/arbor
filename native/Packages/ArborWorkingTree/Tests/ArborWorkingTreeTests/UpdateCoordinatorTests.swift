@@ -144,7 +144,7 @@ struct UpdateCoordinatorTests {
                 "change":"old-change","candidate":initial.root,"operations":NSNull(),"ifMatch":"modelHash","objects":[],"deltas":[]
             ]]])
             var control = UpdateControl()
-            control.attempt = UpdateAttempt(tree:tree,base:.init(root:initial.root,update:"up_initial"),candidate:initial.root,generation:1,body:body,requestDigests:[digest],digest:digest,adoptedCount:nil)
+            control.attempt = UpdateAttempt(tree:tree,base:.init(root:initial.root,update:"up_initial"),candidate:initial.root,generation:1,body:body,requestDigests:[digest],digest:digest)
             let state = root.appending(path:"state")
             let files = try UpdateControlFiles(root:state)
             try files.write(control)
@@ -154,40 +154,6 @@ struct UpdateCoordinatorTests {
             }
             #expect(try Data(contentsOf:files.controlURL) == original)
             #expect(await transport.requests.isEmpty)
-        }
-    }
-
-    @Test("Adopted operations survive restart even when the candidate root is unchanged")
-    func semanticAdoptionRestart() async throws {
-        try await withTemporaryRoot { root in
-            let tree = "tr_semantic"
-            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n")
-            let transport = ClosureTransport(initial: initial) { _, _ in throw URLError(.notConnectedToInternet) }
-            let workingTree = try await placeWorkingTree(tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"), at: root.appending(path: "replica"), transport: transport)
-            let state = root.appending(path: "sync")
-            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: state)
-            let operation = try WireSourceOperation(["key": .string("undo"), "kind": .string("undoOperation"), "target": .object(["change": .string("prior"), "operation": .string("edit")])])
-            let candidate = WireCandidateUpdate(candidate: initial.root, change: "retained", operations: [operation], objects: initial.objects)
-            let base = WireUpdateBase(root: initial.root, update: "up_initial")
-            let digests = updateRequestDigests(tree: tree, base: base, updates: [candidate])
-            try await coordinator.adoptInFlight(base: base, updates: [candidate], requestDigests: digests, objects: initial.objects)
-            let reopened = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: state)
-            _ = try? await reopened.syncOnce()
-            let requests = await transport.requests
-            #expect(requests.count == 1)
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
-            #expect(request.updates[0].change == candidate.change)
-            #expect(request.updates[0].operations == candidate.operations)
-            #expect(requests[0].requestDigests == digests)
-            var retained = try UpdateControlFiles(root: state).load()
-            var altered = request
-            altered.base = "different-accepted-state"
-            retained.attempt!.body = try JSONEncoder().encode(altered)
-            try UpdateControlFiles(root: state).write(retained)
-            #expect(throws: ArborWireValidationError.self) {
-                try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: state)
-            }
-            #expect(try UpdateControlFiles(root: state).load().attempt?.body == retained.attempt?.body)
         }
     }
 
@@ -1341,170 +1307,8 @@ struct UpdateCoordinatorTests {
     }
 }
 
-@Suite("Working-tree update coordinator: sparse bodies, adoption, durable head")
+@Suite("Working-tree update coordinator: sparse bodies and durable head")
 struct UpdateCoordinatorPhase3Tests {
-    private static let adoptedSource = "---\nid: pg_note\n---\n\n# Note\n\nBase\nFolder edit\n"
-
-    /// An adopted element: the daemon's persisted request from `initial` to a folder edit.
-    private func foreignElement(initial: WireSnapshot, tree: String) throws -> (snapshot: WireSnapshot, element: WireCandidateUpdate, digests: [String], objects: [WireObjectEnvelope]) {
-        let foreign = try snapshot(markdown: Self.adoptedSource)
-        let retained = Set(initial.objects.map(\.hash))
-        let objects = foreign.objects.filter { !retained.contains($0.hash) }
-        let element = WireCandidateUpdate(candidate: foreign.root, objects: [])
-        let digests = updateRequestDigests(tree: tree, base: WireUpdateBase(root: initial.root, update: "up_initial"), updates: [element])
-        return (foreign, element, digests, objects)
-    }
-
-    private func acceptingElements(tree: String, initial: WireSnapshot, prefix: String) -> ClosureTransport.Submit {
-        { prepared, call in
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
-            var previous = initial.root
-            let results = request.updates.enumerated().map { index, candidate in
-                let update = accepted(id: "\(prefix)_\(call)_\(index + 1)", tree: tree, root: candidate.candidate, base: previous, candidate: candidate.candidate)
-                previous = candidate.candidate
-                return WireUpdateElementResult(result: .accepted(update), requestDigest: prepared.requestDigests[index])
-            }
-            return WireUpdateResponse(results: results, observedThrough: "\(prefix)_\(call)_\(results.count)")
-        }
-    }
-
-    @Test("An adopted prefix is resubmitted verbatim; a later admission is one successor against the accepted base")
-    func adoptedPrefixThenSuccessor() async throws {
-        try await withTemporaryRoot { root in
-            let tree = "tr_adopt"
-            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
-            let gate = FirstRequestGate()
-            let accept = acceptingElements(tree: tree, initial: initial, prefix: "up_adopt")
-            let transport = ClosureTransport(initial: initial, advancesCurrentOnAccept: true) { prepared, call in
-                if call == 1 { await gate.hold() }
-                return try await accept(prepared, call)
-            }
-            let workingTree = try await placeWorkingTree(
-                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
-                at: root.appending(path: "replica"),
-                transport: transport
-            )
-            let foreign = try foreignElement(initial: initial, tree: tree)
-            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"))
-            await #expect(throws: UpdateError.adoptedRequestDigestMismatch) {
-                try await coordinator.adoptInFlight(base: .init(root: initial.root, update: "up_initial"), updates: [foreign.element], requestDigests: ["other"], objects: [])
-            }
-            try await coordinator.adoptInFlight(
-                base: WireUpdateBase(root: initial.root, update: "up_initial"),
-                updates: [foreign.element],
-                requestDigests: foreign.digests,
-                objects: foreign.objects
-            )
-            #expect(await coordinator.syncState.kind == "prepared")
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
-            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
-            let syncing = Task { try await coordinator.syncOnce() }
-            for _ in 0..<200 where !(await gate.waiting) { try await Task.sleep(for: .milliseconds(10)) }
-            #expect(await gate.waiting)
-            try await admitAppend(session, "App edit\n")
-            try await waitForHead(root: root.appending(path: "sync"), workingTree: workingTree)
-            #expect(await transport.requests.count == 1)
-            #expect(await coordinator.syncState.kind == "submitting-pending")
-            await gate.release()
-            _ = try await syncing.value
-            for _ in 0..<300 where try await workingTree.heads().pendingRoot != nil { try await Task.sleep(for: .milliseconds(10)) }
-            let requests = await transport.requests
-            #expect(requests.count == 2)
-            let first = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
-            #expect(first.base == "up_initial")
-            #expect(first.updates.map(\.candidate) == [foreign.snapshot.root])
-            #expect(Set(first.updates[0].objects.map(\.hash)) == Set(foreign.objects.map(\.hash)))
-            #expect(requests[0].requestDigests == foreign.digests)
-            let second = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
-            #expect(second.base == "up_adopt_1_1")
-            #expect(second.updates.count == 1)
-            #expect(try await workingTree.heads().pendingRoot == nil)
-            #expect((try await session.snapshot()).source.hasSuffix("App edit\n"))
-        }
-    }
-
-    @Test("An offline admission behind an adopted prefix is appended to it exactly once")
-    func adoptedPrefixExtendedOffline() async throws {
-        try await withTemporaryRoot { root in
-            let tree = "tr_adopt_offline"
-            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
-            let transport = ClosureTransport(initial: initial, submitter: acceptingElements(tree: tree, initial: initial, prefix: "up_ext"))
-            let workingTree = try await placeWorkingTree(
-                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
-                at: root.appending(path: "replica"),
-                transport: transport
-            )
-            let foreign = try foreignElement(initial: initial, tree: tree)
-            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"), transportAvailable: false)
-            try await coordinator.adoptInFlight(
-                base: WireUpdateBase(root: initial.root, update: "up_initial"),
-                updates: [foreign.element],
-                requestDigests: foreign.digests,
-                objects: foreign.objects
-            )
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
-            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
-            try await admitAppend(session, "Offline edit\n")
-            try await waitForHead(root: root.appending(path: "sync"), workingTree: workingTree)
-            #expect(await transport.requests.isEmpty)
-            let localRoot = try await workingTree.heads().materializedRoot
-            await coordinator.setTransportAvailable(true)
-            let requests = await transport.requests
-            #expect(requests.count == 1)
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(requests.first).body)
-            #expect(request.updates.count == 2)
-            #expect(request.updates[0].candidate == foreign.snapshot.root)
-            #expect(request.updates[1].candidate == localRoot)
-            #expect(requests[0].requestDigests.first == foreign.digests.first)
-            #expect(try await workingTree.heads().pendingRoot == nil)
-        }
-    }
-
-    @Test("A conflict inside the adopted prefix holds with a foreign-review flag and keeps the attempt")
-    func adoptedConflictHolds() async throws {
-        try await withTemporaryRoot { root in
-            let tree = "tr_adopt_conflict"
-            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
-            let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nRemote\n")
-            let foreign = try foreignElement(initial: initial, tree: tree)
-            let conflict = WireUpdateConflict(
-                message: "unsafe",
-                current: accepted(id: "up_remote", tree: tree, root: remote.root, base: initial.root, candidate: remote.root),
-                base: initial.root,
-                candidate: foreign.snapshot.root,
-                draft: WireConflictDraft(root: remote.root, objects: remote.objects),
-                conflicts: [.init(path: "/note.md", reason: "frontmatter-conflict")]
-            )
-            let transport = ClosureTransport(initial: initial) { _, _ in throw WireUpdateConflictError(conflict: conflict) }
-            let workingTree = try await placeWorkingTree(
-                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
-                at: root.appending(path: "replica"),
-                transport: transport
-            )
-            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
-            try await coordinator.adoptInFlight(
-                base: WireUpdateBase(root: initial.root, update: "up_initial"),
-                updates: [foreign.element],
-                requestDigests: foreign.digests,
-                objects: foreign.objects
-            )
-            let result = try await coordinator.syncOnce()
-            #expect(result.state == .conflict)
-            #expect(result.detail?.contains("Sync Status") == true)
-            #expect(await coordinator.submissionHold?.foreignConflict == true)
-            #expect(try await coordinator.conflict() == nil)
-            #expect(try await coordinator.conflictWorkspace() == nil)
-            let control = try UpdateControlFiles(root: root).load()
-            #expect(control.conflict == nil)
-            #expect(control.attempt?.adoptedElementCount == 1)
-            _ = try await coordinator.syncOnce()
-            #expect(await transport.requests.count == 1)
-            await #expect(throws: UpdateError.adoptionBlocked) {
-                try await coordinator.adoptInFlight(base: .init(root: initial.root, update: "up_initial"), updates: [foreign.element], requestDigests: foreign.digests, objects: [])
-            }
-        }
-    }
-
     @Test("A durable head survives a stop before the publication delay and is submitted as one request")
     func durableHeadSurvivesStop() async throws {
         try await withTemporaryRoot { root in
@@ -1682,7 +1486,7 @@ struct UpdateCoordinatorPhase3Tests {
             let held = try await coordinator.presentation()
             #expect(held.state == .conflict)
             #expect(held.detail == "Paused for the folder's review")
-            #expect(await coordinator.submissionHold?.foreignConflict == false)
+            #expect(await coordinator.submissionHold?.reason == "Paused for the folder's review")
             #expect(try UpdateControlFiles(root: root).load().head?.root == (try await workingTree.heads().materializedRoot))
             try await coordinator.setSubmissionHold(nil)
             #expect(try await coordinator.syncOnce().state == .current)

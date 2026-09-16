@@ -113,7 +113,8 @@ discovery. Run the migration-specific suite during its rehearsal with
 
 `bun run test:protocol` checks the language-neutral fixtures, reference REST
 fixtures, and disposable live Arbor Sync/Canopy behavior against the Swift
-clients, including operation grammar/digests and working-tree durable adoption. Standalone `swift test` checks decoding; live-server cases skip when
+clients, including operation grammar/digests, accepted-root bootstrap, and
+independent working-tree durability. Standalone `swift test` checks decoding; live-server cases skip when
 their test URLs are absent. Postgres integration is opt-in:
 
 ```sh

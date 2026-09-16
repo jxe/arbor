@@ -20,21 +20,19 @@ import {
   type LocalPlacement,
   type SharedTreePlacement,
 } from "@arbor/stores";
-import { WireClient, hashObject, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, updateRequestDigests, verifyTreeSnapshotGraph, type CandidateUpdateJSON, type LazyTreeSnapshot, type ObjectHash, type RemoteTreeDescriptor, type UpdateRequest } from "@arbor/wire";
+import { WireClient, hashObject, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@arbor/wire";
 import { resolveUserPath } from "@arbor/canopy-client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import {
   clearTreeConflict,
   pendingFromSnapshot,
-  pendingTreeUpdate,
   savePendingTreeUpdate,
   saveAcceptedTreeObjects,
   snapshotFromConflictDraft,
   saveTreeConflictMaterial,
   treeConflict,
   treeConflictMaterial,
-  updatesFromPending,
 } from "@arbor/canopy-client";
 import { TreeManager } from "./tree-manager.ts";
 import { TreeSynchronizer } from "@arbor/canopy-client";
@@ -43,18 +41,20 @@ import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts"
 export { resolveUserPath } from "@arbor/canopy-client";
 
 /** What a loopback client needs to open a placed tree as its own working tree. */
+export type BootstrapTreeDescriptor = Pick<
+  LocalTreeDescriptor,
+  "id" | "configurationTree" | "kind" | "access" | "canonical" | "name" | "osPath" | "placement"
+>;
+
 export interface TreeBootstrap {
-  tree: LocalTreeDescriptor;
+  /** Placement and routing metadata only; daemon synchronization state is deliberately excluded. */
+  tree: BootstrapTreeDescriptor;
   /** The daemon's accepted base; `cursor` is the Wire watch cursor, which is independent of the accepted update id. */
   accepted: { root: Hash; update: string; cursor: string | null };
   /** Base64 of a sparse CBOR snapshot bundle: every directory object and every Markdown file object. */
   spine: string;
   /** Local page-body mtimes, Unix milliseconds, keyed by tree-relative logical path. */
   modifiedAtByPath: Record<string, number>;
-  /** Every non-Markdown file entry by wire path; the client resolves their objects on demand. */
-  /** The daemon's stored update string, verbatim, when it still describes the folder exactly. */
-  pending?: { base: string | null; updates: CandidateUpdateJSON[]; requestDigests: string[] };
-  blocked?: "conflict" | "unsettled";
   observedThrough: string;
 }
 
@@ -71,30 +71,35 @@ export interface ArborSyncDaemonOptions {
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
-async function sparseSpine(root: string, lazy: LazyTreeSnapshot): Promise<{ spine: string; modifiedAtByPath: Record<string, number> }> {
+async function sparseSpine(
+  root: string,
+  snapshotRoot: ObjectHash,
+  readObject: (hash: ObjectHash) => Promise<Uint8Array | undefined>,
+): Promise<{ spine: string; modifiedAtByPath: Record<string, number> }> {
   const spine = new Map<ObjectHash, Uint8Array>();
   const bodies: Array<{ path: string; logicalPath: string; hash: ObjectHash; index: boolean }> = [];
   const indexedDirectories = new Set<string>();
   const visit = async (hash: ObjectHash, path: string): Promise<void> => {
-    const source = lazy.objects.get(hash);
-    if (!source) throw new Error(`Snapshot is missing object ${hash}`);
-    const bytes = spine.get(hash) ?? await source.bytes();
+    const bytes = spine.get(hash) ?? await readObject(hash);
+    if (!bytes) throw new Error(`Accepted snapshot is missing object ${hash}`);
+    if (hashObject(bytes) !== hash) throw new Error(`Accepted snapshot object does not match ${hash}`);
     spine.set(hash, bytes);
     for (const entry of decodeWireDirectory(bytes).entries) {
       const childPath = `${path === "/" ? "" : path}/${entry.name}`;
       if (entry.directory) await visit(entry.directory, childPath);
       else if (entry.file && entry.name.toLowerCase().endsWith(".md")) {
-        const child = lazy.objects.get(entry.file);
-        if (!child) throw new Error(`Snapshot is missing Markdown ${entry.file}`);
-        spine.set(entry.file, spine.get(entry.file) ?? await child.bytes());
+        const child = spine.get(entry.file) ?? await readObject(entry.file);
+        if (!child) throw new Error(`Accepted snapshot is missing Markdown ${entry.file}`);
+        if (hashObject(child) !== entry.file) throw new Error(`Accepted Markdown does not match ${entry.file}`);
+        spine.set(entry.file, child);
         const index = entry.name === "_index.md";
         if (index) indexedDirectories.add(path);
         bodies.push({ path: childPath, logicalPath: index ? path : childPath.slice(0, -3), hash: entry.file, index });
       }
     }
   };
-  await visit(lazy.root, "/");
-  verifyTreeSnapshotGraph({ root: lazy.root, objects: spine }, "sparse-files");
+  await visit(snapshotRoot, "/");
+  verifyTreeSnapshotGraph({ root: snapshotRoot, objects: spine }, "sparse-files");
   const modifiedAtByPath: Record<string, number> = {};
   for (const body of bodies) {
     // An _index.md body shadows sibling Markdown. Never use the folder's
@@ -172,10 +177,9 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /**
-   * Bootstrap material for a placed tree. The directory-and-Markdown spine always
-   * describe the folder as it is now; `pending` is returned verbatim only when
-   * the stored update string still ends at that folder, and `blocked` tells a
-   * client why it must not adopt the folder as a clean base.
+   * Bootstrap the daemon's recorded accepted Canopy root. The mutable folder
+   * head and the daemon's pending/conflict state belong only to that folder
+   * client and never gate or seed another client.
    */
   async bootstrapTree(tree: string): Promise<TreeBootstrap> {
     const placement = this.trees.placementFor(tree);
@@ -184,39 +188,31 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (!placement.ref || !placement.update) {
       throw new ProtocolError("conflict", `Tree has not synchronized an accepted base yet: ${tree}`, 409, { tree, details: { kind: "unsynchronized" } });
     }
-    const list = await this.treeList();
-    const descriptor = list.snapshot.find((item) => item.id === tree);
+    const descriptor = (await this.trees.descriptors()).find((item) => item.id === tree);
     if (!descriptor) throw new ProtocolError("not-found", `Tree has no local placement: ${tree}`, 404, { tree });
 
-    const lazy = await snapshotDirectory(
+    const { spine, modifiedAtByPath } = await sparseSpine(
       workspace.root,
-      this.trees.sharedBoundariesWithin(workspace.root),
-      this.trees.excludedMountsWithin(workspace.root),
-      (directory, sourceName) => workspace.describeWireCollectionFile(directory, sourceName),
-      workspace.objectIndex(),
+      placement.ref as ObjectHash,
+      (hash) => this.objectCache.bytes(tree, hash),
     );
-    const { spine, modifiedAtByPath } = await sparseSpine(workspace.root, lazy);
-
-    const [conflict, pending] = await Promise.all([treeConflict(tree), pendingTreeUpdate(tree)]);
-    const response: TreeBootstrap = {
-      tree: descriptor,
+    const bootstrapDescriptor: BootstrapTreeDescriptor = {
+      id: descriptor.id,
+      ...(descriptor.configurationTree ? { configurationTree: descriptor.configurationTree } : {}),
+      kind: descriptor.kind,
+      access: descriptor.access,
+      canonical: descriptor.canonical ?? null,
+      name: descriptor.name,
+      ...(descriptor.osPath ? { osPath: descriptor.osPath } : {}),
+      placement: descriptor.placement,
+    };
+    return {
+      tree: bootstrapDescriptor,
       accepted: { root: placement.ref as Hash, update: placement.update, cursor: placement.cursor ?? null },
       spine,
       modifiedAtByPath,
       observedThrough: this.events.currentCursor(),
     };
-    if (conflict) return { ...response, blocked: "conflict" };
-    if (pending) {
-      const updates = updatesFromPending(pending);
-      if (pending.base === placement.update && updates.at(-1)?.candidate === lazy.root) {
-        // Digests ignore object envelopes, so the JSON updates stand in for the decoded request.
-        const request = { base: pending.base, updates } as unknown as UpdateRequest;
-        return { ...response, pending: { base: pending.base, updates, requestDigests: updateRequestDigests(tree, request) } };
-      }
-      return { ...response, blocked: "unsettled" };
-    }
-    if (lazy.root !== placement.ref) return { ...response, blocked: "unsettled" };
-    return response;
   }
 
   private startAutoSync(syncIntervalMs?: number): void {

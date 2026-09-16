@@ -44,7 +44,8 @@ final class ArborSyncClientTests: XCTestCase {
         let mergeFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: mergeFixtureData) as? [String: Any])
         let intentFixtureData = try Data(contentsOf: conformanceFixtures.appending(path: "wire-update-intent.json"))
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
-        // `bootstrap.json` and `bootstrap-pending.json` decode through the client in `LoopbackServicesTests`.
+        // Bootstrap fixtures decode through the client in `LoopbackServicesTests`, including
+        // an older response whose daemon-local pending metadata is intentionally ignored.
 
         XCTAssertEqual(status.instanceID, "instance-fixture-01")
         XCTAssertEqual(status.runtimeKind, "cloud")
@@ -124,7 +125,6 @@ final class ArborSyncClientTests: XCTestCase {
         let bootstrap = try await client.bootstrap(tree: tree)
         XCTAssertEqual(bootstrap.tree.id, tree)
         XCTAssertEqual(bootstrap.spine.root, bootstrap.accepted.root)
-        XCTAssertNil(bootstrap.blocked)
         let credential = try await client.credential()
         XCTAssertFalse(credential.isEmpty)
         let root = try await client.object(tree: tree, hash: bootstrap.accepted.root)

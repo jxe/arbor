@@ -290,43 +290,6 @@ public actor WorkingTree {
         try replaceWithAccepted(replacement, mutation: "initialize-from-system")
     }
 
-    /// Seed a fresh working tree with a system snapshot that is *ahead* of the
-    /// accepted base: the dirty-daemon bootstrap. The folder's current state
-    /// becomes the materialized root and stays pending against the separately
-    /// verified accepted authority root, so the adopted request that produced
-    /// it can be resubmitted and a later local edit is its successor. Same
-    /// generation-0 guards as `initializeFromSystem`; routed like
-    /// `replacePendingFromSystem`.
-    public func initializePendingFromSystem(
-        _ replacement: WorkingTreeSystemReplacement,
-        acceptedRoot: String,
-        acceptedUpdate: String,
-        acceptedCursor: String? = nil
-    ) throws {
-        try requireOpen()
-        guard control.generation == 0,
-              control.acceptedRoot == nil,
-              state.nodes.count == 1,
-              state.nodes[0].path == "/",
-              state.nodes[0].kind == .directory,
-              state.nodes[0].source == nil else {
-            throw WorkingTreeError.pendingLocalChanges
-        }
-        guard !acceptedUpdate.isEmpty else { throw WorkingTreeError.corruptState("Accepted update ID is empty") }
-        let replacementState = try state(from: replacement)
-        let computed = try WorkingTreeWireCodec.snapshot(for: replacementState)
-        guard computed.root == replacement.root else { throw WorkingTreeError.corruptState("System replacement root mismatch") }
-        try transact(
-            mutation: "initialize-pending-from-system",
-            pageKey: "_system",
-            accepted: (acceptedRoot, acceptedUpdate, acceptedCursor),
-            retainsPendingAgainstAcceptedBase: true,
-            recordsModificationDates: false
-        ) { next in
-            next = replacementState
-        }
-    }
-
     public func integrateAccepted(
         _ replacement: WorkingTreeSystemReplacement,
         expectedCandidate: String

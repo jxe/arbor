@@ -344,7 +344,7 @@
         }
 ,
         {
-          "name": "restart in prepared with an adopted foreign prefix resubmits it exactly; a later head is one successor",
+          "name": "restart in prepared with a plural request resubmits it exactly; a later head is one successor",
           "initial": {"kind": "prepared", "base": {"root": "A", "update": "uA"}, "request": {"id": "q1", "base": "uA", "candidate": "h1", "digests": ["f1", "q1"]}, "transportAvailable": true},
           "steps": [
             { "event": {"type": "submitStarted", "id": "q1"}, "state": "submitting", "effects": [], "expect": {"request.digests": ["f1", "q1"], "request.candidate": "h1"} },
@@ -357,7 +357,7 @@
           ]
         },
         {
-          "name": "watch delivers an adopted digest before the response",
+          "name": "watch delivers a partial request digest before the response",
           "initial": {"kind": "prepared", "base": {"root": "A", "update": "uA"}, "request": {"id": "q1", "base": "uA", "candidate": "h1", "digests": ["f1", "q1"]}, "transportAvailable": true},
           "steps": [
             { "event": {"type": "submitStarted", "id": "q1"}, "state": "submitting", "effects": [] },

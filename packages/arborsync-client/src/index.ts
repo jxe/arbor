@@ -74,22 +74,21 @@ export interface ArborSyncRESTClientOptions {
 // Arbor Sync reports exactly what Canopy's Wire and the data-home stores use.
 export type { LocalAccountSummary, PairingOffer, ProfileIdentity } from "@arbor/core";
 
-/** One element of a daemon-stored update string, in the JSON wire shape (`CandidateUpdateJSON` in `@arbor/wire`). */
-export type BootstrapCandidateUpdate = import("@arbor/wire").CandidateUpdateJSON;
-
 /** `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own working tree. */
+export type BootstrapTreeDescriptor = Pick<
+  LocalTreeDescriptor,
+  "id" | "configurationTree" | "kind" | "access" | "canonical" | "name" | "osPath" | "placement"
+>;
+
 export interface TreeBootstrap {
-  tree: LocalTreeDescriptor;
+  /** Placement and routing metadata only; daemon synchronization state is deliberately excluded. */
+  tree: BootstrapTreeDescriptor;
   /** The daemon's accepted base; `cursor` equals `update` and seeds a Wire watch. */
   accepted: { root: string; update: string; cursor: string | null };
   /** Base64 sparse CBOR snapshot bundle: every directory object plus every Markdown file object. */
   spine: string;
   /** Local page-body mtimes, Unix milliseconds, keyed by tree-relative logical path. */
   modifiedAtByPath: Record<string, number>;
-  /** Every non-Markdown file entry by wire path; objects are fetched on demand through `/v1/objects`. */
-  /** The daemon's stored update string, verbatim, when it still ends at the folder exactly. */
-  pending?: { base: string | null; updates: BootstrapCandidateUpdate[]; requestDigests: string[] };
-  blocked?: "conflict" | "unsettled";
   observedThrough: string;
 }
 

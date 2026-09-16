@@ -44,8 +44,6 @@ struct LoopbackServicesTests {
         #expect(bootstrap.accepted.cursor == nil)
         #expect(bootstrap.spine.root == bootstrap.accepted.root)
         #expect(bootstrap.modifiedAtByPath == ["/": 1789473600000])
-        #expect(bootstrap.pending == nil)
-        #expect(bootstrap.blocked == nil)
         #expect(bootstrap.observedThrough == "1f8b3c6d-observed:7")
 
         // The spine is sparse: the root directory and the Markdown object are present,
@@ -67,23 +65,13 @@ struct LoopbackServicesTests {
         #expect(requests.first?.query == "tree=tr_notes7f3q2ab7c")
     }
 
-    @Test("A pending bootstrap carries the verbatim string with one digest per element")
-    func pendingBootstrapDecodes() async throws {
+    @Test("A newer client ignores daemon-local state from an older bootstrap response")
+    func legacyPendingBootstrapDecodesAcceptedState() async throws {
         let body = try fixture("bootstrap-pending.json")
         await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
         let bootstrap = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
 
-        let pending = try #require(bootstrap.pending)
-        #expect(pending.base == "upd_0001")
-        #expect(pending.updates.count == 1)
-        #expect(pending.requestDigests.count == 1)
-        #expect(pending.requestDigests[0].hasPrefix("sha256:"))
-        #expect(pending.updates[0].candidate == bootstrap.accepted.root)
-        #expect(pending.updates[0].resolves.isEmpty)
-        #expect(pending.updates[0].ifCurrent == nil)
-        #expect(pending.updates[0].objects.count == 1)
-        #expect(WireObjectCodec.hash(pending.updates[0].objects[0].bytes) == pending.updates[0].objects[0].hash)
-        #expect(bootstrap.tree.sync == "syncing")
+        #expect(bootstrap.spine.root == bootstrap.accepted.root)
     }
 
     @Test("A sparse bootstrap classifies omitted files using directory entries")
@@ -93,14 +81,14 @@ struct LoopbackServicesTests {
         _ = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
     }
 
-    @Test("Bootstrap blocked and error envelopes surface as typed values")
-    func blockedAndErrors() async throws {
+    @Test("Daemon-local block metadata is ignored but bootstrap errors remain typed")
+    func legacyBlockIsIgnoredAndErrorsRemainTyped() async throws {
         var json = try JSONSerialization.jsonObject(with: try fixture("bootstrap.json")) as! [String: Any]
         json["blocked"] = "editor-pending"
         let body = try JSONSerialization.data(withJSONObject: json)
         await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
         let bootstrap = try await stubbedClient().bootstrap(tree: "tr_notes7f3q2ab7c")
-        #expect(bootstrap.blocked == .editorPending)
+        #expect(bootstrap.spine.root == bootstrap.accepted.root)
 
         let unsynchronized = Data(#"{"error":"conflict","message":"unsynchronized","retryable":false,"details":{"kind":"unsynchronized"}}"#.utf8)
         await LoopbackStub.state.install { _, _ in (409, unsynchronized, "application/json") }

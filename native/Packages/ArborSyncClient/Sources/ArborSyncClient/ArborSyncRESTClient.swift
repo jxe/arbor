@@ -117,10 +117,9 @@ public actor ArborSyncRESTClient {
 
     // MARK: Loopback services for a same-installation working-tree client
 
-    /// `GET /v1/bootstrap?tree=`: the daemon's accepted base, the sparse spine, the lazily
-    /// resolved file list, and any verbatim pending string for a placed tree. The spine is
-    /// decoded and validated in `.sparseFiles` mode against `accepted.root`, and every
-    /// payload-less entry must be listed in `files`.
+    /// `GET /v1/bootstrap?tree=`: the daemon's accepted Canopy base and sparse spine.
+    /// The spine is decoded and validated in `.sparseFiles` mode against `accepted.root`;
+    /// daemon-local pending and conflict state never enters another client's bootstrap.
     public func bootstrap(tree: String) async throws -> TreeBootstrap {
         let envelope: TreeBootstrapEnvelope = try await get(
             path: "/v1/bootstrap",
@@ -135,8 +134,6 @@ public actor ArborSyncRESTClient {
             accepted: envelope.accepted,
             spine: spine,
             modifiedAtByPath: envelope.modifiedAtByPath ?? [:],
-            pending: envelope.pending,
-            blocked: envelope.blocked,
             observedThrough: envelope.observedThrough
         )
     }
@@ -323,11 +320,9 @@ private struct ForgetResult: Decodable { var forgotten: Bool }
 private struct LocalResyncObservation: Decodable { var cursor: String; var tree: String; var kind: String }
 
 private struct TreeBootstrapEnvelope: Decodable {
-    var tree: LocalTreeDescriptor
+    var tree: TreeBootstrapDescriptor
     var accepted: TreeBootstrapAccepted
     var spine: String
     var modifiedAtByPath: [String: Double]?
-    var pending: TreeBootstrapPending?
-    var blocked: TreeBootstrapBlock?
     var observedThrough: String
 }

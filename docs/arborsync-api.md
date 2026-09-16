@@ -236,30 +236,34 @@ with `details.kind: "unsynchronized"`). The response is:
 
 ```ts
 {
-  tree: LocalTreeDescriptor,
+  tree: Pick<LocalTreeDescriptor,
+    "id" | "configurationTree" | "kind" | "access" | "canonical" |
+    "name" | "osPath" | "placement">,
   accepted: { root: Hash, update: string, cursor: string | null },   // independent observation boundary; null requires refresh
   spine: string,          // base64 sparse CBOR snapshot bundle
   modifiedAtByPath: Record<string, number>, // logical page path -> Unix milliseconds
-  pending?: { base: string | null, updates: CandidateUpdateJSON[], requestDigests: Hash[] },
-  blocked?: "conflict" | "unsettled",
   observedThrough: string,
 }
 ```
 
 `accepted` is the daemon's recorded base: the last accepted root and update
 for the placement. `cursor` is the Wire watch cursor a client seeds its own
-watch from, which is the update id.
+watch from, which is the update id. The spine is rooted at this accepted root.
+The `tree` value contains placement and Canopy-routing metadata, not the
+daemon's `sync`, `root`, `update`, `conflicted`, `reviewableConflict`, or
+`missing` fields. Arbor Sync's mutable folder head, pending request, conflict,
+availability, and tree-list sync state are intentionally absent: they belong
+to the folder client and cannot seed or block another working-tree client.
 
 **The sparse spine.** `spine` is a snapshot bundle in the exact CBOR shape of
 the immutable Canopy snapshot bundle (`{ version: 1, objects: [...] }`,
 objects sorted by hash, no duplicates), but it deliberately does not satisfy
 the complete-graph check: it holds every directory object and every file
-object whose entry name ends in `.md`, walked from the current folder root and
-stopping at nested tree boundaries. Other file payloads may be left out and
+object whose entry name ends in `.md`, walked from the accepted Canopy root.
+Other file payloads may be left out and
 resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
 `directory`, or `tree`, so a missing directory is always an error. No file map,
-size lookup, or payload sniffing is needed. The spine always describes the
-folder as it is now, even when the response is blocked.
+size lookup, or payload sniffing is needed.
 
 **Local modification dates.** `modifiedAtByPath` supplies filesystem body-file
 modification times for pages in the spine, scoped to this tree and keyed by
@@ -272,32 +276,10 @@ metadata outside Wire objects, roots, and update digests. Clients preserve them
 when seeding a working tree and distinguish missing dates from old dates. Older
 daemons may omit this field; clients treat omission as an empty map.
 
-**Pending, verbatim.** Each candidate includes its original `change` and explicit
-`operations` fields; adoption must retain both even when object envelopes are
-repacked. Snapshot clients emit `operations: null`. When the daemon holds a stored update string for the
-tree (`pending` in its sync state), it is returned verbatim, as the exact
-`{ base, updates }` request body it will send to Canopy, only when
-`base` equals the accepted update and the last element's `candidate` equals
-the current folder root, that is, when the string still ends exactly at the
-folder. `requestDigests` are the per-element request digests
-(`updateRequestDigests` in `@arbor/wire`); they exclude object envelopes, so a
-client that adopts the string as its own first in-flight request may re-pack
-objects and still match what Canopy will accept and trim by digest. A stored
-string that does not meet both conditions is not returned; the response is
-`blocked: "unsettled"` instead.
-
-**Blocked.** `blocked` tells a client why it must not treat the folder as a
-clean base, in priority order:
-
-- `conflict`: the daemon holds a durable synchronization conflict for the
-  tree. Open read-only from the spine and route the user to the conflict
-  review endpoint.
-- `unsettled`: the folder root differs from the accepted root and no stored
-  string ends at it (the daemon has not yet built or has outrun its request).
-  Ask for `POST /v1/sync` and retry.
-
-When `blocked` is absent and `pending` is absent, the folder equals the
-accepted root: a clean bootstrap.
+When the local page byte differs from its accepted object, the path's date is
+omitted without changing bootstrap content. Every successful response is a
+clean installation boundary. Concurrent folder work is reconciled later by
+Canopy and the ordinary watch/update protocol, like work from any other client.
 
 **Credential.** `GET /v1/credential` returns `{ token }`, the Canopy account
 credential stored for `configurationTree`, so that several local clients on one

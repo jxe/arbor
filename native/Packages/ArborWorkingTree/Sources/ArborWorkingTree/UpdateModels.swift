@@ -15,9 +15,7 @@ public enum UpdateError: Error, Equatable, Sendable {
     case noConflict
     case localWorkAdvanced
     case closed
-    case adoptionBlocked
-    case adoptedRequestDigestMismatch
-    case adoptedRequestEmpty
+    case requestEmpty
     case unsupportedControlSchema(Int)
 }
 
@@ -36,9 +34,7 @@ extension UpdateError: LocalizedError {
         case .noConflict: "There is no current synchronization conflict."
         case .localWorkAdvanced: "The tree changed while this conflict was open. Reopen the review before submitting."
         case .closed: "This synchronization session is closed."
-        case .adoptionBlocked: "Another request or conflict is already retained; nothing can be adopted."
-        case .adoptedRequestDigestMismatch: "The adopted request's recomputed digests do not match the ones it was persisted with."
-        case .adoptedRequestEmpty: "An adopted request must carry at least one element."
+        case .requestEmpty: "An update request must carry at least one element."
         case let .unsupportedControlSchema(schema): "Update control schema \(schema) is newer than this client."
         }
     }
@@ -97,13 +93,8 @@ struct UpdateAttempt: Codable, Equatable, Sendable {
     /// All per-element digests in prefix order. Nil decodes a pre-plural durable one-element attempt.
     var requestDigests: [String]?
     var digest: String
-    /// How many leading elements were adopted verbatim from another working
-    /// tree's persisted request (the daemon's). Those elements are owned by
-    /// their author: a conflict inside the prefix is held, never reviewed here.
-    var adoptedCount: Int?
 
     var allRequestDigests: [String] { requestDigests ?? [digest] }
-    var adoptedElementCount: Int { adoptedCount ?? 0 }
 }
 
 /// The latest durable local head together with the objects it introduces over
@@ -126,15 +117,9 @@ struct UpdateHead: Codable, Equatable, Sendable {
 /// intact and reports `conflict`; it never discards work.
 public struct UpdateHold: Codable, Equatable, Sendable {
     public var reason: String
-    /// The hold was raised because an element inside an adopted prefix
-    /// conflicted. That element belongs to the working tree that authored it
-    /// (the daemon's placed folder); its review happens in that tree's flow,
-    /// never in this client's conflict sheet.
-    public var foreignConflict: Bool
 
-    public init(reason: String, foreignConflict: Bool = false) {
+    public init(reason: String) {
         self.reason = reason
-        self.foreignConflict = foreignConflict
     }
 }
 

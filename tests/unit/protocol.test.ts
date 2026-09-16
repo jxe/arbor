@@ -79,13 +79,11 @@ describe("REST v1 protocol fixtures", () => {
 
   test("decodes the bootstrap and credential fixtures", async () => {
     const clean = await json<TreeBootstrap>("bootstrap.json");
-    const pending = await json<TreeBootstrap>("bootstrap-pending.json");
+    const legacy = await json<TreeBootstrap>("bootstrap-pending.json");
     const credential = await json<TreeCredential>("credential.json");
     expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
     expect(clean.accepted.cursor).toBeNull();
     expect(clean.modifiedAtByPath).toEqual({ "/": 1789473600000 });
-    expect(clean.blocked).toBeUndefined();
-    expect(clean.pending).toBeUndefined();
     // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
     const spine = decodeSparseSnapshotBundle(Buffer.from(clean.spine, "base64"));
     const root = decodeWireDirectory(spine.get(clean.accepted.root as never)!);
@@ -94,10 +92,10 @@ describe("REST v1 protocol fixtures", () => {
     expect(spine.has(root.entries[0]!.file!)).toBe(true);
     expect(spine.has(root.entries[1]!.file!)).toBe(false);
     expect("files" in clean).toBe(false);
-    // A pending bootstrap carries the daemon's request string verbatim with digests the client can recompute.
-    const request = decodeUpdateRequestJSON({ base: pending.pending!.base, updates: pending.pending!.updates });
-    expect(pending.pending!.requestDigests).toEqual(updateRequestDigests(pending.tree.id, request));
-    expect(pending.pending!.updates[0]!.candidate).toBe(pending.accepted.root);
+    // New clients use only accepted-root fields if an older daemon includes local pending metadata.
+    expect(legacy.spine).toBe(clean.spine);
+    expect(legacy.accepted.root).toBe(clean.accepted.root);
+    expect(legacy.accepted.update).toBe(clean.accepted.update);
     expect(credential.token).toBe("canopy-account-token-fixture");
   });
 

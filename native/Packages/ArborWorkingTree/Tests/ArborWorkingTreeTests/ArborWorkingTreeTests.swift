@@ -295,59 +295,6 @@ struct WorkingTreeProviderTests {
         }
     }
 
-    @Test("A fresh tree can be seeded ahead of its accepted base and keeps that seed pending", arguments: StoreKind.allCases)
-    func pendingSeedFromSystem(kind: StoreKind) async throws {
-        try await withTemporaryReplica { root in
-            let tree: TreeID = "tr_pending_seed"
-            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
-            let source = "---\nid: pg_folder\n---\n\n# Folder\n"
-            let seeded = WorkingTreeState(
-                tree: tree.rawValue,
-                nodes: [
-                    WorkingTreeNode(path: "/", kind: .directory),
-                    WorkingTreeNode(path: "/folder", pageID: "pg_folder", kind: .markdown, source: source)
-                ]
-            )
-            let expected = try WorkingTreeWireCodec.snapshot(for: seeded)
-            let acceptedRoot = "sha256:" + String(repeating: "a", count: 64)
-            try await workingTree.initializePendingFromSystem(
-                WorkingTreeSystemReplacement(
-                    root: expected.root,
-                    update: "up_folder",
-                    nodes: [
-                        WorkingTreeSystemNode(path: "/", content: .directory()),
-                        WorkingTreeSystemNode(path: "/folder", pageID: "pg_folder", content: .markdown(source: source))
-                    ]
-                ),
-                acceptedRoot: acceptedRoot,
-                acceptedUpdate: "up_accepted",
-                acceptedCursor: "up_accepted"
-            )
-            let heads = try await workingTree.heads()
-            #expect(heads.materializedRoot == expected.root)
-            #expect(heads.pendingRoot == expected.root)
-            #expect(heads.acceptedRoot == acceptedRoot)
-            #expect(heads.acceptedUpdate == "up_accepted")
-            #expect(heads.generation == 1)
-
-            // Only a fresh tree may be seeded this way.
-            await #expect(throws: WorkingTreeError.pendingLocalChanges) {
-                try await workingTree.initializePendingFromSystem(
-                    WorkingTreeSystemReplacement(
-                        root: expected.root,
-                        update: "up_folder",
-                        nodes: [
-                            WorkingTreeSystemNode(path: "/", content: .directory()),
-                            WorkingTreeSystemNode(path: "/folder", pageID: "pg_folder", content: .markdown(source: source))
-                        ]
-                    ),
-                    acceptedRoot: acceptedRoot,
-                    acceptedUpdate: "up_accepted"
-                )
-            }
-        }
-    }
-
     @Test("A read-only provider presents nodes as not writable and refuses every write", arguments: StoreKind.allCases)
     func readOnlyProvider(kind: StoreKind) async throws {
         try await withTemporaryReplica { root in

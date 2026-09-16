@@ -6,7 +6,7 @@ Status: READY for interaction design and fixture work; accepted-alternative cont
 
 A person can understand what collided, where it came from, what remains safe to edit, and exactly what their choice will do. Review preserves live work, unresolved alternatives, and unattempted suffixes. The UI presents Canopy's evidence and does not implement an independent merge engine.
 
-Inspect current `ArborWorkingTree` conflict/control/coordinator models, native conflict sheets, Quagmire's source ledger and accessory layout, and daemon-owned filesystem review separately. The native working tree owns app edits; the daemon owns the filesystem head it submitted. Do not resurrect daemon editor admission or show adopted-prefix work as the adopter's conflict.
+Inspect current `ArborWorkingTree` conflict/control/coordinator models, native conflict sheets, Quagmire's source ledger and accessory layout, and daemon-owned filesystem review separately. The native working tree owns app edits; the daemon owns the filesystem head it submitted. Do not resurrect daemon editor admission or import another working tree's pending request or conflict.
 
 Follow [011](011-compatible-accepted-ambiguity.md) for staged activation and the
 filesystem independent-work gate. A held edit must not cause a whole-tree sync pause;
@@ -32,10 +32,10 @@ review UI limitations must not block safe publication or remote catch-up.
 - Persist the choice, guarded `resolves` declarations and authored request before replacing live text. Coupled choices use one atomic candidate, not several request elements. Apply the accepted transition before clearing evidence. Resume unattempted suffixes in order with their original intent and explicit rebase guards.
 - If the accepted state or alternative set changes, preserve the draft and explain the newer contribution. Refresh evidence and revalidate; never auto-submit the old resolution against a new state.
 - Unrelated typing, cursor/selection, scroll position, and focus must survive refresh and review. A failed submission or unsupported operation leaves all work recoverable.
-- Make adopted-prefix ownership visible and route the person to the authoring working tree's review. Do not offer local resolution for foreign-held conflicts.
+- Keep review ownership local: a client presents only conflicts from requests it authored. Another working tree's conflict remains in that working tree's review flow and never gates this client.
 
 ## 4. Deliver polished native behavior and verification
 
 Use the same interaction vocabulary on macOS and iOS with platform-appropriate sheets and inline controls. Provide keyboard navigation, clear focus, screen-reader labels, non-color status cues, dynamic type, and safe small-screen layout. Avoid exposing implementation choices in ordinary labels.
 
-Build deterministic fixtures for: multiple independent conflicts; long alternatives; duplicate paragraphs; rename/delete cases; hidden alternative edits; same-root metadata changes; stale review; offline/restart at every durable boundary; newer local edits during review; a failed element with a suffix; and adopted-prefix ownership. Add tests for source-to-editor placement and required actions, then manually verify keyboard, selection, screen reader, macOS, and iOS behavior on the built artifact. Follow Quagmire's local test/release discipline. Record exact acceptance evidence and remaining unsupported categories before archiving this plan and completed 004 work.
+Build deterministic fixtures for: multiple independent conflicts; long alternatives; duplicate paragraphs; rename/delete cases; hidden alternative edits; same-root metadata changes; stale review; offline/restart at every durable boundary; newer local edits during review; a failed element with a suffix; and independent clients with unrelated conflicts. Add tests for source-to-editor placement and required actions, then manually verify keyboard, selection, screen reader, macOS, and iOS behavior on the built artifact. Follow Quagmire's local test/release discipline. Record exact acceptance evidence and remaining unsupported categories before archiving this plan and completed 004 work.

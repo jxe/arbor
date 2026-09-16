@@ -999,24 +999,14 @@ struct ArborDocumentFooter: View {
     }
 }
 
-struct ArborTreeSyncStatus: Identifiable {
-    let id: String
-    let title: String
-    let detail: String
-    let condition: String
-    let reviewableConflict: Bool
-}
-
 struct ArborSyncStatusView: View {
     let provider: String
     let sync: WorkspaceSyncPresentation
     let binding: ArborDocumentBinding?
     let arborsyncProcessKind: ArborSyncProcessKind?
-    let treeStatuses: [ArborTreeSyncStatus]
     let retrySave: () -> Void
     let reviewDocumentConflict: () -> Void
     let syncNow: () -> Void
-    let reviewConflict: (String) -> Void
     let reconnectArborSync: () -> Void
     let showArborSyncLogs: () -> Void
 
@@ -1087,19 +1077,6 @@ struct ArborSyncStatusView: View {
                         }
                     }
                 }
-                if !treeStatuses.isEmpty {
-                    Section("Trees") {
-                        ForEach(treeStatuses) { tree in
-                            if tree.condition == "Conflict" && tree.reviewableConflict {
-                                Button { reviewConflict(tree.id) } label: { treeRow(tree) }
-                                    .buttonStyle(.plain)
-                                    .accessibilityHint("Opens the Canopy conflict review")
-                            } else {
-                                treeRow(tree)
-                            }
-                        }
-                    }
-                }
 #if os(macOS)
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1132,31 +1109,6 @@ struct ArborSyncStatusView: View {
 #endif
     }
 
-    private func treeRow(_ tree: ArborTreeSyncStatus) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tree.title)
-                Text(tree.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer()
-            Text(tree.condition == "Conflict" && tree.reviewableConflict ? "Review Conflict" : tree.condition)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(
-                    (tree.condition == "Up to date" ? Color.secondary : Color.accentColor)
-                        .opacity(0.1),
-                    in: Capsule()
-                )
-        }
-        .contentShape(Rectangle())
-    }
-
     var saveStatus: String {
         if binding?.isSaving == true { return "Saving" }
         if binding?.conflict != nil { return "Conflict needs a choice" }
@@ -1168,36 +1120,28 @@ struct ArborSyncStatusView: View {
         ArborSaveDiagnostic.describe(binding?.lastError, processKind: arborsyncProcessKind)
     }
 
-    private var treesNeedingAttention: Int {
-        treeStatuses.filter { $0.condition != "Up to date" }.count
-    }
-
     var overallStatusTitle: String {
         if diagnostic != nil || binding?.conflict != nil { return "A document needs attention" }
         if sync.state != .current { return synchronizationLabel }
-        if treesNeedingAttention == 1 { return "One tree needs attention" }
-        if treesNeedingAttention > 1 { return "\(treesNeedingAttention) trees need attention" }
         if binding?.isSaving == true { return "Saving changes" }
-        return "Everything is up to date"
+        return "This Arbor client is up to date"
     }
 
     private var overallStatusDetail: String {
         if diagnostic != nil { return "The latest edit has not reached durable storage." }
         if binding?.conflict != nil { return "Resolve the current document conflict to continue." }
         if sync.state != .current { return sync.detail ?? synchronizationDetail }
-        if treesNeedingAttention > 0 { return "Review the highlighted tree statuses below." }
-        if treeStatuses.isEmpty { return "No synchronized trees were reported." }
-        return "\(treeStatuses.count) \(treeStatuses.count == 1 ? "tree is" : "trees are") synchronized."
+        return "This client has no unpublished document or working-tree changes."
     }
 
     private var synchronizationDetail: String {
         switch sync.state {
-        case .offline: "Arbor Sync is not currently reachable."
+        case .offline: "This client is offline; its changes will sync when reconnected."
         case .locallyPending: "Local changes are waiting to synchronize."
         case .requestPending: "A synchronization request is queued."
         case .uploading: "Local changes are being uploaded."
         case .downloading: "Remote changes are being downloaded."
-        case .current: "All synchronized trees are current."
+        case .current: "This client's working tree is current."
         case .autoMerged: "Recent changes were merged automatically."
         case .approximatePlacement: "Some merged changes need placement review."
         case .conflict: "A synchronization conflict needs a choice."
@@ -1207,7 +1151,7 @@ struct ArborSyncStatusView: View {
     }
 
     private var overallStatusSymbol: String {
-        if diagnostic != nil || binding?.conflict != nil || treesNeedingAttention > 0 {
+        if diagnostic != nil || binding?.conflict != nil {
             return "exclamationmark.triangle"
         }
         if binding?.isSaving == true { return "arrow.trianglehead.2.clockwise.rotate.90" }
@@ -1216,7 +1160,7 @@ struct ArborSyncStatusView: View {
 
     private var overallStatusTint: Color {
         if diagnostic != nil { return .red }
-        if binding?.conflict != nil || treesNeedingAttention > 0 { return .orange }
+        if binding?.conflict != nil { return .orange }
         return sync.state == .current ? .green : .secondary
     }
 

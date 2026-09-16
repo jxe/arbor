@@ -113,7 +113,7 @@ final class ArborWorkspaceState {
     private(set) var providerDetail = "No tree open"
     private(set) var syncPresentation = WorkspaceSyncPresentation(
         state: .offline,
-        detail: "Open a local tree to start arborsync"
+        detail: "Open a local tree to start Native synchronization"
     )
     private(set) var syncConflict: UpdateConflictPresentation?
     private(set) var syncConflictWorkspace: UpdateConflictWorkspace?
@@ -139,7 +139,6 @@ final class ArborWorkspaceState {
     private(set) var localArborSyncOverview: LocalArborSyncOverview?
     private(set) var localArborSyncOverviewIsRefreshing = false
     private(set) var localArborSyncOverviewError: String?
-    private(set) var localArborSyncConflictTree: String?
     private(set) var localCanopyDevicesByConfigurationTree: [String: [LocalArborSyncDevicePresentation]] = [:]
 #endif
     private let editorRecoveryRoot: URL?
@@ -784,33 +783,20 @@ final class ArborWorkspaceState {
 
     /// Open a tree the daemon has placed as this app's own working tree.
     ///
-    /// `GET /v1/bootstrap` seeds an in-memory tree from the folder: a sparse
-    /// spine of directories and Markdown, with every other file a hash the
-    /// daemon's `/v1/objects` serves on demand. When the daemon still has a
-    /// pending request for the folder, the tree is seeded with that state
-    /// pending against the accepted base and the request is adopted verbatim
-    /// as the first in-flight attempt. A daemon conflict opens the tree
-    /// read-only with the daemon's review; an unsettled folder is asked to
-    /// synchronize and retried before it too opens read-only.
+    /// `GET /v1/bootstrap` seeds an in-memory tree from the daemon's recorded
+    /// accepted Canopy root: a sparse spine of directories and Markdown, with
+    /// every other file a hash the daemon's `/v1/objects` serves on demand.
+    /// The folder client has independent pending/conflict state; it neither
+    /// seeds nor blocks this client's direct Canopy update coordinator.
     func openPlacedTree(_ treeID: String) async throws {
         try await editorWorkspace.flushAll()
         await closeOpenTree()
         let runtime = try await ensureArborSync()
         let client = runtime.client
-        let list = try await client.trees()
-        guard let placed = list.snapshot.first(where: { $0.id == treeID }) else {
-            throw ArborWireValidationError.invalidValue("Arbor Sync has no placement for \(treeID)")
-        }
-        guard placed.osPath != nil, placed.missing != true else {
+        let bootstrap = try await client.bootstrap(tree: treeID)
+        let placed = bootstrap.tree
+        guard placed.osPath != nil else {
             throw ArborWireValidationError.invalidValue("\(placed.name) is not placed on this Mac")
-        }
-        var bootstrap = try await client.bootstrap(tree: treeID)
-        var attempt = 0
-        while bootstrap.blocked == .unsettled, attempt < 3 {
-            attempt += 1
-            try? await client.synchronize(configurationTree: placed.configurationTree)
-            try await Task.sleep(for: .milliseconds(250 * attempt))
-            bootstrap = try await client.bootstrap(tree: treeID)
         }
         let accounts = (try? await client.accounts()) ?? []
         let account = accounts.first { $0.configurationTree == placed.configurationTree }
@@ -844,34 +830,13 @@ final class ArborWorkspaceState {
                 Date(timeIntervalSince1970: $0 / 1_000)
             }
         )
-        if bootstrap.spine.root == bootstrap.accepted.root {
-            try await workingTree.initializeFromSystem(replacement)
-        } else {
-            try await workingTree.initializePendingFromSystem(
-                replacement,
-                acceptedRoot: bootstrap.accepted.root,
-                acceptedUpdate: bootstrap.accepted.update,
-                acceptedCursor: bootstrap.accepted.cursor
-            )
-        }
+        try await workingTree.initializeFromSystem(replacement)
 
         let stateRoot = ArborSupportDirectories.workingTrees
             .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
         let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot, transportAvailable: nativeTransportAvailable)
 
-        let holdReason: String? = switch bootstrap.blocked {
-        case .conflict?: "Arbor Sync holds a conflict for this folder; review it in Sync Status"
-        case .unsettled?: "Arbor Sync has not settled this folder against Canopy yet; reconnect once it has synchronized"
-        case .editorPending?: "Arbor Sync is still admitting an earlier edit to this folder"
-        case nil: nil
-        }
-        if holdReason == nil, let pending = bootstrap.pending {
-            try await adoptPendingRequest(pending, bootstrap: bootstrap, tree: treeID, client: client, coordinator: coordinator)
-        }
-        if let holdReason { try await coordinator.setSubmissionHold(holdReason) }
-
-        let readOnly = holdReason != nil
-        let nextProvider = WorkingTreeProvider(workingTree: workingTree, readOnly: readOnly) { [weak self] admission in
+        let nextProvider = WorkingTreeProvider(workingTree: workingTree) { [weak self] admission in
             try await coordinator.syncImmediately(admission)
             await self?.refreshSyncPresentation(from: coordinator)
         }
@@ -885,9 +850,7 @@ final class ArborWorkspaceState {
         await switchProvider(
             nextProvider,
             home: WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/"),
-            detail: readOnly
-                ? "Read-only working tree · \(placeName) · \(placed.osPath ?? "")"
-                : "Working tree · \(placeName) · \(placed.osPath ?? "")"
+            detail: "Working tree · \(placeName) · \(placed.osPath ?? "")"
         )
         syncCoordinator = coordinator
         openPlacedTreeID = treeID
@@ -895,58 +858,11 @@ final class ArborWorkspaceState {
         syncConflict = try await coordinator.conflict()
         syncConflictWorkspace = nil
         startServerWatch(client: wireClient, tree: descriptor, coordinator: coordinator)
-        if !readOnly {
-            Task { [weak self] in
-                _ = try? await coordinator.syncOnce()
-                await self?.refreshSyncPresentation(from: coordinator)
-            }
+        Task { [weak self] in
+            _ = try? await coordinator.syncOnce()
+            await self?.refreshSyncPresentation(from: coordinator)
         }
         prefetchLocalArborSyncOverview()
-        if bootstrap.blocked == .conflict {
-            await prepareLocalArborSyncConflictReview(tree: treeID)
-        }
-    }
-
-    /// Adopt the daemon's stored request verbatim. Digests exclude object
-    /// envelopes, so every object the elements name is re-packed from the
-    /// daemon's object route: the pending body itself, the folder, or Canopy.
-    private func adoptPendingRequest(
-        _ pending: TreeBootstrapPending,
-        bootstrap: TreeBootstrap,
-        tree: String,
-        client: ArborSyncRESTClient,
-        coordinator: UpdateCoordinator
-    ) async throws {
-        guard pending.base == bootstrap.accepted.update else {
-            throw ArborWireValidationError.invalidValue("Arbor Sync's pending request does not chain from its accepted base")
-        }
-        var elements = pending.updates
-        var envelopes: [WireObjectEnvelope] = []
-        var packed = Set<String>()
-        for index in elements.indices {
-            let carried = elements[index].objects.filter { !$0.bytes.isEmpty }
-            elements[index].objects = carried
-            packed.formUnion(carried.map(\.hash))
-        }
-        for element in pending.updates {
-            var needed = element.objects.map(\.hash)
-            needed.append(contentsOf: element.deltas.map(\.result))
-            needed.append(element.candidate)
-            for hash in needed where packed.insert(hash).inserted {
-                envelopes.append(WireObjectEnvelope(hash: hash, bytes: try await client.object(tree: tree, hash: hash)))
-            }
-        }
-        do {
-            try await coordinator.adoptInFlight(
-                base: WireUpdateBase(root: bootstrap.accepted.root, update: bootstrap.accepted.update),
-                updates: elements,
-                requestDigests: pending.requestDigests,
-                objects: envelopes
-            )
-        } catch UpdateError.adoptionBlocked {
-            // A retained attempt or conflict from an earlier run of this app is
-            // the request in flight; the machine resubmits or reviews that one.
-        }
     }
 
     // MARK: Visits
@@ -1060,7 +976,7 @@ final class ArborWorkspaceState {
                 try await ensureArborSync()
                 syncPresentation = WorkspaceSyncPresentation(
                     state: .offline,
-                    detail: "Connected to arborsync; choose a local tree to open"
+                    detail: "Choose a local tree to open"
                 )
                 prefetchLocalArborSyncOverview()
             }
@@ -1093,7 +1009,7 @@ final class ArborWorkspaceState {
             } else if let openVisitLocator {
                 try await openRemoteLocator(openVisitLocator)
             } else {
-                syncPresentation = WorkspaceSyncPresentation(state: .offline, detail: "Reconnected to arborsync")
+                syncPresentation = WorkspaceSyncPresentation(state: .offline, detail: "Choose a local tree to open")
                 prefetchLocalArborSyncOverview()
             }
         } catch {
@@ -1312,76 +1228,6 @@ final class ArborWorkspaceState {
         tree == "system" || tree == configurationTree || origin == "sync"
     }
 
-    func prepareLocalArborSyncConflictReview(tree: String) async {
-        guard let client = arborsyncClient else { return }
-        do {
-            let review = try await client.conflict(tree: tree)
-            guard review.tree == tree else {
-                throw ArborSyncSupervisorError.incompatibleService("Arbor Sync returned a different conflict")
-            }
-            syncConflictWorkspace = UpdateConflictWorkspace(
-                identity: review.identity,
-                items: review.items.map { item in
-                    UpdateConflictItem(
-                        path: item.path,
-                        reasons: item.reasons,
-                        base: Self.replicaConflictContent(item.base),
-                        current: Self.replicaConflictContent(item.current),
-                        mine: Self.replicaConflictContent(item.mine),
-                        draft: Self.replicaConflictContent(item.draft),
-                        offersBoth: item.offersBoth
-                    )
-                },
-                unattemptedCount: review.unattemptedCount
-            )
-            localArborSyncConflictTree = tree
-        } catch {
-            syncConflictWorkspace = nil
-            localArborSyncConflictTree = nil
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func resolveLocalArborSyncConflict(_ resolutions: [String: UpdateConflictResolution]) async -> Bool {
-        guard let client = arborsyncClient,
-              let tree = localArborSyncConflictTree,
-              let review = syncConflictWorkspace else { return false }
-        let values = resolutions.mapValues { resolution -> ArborSyncConflictResolution in
-            switch resolution {
-            case .current: .current
-            case .mine: .mine
-            case .both: .both
-            case let .edit(text): .edit(text)
-            }
-        }
-        do {
-            try await client.resolveConflict(tree: tree, identity: review.identity, resolutions: values)
-            syncConflictWorkspace = nil
-            localArborSyncConflictTree = nil
-            await refreshLocalArborSyncOverview()
-            if openPlacedTreeID == tree {
-                // The folder is settled again: re-open it writable from a fresh bootstrap.
-                do { try await openPlacedTree(tree) }
-                catch { errorMessage = Self.bootstrapFailureMessage(error, processKind: arborsyncProcessKind) }
-            }
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            await prepareLocalArborSyncConflictReview(tree: tree)
-            return false
-        }
-    }
-
-    private static func replicaConflictContent(_ value: ArborSyncConflictContent) -> UpdateConflictContent {
-        switch value.kind {
-        case "text": .text(value.text ?? "")
-        case "binary": .binary(Data(base64Encoded: value.bytes ?? "") ?? Data())
-        case "directory": .directory(value.entries ?? [])
-        case "boundary": .boundary(tree: value.tree ?? "")
-        default: .missing
-        }
-    }
-
     func createLocalArborSyncPairing(configurationTree: String? = nil) async throws -> LocalArborSyncPairingPresentation {
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
@@ -1518,14 +1364,6 @@ final class ArborWorkspaceState {
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
         syncConflict = try? await coordinator.conflict()
         if syncConflict == nil { syncConflictWorkspace = nil }
-#if os(macOS)
-        // A conflict inside the adopted prefix belongs to the folder's daemon:
-        // its review happens in the daemon's flow, never in this client's sheet.
-        if let hold = await coordinator.submissionHold, hold.foreignConflict,
-           let openPlacedTreeID, localArborSyncConflictTree == nil {
-            await prepareLocalArborSyncConflictReview(tree: openPlacedTreeID)
-        }
-#endif
     }
 
     func prepareSyncConflictReview() async {

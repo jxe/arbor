@@ -385,8 +385,11 @@ describe("arborsync bootstrap and credential routes", () => {
     });
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!;
     expect(bootstrap.tree.id).toBe(tree);
-    expect(bootstrap.blocked).toBeUndefined();
-    expect(bootstrap.pending).toBeUndefined();
+    expect("sync" in bootstrap.tree).toBe(false);
+    expect("root" in bootstrap.tree).toBe(false);
+    expect("update" in bootstrap.tree).toBe(false);
+    expect("conflicted" in bootstrap.tree).toBe(false);
+    expect("reviewableConflict" in bootstrap.tree).toBe(false);
     expect(bootstrap.accepted).toEqual({ root: descriptor.root!, update: descriptor.update!, cursor: descriptor.update! });
     expect(typeof bootstrap.observedThrough).toBe("string");
 
@@ -423,6 +426,7 @@ describe("arborsync bootstrap and credential routes", () => {
       await utimes(join(treeDir, "dated-one.md"), old, old);
       await utimes(join(treeDir, "dated-shadow.md"), recent, recent);
       await utimes(join(treeDir, "dated-shadow", "_index.md"), old, old);
+      await placedClient.synchronizeNow();
       const { modifiedAtByPath: dates } = await placedClient.bootstrap(tree);
       expect(dates["/dated-one/same"]).toBe(old.getTime());
       expect(dates["/dated-two/same"]).toBe(recent.getTime());
@@ -434,31 +438,33 @@ describe("arborsync bootstrap and credential routes", () => {
         await rm(join(treeDir, name), { recursive: true, force: true });
         await rm(join(treeDir, name + ".md"), { force: true });
       }
+      await placedClient.synchronizeNow();
     }
   });
 
-  test("returns the stored pending update verbatim with client-computable request digests", async () => {
-    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate, updatesFromPending } = await import("@arbor/canopy-client");
-    const { decodeUpdateRequestJSON, updateRequestDigests } = await import("@arbor/wire");
-    const snapshot = await folderSnapshot();
+  test("bootstraps the accepted Canopy root while the folder has a pending edit", async () => {
+    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
+    const { decodeSparseSnapshotBundle, decodeWireDirectory } = await import("@arbor/wire");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
-    const pending = pendingFromSnapshot(accepted.update, snapshot);
-    await savePendingTreeUpdate(tree, pending);
+    await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
+    await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, await folderSnapshot()));
     try {
       const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.blocked).toBeUndefined();
-      expect(bootstrap.pending?.base).toBe(accepted.update);
-      expect(bootstrap.pending?.updates).toEqual(updatesFromPending(pending) as never);
-      const request = decodeUpdateRequestJSON({ base: bootstrap.pending!.base, updates: bootstrap.pending!.updates });
-      expect(bootstrap.pending?.requestDigests).toEqual(updateRequestDigests(tree, request));
-      expect(bootstrap.pending?.requestDigests).toHaveLength(1);
       expect(bootstrap.accepted).toEqual(accepted);
+      expect("pending" in bootstrap).toBe(false);
+      expect("blocked" in bootstrap).toBe(false);
+      const spine = decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64"));
+      const root = decodeWireDirectory(spine.get(accepted.root as never)!);
+      const note = root.entries.find((entry) => entry.name === "note.md")?.file;
+      expect(new TextDecoder().decode(spine.get(note!)!)).toBe("A note\n");
+      expect(bootstrap.modifiedAtByPath["/note"]).toBeUndefined();
     } finally {
+      await writeFile(join(treeDir, "note.md"), "A note\n");
       await clearPendingTreeUpdate(tree);
     }
   });
 
-  test("blocks with conflict but still serves the spine", async () => {
+  test("daemon conflict state does not block an accepted-root bootstrap", async () => {
     const { saveTreeConflict, clearTreeConflict } = await import("@arbor/canopy-client");
     const { decodeSparseSnapshotBundle } = await import("@arbor/wire");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
@@ -480,9 +486,8 @@ describe("arborsync bootstrap and credential routes", () => {
     });
     try {
       const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.blocked).toBe("conflict");
-      expect(bootstrap.pending).toBeUndefined();
       expect(bootstrap.accepted).toEqual(accepted);
+      expect("blocked" in bootstrap).toBe(false);
       expect(decodeSparseSnapshotBundle(Buffer.from(bootstrap.spine, "base64")).size).toBe(5);
       expect("files" in bootstrap).toBe(false);
     } finally {
@@ -490,7 +495,7 @@ describe("arborsync bootstrap and credential routes", () => {
     }
   });
 
-  test("blocks as unsettled when the stored pending update does not end at the folder", async () => {
+  test("stale daemon pending state does not block an accepted-root bootstrap", async () => {
     const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
     const { hashObject } = await import("@arbor/wire");
     const snapshot = await folderSnapshot();
@@ -498,7 +503,9 @@ describe("arborsync bootstrap and credential routes", () => {
     // Stale base: the chain no longer starts at the accepted update.
     await savePendingTreeUpdate(tree, pendingFromSnapshot("stale-update", snapshot));
     try {
-      expect((await placedClient.bootstrap(tree)).blocked).toBe("unsettled");
+      const bootstrap = await placedClient.bootstrap(tree);
+      expect(bootstrap.accepted).toEqual(accepted);
+      expect("blocked" in bootstrap).toBe(false);
     } finally {
       await clearPendingTreeUpdate(tree);
     }
@@ -507,12 +514,11 @@ describe("arborsync bootstrap and credential routes", () => {
     await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, { root: hashObject(bytes), objects: new Map([[hashObject(bytes), bytes]]) }));
     try {
       const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.blocked).toBe("unsettled");
-      expect(bootstrap.pending).toBeUndefined();
+      expect(bootstrap.accepted).toEqual(accepted);
+      expect("blocked" in bootstrap).toBe(false);
     } finally {
       await clearPendingTreeUpdate(tree);
     }
-    expect((await placedClient.bootstrap(tree)).blocked).toBeUndefined();
   });
 
   test("answers 404 for an unplaced tree and 400 without tree scope", async () => {

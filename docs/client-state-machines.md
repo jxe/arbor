@@ -8,8 +8,7 @@ follow. The
 **update machine** runs inside a working tree against Arbor Wire and is
 specified in [working-tree updates](../spec/09-client-synchronization.md);
 section 8 below describes its runner, the update coordinator, and what it
-adds around the reducer: adoption, the durable head, recovery, holds, and the
-adopted-prefix rule.
+adds around the reducer: the durable head, recovery, holds, and watching.
 
 The reference implementations are `DocumentAdmissionMachine` in `ArborKit`
 (Swift) and `reduceAdmission` in `@arbor/core` (TypeScript). Both are pure
@@ -142,10 +141,12 @@ is working-tree durability, and the working tree's update machine (spec
 publishes durable heads behind a trailing delay and materializes only accepted
 state. Arbor Sync admits no editor generations; its folder is always a
 source (the reducers have no filesystem role), and every daemon request is
-one filesystem head. When the daemon materializes accepted Canopy state it
-emits the incorporated request digests with its tree-wide `updated` event,
-which a working-tree client under the same credential uses as evidence for a
-request it adopted from the daemon.
+one filesystem head. A native or future browser client starts from a sparse
+snapshot rooted at Canopy's accepted root and owns its own later heads and
+requests. The daemon's mutable folder head, pending request, conflict, and
+availability state neither seed nor block that client. Clients using the same
+credential still converge through ordinary Canopy request reconciliation and
+watch evidence; they do not share a local state machine.
 
 The prefix rule applies to filesystem-authored work that moves during a
 request. If Canopy merged the transmitted candidate while newer local bytes
@@ -213,7 +214,7 @@ new fields absent). The control retains:
   referenced by hash. The head is cleared when an attempt supersedes it or the
   tree returns to current.
 - **The attempt** `UpdateAttempt`: one exact request body with every envelope
-  it carries, its element digests, and `adoptedCount`. The transport is handed
+  it carries and its element digests. The transport is handed
   the body and nothing else. Overlay collection between prepare and resend
   therefore cannot change a resubmission; a test wipes the overlay and asserts
   byte-identical bodies.
@@ -228,14 +229,6 @@ watch-transition replay run on a sparse basis: the local graph plus every
 delta base, fetched once each, replayed in `.sparseFiles` mode and bridged
 back with the tree's own file metadata.
 
-**Adoption.** `adoptInFlight(base:updates:requestDigests:objects:)` installs
-another working tree's persisted request (the daemon's, at a dirty
-bootstrap) as the first attempt. It refuses while an attempt or conflict is
-retained, packs the supplied envelopes into the elements, recomputes the
-digests, and requires them to equal the supplied ones. The machine enters
-`prepared`; a later admission is the retained successor, and an offline
-admission is appended once by the ordinary reconnection extension.
-
 **Recovery.** On entry, a retained conflict maps to `conflict`, a retained
 attempt to `prepared`, and a head with no attempt becomes a one-element
 attempt (its objects make it self-contained) and also maps to `prepared`.
@@ -248,13 +241,6 @@ the seed.
 **Holds.** `setSubmissionHold(_:)` pauses submission: heads and attempts stay
 durable, `presentation` reports `conflict` with the reason, and nothing is
 sent until the hold is lifted and `syncOnce` runs.
-
-**Adopted-prefix rule.** When a conflict's `failedIndex` lies inside the
-adopted prefix, the coordinator does not open its own review: it raises a
-hold whose `foreignConflict` flag is set ("The folder's change conflicts;
-review it in Sync Status."), keeps the attempt, and dispatches `conflicted` to
-the reducer. The app routes that flag to the daemon's review flow; the
-client's conflict sheet is reserved for elements it authored.
 
 **Watching.** `CanopyWatchRunner` (`CanopyClient`) follows one tree's watch
 stream, feeds every event to the coordinator, reconnects with backoff, and

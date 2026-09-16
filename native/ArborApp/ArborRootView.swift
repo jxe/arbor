@@ -1456,42 +1456,6 @@ struct ArborRootView: View {
 #endif
     }
 
-    private var syncTreeStatuses: [ArborTreeSyncStatus] {
-#if os(macOS)
-        let overview = workspace.localArborSyncOverview
-        return (overview?.trees ?? []).map { tree in
-            let account = overview?.accounts.first {
-                $0.configurationTree == tree.configurationTree || $0.configurationTree == tree.id
-            }
-            let title: String
-            if tree.id == account?.profileTree {
-                title = "Profile"
-            } else if tree.kind == "account-configuration" {
-                title = "\(account?.arborDisplayName ?? "Canopy account") settings"
-            } else {
-                title = tree.canonicalPath ?? tree.name
-            }
-            let location = tree.kind == "account-configuration"
-                ? "Account settings"
-                : tree.path ?? tree.canonicalPath ?? tree.id
-            let detail = [account?.arborDisplayName, location, tree.access?.capitalized]
-                .compactMap { $0 }
-                .joined(separator: " · ")
-            return ArborTreeSyncStatus(
-                id: tree.id,
-                title: title,
-                detail: detail,
-                condition: tree.id == workspace.openPlacedTreeID
-                    ? openTreeCondition(workspace.syncPresentation, folder: tree)
-                    : localTreeCondition(tree),
-                reviewableConflict: tree.reviewableConflict
-            )
-        }
-#else
-        return []
-#endif
-    }
-
 #if os(macOS)
     private var toolbarSyncStatus: ArborToolbarSyncStatus {
         ArborToolbarSyncStatus.resolve(
@@ -1511,35 +1475,6 @@ struct ArborRootView: View {
             $0.configurationTree == tree.id
         }
         return "\(account?.arborDisplayName ?? "Canopy account") settings"
-    }
-
-    /// The open tree's row describes this app's own working tree (its
-    /// coordinator), with the folder's daemon state alongside when it differs.
-    private func openTreeCondition(_ sync: WorkspaceSyncPresentation, folder tree: LocalArborSyncTreePresentation) -> String {
-        let own: String = switch sync.state {
-        case .current: "Up to date"
-        case .autoMerged, .approximatePlacement: "Merged"
-        case .locallyPending, .requestPending, .uploading, .downloading: "Syncing"
-        case .conflict: "Conflict"
-        case .authenticationFailure: "Not signed in"
-        case .revoked: "Credential revoked"
-        case .offline: "Offline"
-        }
-        let daemon = localTreeCondition(tree)
-        return daemon == own || daemon == "Up to date" ? own : "\(own) · folder \(daemon.lowercased())"
-    }
-
-    private func localTreeCondition(_ tree: LocalArborSyncTreePresentation) -> String {
-        if tree.missing { return "Missing" }
-        switch tree.sync {
-        case "conflict": return tree.reviewableConflict ? "Conflict" : "Conflict details unavailable"
-        case "error": return "Error"
-        case "offline": return "Offline"
-        case "syncing": return "Syncing"
-        default:
-            if tree.placement == "remote" || tree.path == nil { return "Not placed" }
-            return "Up to date"
-        }
     }
 
     private var macManagementPanel: some View {
@@ -1589,10 +1524,6 @@ struct ArborRootView: View {
 #if os(macOS)
         managementTab = .status
         managementPresented = true
-        Task {
-            await workspace.refreshLocalArborSyncOverview()
-            await workspace.preloadLocalCanopyDevices()
-        }
 #else
         presentedSheet = .syncStatus
 #endif
@@ -1617,7 +1548,6 @@ struct ArborRootView: View {
             sync: workspace.syncPresentation,
             binding: model.binding,
             arborsyncProcessKind: workspace.arborsyncProcessKind,
-            treeStatuses: syncTreeStatuses,
             retrySave: { Task { await model.retryDocumentSave() } },
             reviewDocumentConflict: {
                 documentConflictExpanded = true
@@ -1628,16 +1558,6 @@ struct ArborRootView: View {
 #endif
             },
             syncNow: { Task { await workspace.syncNow() } },
-            reviewConflict: { tree in
-#if os(macOS)
-                Task {
-                    await workspace.prepareLocalArborSyncConflictReview(tree: tree)
-                    guard workspace.localArborSyncConflictTree == tree else { return }
-                    sheetAfterManagementDismiss = .syncConflict
-                    managementPresented = false
-                }
-#endif
-            },
             reconnectArborSync: {
 #if os(macOS)
                 Task { await workspace.restartArborSync() }
@@ -1923,23 +1843,6 @@ struct ArborRootView: View {
             }
             .frame(minWidth: 560, minHeight: 420)
         case .syncConflict:
-#if os(macOS)
-            if workspace.localArborSyncConflictTree != nil {
-                ArborSyncConflictView(
-                    workspace: workspace.syncConflictWorkspace,
-                    load: {},
-                    resolve: { await workspace.resolveLocalArborSyncConflict($0) },
-                    close: { presentedSheet = nil }
-                )
-            } else if workspace.syncConflict != nil {
-                ArborSyncConflictView(
-                    workspace: workspace.syncConflictWorkspace,
-                    load: { await workspace.prepareSyncConflictReview() },
-                    resolve: { await workspace.resolveSyncConflict($0) },
-                    close: { presentedSheet = nil }
-                )
-            }
-#else
             if workspace.syncConflict != nil {
                 ArborSyncConflictView(
                     workspace: workspace.syncConflictWorkspace,
@@ -1948,7 +1851,6 @@ struct ArborRootView: View {
                     close: { presentedSheet = nil }
                 )
             }
-#endif
         case .syncStatus:
             syncStatusPanel
         default:

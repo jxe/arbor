@@ -11,26 +11,50 @@ import Testing
 struct ArborAppTests {
     @Test("Profile toolbar summarizes synchronization into four visible states")
     func profileToolbarSyncStatus() {
-        #expect(ArborToolbarSyncStatus.resolve(
-            synchronization: .current,
-            documentIsSaving: false,
-            documentNeedsAttention: false
-        ) == .synchronized)
-        #expect(ArborToolbarSyncStatus.resolve(
-            synchronization: .uploading,
-            documentIsSaving: false,
-            documentNeedsAttention: false
-        ) == .syncing)
+        for synchronization in [WorkspaceSynchronization.current, .autoMerged] {
+            #expect(ArborToolbarSyncStatus.resolve(
+                synchronization: synchronization,
+                documentIsSaving: false,
+                documentNeedsAttention: false
+            ) == .synchronized)
+        }
+        for synchronization in [WorkspaceSynchronization.locallyPending, .requestPending, .uploading, .downloading] {
+            #expect(ArborToolbarSyncStatus.resolve(
+                synchronization: synchronization,
+                documentIsSaving: false,
+                documentNeedsAttention: false
+            ) == .syncing)
+        }
         #expect(ArborToolbarSyncStatus.resolve(
             synchronization: .offline,
             documentIsSaving: false,
             documentNeedsAttention: false
         ) == .offline)
-        #expect(ArborToolbarSyncStatus.resolve(
-            synchronization: .conflict,
-            documentIsSaving: false,
-            documentNeedsAttention: false
-        ) == .attention)
+        for synchronization in [
+            WorkspaceSynchronization.approximatePlacement,
+            .conflict,
+            .authenticationFailure,
+            .revoked,
+        ] {
+            #expect(ArborToolbarSyncStatus.resolve(
+                synchronization: synchronization,
+                documentIsSaving: false,
+                documentNeedsAttention: false
+            ) == .attention)
+        }
+    }
+
+    @Test("Sync Status reports only this Native client's working tree")
+    func nativeSyncStatusCopy() {
+        let status = ArborSyncStatusView(
+            provider: "Native working tree",
+            sync: .init(state: .current),
+            binding: nil,
+            arborsyncProcessKind: nil,
+            retrySave: {}, reviewDocumentConflict: {}, syncNow: {},
+            reconnectArborSync: {}, showArborSyncLogs: {}
+        )
+        #expect(status.overallStatusTitle == "This Arbor client is up to date")
     }
 
     @Test("Profile toolbar never reports fully synced over a pending or failed save")
@@ -66,8 +90,7 @@ struct ArborAppTests {
         let status = ArborSyncStatusView(
             provider: "Test", sync: .init(state: .current), binding: binding,
             arborsyncProcessKind: nil,
-            treeStatuses: [.init(id: "tr_status", title: "Test", detail: "Test", condition: "Up to date", reviewableConflict: false)],
-            retrySave: {}, reviewDocumentConflict: {}, syncNow: {}, reviewConflict: { _ in },
+            retrySave: {}, reviewDocumentConflict: {}, syncNow: {},
             reconnectArborSync: {}, showArborSyncLogs: {}
         )
         #expect(status.overallStatusTitle == "A document needs attention")

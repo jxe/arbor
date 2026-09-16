@@ -152,8 +152,8 @@ process running as the user can already read the credential store and write
 the placed folders the daemon synchronizes under that credential, so handing
 it the token grants nothing further. The
 point is one device identity per installation: the Mac app and the daemon are
-one device to Canopy, sharing a request-digest scope, which is what lets the
-app adopt the daemon's stored pending update as its own. The socket binds to
+one device to Canopy, sharing authentication and a request-digest scope while
+remaining independent working-tree clients. The socket binds to
 loopback only and rejects non-loopback `Host` headers; the credential itself
 still lives in the platform credential store (or the file store when
 `ARBOR_CREDENTIAL_STORE=file`) and is never written to the tree.
@@ -169,8 +169,9 @@ compatibility readers remain during the rollback window, but normal startup
 does not perform that conversion implicitly.
 
 Wire format 5 uses raw file payloads and typed directory entries. Sparse
-bootstraps include directories and Markdown; other file sizes are unknown until
-read. On a format change, the daemon archives old refs and sync journals beneath
+bootstraps are rooted at the recorded accepted Canopy root and include its
+directories and Markdown; daemon-local pending/conflict state is not part of
+another client's installation. Other file sizes are unknown until read. On a format change, the daemon archives old refs and sync journals beneath
 `.state/format-recovery/` before rebuilding indexes. Native direct replicas retain
 the old working tree and sync state beneath `FormatRecovery/` before rebootstrap.
 These archives are recovery evidence and are never replayed automatically.

@@ -50,7 +50,7 @@ installed and the current transport availability.
 
 ### 2.2 Entry
 
-There are two entries into the machine. Both are normative.
+There is one normal entry into the machine.
 
 **Installation.** The entry into `current` is the installation of one
 validated accepted snapshot with its `{ root, update, cursor }`. A complete
@@ -63,16 +63,13 @@ preview, a partial download, or a fetched descriptor cannot enter the machine.
 If the authority advanced while the snapshot downloaded, the client begins
 ordinary catch-up from the installed cursor rather than restarting placement.
 
-**Adoption.** A client on the same installation, under the same credential,
-may enter `prepared` directly by adopting another working tree's persisted
-request verbatim: the same base, the same elements in the same order, the
-same matching policies. The adopter recomputes every element digest and must
-find them equal to the digests the author persisted; a mismatch refuses the
-adoption. Digests exclude object envelopes, so the adopter may pack the
-objects the elements need differently from the author. The adopted request is
-the adopter's own immutable record from then on; its elements form an
-**adopted prefix** the adopter did not author. Adoption is refused while the
-adopter already retains a request or a conflict.
+When an intermediary supplies that installation, its snapshot **must** be
+rooted at the accepted authority root. It must not substitute another working
+tree's mutable head, pending request, conflict, or availability state. Each
+working tree enters `current` independently and owns only the heads and exact
+requests authored after its installation. Shared credentials make concurrent
+requests reconcilable at the authority; they do not merge client state or let
+one client's local condition gate another client's publication.
 
 ### 2.3 Transitions
 
@@ -135,11 +132,7 @@ adopter already retains a request or a conflict.
    local root, submit an old suffix candidate against a different logical
    base, or describe unattempted work as conflicted. Dependent local work
    remains behind the sequence; proven independent work may proceed under the
-   procedure below. **A failed element that lies
-   within an adopted prefix is owned by the working tree that authored it**:
-   the adopter holds that sequence (its submission paused, its request and head kept
-   durable, status reported as conflict with the reason) and defers to the
-   author's review flow rather than reviewing the element itself.
+   procedure below.
    Accepted unresolved state is different: `conflicted: true` on an accepted
    update does not enter this rejection hold. Apply its ordinary projection,
    retain its accepted identity and signal, and continue ordinary updates.
@@ -155,13 +148,10 @@ adopter already retains a request or a conflict.
 10. **Ambiguous recovery.** On reconnection, a request that may have reached
     the authority is retried exactly. If newer durable heads exist behind
     it, the client persists one longer request that repeats the transmitted
-    prefix exactly and appends the latest head once. An adopted prefix is
-    treated the same way: it is retried exactly, and an offline head behind it
-    is appended to it once. Together with the merged-result handoff in
-    rule 4, these are the only transitions that issue a longer
+    prefix exactly and appends the latest head once. Together with the
+    merged-result handoff in rule 4, these are the only transitions that issue a longer
     append-only string; all rely on the authority trimming the already
-    accepted prefix by request digest, which is also what lets an adopted
-    request that its author has meanwhile submitted resolve as a replay.
+    accepted prefix by request digest.
 11. **A persisted request is transmitted as persisted.** The runner sends
     exactly the elements the persisted request names. A generation admitted
     after preparation is the retained successor, never a longer version of
@@ -231,9 +221,9 @@ Separately prepared work must explain its entire candidate and use fresh change 
 request identity when its semantics or basis change. Original prepared requests stay
 immutable. The client MUST durably record which effects were published separately,
 so later review/replay of held work neither repeats them nor overwrites their results.
-Dependent suffixes retain their original ordering. Adoption does not transfer review
-ownership, and the independent-work procedure grants no authority to resolve a
-foreign-held element. Authentication, authorization and transport failures retain
+Dependent suffixes retain their original ordering. The independent-work procedure
+grants no authority to resolve an element held by another working tree; that state
+is never imported into this client. Authentication, authorization and transport failures retain
 their existing constraints; this procedure is not a bypass for them.
 
 Filesystem clients materialize ordinary projected files and keep accepted identity,

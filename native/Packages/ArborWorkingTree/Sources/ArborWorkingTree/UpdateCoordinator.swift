@@ -107,7 +107,7 @@ public actor UpdateCoordinator {
         var objects = head.objects
         for hash in head.spilledObjects ?? [] { objects.append(try files.readObject(hash)) }
         let request = WireUpdateRequest(base: head.base, candidate: head.root, objects: objects)
-        let attempt = try Self.attempt(tree: tree, base: head.base, generation: head.generation, request: request, adoptedCount: nil)
+        let attempt = try Self.attempt(tree: tree, base: head.base, generation: head.generation, request: request)
         control.attempt = attempt
         control.head = nil
         control.presentation = WorkspaceSyncPresentation(
@@ -128,10 +128,9 @@ public actor UpdateCoordinator {
         tree: String,
         base: WireUpdateBase,
         generation: Int,
-        request: WireUpdateRequest,
-        adoptedCount: Int?
+        request: WireUpdateRequest
     ) throws -> UpdateAttempt {
-        guard let last = request.updates.last else { throw UpdateError.adoptedRequestEmpty }
+        guard let last = request.updates.last else { throw UpdateError.requestEmpty }
         let digests = updateRequestDigests(tree: tree, base: base, updates: request.updates)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -142,8 +141,7 @@ public actor UpdateCoordinator {
             generation: generation,
             body: try encoder.encode(request),
             requestDigests: digests,
-            digest: digests.last!,
-            adoptedCount: adoptedCount
+            digest: digests.last!
         )
     }
 
@@ -224,9 +222,7 @@ public actor UpdateCoordinator {
         return value
     }
 
-    /// The current hold, if any. A `foreignConflict` hold means an adopted
-    /// element conflicted: route the user to the authoring tree's review (the
-    /// daemon's Sync Status), never to this client's conflict sheet.
+    /// The current explicit submission hold, if any.
     public var submissionHold: UpdateHold? { control.hold }
 
     /// Pause or resume submission. While held, heads and attempts stay durable
@@ -234,54 +230,9 @@ public actor UpdateCoordinator {
     /// Passing `nil` lifts the hold; call `syncOnce` afterwards to publish.
     public func setSubmissionHold(_ reason: String?) throws {
         try requireOpen()
-        control.hold = reason.map { UpdateHold(reason: $0, foreignConflict: false) }
+        control.hold = reason.map { UpdateHold(reason: $0) }
         control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
-    }
-
-    /// Adopt another working tree's persisted request verbatim as this
-    /// client's first in-flight attempt (the dirty-daemon bootstrap). The
-    /// caller supplies the elements and every object envelope they need;
-    /// digests are recomputed here and must equal `requestDigests`, which
-    /// proves the adopted elements are the same intent the author persisted
-    /// (digests exclude envelopes, so the adopter may re-pack objects). A later
-    /// admission is the retained successor; offline, it is appended once.
-    public func adoptInFlight(
-        base: WireUpdateBase,
-        updates: [WireCandidateUpdate],
-        requestDigests: [String],
-        objects: [WireObjectEnvelope]
-    ) async throws {
-        try requireOpen()
-        guard control.attempt == nil, control.conflict == nil else { throw UpdateError.adoptionBlocked }
-        guard !updates.isEmpty else { throw UpdateError.adoptedRequestEmpty }
-        let treeID = (await workingTree.treeID()).rawValue
-        var elements = updates
-        var carried = Set(elements.flatMap { $0.objects.map(\.hash) })
-        for envelope in objects where carried.insert(envelope.hash).inserted {
-            elements[0].objects.append(envelope)
-        }
-        let request = WireUpdateRequest(base: base.update, updates: elements)
-        let heads = try await workingTree.heads()
-        let attempt = try Self.attempt(tree: treeID, base: base, generation: heads.generation, request: request, adoptedCount: elements.count)
-        guard attempt.allRequestDigests == requestDigests else { throw UpdateError.adoptedRequestDigestMismatch }
-        control.attempt = attempt
-        control.head = nil
-        control.presentation = WorkspaceSyncPresentation(
-            state: .requestPending,
-            detail: "Adopted \(elements.count) durable root intent\(elements.count == 1 ? "" : "s") from the folder",
-            acceptedRoot: base.root,
-            localRoot: attempt.candidate,
-            localAdditions: attempt.candidate != base.root
-        )
-        control.presentation.acceptedConflicted = control.acceptedConflicted
-        try files.write(control)
-        files.retainObjects([])
-        if case .unplaced = machine.phase {
-            await ensureMachineEntered()
-        } else {
-            notePersisted(attempt)
-        }
     }
 
     public func conflict() throws -> UpdateConflictPresentation? {
@@ -813,33 +764,12 @@ public actor UpdateCoordinator {
         }
     }
 
-    /// Persist a conflict response. An element inside an adopted prefix is
-    /// owned by the working tree that authored it: hold and defer to its
-    /// review flow instead of opening this client's sheet (rule 8). Otherwise
-    /// the conflict is retained with the exact attempt for review here.
+    /// Persist a conflict response with the exact local attempt for review.
     private func recordConflict(
         _ validated: WireUpdateConflict,
         attempt: UpdateAttempt,
         retained: UpdateAttempt
     ) async throws -> WorkspaceSyncPresentation {
-        if validated.details.failedIndex < retained.adoptedElementCount {
-            control.hold = UpdateHold(
-                reason: "The folder's change conflicts; review it in Sync Status.",
-                foreignConflict: true
-            )
-            control.presentation = WorkspaceSyncPresentation(
-                state: .conflict,
-                detail: control.hold?.reason,
-                acceptedRoot: validated.current.root,
-                localRoot: retained.candidate,
-                localAdditions: true,
-                remoteAdditions: true
-            )
-            control.presentation.acceptedConflicted = control.acceptedConflicted
-            try files.write(control)
-            noteConflict(validated, attempt: attempt)
-            return control.presentation
-        }
         control.conflict = UpdateConflictRecord(
             response: validated,
             localRootAtConflict: retained.candidate,
@@ -944,7 +874,7 @@ public actor UpdateCoordinator {
             deltas: delta.map { [$0] } ?? []
         )
         let treeID = (await workingTree.treeID()).rawValue
-        let attempt = try Self.attempt(tree: treeID, base: base, generation: heads.generation, request: request, adoptedCount: nil)
+        let attempt = try Self.attempt(tree: treeID, base: base, generation: heads.generation, request: request)
         try faultInjector.reached(.beforeRequestPersistence)
         control.attempt = attempt
         control.head = nil
@@ -990,8 +920,7 @@ public actor UpdateCoordinator {
             tree: existing.tree,
             base: existing.base,
             generation: heads.generation,
-            request: request,
-            adoptedCount: existing.adoptedCount
+            request: request
         )
         try faultInjector.reached(.beforeRequestPersistence)
         control.attempt = attempt

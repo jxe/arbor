@@ -226,80 +226,42 @@ public struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
     }
 }
 
-/// The daemon's stored update string, verbatim, when it still ends at the folder exactly.
-public struct TreeBootstrapPending: Codable, Sendable, Equatable {
-    public var base: String?
-    public var updates: [WireCandidateUpdate]
-    /// Per-element request digests (`updateRequestDigests`); they exclude object envelopes.
-    public var requestDigests: [String]
-
-    public init(base: String?, updates: [WireCandidateUpdate], requestDigests: [String]) {
-        self.base = base
-        self.updates = updates
-        self.requestDigests = requestDigests
-    }
-
-    private enum CodingKeys: String, CodingKey { case base, updates, requestDigests }
-
-    public init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        base = try values.decodeIfPresent(String.self, forKey: .base)
-        updates = try values.decode([WireCandidateUpdate].self, forKey: .updates)
-        requestDigests = try values.decode([String].self, forKey: .requestDigests)
-        guard updates.count == requestDigests.count else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .requestDigests,
-                in: values,
-                debugDescription: "pending.requestDigests must have one digest per update element"
-            )
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(base, forKey: .base)
-        try container.encode(updates, forKey: .updates)
-        try container.encode(requestDigests, forKey: .requestDigests)
-    }
-}
-
-/// Why a bootstrap must not be treated as a clean base.
-public enum TreeBootstrapBlock: String, Codable, Sendable, Equatable {
-    case conflict
-    case unsettled
-    case editorPending = "editor-pending"
+/// Placement and routing metadata needed to open a working tree. Daemon
+/// synchronization state is deliberately not part of the bootstrap contract.
+public struct TreeBootstrapDescriptor: Codable, Sendable, Equatable {
+    public var id: String
+    public var configurationTree: String?
+    public var kind: String
+    public var access: String
+    public var canonical: CanonicalTreeDescriptor?
+    public var name: String
+    public var osPath: String?
+    public var placement: String
 }
 
 /// `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own
 /// working tree. Mirrors `TreeBootstrap` in `@arbor/arborsync-client`, with the base64 spine
 /// already decoded and validated in sparse mode.
 public struct TreeBootstrap: Sendable, Equatable {
-    public var tree: LocalTreeDescriptor
+    public var tree: TreeBootstrapDescriptor
     public var accepted: TreeBootstrapAccepted
     /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
     public var spine: WireSnapshot
     /// Local page-body mtimes in Unix milliseconds, keyed by logical path.
     public var modifiedAtByPath: [String: Double]
-    /// Every payload-less file entry by wire path.
-    public var pending: TreeBootstrapPending?
-    public var blocked: TreeBootstrapBlock?
     public var observedThrough: String
 
     public init(
-        tree: LocalTreeDescriptor,
+        tree: TreeBootstrapDescriptor,
         accepted: TreeBootstrapAccepted,
         spine: WireSnapshot,
         modifiedAtByPath: [String: Double] = [:],
-        pending: TreeBootstrapPending? = nil,
-        blocked: TreeBootstrapBlock? = nil,
         observedThrough: String
     ) {
         self.tree = tree
         self.accepted = accepted
         self.spine = spine
         self.modifiedAtByPath = modifiedAtByPath
-        self.pending = pending
-        self.blocked = blocked
         self.observedThrough = observedThrough
     }
 }
