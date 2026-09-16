@@ -21,8 +21,9 @@ The target admission policy is [exact authored basis](../spec/09-client-synchron
 The reference implementation is in transition: both reducers now capture base source
 and revision in each admission effect; Native delivers a validated source intent and
 retains its guarded patch in independent recovery. The [durable source admission queue](source-admission-queue.md) now retains tree
-bases and explicit dependencies; document sessions and publication still need to
-consume those records before stale admissions can be enabled.
+bases and explicit dependencies. Swift sessions and publication consume those
+records behind an opt-in gate; TS integration and deployed server coverage remain
+before enabling stale-basis admission in installed clients.
 The `conflict` phase and `mergeLocally` effect below are legacy compatibility behavior,
 not the target policy for concurrent Canopy edits. Existing recovery remains readable.
 
@@ -41,6 +42,14 @@ not the target policy for concurrent Canopy edits. Existing recovery remains rea
 
 A rapid sequence of 15 Option-arrow moves is therefore 15 undo entries, one
 admission, and normally one accepted Canopy update.
+
+Swift document sessions expose an admission policy. The source-enabled working-tree
+session uses `retainedBasis`: it durably queues exact intent before acknowledgement,
+and recovered drafts retain their original basis and patch without local review.
+The default `compareAndSwap` policy preserves legacy provider behavior during the
+transition. This is a local provider contract, not Canopy operation advertisement.
+See the [source admission integration](source-admission-queue.md#swift-session-and-publication-integration)
+for the current opt-in boundary and remaining release gates.
 
 ## 2. States and retained data
 

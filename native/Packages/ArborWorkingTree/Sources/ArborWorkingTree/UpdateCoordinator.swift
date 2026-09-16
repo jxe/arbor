@@ -30,21 +30,38 @@ public actor UpdateCoordinator {
     private var maxPublicationTask: Task<Void, Never>?
     /// The most recent durable editor admission, for the immediate-delta fast path.
     private var latestAdmission: WorkingTreePatchAdmission?
+    /// Opt-in prototype; enable only after the destination accepts every emitted form.
+    public nonisolated let sourceOperationEmission: Bool
+    private var sourceQueue: SourceAdmissionQueue?
+    private var sourceViews: [String: CapturedSourceAdmissionBasis] = [:]
+    private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
 
     public init(
         workingTree: WorkingTree,
         transport: any UpdateTransport,
         stateRoot: URL,
         transportAvailable: Bool = true,
+        sourceOperationEmission: Bool = false,
         faultInjector: any UpdateFaultInjector = NoUpdateFaults(),
         publicationDelay: Duration = UpdateMachine.publicationDelay,
         publicationMaxDelay: Duration = UpdateMachine.publicationMaxDelay
     ) throws {
+        self.sourceOperationEmission = sourceOperationEmission
         self.workingTree = workingTree
         self.transport = transport
         self.files = try UpdateControlFiles(root: stateRoot)
         self.faultInjector = faultInjector
         self.control = try files.load()
+        if control.sourceMode == true && !sourceOperationEmission {
+            throw ArborWireValidationError.invalidValue("Retained source admissions require the source-enabled client path")
+        }
+        if sourceOperationEmission {
+            let legacy = control
+            guard legacy.conflict == nil, legacy.head == nil, legacy.hold == nil, legacy.nextBase == nil,
+                  legacy.attempt == nil || legacy.sourceAttemptChange != nil else {
+                throw ArborWireValidationError.invalidValue("Settle legacy queued work before activating source admission")
+            }
+        }
         // An incompatible or altered durable request must remain on disk for recovery.
         for attempt in [control.attempt, control.conflict?.attempt].compactMap({ $0 }) {
             let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
@@ -54,6 +71,10 @@ public actor UpdateCoordinator {
                   updateRequestDigests(tree: attempt.tree, base: attempt.base, updates: request.updates) == attempt.allRequestDigests else {
                 throw ArborWireValidationError.invalidValue("Durable update intent does not match its digests")
             }
+        }
+        if sourceOperationEmission {
+            control.sourceMode = true
+            try files.write(control)
         }
         self.transportAvailable = transportAvailable
         self.machine = UpdateMachine.State(transportAvailable: transportAvailable)
@@ -97,6 +118,8 @@ public actor UpdateCoordinator {
             // The process stopped between the durable head and its publication:
             // the head's own objects make it a self-contained one-element request.
             machine.phase = .prepared(request: Self.preparedRequest(attempt), head: nil)
+        } else if sourceOperationEmission, let pending = try? await pendingSourceRecords(), let last = pending.last {
+            dispatch(.localHead(root: last.candidate.root, origin: .editor))
         } else if heads.pendingRoot != nil {
             dispatch(.localHead(root: heads.materializedRoot, origin: .editor))
         }
@@ -218,6 +241,11 @@ public actor UpdateCoordinator {
         if control.conflict != nil { value.state = .conflict }
         else if let hold = control.hold { value.state = .conflict; value.detail = hold.reason }
         else if control.attempt != nil { value.state = .requestPending }
+        else if sourceOperationEmission, let last = try await pendingSourceRecords().last {
+            value.state = .locallyPending
+            value.localRoot = last.candidate.root
+            value.localAdditions = true
+        }
         else if heads.pendingRoot != nil { value.state = .locallyPending }
         return value
     }
@@ -403,7 +431,7 @@ public actor UpdateCoordinator {
     public func recoverWatchGap() async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         let heads = try await workingTree.heads()
-        if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+        if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
             return try await synchronize(admission: nil)
         }
         return try await pullCurrentSnapshot(treeID: await workingTree.treeID().rawValue, priorHeads: heads)
@@ -423,7 +451,7 @@ public actor UpdateCoordinator {
             // the exact durable request obtains the server's stored response.
             return try await synchronize(admission: nil)
         }
-        if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+        if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
             return try await synchronize(admission: nil)
         }
         guard !event.transitions.isEmpty else {
@@ -642,7 +670,7 @@ public actor UpdateCoordinator {
             machine.phase = .offline(availability: .transport, request: nil, transmitted: false, head: head)
         }
         guard resumed else { return }
-        if syncActive, control.attempt != nil {
+        if syncActive, control.attempt != nil, control.sourceAttemptChange == nil {
             do {
                 let attempt = try await extendAttemptToCurrent()
                 _ = try await submit(attempt)
@@ -652,7 +680,7 @@ public actor UpdateCoordinator {
             return
         }
         let heads = try? await workingTree.heads()
-        if control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil {
+        if ((try? await hasSourceWork()) ?? false) || control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil {
             _ = try? await synchronize(admission: nil, extendExistingAttempt: true)
         } else {
             // A clean offline replica can still be behind Canopy. Reconnection
@@ -689,7 +717,8 @@ public actor UpdateCoordinator {
                 // A successor retained during the request publishes against the
                 // applied base as one more pass.
                 let heads = try await workingTree.heads()
-                if heads.pendingRoot == nil || control.conflict != nil { syncAgain = false }
+                let sourcePending = try await hasSourceWork()
+                if (heads.pendingRoot == nil && !sourcePending) || control.conflict != nil { syncAgain = false }
                 else { syncAgain = true }
             }
         } while syncAgain
@@ -701,6 +730,10 @@ public actor UpdateCoordinator {
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
         guard control.conflict == nil, control.hold == nil else { return try await presentation() }
+        let sourcePending = try await hasSourceWork()
+        if sourceOperationEmission, control.sourceAttemptChange != nil || (control.attempt == nil && sourcePending) {
+            return try await syncSourcePass()
+        }
         let priorMachine = machine
         let currentHeads = try await workingTree.heads()
         if control.attempt == nil, control.nextBase == nil, currentHeads.pendingRoot == nil {
@@ -717,6 +750,9 @@ public actor UpdateCoordinator {
                 machine.base = .init(root: root, update: update, cursor: currentHeads.acceptedCursor, conflicted: control.acceptedConflicted)
                 machine.phase = .current
                 run(.cancelTimers)
+            }
+            if sourceOperationEmission {
+                return try await pullCurrentSnapshot(treeID: await workingTree.treeID().rawValue, priorHeads: currentHeads)
             }
             return try await presentation()
         }
@@ -1169,6 +1205,205 @@ public actor UpdateCoordinator {
             acceptedRoot: accepted.root,
             localRoot: accepted.root
         )
+    }
+
+    private struct SourceViewToken: Codable {
+        var base: WireUpdateBase
+        var reference: WorkspaceReference
+        var path: String
+    }
+
+    private func admissions() async throws -> SourceAdmissionQueue {
+        if let sourceQueue { return sourceQueue }
+        let queue = try SourceAdmissionQueue(tree: await workingTree.treeID().rawValue,
+                                             stateRoot: files.directory.deletingLastPathComponent())
+        sourceQueue = queue
+        return queue
+    }
+
+    private func pendingSourceRecords() async throws -> [SourceAdmissionRecord] {
+        guard sourceOperationEmission else { return [] }
+        let records = try await admissions().retained()
+        let accepted = Set(control.sourceAcceptedChanges ?? [])
+        return records.filter { !accepted.contains($0.change) }
+    }
+
+    private func hasSourceWork() async throws -> Bool { !(try await pendingSourceRecords()).isEmpty }
+
+    private func localSourceView(_ record: SourceAdmissionRecord) -> CapturedSourceAdmissionBasis {
+        let document = WorkspaceDocumentSnapshot(reference: record.intent.basis.reference, source: record.intent.source,
+                                                  contentRevision: "source-local:" + record.change)
+        return CapturedSourceAdmissionBasis(document: document, graph: record.candidate, accepted: nil, sourcePath: record.sourcePath)
+    }
+
+    public func sourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot {
+        try requireOpen()
+        guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
+        if let latest = try await pendingSourceRecords().last(where: { $0.intent.basis.reference.identity == reference.identity }) {
+            let view = localSourceView(latest)
+            sourceViews[view.document.contentRevision] = view
+            return view.document
+        }
+        let captured = try await workingTree.captureSourceAdmissionBasis(reference)
+        // Capturing crosses an actor boundary. An admission may have completed
+        // meanwhile; preserve read-your-writes even when that capture is older.
+        if let latest = try await pendingSourceRecords().last(where: { $0.intent.basis.reference.identity == reference.identity }) {
+            let view = localSourceView(latest)
+            sourceViews[view.document.contentRevision] = view
+            return view.document
+        }
+        guard let accepted = captured.accepted else { throw ArborWireValidationError.invalidValue("Legacy local work has no source admission dependency") }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let token = "source-accepted:" + (try encoder.encode(SourceViewToken(base: accepted, reference: captured.document.reference, path: captured.sourcePath))).base64EncodedString()
+        var document = captured.document; document.contentRevision = token
+        sourceViews[token] = CapturedSourceAdmissionBasis(document: document, graph: captured.graph, accepted: accepted, sourcePath: captured.sourcePath)
+        return document
+    }
+
+    private func sourceView(for intent: WorkspaceDocumentIntent) async throws -> CapturedSourceAdmissionBasis {
+        let revision = intent.basis.contentRevision
+        if let view = sourceViews[revision] { return view }
+        let records = try await admissions().retained()
+        if revision.hasPrefix("source-local:"), let parent = records.first(where: { "source-local:" + $0.change == revision }) {
+            return localSourceView(parent)
+        }
+        guard revision.hasPrefix("source-accepted:"),
+              let data = Data(base64Encoded: String(revision.dropFirst("source-accepted:".count))) else {
+            throw ArborWireValidationError.invalidValue("The edit's original tree basis is unavailable; its recovery draft is retained")
+        }
+        let token = try JSONDecoder().decode(SourceViewToken.self, from: data)
+        guard token.reference == intent.basis.reference, token.reference.tree == (await workingTree.treeID()) else {
+            throw ArborWireValidationError.invalidValue("Recovered source basis has a different scope")
+        }
+        let local = try await workingTree.localSnapshot()
+        let graph: WireSnapshot
+        if local.root == token.base.root { graph = local }
+        else if let retained = records.first(where: { $0.graph.root == token.base.root }) { graph = retained.graph }
+        else { graph = try await transport.snapshot(tree: token.reference.tree.rawValue, root: token.base.root) }
+        guard graph.root == token.base.root else { throw UpdateError.returnedSnapshotMismatch }
+        return CapturedSourceAdmissionBasis(document: intent.basis, graph: graph, accepted: token.base, sourcePath: token.path)
+    }
+
+    /// The client, not the editor bridge, binds and durably retains the original basis.
+    public func admitSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
+        try requireOpen()
+        guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
+        try intent.validate()
+        let queue = try await admissions()
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let intentBytes = try encoder.encode(intent)
+        let existing = try await queue.retained().last { try encoder.encode($0.intent) == intentBytes }
+        let record: SourceAdmissionRecord
+        if let existing { record = existing }
+        else {
+            let view = try await sourceView(for: intent)
+            let parent = intent.basis.contentRevision.hasPrefix("source-local:") ? String(intent.basis.contentRevision.dropFirst("source-local:".count)) : nil
+            if let prepared = preparedSourceIntents[intentBytes] { record = prepared }
+            else {
+                record = try view.prepare(intent: intent, predecessor: parent)
+                preparedSourceIntents[intentBytes] = record
+            }
+        }
+        try await queue.retain(record)
+        let local = localSourceView(record)
+        sourceViews[local.document.contentRevision] = local
+        await ensureMachineEntered()
+        dispatch(.localHead(root: record.candidate.root, origin: .editor))
+        if syncActive { syncAgain = true }
+        await workingTree.invalidateDocumentViews()
+        return local.document
+    }
+
+    private func syncSourcePass() async throws -> WorkspaceSyncPresentation {
+        guard transportAvailable else { return try await presentation() }
+        let queue = try await admissions()
+        let attempt: UpdateAttempt
+        do {
+            if let existing = control.attempt {
+                // An earlier write may have failed before fsync. Reestablish
+                // durability before treating the in-memory attempt as sendable.
+                try files.write(control)
+                attempt = existing
+            } else {
+                guard let pending = try await pendingSourceRecords().first else { return try await presentation() }
+                let prepared = try await queue.request(through: pending.change)
+                attempt = try Self.attempt(tree: pending.tree, base: prepared.base, generation: 0, request: prepared.request)
+                try faultInjector.reached(.beforeRequestPersistence)
+                control.attempt = attempt
+                control.sourceAttemptChange = pending.change
+                try files.write(control)
+                try faultInjector.reached(.afterRequestPersistence)
+                notePersisted(attempt)
+            }
+            notePersisted(attempt)
+            if case .offline = machine.phase { dispatch(.transportAvailable(true)) }
+            dispatch(.submitStarted(id: attempt.digest))
+            try faultInjector.reached(.duringUpload)
+            let response = try await transport.submit(PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
+            try faultInjector.reached(.afterServerAcceptance)
+            guard response.results.map(\.requestDigest) == attempt.allRequestDigests,
+                  let change = control.sourceAttemptChange,
+                  let record = try await queue.retained().first(where: { $0.change == change }),
+                  let final = response.results.last else { throw UpdateError.returnedRequestDigestMismatch }
+            let accepted: WireAcceptedUpdate
+            switch final.result { case let .accepted(value), let .unchanged(value): accepted = try value.validated() }
+            guard accepted.tree == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
+            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
+            for result in response.results {
+                let update: WireAcceptedUpdate
+                switch result.result { case let .accepted(value), let .unchanged(value): update = try value.validated() }
+                guard update.tree == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
+            }
+            dispatch(.accepted(id: attempt.digest, result: .init(kind: .accepted, root: accepted.root, update: accepted.id,
+                                                                cursor: nil, digests: attempt.allRequestDigests, conflicted: accepted.conflicted)))
+            try faultInjector.reached(.duringGraphDownload)
+            let projected: WireSnapshot
+            if let reconciliation = final.reconciliation {
+                projected = try WireTransitionReplay.applying(reconciliation, to: record.candidate, root: accepted.root, mode: .sparseFiles)
+            } else {
+                guard accepted.root == record.candidate.root else { throw UpdateError.returnedSnapshotMissing }
+                projected = record.candidate
+            }
+            // Receipts prove acceptance, not the current observation boundary.
+            // Select the current projection before materializing, so replay never
+            // briefly installs an older accepted identity over a newer one.
+            let current = try await transport.descriptor(tree: attempt.tree)
+            guard current.tree.id == attempt.tree, !current.tree.update.isEmpty else { throw UpdateError.returnedSnapshotMismatch }
+            let installation: WireSnapshot
+            if current.tree.update == accepted.id {
+                guard current.tree.root == accepted.root else { throw UpdateError.returnedSnapshotMismatch }
+                installation = projected
+            } else {
+                installation = try await transport.snapshot(tree: attempt.tree, root: current.tree.root)
+                guard installation.root == current.tree.root else { throw UpdateError.returnedSnapshotMismatch }
+            }
+            try faultInjector.reached(.duringMaterialization)
+            try await workingTree.replaceFromSystem(SnapshotBridge.replacement(snapshot: installation, tree: await workingTree.treeID(),
+                update: current.tree.update, cursor: current.observedThrough, mode: .sparseFiles))
+            try faultInjector.reached(.afterMaterialization)
+            try faultInjector.reached(.beforeBaseAdvancement)
+            control.sourceAcceptedChanges = Array(Set((control.sourceAcceptedChanges ?? []) + request.updates.map(\.change))).sorted()
+            control.attempt = nil; control.sourceAttemptChange = nil
+            control.acceptedConflicted = current.tree.conflicted
+            control.presentation = .init(state: .current, detail: "Applied the server's current snapshot",
+                acceptedRoot: installation.root, localRoot: installation.root)
+            control.presentation.acceptedConflicted = current.tree.conflicted
+            try files.write(control)
+            dispatch(.applied)
+            machine.base = .init(root: installation.root, update: current.tree.update,
+                cursor: current.observedThrough, conflicted: current.tree.conflicted)
+            await workingTree.invalidateDocumentViews()
+            syncAgain = try await hasSourceWork()
+            return try await presentation()
+        } catch {
+            // Unsupported/older responses and uncertain outcomes preserve the exact
+            // source attempt. They never become a client-owned merge workspace.
+            control.presentation.state = .offline
+            control.presentation.detail = String(describing: error)
+            try? files.write(control)
+            dispatch(.transportFailed(id: control.attempt?.digest))
+            throw error
+        }
     }
 
     private func requireOpen() throws {

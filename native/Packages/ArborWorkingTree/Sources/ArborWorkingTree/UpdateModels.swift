@@ -144,11 +144,16 @@ struct DurableConflictMaterial: Codable, Equatable, Sendable {
 
 /// Schema 2 adds `head` and `hold`; schema 1 files (placed iOS devices) decode
 /// with both absent and are rewritten as schema 2 on the next write.
+/// Schema 3 protects opt-in source queues from older clients. Legacy mode stays at 2.
 struct UpdateControl: Codable, Equatable, Sendable {
-    static let currentSchema = 2
+    static let currentSchema = 3
 
+    /// Source-session activation is an explicit server-first release choice.
+    var sourceMode: Bool?
+    var sourceAttemptChange: String?
+    var sourceAcceptedChanges: [String]?
     var acceptedConflicted: Bool?
-    var schema = UpdateControl.currentSchema
+    var schema = 2
     var attempt: UpdateAttempt?
     var conflict: UpdateConflictRecord?
     var nextBase: WireUpdateBase?

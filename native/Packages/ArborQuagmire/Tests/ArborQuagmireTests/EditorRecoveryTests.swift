@@ -41,6 +41,27 @@ struct EditorRecoveryTests {
         await binding.close()
     }
 
+    @Test("Retained-basis recovery retries the original draft after a remote advance without local review")
+    func retainedBasisRecovery() async throws {
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let session = RecoverySession()
+        await session.enableIntentRetention()
+        var first: ArborDocumentBinding? = try await .open(reference: session.reference, session: session,
+                                                           debounce: .seconds(3600), recoveryRoot: root)
+        edit(try #require(first), "Retained draft")
+        first = nil
+        await session.replace("Peer at R2\n")
+        let reopened = try await ArborDocumentBinding.open(reference: session.reference, session: session,
+                                                            debounce: .seconds(3600), recoveryRoot: root)
+        #expect(reopened.conflict == nil)
+        await reopened.flush()
+        let intent = try #require(await session.retainedIntent)
+        #expect(intent.basis.contentRevision == "initial")
+        #expect(intent.basis.source == "Before\n")
+        #expect(intent.source == "Retained draft\n\n")
+        await reopened.close()
+    }
+
     @Test("Recovery retains exact guarded edits and legacy records remain readable")
     func retainedIntentValidation() throws {
         let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
@@ -196,6 +217,7 @@ private actor RecoverySession: WorkspaceDocumentSession {
     init() { current = .init(reference: reference, source: "Before\n", contentRevision: "initial") }
     private var acceptsIntent = false
     var retainedIntent: WorkspaceDocumentIntent?
+    var admissionPolicy: WorkspaceAdmissionPolicy { acceptsIntent ? .retainedBasis : .compareAndSwap }
     func enableIntentRetention() { acceptsIntent = true }
     func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
         try intent.validate()

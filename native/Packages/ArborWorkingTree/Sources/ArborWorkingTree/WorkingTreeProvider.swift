@@ -7,20 +7,27 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     /// structural actions, assets, imports, and document admissions: a visit,
     /// or a placed tree opened while its folder's daemon holds a conflict.
     public let readOnly: Bool
+    private let sourceCoordinator: UpdateCoordinator?
     private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)?
 
     public init(
         workingTree: WorkingTree,
         readOnly: Bool = false,
+        sourceCoordinator: UpdateCoordinator? = nil,
         onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)? = nil
     ) {
         self.workingTree = workingTree
+        self.sourceCoordinator = sourceCoordinator?.sourceOperationEmission == true ? sourceCoordinator : nil
         self.readOnly = readOnly
         self.onPatchAdmission = onPatchAdmission
     }
 
     public func capabilities() async -> WorkspaceProviderCapabilities {
-        readOnly ? .readOnly : .full
+        if readOnly { return .readOnly }
+        if sourceCoordinator != nil {
+            return .init(structuralActions: false, assets: false, localHistory: false)
+        }
+        return .full
     }
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
@@ -77,6 +84,9 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
         if readOnly { throw WorkspaceProviderError.invalidAction("This tree is read-only") }
+        if sourceCoordinator != nil {
+            throw WorkspaceProviderError.invalidAction("Structural writes are not enabled in the source admission prototype")
+        }
         let node: WorkingTreeNode
         switch action {
         case let .createMarkdown(parent, name, source):
@@ -99,6 +109,9 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         if readOnly { throw WorkspaceProviderError.readOnly(parent) }
+        guard sourceCoordinator == nil else {
+            throw WorkspaceProviderError.invalidAction("Structural writes are not enabled in the source admission prototype")
+        }
         let node = try await workingTree.storeAsset(asset, in: parent)
         let reference = await workingTree.workspaceReference(node)
         return WorkspaceStoredAsset(reference: reference, markdownSource: reference.path)
@@ -115,6 +128,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
             workingTree: workingTree,
             reference: node.reference,
             readOnly: readOnly,
+            sourceCoordinator: sourceCoordinator,
             onPatchAdmission: onPatchAdmission
         )
     }
@@ -127,6 +141,9 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
         in parent: WorkspaceReference
     ) async throws -> WorkspaceNode {
         if readOnly { throw WorkspaceProviderError.readOnly(parent) }
+        guard sourceCoordinator == nil else {
+            throw WorkspaceProviderError.invalidAction("Structural writes are not enabled in the source admission prototype")
+        }
         let record = try await workingTree.importFile(name: name, bytes: bytes, mediaType: mediaType, parent: parent)
         return try await workspaceNode(record)
     }
@@ -206,6 +223,9 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
     private let workingTree: WorkingTree
     private let initialReference: WorkspaceReference
     private let readOnly: Bool
+    private let sourceCoordinator: UpdateCoordinator?
+    private var sourceSnapshots: [String: WorkspaceDocumentSnapshot] = [:]
+    public var admissionPolicy: WorkspaceAdmissionPolicy { sourceCoordinator == nil ? .compareAndSwap : .retainedBasis }
     private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)?
     private var pendingAdmission: WorkingTreePatchAdmission?
     private var terminal = false
@@ -214,10 +234,12 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         workingTree: WorkingTree,
         reference: WorkspaceReference,
         readOnly: Bool = false,
+        sourceCoordinator: UpdateCoordinator? = nil,
         onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)?
     ) {
         self.workingTree = workingTree
         self.initialReference = reference
+        self.sourceCoordinator = sourceCoordinator?.sourceOperationEmission == true ? sourceCoordinator : nil
         self.readOnly = readOnly
         self.onPatchAdmission = onPatchAdmission
         self.identity = reference.identity
@@ -225,20 +247,22 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
 
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        return try await workingTree.documentSnapshot(initialReference)
+        let snapshot: WorkspaceDocumentSnapshot
+        if let sourceCoordinator { snapshot = try await sourceCoordinator.sourceSnapshot(initialReference) }
+        else { snapshot = try await workingTree.documentSnapshot(initialReference) }
+        if sourceCoordinator != nil { sourceSnapshots[snapshot.contentRevision] = snapshot }
+        return snapshot
     }
 
     public func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
         try requireOpen()
         let changes = try await workingTree.changes()
-        let workingTree = workingTree
-        let reference = initialReference
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     for await _ in changes {
                         try Task.checkCancellation()
-                        continuation.yield(try await workingTree.documentSnapshot(reference))
+                        continuation.yield(try await self.snapshot())
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -251,9 +275,30 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         }
     }
 
+    public func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
+        try requireOpen()
+        guard !readOnly else { throw WorkspaceProviderError.readOnly(initialReference) }
+        try intent.validate()
+        guard intent.basis.reference.identity == identity else { throw WorkspaceProviderError.invalidAction("Intent belongs to another document") }
+        if let sourceCoordinator {
+            let snapshot = try await sourceCoordinator.admitSourceIntent(intent)
+            sourceSnapshots[snapshot.contentRevision] = snapshot
+            return snapshot
+        }
+        do { return try await admit(patch: intent.patch) }
+        catch let conflict as WorkspaceDocumentConflict {
+            throw WorkspaceDocumentConflict(base: intent.basis, current: conflict.current, submittedSource: intent.source)
+        }
+    }
+
     public func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         if readOnly { throw WorkspaceProviderError.readOnly(initialReference) }
+        if sourceCoordinator != nil {
+            guard let basis = sourceSnapshots[baseContentRevision] else { throw WorkspaceProviderError.invalidAction("Original source basis was not retained by this session") }
+            return try await admit(intent: .init(basis: basis, patch: .init(baseContentRevision: baseContentRevision,
+                edits: [.init(utf8Range: 0..<basis.source.utf8.count, replacement: source, expected: basis.source)]), source: source))
+        }
         do {
             let current = try await workingTree.documentSnapshot(initialReference)
             guard current.contentRevision == baseContentRevision else {
@@ -272,6 +317,10 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
     public func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         if readOnly { throw WorkspaceProviderError.readOnly(initialReference) }
+        if sourceCoordinator != nil {
+            guard let basis = sourceSnapshots[patch.baseContentRevision] else { throw WorkspaceProviderError.invalidAction("Original source basis was not retained by this session") }
+            return try await admit(intent: .init(basis: basis, patch: patch, source: patch.applying(to: basis.source)))
+        }
         do {
             let result = try await workingTree.writeDocument(initialReference, patch: patch)
             // On the Mac the working tree is in memory. The coordinator's

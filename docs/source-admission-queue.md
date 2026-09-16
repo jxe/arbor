@@ -3,9 +3,12 @@
 This is a client implementation checkpoint for the
 [exact authored basis contract](../spec/09-client-synchronization.md#exact-authored-basis).
 `SourceAdmissionQueue` exists in `ArborWorkingTree` and `@arbor/canopy-client`.
-It is not yet connected to editor acknowledgement or automatic publication.
-Installed clients still use the existing head/attempt/rejection path. This work
-neither emits new operations nor migrates or deletes existing client state.
+The Swift queue is connected to document acknowledgement, recovery and publication
+behind `UpdateCoordinator.sourceOperationEmission` (default `false`). Native passes
+its coordinator to the provider, which selects this path only when explicitly enabled.
+Installed clients still use the existing head/attempt/rejection path. The TS queue
+currently prepares durable requests; it has no working-tree session/publication runner yet.
+This checkpoint does not enable emission in installed clients or migrate legacy work.
 
 ## Retained records and enforced policy
 
@@ -45,7 +48,7 @@ directory. Cross-process ownership enforcement remains an integration requiremen
 The journal is `sync/source-admissions.json`, separate from legacy update control
 and editor backup history. Opening a corrupt journal fails without rewriting it.
 There is no pruning or coalescing yet. This deliberately preserves all ancestors
-until publication settlement and retention rules are connected; it is not the final
+after publication settlement; reclamation remains unimplemented. It is not the final
 long-running storage policy and does not require packfiles.
 
 ## Request preparation
@@ -57,25 +60,69 @@ rebasing the suffix onto the visible peer. The transport's existing immutable
 attempt record still owns freezing the first attempted request. This queue does
 not contact Canopy or advertise support for an operation.
 
+## Swift session and publication integration
+
+An enabled session reports `WorkspaceAdmissionPolicy.retainedBasis`. It returns an
+opaque revision that binds either an accepted update/root plus document scope, or
+a retained local change identity. A byte revision alone never selects that basis.
+On admission the coordinator validates the intent against the capture, persists the
+complete queue record, and only then returns a local document acknowledgement.
+Exact admission retries reuse the retained identity, including concurrent calls.
+
+The installed working tree remains Canopy's projection. Sessions read their latest
+pending candidate, including from a second session or after restart. A pending
+candidate is not copied over a newer accepted projection. Once Canopy accepts it,
+the installed projection becomes authoritative; an editor still authoring against
+an earlier local candidate can name that retained predecessor explicitly.
+
+Publication uses the existing coordinator's single-flight scheduling and immutable
+request storage. It submits original predecessor chains, checks receipts, installs
+reconciliation, and records accepted change identities only after materialization.
+A later candidate remains independently durable while an earlier request runs.
+Replay catches up to Canopy's current descriptor so an old receipt is not treated
+as the latest head. Unsupported or old rejection responses retain the exact request
+and queue without creating a new legacy conflict workspace.
+
+Source mode writes local update-control schema 3. A source-disabled coordinator
+refuses to open it; default legacy state remains schema 2. Activation refuses
+retained legacy heads, requests and conflicts. Structural actions, imports and
+assets are disabled in the source provider prototype until they share the durable
+admission path. These are implementation staging limits, not Wire restrictions.
+
+The editor bridge checks the session policy when restoring an unsaved draft. A
+retained-basis session receives the original basis and guarded patch even when its
+current projection differs or has equal resulting bytes. Legacy providers retain
+their existing recovery review. No accepted-conflict decision is owned by the bridge.
+
 ## Verification and remaining integration
 
 [Shared vectors](../conformance/source-admission-queue.json) run in Swift and TS and
 compare complete request values. They cover nested source paths, exact Unicode/CRLF,
 equal-root authored successors and equal-root distinct accepted bases. TS tests also
 execute generated operations through Canopy's independent executor and compare
-candidate roots. Both clients exercise disk failure, retry, corruption, missing
-parents, reused identities and concurrent queue instances. The real Swift working
-tree test captures R1, installs R2, durably retains the R1 edit, then recovers its
-original request after closing the tree; R2 stays installed throughout.
+candidate roots. Both queues exercise disk failure, retry, corruption, missing
+parents, reused identities and concurrent queue instances.
+
+Swift session tests cover an R1 edit after R2 installation, local read-your-writes,
+a successor admitted during publication, a conflict-bearing peer projection,
+immutable replay after all eight publication failure points, concurrent admission
+retries, and refusing to silently downgrade source state. Bridge tests cover
+retained-basis draft recovery without local review alongside legacy recovery.
+Publication integration tests currently use a controlled transport; the complete
+real-server/editor/second-client scenario remains a release gate.
+
+Verification for this checkpoint: `bun run typecheck`, `bun run test`,
+`bun run test:protocol`, the full `ArborWorkingTree` Swift suite,
+`tools/test-arbor-quagmire-local.sh`, and a macOS `Arbor` build using the local
+workspace passed. Repository-wide relative-link/fragment checks introduced no
+new failures; existing broken links remain outside this change. No installed app
+or server was upgraded.
 
 Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
-- Carry the captured basis through real document sessions and recovery, including
-  equal-source observations with different accepted identities. A byte revision
-  alone is insufficient to select a capture.
-- Route editor admission through this queue and provide read-your-writes over
-  retained local candidates, without overwriting the newer accepted projection.
-- Integrate publication, receipts, dependent edits, safe coalescing and settlement;
-  retain all unpublished objects and identities when reclaiming old records.
+- Build the TS working-tree session/publication consumer with the same policies.
+- Integrate structural writes and other source forms, then exercise real Canopy
+  acceptance and resolution through a second client.
+- Add safe coalescing and bounded reclamation of settled ancestry and captured views.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.

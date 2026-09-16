@@ -48,7 +48,7 @@ struct UpdateControlFiles: Sendable {
         guard control.schema <= UpdateControl.currentSchema else {
             throw UpdateError.unsupportedControlSchema(control.schema)
         }
-        control.schema = UpdateControl.currentSchema
+        control.schema = control.sourceMode == true ? 3 : 2
         return control
     }
 
@@ -56,7 +56,7 @@ struct UpdateControlFiles: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var value = control
-        value.schema = UpdateControl.currentSchema
+        value.schema = value.sourceMode == true ? 3 : 2
         try atomicWrite(try encoder.encode(value), to: controlURL)
         // Retain scheduling/persistence evidence after successful requests have
         // cleared the live control. Never put authored source or credentials in

@@ -57,7 +57,7 @@ public final class ArborDocumentBinding {
             // Fail opening rather than offer an editor whose safety journal cannot be read.
             let store = try EditorRecoveryStore(root: recoveryRoot, reference: snapshot.reference)
             binding.recoveryStore = store
-            try binding.restoreDraft(from: store)
+            try binding.restoreDraft(from: store, retainsBasis: await session.admissionPolicy == .retainedBasis)
         }
         await binding.observeAuthoritativeUpdates()
         return binding
@@ -116,25 +116,33 @@ public final class ArborDocumentBinding {
         } catch { recoveryError = error }
     }
 
-    private func restoreDraft(from store: EditorRecoveryStore) throws {
+    private var recoveredIntent: WorkspaceDocumentIntent?
+
+    private func restoreDraft(from store: EditorRecoveryStore, retainsBasis: Bool) throws {
         guard let record = try store.revisions().first, !store.isSaved(record) else { return }
         // Validate retained patches against their original basis before any recovery action.
-        _ = try store.intent(record)
+        let retainedIntent = try store.intent(record)
         let source = try store.source(record)
         recoveryRevision = record
-        if source == accepted.source {
+        if !retainsBasis, source == accepted.source {
             try store.markSaved(record)
             return
         }
         let baseSource = try store.base(record)
         let current = accepted
-        let restored = ArborMarkdownCodec.open(source: source, revision: current.contentRevision,
+        if retainsBasis {
+            recoveredIntent = retainedIntent
+            accepted = .init(reference: record.reference, source: baseSource, contentRevision: record.baseRevision)
+            machine.accepted = .init(source: baseSource, revision: record.baseRevision)
+            snapshots[record.baseRevision] = accepted
+        }
+        let restored = ArborMarkdownCodec.open(source: source, revision: accepted.contentRevision,
                                                identitySeed: String(describing: reference.identity))
         ledger = restored.ledger
         _ = document.replaceChildrenReconciled(restored.blocks)
         lastEnqueuedSource = source
         dispatch(.edit(source: source))
-        if baseSource != current.source {
+        if !retainsBasis, baseSource != current.source {
             // A remote edit cannot silently replace a recovered local draft.
             // Reuse the existing conflict review with both exact alternatives.
             debounceTask?.cancel()
@@ -428,7 +436,13 @@ public final class ArborDocumentBinding {
     // MARK: Admission transport
 
     private func persist(source: String, generation: Int, baseRevision: String, baseSource: String) async {
-        let patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
+        let patch: WorkspaceDocumentPatch
+        if let intent = recoveredIntent, intent.basis.contentRevision == baseRevision,
+           intent.basis.source.utf8.elementsEqual(baseSource.utf8), intent.source.utf8.elementsEqual(source.utf8) {
+            patch = intent.patch
+        } else {
+            patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
+        }
         guard !patch.edits.isEmpty else {
             // Quagmire may report a follow-up commit after the authored source
             // is already current. It is saved by definition.

@@ -173,6 +173,11 @@ public actor WorkingTree {
         return try WorkingTreeWireCodec.snapshot(for: state)
     }
 
+    /// Local source views changed without changing the accepted projection.
+    func invalidateDocumentViews() {
+        for continuation in changeObservers.values { continuation.yield(control.generation) }
+    }
+
     public func changes() throws -> AsyncStream<Int> {
         try requireOpen()
         let id = UUID()

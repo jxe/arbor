@@ -62,8 +62,12 @@ legacy recovery records remain readable. This is source-level recovery evidence,
 **not by itself** a publication-ready tree basis. The new [source admission queue](../../docs/source-admission-queue.md)
 now captures tree bases atomically and durably retains validated candidate/operation
 chains in Swift and TS, with shared exact-request vectors and restart/failure tests.
-It is not yet connected to session acknowledgement or automatic publication. Do
-not remove the working-tree revision check until that integration is complete.
+Swift now has an opt-in session/publication runner: retained candidate views,
+immutable predecessor requests, receipt settlement, restart retries and policy-aware
+editor draft recovery. Native passes the coordinator through but leaves emission
+disabled. The prototype excludes structural writes; TS session/publication integration
+and the real-server end-to-end release gate remain. Legacy providers retain their
+revision checks and recovery behavior.
 
 Ownership: the editor bridge maps editing transactions to exact source edits and
 owns selection, undo and uncommitted editor state. The working-tree client owns
@@ -74,13 +78,13 @@ queue. Keep these policies in client types and transitions rather than requiring
 each editor host to implement them. The future TS working-tree client uses the same
 boundary; a transport-only Wire client does not own editor admission.
 
-- Integrate the implemented authored records into document sessions and publication,
+- Complete the TS session/publication consumer and broaden the Swift integration,
   carrying the exact capture through equal-source observations and recovery. Preserve these
   dependencies through coalescing, other-page edits, in-flight requests, restart,
   root-equal transitions, and selection of a hidden alternative. TS and Swift clients
   must enforce these invariants; never silently rebuild an old edit against current.
-- Route `WorkspaceDocumentIntent` through that retention path before acknowledging
-  a stale admission. Recover divergent drafts into it without local merge review.
+- Verify the implemented Swift `WorkspaceDocumentIntent` retention and divergent
+  draft recovery against live disposable Canopy and carry that policy into TS.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.
 - Broaden 009's conservative acceptance to the actual snapshot and source forms
   clients emit, including nested documents, range overlap, longer histories, and
