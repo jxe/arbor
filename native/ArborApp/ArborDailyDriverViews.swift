@@ -1301,8 +1301,8 @@ struct ArborSourceInspector: View {
 
 struct ArborHistoryView: View {
     static let title = "History"
-    static let unavailableTitle = "Canopy history is not available yet"
-    static let unavailableExplanation = "History will show accepted Canopy versions and restore one as a new change."
+    static let unavailableTitle = "No local editor copies yet"
+    static let unavailableExplanation = "Local editor copies are saved on this device before synchronization. Restoring creates a new change and keeps the original copies."
 
     let entries: [WorkspaceHistoryEntry]
     let recover: (String) -> Void

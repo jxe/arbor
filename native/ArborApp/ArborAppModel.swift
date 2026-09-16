@@ -9,9 +9,7 @@ import CryptoKit
 import Foundation
 import Observation
 import QuagmireExtras
-#if os(iOS)
 import Network
-#endif
 
 struct ArborShareAccount: Identifiable, Hashable, Sendable {
     let configurationTree: String
@@ -144,15 +142,15 @@ final class ArborWorkspaceState {
     private(set) var localArborSyncConflictTree: String?
     private(set) var localCanopyDevicesByConfigurationTree: [String: [LocalArborSyncDevicePresentation]] = [:]
 #endif
+    private let editorRecoveryRoot: URL?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
-#if os(iOS)
     private let nativePathMonitor = NWPathMonitor()
     private let nativePathMonitorQueue = DispatchQueue(label: "org.nxhx.Arbor.canopy-path")
     private var nativeTransportAvailable = false
-#endif
 
     init(provider suppliedProvider: InMemoryWorkspaceProvider? = nil) {
+        self.editorRecoveryRoot = suppliedProvider == nil ? ArborSupportDirectories.root.appending(path: "EditorRecovery") : nil
         self.linkPreviewService = LinkPreviewService(
             cacheDirectory: ArborSupportDirectories.linkPreviews
         )
@@ -167,7 +165,7 @@ final class ArborWorkspaceState {
             )
         ])
         self.provider = provider
-        self.editorWorkspace = ArborEditorWorkspace(provider: provider)
+        self.editorWorkspace = ArborEditorWorkspace(provider: provider, recoveryRoot: editorRecoveryRoot)
         let initialHome = suppliedProvider == nil
             ? disconnectedHome
             : WorkspaceReference(tree: "tr_sample", path: "/")
@@ -181,7 +179,6 @@ final class ArborWorkspaceState {
                 detail: "Local test fixture; no server configured"
             )
         }
-#if os(iOS)
         nativePathMonitor.pathUpdateHandler = { [weak self] path in
             let available = path.status == .satisfied
             Task { @MainActor [weak self] in
@@ -189,7 +186,6 @@ final class ArborWorkspaceState {
             }
         }
         nativePathMonitor.start(queue: nativePathMonitorQueue)
-#endif
     }
 
     func place(tree: WireTreeDescriptor, from origin: URL, configurationTree: String? = nil, remember: Bool = true) async throws {
@@ -229,12 +225,7 @@ final class ArborWorkspaceState {
             workingTree = try await WorkingTreePlacementService.place(tree: tree, at: replicaRoot, transport: transport)
             try Self.workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
         }
-        let initiallyAvailable: Bool
-#if os(iOS)
-        initiallyAvailable = nativeTransportAvailable
-#else
-        initiallyAvailable = true
-#endif
+        let initiallyAvailable = nativeTransportAvailable
         let coordinator = try UpdateCoordinator(
             workingTree: workingTree,
             transport: transport,
@@ -242,7 +233,7 @@ final class ArborWorkspaceState {
             transportAvailable: initiallyAvailable
         )
         let nextProvider = WorkingTreeProvider(workingTree: workingTree) { [weak self] admission in
-            await coordinator.syncImmediately(admission)
+            try await coordinator.syncImmediately(admission)
             await self?.refreshSyncPresentation(from: coordinator)
         }
         if remember {
@@ -261,14 +252,15 @@ final class ArborWorkspaceState {
         startServerWatch(client: client, tree: tree, coordinator: coordinator)
     }
 
-#if os(iOS)
     private func setNativeTransportAvailable(_ available: Bool) async {
         nativeTransportAvailable = available
         guard let syncCoordinator else { return }
         await syncCoordinator.setTransportAvailable(available)
+        if available { await editorWorkspace.retryFailedSaves() }
         await refreshSyncPresentation(from: syncCoordinator)
     }
 
+#if os(iOS)
     func restoreNativePlacementIfAvailable() async -> Bool {
         do {
             nativePlacements = try await nativePlacementStore.loadAll()
@@ -865,7 +857,7 @@ final class ArborWorkspaceState {
 
         let stateRoot = ArborSupportDirectories.workingTrees
             .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
-        let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot)
+        let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot, transportAvailable: nativeTransportAvailable)
 
         let holdReason: String? = switch bootstrap.blocked {
         case .conflict?: "Arbor Sync holds a conflict for this folder; review it in Sync Status"
@@ -880,7 +872,7 @@ final class ArborWorkspaceState {
 
         let readOnly = holdReason != nil
         let nextProvider = WorkingTreeProvider(workingTree: workingTree, readOnly: readOnly) { [weak self] admission in
-            await coordinator.syncImmediately(admission)
+            try await coordinator.syncImmediately(admission)
             await self?.refreshSyncPresentation(from: coordinator)
         }
         try await nativePlacementStore.save(NativePlacementRecord(
@@ -1627,7 +1619,7 @@ final class ArborWorkspaceState {
     ) async {
         await editorWorkspace.closeAll()
         provider = nextProvider
-        editorWorkspace = ArborEditorWorkspace(provider: nextProvider)
+        editorWorkspace = ArborEditorWorkspace(provider: nextProvider, recoveryRoot: editorRecoveryRoot)
         home = nextHome
         launchLocation = nextLaunchLocation ?? .reference(nextHome)
         providerDetail = detail

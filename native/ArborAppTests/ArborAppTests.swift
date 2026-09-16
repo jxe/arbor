@@ -37,11 +37,11 @@ struct ArborAppTests {
         #expect(binding.conflict?.submittedSource.contains("Latest edit") == true)
         await binding.close()
     }
-    @Test("History names Canopy as its unavailable authority")
-    func canopyHistoryUnavailableCopy() {
+    @Test("History explains device-local editor recovery")
+    func editorRecoveryHistoryCopy() {
         #expect(ArborHistoryView.title == "History")
-        #expect(ArborHistoryView.unavailableTitle == "Canopy history is not available yet")
-        #expect(ArborHistoryView.unavailableExplanation.contains("accepted Canopy versions"))
+        #expect(ArborHistoryView.unavailableTitle == "No local editor copies yet")
+        #expect(ArborHistoryView.unavailableExplanation.contains("saved on this device"))
     }
 
     @Test("Share invites accept comma-separated handles and profile URLs")

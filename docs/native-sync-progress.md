@@ -44,3 +44,12 @@ Mac edit publication and subsequent edits after merge/reconnect without Sync Now
 If the incident repeats, capture the machine phase and actual preparation error
 before a manual retry. [Reliability 012](../plans/reliability/012-native-sync-progress.md)
 tracks that remaining verification; phone background syncing is outside scope.
+
+## September 16 durability follow-up
+
+The [editor recovery changes](native-editor-recovery.md) add an independent local
+source history, make save acknowledgment wait for durable native head retention,
+and enable the Mac's network-path monitor. They also retain admission/sync phase
+evidence and protect a keystroke racing an older save acknowledgment. These
+address independently verified failure paths; the reported lost offline text
+has not been recovered and its exact historical cause remains unproven.

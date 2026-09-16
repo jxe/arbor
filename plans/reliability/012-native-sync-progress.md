@@ -1,6 +1,6 @@
 # Native automatic synchronization makes progress
 
-Priority: P1. Status: two reproduced progress failures fixed in a worktree; live verification remains.
+Priority: P1. Status: progress and offline durability fixes implemented; live verification remains.
 
 ## Evidence and scope
 
@@ -19,7 +19,7 @@ The [investigation and regression evidence](../../docs/native-sync-progress.md)
 records no-work preparation and preparation-error failures. These reproduce the
 symptom but do not prove the exact timing of the original incident.
 
-1. Install the tested native fix and verify automatic server acceptance and peer
+1. Install the tested native fix, including [local editor recovery](../../docs/native-editor-recovery.md), and verify automatic server acceptance and peer
    convergence without Sync Now through subsequent edits, merges and reconnect.
 2. If the stall recurs, capture the in-memory machine phase and preparation error
    before retrying. Diagnose remaining causes with synthetic interleavings.

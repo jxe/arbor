@@ -601,29 +601,36 @@ public actor UpdateCoordinator {
         return UpdateMachine.LocalHead(root: latestAdmission?.candidateRoot ?? "", origin: .editor)
     }
 
-    /**
-     * Nonblocking handoff for one just-durable patch admission. The admission is
-     * already durable in WorkingTree; the machine coalesces it with any other
-     * unsent generation behind one trailing publication delay, retains it as the
-     * single successor of a request in flight, and leaves it in the replica
-     * while the transport is unavailable so reconnection appends the latest
-     * head once to any ambiguous prefix.
-     */
-    public func syncImmediately(_ admission: WorkingTreePatchAdmission) async {
+    /// Retain a patch admission on disk before acknowledging the editor. This
+    /// is essential for the Mac's in-memory working tree. Publication remains
+    /// deferred: coalesce unsent generations behind the publication delay,
+    /// retain a successor during an in-flight request, and resume on reconnect.
+    public func syncImmediately(_ admission: WorkingTreePatchAdmission) async throws {
         latestAdmission = admission
         await ensureMachineEntered()
         // The head is durable with its objects before the machine learns of it
         // (rule 1): a process that stops before the publication delay recovers
         // it as one request instead of losing the edit.
-        if control.conflict == nil { try? await persistHead(root: admission.candidateRoot) }
+        try await persistHead()
         dispatch(.localHead(root: admission.candidateRoot, origin: .editor))
     }
 
-    private func persistHead(root: String) async throws {
+    private func persistHead() async throws {
         let heads = try await workingTree.heads()
-        guard heads.materializedRoot == root, heads.pendingRoot != nil else { return }
+        guard heads.pendingRoot != nil else { return }
         let base = try currentBase(heads: heads)
-        var envelopes = try await candidateObjects(base: base.root).objects
+        let candidate = try await candidateObjects(base: base.root)
+        // Another page can advance the shared tree while its objects are read.
+        // Persist the latest complete generation rather than acknowledging an
+        // older callback without retaining either generation.
+        guard candidate.root == heads.materializedRoot,
+              try await workingTree.heads().generation == heads.generation,
+              try currentBase(heads: heads) == base else {
+            try await persistHead()
+            return
+        }
+        let root = candidate.root
+        var envelopes = candidate.objects
         guard control.head?.root != root || control.head?.base != base else { return }
         var spilled: [String] = []
         if envelopes.reduce(0, { $0 + $1.bytes.count }) > UpdateHead.inlineByteCap {
@@ -633,15 +640,17 @@ public actor UpdateCoordinator {
             }
             envelopes.removeAll { spilled.contains($0.hash) }
         }
-        control.head = UpdateHead(
+        var retained = control
+        retained.head = UpdateHead(
             base: base,
             root: root,
             generation: heads.generation,
             objects: envelopes,
             spilledObjects: spilled.isEmpty ? nil : spilled
         )
-        control.presentation.acceptedConflicted = control.acceptedConflicted
-        try files.write(control)
+        retained.presentation.acceptedConflicted = retained.acceptedConflicted
+        try files.write(retained)
+        control = retained
         files.retainObjects(Set(spilled))
     }
 

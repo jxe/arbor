@@ -461,7 +461,7 @@ struct UpdateCoordinatorTests {
                 stateRoot: root.appending(path: "sync")
             )
             let provider = WorkingTreeProvider(workingTree: workingTree) { admission in
-                await coordinator.syncImmediately(admission)
+                try await coordinator.syncImmediately(admission)
             }
             let session = try await provider.openDocument(
                 .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
@@ -541,7 +541,7 @@ struct UpdateCoordinatorTests {
                 transport: transport
             )
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"))
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
             let session = try await provider.openDocument(
                 .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
             )
@@ -594,7 +594,7 @@ struct UpdateCoordinatorTests {
             let stateRoot = root.appending(path: "sync")
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot,
                 faultInjector: FirstPreparationFault(), publicationDelay: .milliseconds(10), publicationMaxDelay: .milliseconds(30))
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
             let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             let before = try await session.snapshot()
             _ = try await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: before.contentRevision,
@@ -628,7 +628,7 @@ struct UpdateCoordinatorTests {
             )
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport,
                 stateRoot: root.appending(path: "sync"), publicationDelay: .milliseconds(100), publicationMaxDelay: .milliseconds(200))
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
             let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             let first = try await session.snapshot()
             _ = try await session.admit(patch: WorkspaceDocumentPatch(baseContentRevision: first.contentRevision,
@@ -673,7 +673,7 @@ struct UpdateCoordinatorTests {
                 transport: transport
             )
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root.appending(path: "sync"))
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
             let session = try await provider.openDocument(
                 .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
             )
@@ -732,7 +732,7 @@ struct UpdateCoordinatorTests {
                 stateRoot: root.appending(path: "sync")
             )
             let provider = WorkingTreeProvider(workingTree: workingTree) { admission in
-                await coordinator.syncImmediately(admission)
+                try await coordinator.syncImmediately(admission)
             }
             let session = try await provider.openDocument(
                 .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
@@ -1396,7 +1396,7 @@ struct UpdateCoordinatorPhase3Tests {
                 objects: foreign.objects
             )
             #expect(await coordinator.syncState.kind == "prepared")
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
             let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             let syncing = Task { try await coordinator.syncOnce() }
             for _ in 0..<200 where !(await gate.waiting) { try await Task.sleep(for: .milliseconds(10)) }
@@ -1442,7 +1442,7 @@ struct UpdateCoordinatorPhase3Tests {
                 requestDigests: foreign.digests,
                 objects: foreign.objects
             )
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
             let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             try await admitAppend(session, "Offline edit\n")
             try await waitForHead(root: root.appending(path: "sync"), workingTree: workingTree)
@@ -1528,7 +1528,7 @@ struct UpdateCoordinatorPhase3Tests {
                 publicationDelay: .seconds(30),
                 publicationMaxDelay: .seconds(60)
             )
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await stopped.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await stopped.syncImmediately(admission) }
             let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             try await admitAppend(session, "Unpublished\n")
             try await waitForHead(root: root, workingTree: workingTree)
@@ -1575,7 +1575,7 @@ struct UpdateCoordinatorPhase3Tests {
                 publicationDelay: .seconds(30),
                 publicationMaxDelay: .seconds(60)
             )
-            let provider = WorkingTreeProvider(workingTree: first) { admission in await stopped.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: first) { admission in try await stopped.syncImmediately(admission) }
             let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             try await admitAppend(session, "Lost with the process\n")
             try await waitForHead(root: root, workingTree: first)
@@ -1601,6 +1601,60 @@ struct UpdateCoordinatorPhase3Tests {
         }
     }
 
+    @Test("A Mac save is not acknowledged when head persistence fails, and flush retries the exact edit")
+    func failedHeadPersistenceIsNotAcknowledged() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_disk_failure"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let transport = ClosureTransport(initial: initial) { _, _ in
+                throw ArborWireValidationError.invalidValue("Offline test must not upload")
+            }
+            let workingTree = try await placeInMemory(tree: tree, transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport,
+                                                    stateRoot: root, transportAvailable: false)
+            let files = try UpdateControlFiles(root: root)
+            // A directory at the destination forces the atomic rename to fail.
+            try FileManager.default.createDirectory(at: files.controlURL, withIntermediateDirectories: true)
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in
+                try await coordinator.syncImmediately(admission)
+            }
+            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note"))
+            await #expect(throws: (any Error).self) { try await admitAppend(session, "Retain offline\n") }
+            #expect(try await session.snapshot().source.contains("Retain offline"))
+            await #expect(throws: (any Error).self) { try await session.flush() }
+            try FileManager.default.removeItem(at: files.controlURL)
+            try await session.flush()
+            // No polling: returning from flush is the disk durability boundary.
+            let head = try #require(try files.load().head)
+            #expect(head.root == (try await workingTree.heads()).materializedRoot)
+            #expect(await transport.requests.isEmpty)
+            await coordinator.close()
+        }
+    }
+
+    @Test("A source admission also persists a Mac head before returning")
+    func sourceAdmissionDurability() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_source_durable"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let transport = ClosureTransport(initial: initial) { _, _ in
+                throw ArborWireValidationError.invalidValue("Offline test must not upload")
+            }
+            let workingTree = try await placeInMemory(tree: tree, transport: transport)
+            let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport,
+                                                    stateRoot: root, transportAvailable: false)
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in
+                try await coordinator.syncImmediately(admission)
+            }
+            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note"))
+            let base = try await session.snapshot()
+            _ = try await session.admit(source: base.source + "Offline source edit\n", baseContentRevision: base.contentRevision)
+            #expect(try UpdateControlFiles(root: root).load().head?.root == (try await workingTree.heads()).materializedRoot)
+            #expect(await transport.requests.isEmpty)
+            await coordinator.close()
+        }
+    }
+
     @Test("A submission hold keeps the durable head and reports conflict until lifted")
     func holdKeepsHead() async throws {
         try await withTemporaryRoot { root in
@@ -1619,7 +1673,7 @@ struct UpdateCoordinatorPhase3Tests {
             )
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root, publicationDelay: .milliseconds(20), publicationMaxDelay: .milliseconds(50))
             try await coordinator.setSubmissionHold("Paused for the folder's review")
-            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in await coordinator.syncImmediately(admission) }
+            let provider = WorkingTreeProvider(workingTree: workingTree) { admission in try await coordinator.syncImmediately(admission) }
             let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             try await admitAppend(session, "Held\n")
             try await waitForHead(root: root, workingTree: workingTree)

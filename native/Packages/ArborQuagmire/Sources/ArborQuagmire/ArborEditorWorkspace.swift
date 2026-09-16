@@ -17,10 +17,12 @@ public final class ArborEditorWorkspace {
     }
 
     public let provider: any WorkspaceProvider
+    private let recoveryRoot: URL?
     private let coordinator: WorkspaceCoordinator
     private var entries: [WorkspaceIdentity: Entry] = [:]
 
-    public init(provider: any WorkspaceProvider) {
+    public init(provider: any WorkspaceProvider, recoveryRoot: URL? = nil) {
+        self.recoveryRoot = recoveryRoot
         self.provider = provider
         self.coordinator = WorkspaceCoordinator(provider: provider)
     }
@@ -33,7 +35,7 @@ public final class ArborEditorWorkspace {
             entries[workspaceLease.identity] = entry
             return ArborEditorLease(id: id, identity: workspaceLease.identity, binding: entry.binding)
         }
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: workspaceLease.session)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: workspaceLease.session, recoveryRoot: recoveryRoot)
         entries[workspaceLease.identity] = Entry(binding: binding, workspaceLeases: [id: workspaceLease])
         return ArborEditorLease(id: id, identity: workspaceLease.identity, binding: binding)
     }
@@ -50,8 +52,17 @@ public final class ArborEditorWorkspace {
         await coordinator.release(workspaceLease)
     }
 
+    public func retryFailedSaves() async {
+        for entry in entries.values where entry.binding.lastError != nil && entry.binding.conflict == nil {
+            await entry.binding.retryLastSave()
+        }
+    }
+
     public func flushAll() async throws {
-        for entry in entries.values { await entry.binding.flush() }
+        for entry in entries.values {
+            await entry.binding.flush()
+            if let error = entry.binding.lastError { throw error }
+        }
         try await coordinator.flushAll()
     }
 

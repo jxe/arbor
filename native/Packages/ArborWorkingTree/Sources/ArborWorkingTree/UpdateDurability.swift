@@ -32,6 +32,29 @@ struct UpdateControlFiles: Sendable {
         var value = control
         value.schema = UpdateControl.currentSchema
         try atomicWrite(try encoder.encode(value), to: controlURL)
+        // Retain scheduling/persistence evidence after successful requests have
+        // cleared the live control. Never put authored source or credentials in
+        // this diagnostic stream; editor recovery holds the exact source.
+        var event: [String: Any] = [
+            "timestamp": Date().timeIntervalSince1970,
+            "state": value.presentation.state.rawValue,
+            "head": value.head?.root ?? "",
+            "generation": value.head?.generation ?? -1,
+            "attempt": value.attempt?.digest ?? "",
+            "candidate": value.attempt?.candidate ?? "",
+            "accepted": value.presentation.acceptedRoot ?? "",
+            "conflict": value.conflict != nil,
+            "held": value.hold != nil,
+        ]
+        event["schema"] = value.schema
+        var line = try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys])
+        line.append(0x0a)
+        let descriptor = Darwin.open(directory.appending(path: "events.jsonl").path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        try handle.write(contentsOf: line)
+        try handle.synchronize()
     }
 
     func writeObject(_ envelope: WireObjectEnvelope) throws {

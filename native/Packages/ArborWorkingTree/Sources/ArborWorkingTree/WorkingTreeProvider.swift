@@ -7,12 +7,12 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     /// structural actions, assets, imports, and document admissions: a visit,
     /// or a placed tree opened while its folder's daemon holds a conflict.
     public let readOnly: Bool
-    private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)?
+    private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)?
 
     public init(
         workingTree: WorkingTree,
         readOnly: Bool = false,
-        onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)? = nil
+        onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)? = nil
     ) {
         self.workingTree = workingTree
         self.readOnly = readOnly
@@ -206,14 +206,15 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
     private let workingTree: WorkingTree
     private let initialReference: WorkspaceReference
     private let readOnly: Bool
-    private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)?
+    private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)?
+    private var pendingAdmission: WorkingTreePatchAdmission?
     private var terminal = false
 
     init(
         workingTree: WorkingTree,
         reference: WorkspaceReference,
         readOnly: Bool = false,
-        onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async -> Void)?
+        onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)?
     ) {
         self.workingTree = workingTree
         self.initialReference = reference
@@ -254,7 +255,14 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         try requireOpen()
         if readOnly { throw WorkspaceProviderError.readOnly(initialReference) }
         do {
-            return try await workingTree.writeDocument(initialReference, source: source, baseRevision: baseContentRevision)
+            let current = try await workingTree.documentSnapshot(initialReference)
+            guard current.contentRevision == baseContentRevision else {
+                throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+            }
+            return try await admit(patch: WorkspaceDocumentPatch(
+                baseContentRevision: baseContentRevision,
+                edits: [WorkspaceSourceEdit(utf8Range: 0..<current.source.utf8.count, replacement: source, expected: current.source)]
+            ))
         } catch WorkingTreeError.staleRevision {
             let current = try await workingTree.documentSnapshot(initialReference)
             throw WorkspaceDocumentConflict(current: current, submittedSource: source)
@@ -266,10 +274,11 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         if readOnly { throw WorkspaceProviderError.readOnly(initialReference) }
         do {
             let result = try await workingTree.writeDocument(initialReference, patch: patch)
-            if let onPatchAdmission {
-                let admission = result.admission
-                Task { await onPatchAdmission(admission) }
-            }
+            // On the Mac the working tree is in memory. The coordinator's
+            // head must reach disk before this session acknowledges a save.
+            pendingAdmission = result.admission
+            try await flush()
+
             return result.snapshot
         } catch WorkingTreeError.staleRevision {
             let current = try await workingTree.documentSnapshot(initialReference)
@@ -280,6 +289,9 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
 
     public func flush() async throws {
         try requireOpen()
+        guard let admission = pendingAdmission else { return }
+        try await onPatchAdmission?(admission)
+        if pendingAdmission?.generation == admission.generation { pendingAdmission = nil }
     }
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
