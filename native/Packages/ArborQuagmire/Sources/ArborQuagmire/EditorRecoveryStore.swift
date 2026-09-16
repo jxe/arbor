@@ -15,6 +15,8 @@ struct EditorRecoveryStore {
         var baseHash: String
         var baseRevision: String
         var summary: String?
+        /// Absent in legacy records; never infer move/copy intent from those snapshots.
+        var patch: WorkspaceDocumentPatch?
     }
 
     let directory: URL
@@ -40,10 +42,18 @@ struct EditorRecoveryStore {
         let revision = Revision(
             id: UUID().uuidString, reference: reference, timestamp: Date(),
             sourceHash: try store(source), baseHash: try store(base.source), baseRevision: base.contentRevision,
-            summary: changedLine.map { String($0.prefix(100)) }
+            summary: changedLine.map { String($0.prefix(100)) },
+            patch: ArborMarkdownCodec.patch(from: base.source, to: source, revision: base.contentRevision)
         )
         try write(try JSONEncoder().encode(revision), to: directory.appending(path: revision.id + ".json"))
         return revision
+    }
+
+    func intent(_ revision: Revision) throws -> WorkspaceDocumentIntent? {
+        guard let patch = revision.patch else { return nil }
+        return try WorkspaceDocumentIntent(
+            basis: .init(reference: revision.reference, source: base(revision), contentRevision: revision.baseRevision),
+            patch: patch, source: source(revision))
     }
 
     func source(_ revision: Revision) throws -> String { try source(hash: revision.sourceHash) }

@@ -19,6 +19,47 @@ struct EditorRecoveryTests {
         if commit { binding.admitCurrentGeneration() }
     }
 
+    @Test("An intent-aware session receives the exact editor basis after its projection advances")
+    func staleIntentReachesProvider() async throws {
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let session = RecoverySession()
+        await session.enableIntentRetention()
+        let binding = try await ArborDocumentBinding.open(reference: session.reference, session: session,
+                                                          debounce: .seconds(3600), recoveryRoot: root)
+        edit(binding, "Mine")
+        await session.replace("Peer at R2\n")
+        await binding.flush()
+        let intent = try #require(await session.retainedIntent)
+        #expect(intent.basis.source == "Before\n")
+        #expect(intent.basis.contentRevision == "initial")
+        #expect(intent.source == "Mine\n\n")
+        #expect(try intent.patch.applying(to: intent.basis.source) == intent.source)
+        #expect(binding.conflict == nil)
+        let store = try EditorRecoveryStore(root: root, reference: session.reference)
+        let record = try #require(try store.revisions().first)
+        #expect(try store.intent(record) == intent)
+        await binding.close()
+    }
+
+    @Test("Recovery retains exact guarded edits and legacy records remain readable")
+    func retainedIntentValidation() throws {
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let reference = WorkspaceReference(tree: "tr_one", path: "/page")
+        let store = try EditorRecoveryStore(root: root, reference: reference)
+        var record = try store.record(reference: reference, source: "After 🪴\r\n",
+                                      base: .init(reference: reference, source: "Before 🪴\r\n", contentRevision: "r1"))
+        let reopened = try EditorRecoveryStore(root: root, reference: reference)
+        let recovered = try #require(try reopened.revisions().first)
+        #expect(try reopened.intent(recovered)?.basis.source == "Before 🪴\r\n")
+        record.patch?.baseContentRevision = "r2"
+        #expect(throws: (any Error).self) { try reopened.intent(record) }
+        var legacy = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(recovered)) as? [String: Any])
+        legacy.removeValue(forKey: "patch")
+        let old = try JSONDecoder().decode(EditorRecoveryStore.Revision.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(try reopened.intent(old) == nil)
+        #expect(try reopened.source(old) == "After 🪴\r\n")
+    }
+
     @Test("The latest offline draft survives process loss before debounce and retries on reopen")
     func draftSurvivesRestart() async throws {
         let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
@@ -153,6 +194,17 @@ private actor RecoverySession: WorkspaceDocumentSession {
     func resumeAdmission() { continuation?.resume(); continuation = nil }
     var current: WorkspaceDocumentSnapshot
     init() { current = .init(reference: reference, source: "Before\n", contentRevision: "initial") }
+    private var acceptsIntent = false
+    var retainedIntent: WorkspaceDocumentIntent?
+    func enableIntentRetention() { acceptsIntent = true }
+    func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
+        try intent.validate()
+        if !acceptsIntent { return try await admit(patch: intent.patch) }
+        retainedIntent = intent
+        attempts += 1
+        replace(intent.source)
+        return current
+    }
     func setFailing(_ value: Bool) { failing = value }
     func replace(_ source: String) { current = .init(reference: reference, source: source, contentRevision: UUID().uuidString) }
     func snapshot() -> WorkspaceDocumentSnapshot { current }

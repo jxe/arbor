@@ -1,6 +1,6 @@
 # Reliability 010: Complete contextual client conflict review
 
-Status: READY for interaction design and fixture work; accepted-alternative controls depend on [008](008-enable-source-operations.md) and [009](009-canopy-provenance-merges.md). Priority: P1. [Reliability 004](004-contextual-canopy-conflict-resolution.md) retains the existing inline-placement and crash-hardening work; execute it as the first contextual UI slice, using the current working-tree owner and this protocol.
+Status: READY for interaction design and fixture work; accepted-alternative controls depend on [008](008-enable-source-operations.md) and [009](009-canopy-provenance-merges.md). Priority: P1. [Reliability 004](004-contextual-canopy-conflict-resolution.md) retains the existing inline-placement and crash-hardening work; preserve its legacy safety requirements during transition, but do not expand the rejected-update UI before the admission and acceptance milestone in 008.
 
 ## Outcome
 
@@ -32,7 +32,7 @@ review UI limitations must not block safe publication or remote catch-up.
 - Persist the choice, guarded `resolves` declarations and authored request before replacing live text. Coupled choices use one atomic candidate, not several request elements. Apply the accepted transition before clearing evidence. Resume unattempted suffixes in order with their original intent and explicit rebase guards.
 - If the accepted state or alternative set changes, preserve the draft and explain the newer contribution. Refresh evidence and revalidate; never auto-submit the old resolution against a new state.
 - Unrelated typing, cursor/selection, scroll position, and focus must survive refresh and review. A failed submission or unsupported operation leaves all work recoverable.
-- Keep review ownership local: a client presents only conflicts from requests it authored. Another working tree's conflict remains in that working tree's review flow and never gates this client.
+- Read accepted decisions from Canopy for any authorized client, regardless of which client submitted the competing work. Only legacy rejected requests and local drafts remain owned by their authoring working tree. Retire that legacy review after the migration gate in 008; never gate ordinary sync on review.
 
 ## 4. Deliver polished native behavior and verification
 

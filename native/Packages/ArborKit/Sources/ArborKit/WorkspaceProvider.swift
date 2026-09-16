@@ -165,6 +165,40 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
     }
 }
 
+/// Exact authored source and its guarded edit, independent of the session's latest projection.
+/// A provider must bind this basis to retained tree history before publishing it.
+public struct WorkspaceDocumentIntent: Hashable, Codable, Sendable {
+    public let basis: WorkspaceDocumentSnapshot
+    public let patch: WorkspaceDocumentPatch
+    public let source: String
+
+    public init(basis: WorkspaceDocumentSnapshot, patch: WorkspaceDocumentPatch, source: String) throws {
+        self.basis = basis
+        self.patch = patch
+        self.source = source
+        try validate()
+    }
+
+    private enum CodingKeys: String, CodingKey { case basis, patch, source }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(basis: values.decode(WorkspaceDocumentSnapshot.self, forKey: .basis),
+                      patch: values.decode(WorkspaceDocumentPatch.self, forKey: .patch),
+                      source: values.decode(String.self, forKey: .source))
+    }
+
+    /// The same invariant applies to fresh intents and recovered records.
+    public func validate() throws {
+        guard patch.baseContentRevision == basis.contentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: basis.contentRevision)
+        }
+        guard try patch.applying(to: basis.source) == source else {
+            throw WorkspaceProviderError.invalidAction("Source intent does not produce its declared candidate")
+        }
+    }
+}
+
 public enum WorkspacePatchError: Error, Equatable, Sendable {
     case staleRevision(expected: String, actual: String)
     case invalidRange(Range<Int>)
@@ -178,6 +212,7 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
     func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
     func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot
     func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot
+    func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot
     func flush() async throws
     func history() async throws -> [WorkspaceHistoryEntry]
     func recover(revision: String) async throws -> WorkspaceDocumentSnapshot
@@ -185,6 +220,23 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
 }
 
 public extension WorkspaceDocumentSession {
+    /// Compatibility bridge for existing providers. It preserves their rejection/recovery
+    /// behavior until their publication queues support independently retained bases.
+    func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
+        try intent.validate()
+        guard intent.basis.reference.identity == identity else {
+            throw WorkspaceProviderError.invalidAction("Source intent belongs to another document")
+        }
+        do {
+            return try await admit(patch: intent.patch)
+        } catch let conflict as WorkspaceDocumentConflict {
+            // Older providers may try to reconstruct the submitted text from
+            // their newer projection. The captured intent is authoritative.
+            throw WorkspaceDocumentConflict(base: intent.basis, current: conflict.current,
+                                            submittedSource: intent.source)
+        }
+    }
+
     func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
         AsyncThrowingStream { continuation in continuation.finish() }
     }

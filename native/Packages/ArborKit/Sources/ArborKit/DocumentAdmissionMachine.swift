@@ -149,7 +149,7 @@ public enum DocumentAdmissionMachine {
     public enum Effect: Sendable, Equatable {
         case schedule(Duration)
         case cancelTimer
-        case admit(generation: Int, source: String, baseRevision: String)
+        case admit(generation: Int, source: String, baseRevision: String, baseSource: String)
         /// The working tree acknowledged the exact tree already in the editor; advance source authority without replacing it.
         case acknowledge(Result)
         /// Replace the editor with authoritative content.
@@ -308,7 +308,8 @@ public enum DocumentAdmissionMachine {
         return (next, [.admit(
             generation: latest.generation,
             source: latest.source,
-            baseRevision: state.accepted.revision
+            baseRevision: state.accepted.revision,
+            baseSource: state.accepted.source
         )])
     }
 

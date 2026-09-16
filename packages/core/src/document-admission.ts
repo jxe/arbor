@@ -84,7 +84,7 @@ export type AdmissionEvent<S> =
 export type AdmissionEffect<S> =
   | { type: "schedule"; delay: number }
   | { type: "cancelTimer" }
-  | { type: "admit"; generation: number; source: S; baseRevision: string }
+  | { type: "admit"; generation: number; source: S; baseRevision: string; baseSource: S }
   /** The working tree acknowledged the exact tree already in the editor; advance source authority without replacing it. */
   | { type: "acknowledge"; result: AdmissionResult<S> }
   /** Replace the editor with authoritative content. */
@@ -133,6 +133,7 @@ function admitEffect<S>(state: Base<S>, submission: AdmissionSubmission<S>): Adm
     generation: submission.generation,
     source: submission.source,
     baseRevision: state.accepted.revision,
+    baseSource: state.accepted.source,
   };
 }
 

@@ -42,6 +42,16 @@ struct DocumentAdmissionMachineTests {
                 let label = "\(name) / step \(index + 1)"
                 #expect(state.kind == step["state"] as? String, Comment(rawValue: label))
                 #expect(effects.map(\.kind) == (step["effects"] as? [String] ?? []), Comment(rawValue: label))
+                var effectValues: [String: Any] = [:]
+                for (i, effect) in effects.enumerated() {
+                    if case let .admit(generation, source, revision, baseSource) = effect {
+                        effectValues[String(i)] = ["generation": generation, "source": source,
+                                                   "baseRevision": revision, "baseSource": baseSource]
+                    }
+                }
+                for (path, expected) in step["effectExpect"] as? [String: Any] ?? [:] {
+                    #expect(Self.equal(Self.value(at: path, in: effectValues), expected), Comment(rawValue: "\(label): effect \(path)"))
+                }
                 let representation = state.fixtureRepresentation
                 for (path, expected) in step["expect"] as? [String: Any] ?? [:] {
                     let actual = Self.value(at: path, in: representation)
@@ -127,4 +137,37 @@ struct DocumentAdmissionMachineTests {
     enum FixtureError: Error {
         case unknownEvent(String)
     }
+}
+
+@Test("Legacy admission errors preserve the captured candidate instead of reconstructing it from the peer")
+func legacyIntentConflictEvidence() async throws {
+    let session = LegacyIntentSession()
+    let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_one", path: "/page"), source: "R1", contentRevision: "r1")
+    let intent = try WorkspaceDocumentIntent(basis: basis,
+        patch: .init(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<2, replacement: "Mine", expected: "R1")]), source: "Mine")
+    do {
+        _ = try await session.admit(intent: intent)
+        Issue.record("Expected legacy rejection")
+    } catch let conflict as WorkspaceDocumentConflict {
+        #expect(conflict.base == basis)
+        #expect(conflict.submittedSource == "Mine")
+        #expect(conflict.current.source == "Peer")
+    }
+}
+
+private actor LegacyIntentSession: WorkspaceDocumentSession {
+    nonisolated let identity = WorkspaceReference(tree: "tr_one", path: "/page").identity
+    func snapshot() -> WorkspaceDocumentSnapshot {
+        .init(reference: .init(tree: "tr_one", path: "/page"), source: "Peer", contentRevision: "r2")
+    }
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        throw WorkspaceDocumentConflict(current: snapshot(), submittedSource: "Incorrectly reconstructed")
+    }
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        try admit(source: "", baseContentRevision: patch.baseContentRevision)
+    }
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { snapshot() }
+    func close() {}
 }

@@ -54,6 +54,45 @@ The explicit-alternative slice depends on 009's accepted-conflict storage and in
 
 ## 3. Preserve editor intent before sending
 
+### Next milestone: durable stale-basis admission and complete client acceptance
+
+The reducers capture exact base source/revision in admission effects. Native passes
+a validated `WorkspaceDocumentIntent` and independently retains its guarded patch;
+legacy recovery records remain readable. This is source-level recovery evidence,
+**not yet** a publication-ready tree basis. Do not remove the working-tree revision
+check merely because the source-level record exists.
+
+Ownership: the editor bridge maps editing transactions to exact source edits and
+owns selection, undo and uncommitted editor state. The working-tree client owns
+tree-basis binding, validation, identity allocation, durable admission and publication
+records, restart and acknowledgement. Canopy owns reconciliation and decisions.
+The bridge's independent recovery journal is a backup, never a second publication
+queue. Keep these policies in client types and transitions rather than requiring
+each editor host to implement them. The future TS working-tree client uses the same
+boundary; a transport-only Wire client does not own editor admission.
+
+- Extend durable heads into authored records binding exact accepted update/root or
+  preceding local candidate, source path/object and candidate graph. Preserve these
+  dependencies through coalescing, other-page edits, in-flight requests, restart,
+  root-equal transitions, and selection of a hidden alternative. TS and Swift clients
+  must enforce these invariants; never silently rebuild an old edit against current.
+- Route `WorkspaceDocumentIntent` through that retention path before acknowledging
+  a stale admission. Recover divergent drafts into it without local merge review.
+  Plain disk editor compare-and-swap behavior is outside this Canopy contract.
+- Broaden 009's conservative acceptance to the actual snapshot and source forms
+  clients emit, including nested documents, range overlap, longer histories, and
+  existing structural writes. Better automatic merging is not a prerequisite.
+- Verify deployment coverage before enabling emission. Retain legacy 409 recovery
+  until exact requests/drafts/suffixes have been settled or transferred. Only then
+  delete the rejected-update workspace and resolution machine; ordinary errors and
+  stale explicit-resolution guards still preserve work.
+
+Acceptance fixture: editor reads R1, watch installs R2, R1 edit is durably admitted,
+process exits, original intent is submitted, Canopy accepts overlap, another edit
+continues, and a second client resolves through Canopy inspection. Exercise both
+languages plus real Native admission; a fake provider test is not this release gate.
+
+
 - Capture authored transactions before serialization loses move/copy/undo distinctions. Map Quagmire positions to exact UTF-8 source using its ledger; editor-local identities do not cross Wire. Implement the same source contract for any second maintained editor rather than a speculative adapter.
 - Generate change/operation identities while preparing the durable generation. Coalesce unsent edits with compositional lineage, then freeze the submitted prefix. Undo/redo must retain causal references across coalescing; where evidence is incomplete, prepare a separate snapshot element.
 - Carry the full candidate and operations through editor admission, working-tree persistence, bootstrap adoption, retry, longer prefixes, and suffix replay. A transport delta is never an authored operation. Preserve unsupported requests and provide a visible upgrade reason.

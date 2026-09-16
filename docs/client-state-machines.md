@@ -17,6 +17,14 @@ reducers that execute every `document-admission` scenario in
 the editor host (`ArborDocumentBinding` today; the Plan B web editor later)
 runs the effects.
 
+The target admission policy is [exact authored basis](../spec/09-client-synchronization.md#exact-authored-basis).
+The reference implementation is in transition: both reducers now capture base source
+and revision in each admission effect; Native delivers a validated source intent and
+retains its guarded patch in independent recovery. The working-tree publication queue
+still needs durable basis/dependency records before stale admissions can be enabled.
+The `conflict` phase and `mergeLocally` effect below are legacy compatibility behavior,
+not the target policy for concurrent Canopy edits. Existing recovery remains readable.
+
 ## 1. Three layers, three clocks
 
 - **Local editor history** may keep every movement. Undo grouping is the
@@ -62,7 +70,7 @@ result)`, `admissionConflicted(generation, current?)`,
 `retry`, `resolveConflict(use-current | keep-submitted)`, `close`.
 
 Effects the host runs: `schedule(delay)`, `cancelTimer`, `admit(generation,
-source, baseRevision)`, `acknowledge(result)`, `apply(source, revision)`,
+source, baseRevision, baseSource)`, `acknowledge(result)`, `apply(source, revision)`,
 `mergeLocally(current?, submitted, base)`, `surfaceFailure(error)`, `stop`.
 
 ```text
@@ -103,7 +111,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 6. **External change under coalescing intent** (`observed` while `dirty`)
    cancels the timer and admits now, so the authority, not the editor,
    reconciles.
-7. **A rejected admission emits `mergeLocally`.** The working tree rejected
+7. **Legacy compatibility: a rejected admission emits `mergeLocally`.** The working tree rejected
    the write at its base revision; the host may run its explicit merge
    helper or surface the retained conflict for review (native Arbor surfaces
    it). Canopy-side conflicts belong to the update machine, not to admission.
@@ -121,7 +129,10 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 
 - Serialize the editor tree to the exact source the machine will submit, and
   compute the guarded UTF-8 patch from the last acknowledged exact source.
-- Run `admit` through the session as a guarded write at the accepted revision
+- Capture base source and revision from the `admit` effect, never from mutable
+  reducer state when an asynchronous callback resumes. Validate that the patch
+  applied to this captured source produces the candidate exactly.
+- During compatibility, run `admit` through the session as a guarded write at the accepted revision
   and classify the outcome as `admitted`, `admissionConflicted`, or
   `admissionFailed`. An exact-source race (the provider already holds the
   submitted bytes) is `admitted`.

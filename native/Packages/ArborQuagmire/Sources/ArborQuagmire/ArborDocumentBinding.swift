@@ -99,6 +99,8 @@ public final class ArborDocumentBinding {
         guard let recoveryStore else { return }
         do {
             if let recoveryRevision, try recoveryStore.source(recoveryRevision) == source,
+               recoveryRevision.baseRevision == accepted.contentRevision,
+               try recoveryStore.base(recoveryRevision) == accepted.source,
                !recoveryStore.isSaved(recoveryRevision) || source == accepted.source { return }
             recoveryRevision = try recoveryStore.record(reference: reference, source: source, base: accepted)
             recoveryError = nil
@@ -116,6 +118,8 @@ public final class ArborDocumentBinding {
 
     private func restoreDraft(from store: EditorRecoveryStore) throws {
         guard let record = try store.revisions().first, !store.isSaved(record) else { return }
+        // Validate retained patches against their original basis before any recovery action.
+        _ = try store.intent(record)
         let source = try store.source(record)
         recoveryRevision = record
         if source == accepted.source {
@@ -176,11 +180,11 @@ public final class ArborDocumentBinding {
         case .cancelTimer:
             debounceTask?.cancel()
             debounceTask = nil
-        case let .admit(generation, source, baseRevision):
+        case let .admit(generation, source, baseRevision, baseSource):
             let previous = admissionTask
             admissionTask = Task { @MainActor [self] in
                 if let previous { await previous.value }
-                await self.persist(source: source, generation: generation, baseRevision: baseRevision)
+                await self.persist(source: source, generation: generation, baseRevision: baseRevision, baseSource: baseSource)
             }
         case let .acknowledge(result):
             acknowledge(result)
@@ -423,8 +427,8 @@ public final class ArborDocumentBinding {
 
     // MARK: Admission transport
 
-    private func persist(source: String, generation: Int, baseRevision: String) async {
-        let patch = ArborMarkdownCodec.patch(from: machine.accepted.source, to: source, revision: baseRevision)
+    private func persist(source: String, generation: Int, baseRevision: String, baseSource: String) async {
+        let patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
         guard !patch.edits.isEmpty else {
             // Quagmire may report a follow-up commit after the authored source
             // is already current. It is saved by definition.
@@ -437,7 +441,10 @@ public final class ArborDocumentBinding {
             return
         }
         do {
-            let confirmed = try await session.admit(patch: patch)
+            let intent = try WorkspaceDocumentIntent(
+                basis: .init(reference: reference, source: baseSource, contentRevision: baseRevision),
+                patch: patch, source: source)
+            let confirmed = try await session.admit(intent: intent)
             snapshots[confirmed.contentRevision] = confirmed
             finishAdmission(generation: generation, snapshot: confirmed)
         } catch let value as WorkspaceDocumentConflict {

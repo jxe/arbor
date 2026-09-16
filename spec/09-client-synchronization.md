@@ -118,7 +118,10 @@ one client's local condition gate another client's publication.
    transition batch in memory and materializes its final state once, or
    pulls the current snapshot when the batch does not chain. A watch event
    under pending work triggers publication and never overwrites the head.
-8. **A rejected update conflict is sequential and owned by its author.** A conflict stops at
+8. **Preserve definitively rejected work.** Ordinary, valid concurrent edits are
+   reconciled or retained as accepted ambiguity by Canopy; a stale basis alone
+   is not a reason for a client-owned conflict workflow. During compatibility
+   with earlier authorities and retained requests, a rejected sequence stops at
    the first failed element. The machine retains the returned successful
    prefix, the failed element at `failedIndex`, and every unattempted suffix
    element from the exact prepared request. It reviews only the failed element
@@ -180,15 +183,63 @@ and matching test updates; they are not Wire compatibility values.
 
 ## 3. Relationship to editor admission
 
-An editor runs the document admission machine described in
-[client state machines](../docs/client-state-machines.md) against its own
-working tree. A successful admission is working-tree durability, not accepted
-history: the working tree holds the admitted bytes as its local head, and the
-update machine described here publishes durable heads as requests and
-materializes only accepted state. Nothing edits through another client; the
-daemon's folder is itself a working tree whose object store is the folder.
-The two machines compose in sequence, admission first and publication second,
-and must not be merged into one coordinator.
+An editor runs a document admission machine against its own working tree. A
+successful admission acknowledges durable authored intent, not acceptance by
+Canopy and not agreement with the current projected document. The admission and
+publication machines remain separate. The reference reducers are described in
+[client state machines](../docs/client-state-machines.md).
+
+### Exact authored basis
+
+- An admission MUST preserve the exact source basis, its revision, guarded edits,
+  resulting source, and document/tree scope. Before publication, the client MUST
+  bind this local basis to its retained accepted identity or preceding authored
+  candidate, including the objects needed to express and recover that candidate.
+  A content revision or equal source bytes alone cannot establish accepted identity.
+- If the editor authored against R1 and a watch installs R2 before admission, the
+  client MUST retain the R1-based edit. It MUST NOT substitute R2 as the basis,
+  replay the edit against R2 merely because its byte guards happen to match, or
+  require a local compare-and-swap conflict resolution. Canopy reconciles the
+  original intent and preserves genuine overlap as accepted state.
+- Admission MUST validate that the edits applied to the captured basis produce
+  the declared candidate exactly. Local failure is reserved for inability to
+  retain the edit durably or express it validly, including unavailable basis
+  material, invalid scope, invalid guards, or a read-only document. Network
+  availability and a newer accepted projection do not invalidate admission.
+- Acknowledgement MUST wait until the basis, intent, candidate and publication
+  dependency are recoverable after process loss. An editor-only recovery copy
+  is not a substitute for a durable publication queue. The editor continues to
+  read its admitted generation while the queue retains later edits independently
+  of incoming projections.
+- Coalescing MUST preserve causal meaning and the correct basis. Requests already
+  attempted remain immutable. A successor authored against a submitted candidate
+  MUST retain that dependency, including when Canopy projects a peer alternative.
+- Restart MUST recover the original basis and pending intent. A newer projection
+  does not turn recovery into a request for local merge review. Unknown submission
+  outcomes require exact retry; equality with projected bytes is not proof that
+  semantic work was accepted.
+
+### Accepted-state review and compatibility
+
+An accepted conflict-bearing receipt follows the ordinary accepted-update path:
+validate and durably install its projection and identity, then continue publication.
+Clients obtain conflict decisions through Canopy's tree inspection operations.
+Accepted decisions are tree state, not private to the submitting client. An
+unavailable inspection request MUST NOT block normal synchronization.
+
+Resolution is an ordinary guarded update naming accepted decisions. A stale
+resolution guard requires refreshed evidence while retaining the person's draft;
+it does not require a client-owned merge engine or recreation of rejected-update
+workspaces. Other validation and authorization failures remain recoverable errors.
+
+During the implementation transition, clients MUST preserve existing retained
+local conflicts, exact rejected requests, drafts and unattempted suffixes, and
+continue handling responses from the authorities they still use. Remove the legacy
+review/hold machinery only after the deployed authority covers the client's emitted
+forms and every legacy record has been settled or durably transferred with its
+original basis and attribution. Transfer must not silently reauthor an old request
+against the latest projection. This compatibility path is not part of the target
+ordinary-edit workflow.
 
 ## Accepted conflicts and unaccepted local work
 

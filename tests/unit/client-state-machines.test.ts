@@ -14,6 +14,7 @@ interface Step {
   state: string;
   effects: string[];
   expect?: Record<string, unknown>;
+  effectExpect?: Record<string, unknown>;
 }
 
 interface Scenario {
@@ -79,6 +80,9 @@ function runScenario<S, E>(
     const label = `${scenario.name} / step ${index + 1} (${String(step.event.type)})`;
     expect((state as { kind: string }).kind, label).toBe(step.state);
     expect(transition.effects.map((effect) => effect.type), label).toEqual(step.effects);
+    for (const [path, expected] of Object.entries(step.effectExpect ?? {})) {
+      expect(valueAt(transition.effects, path), `${label}: effect ${path}`).toEqual(expected);
+    }
     for (const [path, expected] of Object.entries(step.expect ?? {})) {
       expect(valueAt(state, path), `${label}: ${path}`).toEqual(expected);
     }

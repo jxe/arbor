@@ -8,6 +8,102 @@
       "effects": ["schedule", "cancelTimer", "admit", "acknowledge", "apply", "mergeLocally", "surfaceFailure", "stop"],
       "scenarios": [
         {
+          "name": "a newer watch and a failed retention never relabel the authored source basis",
+          "initial": {
+            "accepted": {
+              "source": "s1",
+              "revision": "r1"
+            }
+          },
+          "steps": [
+            {
+              "event": {
+                "type": "edit",
+                "source": "mine"
+              },
+              "state": "dirty",
+              "effects": [
+                "schedule"
+              ]
+            },
+            {
+              "event": {
+                "type": "observed",
+                "observation": {
+                  "source": "peer",
+                  "revision": "r2"
+                }
+              },
+              "state": "submitting",
+              "effects": [
+                "cancelTimer",
+                "admit"
+              ],
+              "effectExpect": {
+                "1.baseRevision": "r1",
+                "1.baseSource": "s1",
+                "1.source": "mine"
+              }
+            },
+            {
+              "event": {
+                "type": "observed",
+                "observation": {
+                  "source": "later peer",
+                  "revision": "r3"
+                }
+              },
+              "state": "submitting",
+              "effects": [],
+              "expect": {
+                "accepted.revision": "r1"
+              }
+            },
+            {
+              "event": {
+                "type": "admissionFailed",
+                "generation": 1,
+                "error": {
+                  "message": "durable storage unavailable",
+                  "retryable": true
+                }
+              },
+              "state": "failed",
+              "effects": [
+                "surfaceFailure"
+              ]
+            },
+            {
+              "event": {
+                "type": "retry"
+              },
+              "state": "submitting",
+              "effects": [
+                "admit"
+              ],
+              "effectExpect": {
+                "0.baseRevision": "r1",
+                "0.baseSource": "s1",
+                "0.source": "mine"
+              }
+            },
+            {
+              "event": {
+                "type": "admitted",
+                "generation": 1,
+                "result": {
+                  "source": "mine",
+                  "revision": "local1"
+                }
+              },
+              "state": "clean",
+              "effects": [
+                "acknowledge"
+              ]
+            }
+          ]
+        },
+        {
           "name": "fifteen edits before the debounce make one admission carrying the final source",
           "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
@@ -102,7 +198,7 @@
           ]
         },
         {
-          "name": "a rejected admission retains evidence, allows further edits, and keep-submitted resubmits the latest source",
+          "name": "a legacy rejected admission retains evidence, allows further edits, and keep-submitted resubmits the latest source",
           "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },
@@ -113,7 +209,7 @@
           ]
         },
         {
-          "name": "a local conflict may run the explicit local merge helper; using the current version applies it",
+          "name": "a legacy local conflict may run the explicit local merge helper; using the current version applies it",
           "initial": { "accepted": { "source": "s0", "revision": "r0" } },
           "steps": [
             { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"] },

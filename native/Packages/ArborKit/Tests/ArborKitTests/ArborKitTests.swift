@@ -16,6 +16,24 @@ func markdownDisplayTitle() {
 
 @Suite("Workspace coordination")
 struct WorkspaceCoordinatorTests {
+    @Test("Source intents validate their captured basis and candidate even after decoding")
+    func sourceIntent() throws {
+        let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_one", path: "/page"),
+                                              source: "Before", contentRevision: "r1")
+        let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [
+            .init(utf8Range: 0..<6, replacement: "After", expected: "Before")])
+        let intent = try WorkspaceDocumentIntent(basis: basis, patch: patch, source: "After")
+        #expect(try JSONDecoder().decode(WorkspaceDocumentIntent.self, from: JSONEncoder().encode(intent)) == intent)
+        #expect(throws: (any Error).self) {
+            try WorkspaceDocumentIntent(basis: basis, patch: patch, source: "Different candidate")
+        }
+        var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(intent)) as? [String: Any])
+        json["source"] = "Corrupt candidate"
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(WorkspaceDocumentIntent.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+    }
+
     @Test("Range-guarded source patches preserve untouched UTF-8 bytes")
     func sourcePatch() throws {
         let source = "---\r\nid: pg_patch\r\n---\r\n\r\n# Héllo\r\n\r\nKeep exactly.\r\n"
