@@ -660,6 +660,40 @@ struct ArborPageSearchControls: View {
     }
 }
 
+enum ArborToolbarSyncStatus: Equatable {
+    case synchronized
+    case syncing
+    case offline
+    case attention
+
+    static func resolve(
+        synchronization: WorkspaceSynchronization,
+        documentIsSaving: Bool,
+        documentNeedsAttention: Bool
+    ) -> Self {
+        if documentNeedsAttention { return .attention }
+        switch synchronization {
+        case .current, .autoMerged:
+            return documentIsSaving ? .syncing : .synchronized
+        case .locallyPending, .requestPending, .uploading, .downloading:
+            return .syncing
+        case .offline:
+            return .offline
+        case .approximatePlacement, .conflict, .authenticationFailure, .revoked:
+            return .attention
+        }
+    }
+
+    var accessibilityDescription: String {
+        switch self {
+        case .synchronized: "Fully synced"
+        case .syncing: "Syncing changes"
+        case .offline: "Offline; changes will sync when reconnected"
+        case .attention: "Synchronization needs attention"
+        }
+    }
+}
+
 struct ArborRootView: View {
     let workspace: ArborWorkspaceState
     let onDisconnect: @MainActor () -> Void
@@ -1459,6 +1493,16 @@ struct ArborRootView: View {
     }
 
 #if os(macOS)
+    private var toolbarSyncStatus: ArborToolbarSyncStatus {
+        ArborToolbarSyncStatus.resolve(
+            synchronization: workspace.syncPresentation.state,
+            documentIsSaving: model.binding?.isSaving == true,
+            documentNeedsAttention: model.binding?.conflict != nil || model.binding?.lastError != nil
+        )
+    }
+#endif
+
+#if os(macOS)
     private func localTreeTitle(_ tree: LocalArborSyncTreePresentation) -> String {
         guard tree.kind == "account-configuration" else {
             return tree.canonicalPath ?? tree.name
@@ -1749,10 +1793,10 @@ struct ArborRootView: View {
                     Button {
                         showAccountsPanel()
                     } label: {
-                        mutedMacToolbarIcon("person.crop.circle")
+                        ArborProfileSyncToolbarLabel(status: toolbarSyncStatus)
                     }
-                    .help("Accounts")
-                    .accessibilityLabel("Accounts")
+                    .help("Accounts — \(toolbarSyncStatus.accessibilityDescription)")
+                    .accessibilityLabel("Accounts. \(toolbarSyncStatus.accessibilityDescription)")
                     .frame(width: 32, height: 32)
                     .mutedMacToolbarHover()
                 }
@@ -2048,6 +2092,49 @@ struct ArborRootView: View {
         }
     }
 }
+
+#if os(macOS)
+private struct ArborProfileSyncToolbarLabel: View {
+    let status: ArborToolbarSyncStatus
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Color.secondary.opacity(0.78))
+                .frame(width: 32, height: 32)
+
+            badge
+                .frame(width: 13, height: 13)
+                .background(.bar, in: Circle())
+                .offset(x: 1, y: 1)
+        }
+        .contentShape(.rect)
+    }
+
+    @ViewBuilder
+    private var badge: some View {
+        switch status {
+        case .synchronized:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.green)
+        case .syncing:
+            ProgressView()
+                .controlSize(.mini)
+                .scaleEffect(0.62)
+        case .offline:
+            Image(systemName: "wifi.slash")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+        case .attention:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.orange)
+        }
+    }
+}
+#endif
 
 #if os(iOS)
 private struct ArborEditorUndoButtons: View {

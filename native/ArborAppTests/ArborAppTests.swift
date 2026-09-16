@@ -9,6 +9,44 @@ import Testing
 
 @MainActor
 struct ArborAppTests {
+    @Test("Profile toolbar summarizes synchronization into four visible states")
+    func profileToolbarSyncStatus() {
+        #expect(ArborToolbarSyncStatus.resolve(
+            synchronization: .current,
+            documentIsSaving: false,
+            documentNeedsAttention: false
+        ) == .synchronized)
+        #expect(ArborToolbarSyncStatus.resolve(
+            synchronization: .uploading,
+            documentIsSaving: false,
+            documentNeedsAttention: false
+        ) == .syncing)
+        #expect(ArborToolbarSyncStatus.resolve(
+            synchronization: .offline,
+            documentIsSaving: false,
+            documentNeedsAttention: false
+        ) == .offline)
+        #expect(ArborToolbarSyncStatus.resolve(
+            synchronization: .conflict,
+            documentIsSaving: false,
+            documentNeedsAttention: false
+        ) == .attention)
+    }
+
+    @Test("Profile toolbar never reports fully synced over a pending or failed save")
+    func profileToolbarSyncStatusPrecedence() {
+        #expect(ArborToolbarSyncStatus.resolve(
+            synchronization: .current,
+            documentIsSaving: true,
+            documentNeedsAttention: false
+        ) == .syncing)
+        #expect(ArborToolbarSyncStatus.resolve(
+            synchronization: .offline,
+            documentIsSaving: false,
+            documentNeedsAttention: true
+        ) == .attention)
+    }
+
     @Test("A current tree cannot hide a document conflict after continued typing")
     func syncStatusRetainsDocumentConflict() async throws {
         let session = StatusConflictSession()
