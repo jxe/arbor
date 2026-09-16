@@ -475,8 +475,7 @@ public actor UpdateCoordinator {
             detail: "Applied \(event.transitions.count) ordered accepted transition\(event.transitions.count == 1 ? "" : "s")",
             acceptedRoot: final.update.root,
             localRoot: final.update.root,
-            remoteAdditions: true,
-            approximatePlacements: 0
+            remoteAdditions: true
         )
         control.presentation.acceptedConflicted = control.acceptedConflicted
         try files.write(control)
@@ -1082,8 +1081,7 @@ public actor UpdateCoordinator {
                 acceptedRoot: control.nextBase?.root ?? attempt.base.root,
                 localRoot: heads.materializedRoot,
                 localAdditions: true,
-                remoteAdditions: accepted.root != attempt.candidate,
-                approximatePlacements: 0
+                remoteAdditions: accepted.root != attempt.candidate
             )
             control.presentation.acceptedConflicted = control.acceptedConflicted
             try files.write(control)

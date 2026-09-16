@@ -1411,7 +1411,7 @@ final class ArborWorkspaceState {
 
     func flush() async {
         do { try await editorWorkspace.flushAll() }
-        catch { errorMessage = "Saving did not finish: \(error.localizedDescription)" }
+        catch { errorMessage = "Retaining edits locally did not finish: \(error.localizedDescription)" }
     }
 
     func deliverVoiceTranscript(_ transcript: String, to stableKey: String) async throws {

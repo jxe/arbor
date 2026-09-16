@@ -679,7 +679,7 @@ enum ArborToolbarSyncStatus: Equatable {
             return .syncing
         case .offline:
             return .offline
-        case .approximatePlacement, .conflict, .authenticationFailure, .revoked:
+        case .conflict, .authenticationFailure, .revoked:
             return .attention
         }
     }

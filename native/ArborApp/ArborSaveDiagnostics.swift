@@ -22,9 +22,9 @@ struct ArborSaveDiagnostic: Equatable {
     let technicalDetail: String
     let synchronizationOverride: String?
 
-    /// What failed. A document save never touches the daemon: the editor
-    /// writes its own working tree and the update machine talks to Canopy, so
-    /// a save failure is a provider failure whatever its error domain. Only
+    /// What failed. Retaining a document edit never touches the daemon: Native
+    /// writes private recovery and working-tree update state, and the update
+    /// machine talks to Canopy. Only
     /// opening a placed tree (`/v1/bootstrap`) or a placement depends on the
     /// daemon, and only there is a connection failure a daemon outage.
     enum Context: Equatable {
@@ -78,9 +78,9 @@ struct ArborSaveDiagnostic: Equatable {
 
         return ArborSaveDiagnostic(
             kind: .providerFailure,
-            bannerMessage: "The working tree could not save the latest document edit.",
-            conditionLabel: "Provider save failed",
-            explanation: "The working tree returned an error while saving. Saves never go through the local daemon, so this is not a daemon outage.",
+            bannerMessage: "Native could not retain the latest document edit locally.",
+            conditionLabel: "Native durability failed",
+            explanation: "Native returned an error while retaining its private recovery or working-tree update state. It did not write the placed Arbor file, and this is not a daemon outage.",
             recovery: "Keep this window open, correct the reported problem, then choose Retry.",
             technicalDetail: error.localizedDescription,
             synchronizationOverride: nil

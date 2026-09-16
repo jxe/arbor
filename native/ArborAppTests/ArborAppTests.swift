@@ -31,8 +31,7 @@ struct ArborAppTests {
             documentNeedsAttention: false
         ) == .offline)
         for synchronization in [
-            WorkspaceSynchronization.approximatePlacement,
-            .conflict,
+            WorkspaceSynchronization.conflict,
             .authenticationFailure,
             .revoked,
         ] {
@@ -57,7 +56,7 @@ struct ArborAppTests {
         #expect(status.overallStatusTitle == "This Arbor client is up to date")
     }
 
-    @Test("Profile toolbar never reports fully synced over a pending or failed save")
+    @Test("Profile toolbar never reports fully synced over pending or failed local retention")
     func profileToolbarSyncStatusPrecedence() {
         #expect(ArborToolbarSyncStatus.resolve(
             synchronization: .current,
@@ -154,7 +153,7 @@ struct ArborAppTests {
         #expect(diagnostic.bannerMessage.contains("did not respond"))
     }
 
-    @Test("A document save never classifies a connection failure as a daemon outage")
+    @Test("Local document retention never classifies a connection failure as a daemon outage")
     func saveDiagnosticsNeverBlameTheDaemon() throws {
         for error: Error in [URLError(.cannotConnectToHost), URLError(.timedOut), CocoaError(.fileWriteNoPermission)] {
             let diagnostic = try #require(ArborSaveDiagnostic.describe(error, processKind: .supervised))
@@ -164,7 +163,7 @@ struct ArborAppTests {
         }
     }
 
-    @Test("Save diagnostics do not mislabel arbitrary provider failures as daemon outages")
+    @Test("Durability diagnostics do not mislabel arbitrary provider failures as daemon outages")
     func genericSaveDiagnostic() throws {
         let diagnostic = try #require(ArborSaveDiagnostic.describe(
             CocoaError(.fileWriteNoPermission),
@@ -172,7 +171,7 @@ struct ArborAppTests {
         ))
 
         #expect(diagnostic.kind == .providerFailure)
-        #expect(diagnostic.conditionLabel == "Provider save failed")
+        #expect(diagnostic.conditionLabel == "Native durability failed")
         #expect(diagnostic.synchronizationOverride == nil)
     }
 

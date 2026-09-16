@@ -972,16 +972,16 @@ struct ArborDocumentFooter: View {
             }
             .buttonStyle(.plain)
             .help(sync.detail ?? statusTitle)
-            .accessibilityHint("Shows save and synchronization details")
+            .accessibilityHint("Shows local durability and synchronization details")
         }
         .padding(.top, 24)
         .padding(.bottom, 12)
     }
 
     private var statusTitle: String {
-        if binding?.isSaving == true { return "Saving" }
+        if binding?.isSaving == true { return "Retaining edit" }
         if binding?.conflict != nil { return "Edit conflict" }
-        if binding?.lastError != nil { return "Save failed" }
+        if binding?.lastError != nil { return "Local retention failed" }
         return sync.state.label
     }
 
@@ -1086,9 +1086,6 @@ struct ArborSyncStatusView: View {
                         } else if let detail = sync.detail {
                             Text(detail)
                         }
-                        if sync.approximatePlacements > 0 {
-                            Text("\(sync.approximatePlacements) change placements need review.")
-                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1110,10 +1107,10 @@ struct ArborSyncStatusView: View {
     }
 
     var saveStatus: String {
-        if binding?.isSaving == true { return "Saving" }
+        if binding?.isSaving == true { return "Retaining edit locally" }
         if binding?.conflict != nil { return "Conflict needs a choice" }
-        if binding?.lastError != nil { return "Latest edit not saved" }
-        return "Saved locally"
+        if binding?.lastError != nil { return "Latest edit not retained locally" }
+        return "Retained locally"
     }
 
     private var diagnostic: ArborSaveDiagnostic? {
@@ -1123,7 +1120,7 @@ struct ArborSyncStatusView: View {
     var overallStatusTitle: String {
         if diagnostic != nil || binding?.conflict != nil { return "A document needs attention" }
         if sync.state != .current { return synchronizationLabel }
-        if binding?.isSaving == true { return "Saving changes" }
+        if binding?.isSaving == true { return "Retaining edit locally" }
         return "This Arbor client is up to date"
     }
 
@@ -1143,7 +1140,6 @@ struct ArborSyncStatusView: View {
         case .downloading: "Remote changes are being downloaded."
         case .current: "This client's working tree is current."
         case .autoMerged: "Recent changes were merged automatically."
-        case .approximatePlacement: "Some merged changes need placement review."
         case .conflict: "A synchronization conflict needs a choice."
         case .authenticationFailure: "Reconnect the account to resume synchronization."
         case .revoked: "This device no longer has access."
@@ -1693,7 +1689,6 @@ extension WorkspaceSynchronization {
         case .downloading: "Downloading"
         case .current: "Current"
         case .autoMerged: "Merged"
-        case .approximatePlacement: "Merged approximately"
         case .conflict: "Conflict"
         case .authenticationFailure: "Sign in required"
         case .revoked: "Device revoked"
@@ -1707,7 +1702,7 @@ extension WorkspaceSynchronization {
         case .uploading: "arrow.up.circle"
         case .downloading: "arrow.down.circle"
         case .current: "checkmark.icloud"
-        case .autoMerged, .approximatePlacement: "arrow.trianglehead.merge"
+        case .autoMerged: "arrow.trianglehead.merge"
         case .conflict: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90"
         case .authenticationFailure: "person.crop.circle.badge.exclamationmark"
         case .revoked: "person.crop.circle.badge.xmark"

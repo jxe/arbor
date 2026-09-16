@@ -1734,7 +1734,7 @@ struct LiveNativePeerTests {
             let tabletSync = try UpdateCoordinator(workingTree: tablet, transport: transport, stateRoot: root.appending(path: "tablet-state"))
             _ = try await macSync.syncOnce()
             let merged = try await tabletSync.syncOnce()
-            #expect(merged.state == .autoMerged || merged.state == .approximatePlacement)
+            #expect(merged.state == .current || merged.state == .autoMerged)
             _ = try await macSync.syncOnce()
 
             let remote = try await client.descriptor(tree: tree.id).tree

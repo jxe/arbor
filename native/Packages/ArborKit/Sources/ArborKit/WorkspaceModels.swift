@@ -149,7 +149,6 @@ public enum WorkspaceSynchronization: String, Hashable, Codable, Sendable {
     case downloading
     case current
     case autoMerged
-    case approximatePlacement
     case conflict
     case authenticationFailure
     case revoked
@@ -163,7 +162,6 @@ public struct WorkspaceSyncPresentation: Hashable, Codable, Sendable {
     public var localRoot: String?
     public var localAdditions: Bool
     public var remoteAdditions: Bool
-    public var approximatePlacements: Int
 
     public init(
         state: WorkspaceSynchronization,
@@ -171,8 +169,7 @@ public struct WorkspaceSyncPresentation: Hashable, Codable, Sendable {
         acceptedRoot: String? = nil,
         localRoot: String? = nil,
         localAdditions: Bool = false,
-        remoteAdditions: Bool = false,
-        approximatePlacements: Int = 0
+        remoteAdditions: Bool = false
     ) {
         self.state = state
         self.detail = detail
@@ -180,7 +177,6 @@ public struct WorkspaceSyncPresentation: Hashable, Codable, Sendable {
         self.localRoot = localRoot
         self.localAdditions = localAdditions
         self.remoteAdditions = remoteAdditions
-        self.approximatePlacements = approximatePlacements
     }
 }
 
