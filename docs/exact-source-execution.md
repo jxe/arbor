@@ -78,7 +78,9 @@ receipts or rewrite stored decisions.
 The rule requires complete retained history, at most 64 intervening accepted states
 and 4096 combined operations. Snapshot transitions, changed causal bases, unresolved
 states and overlapping/same-anchor peer contributions return the existing structured
-conflict response. Competing whole-file root-entry edits can now become [accepted choices](accepted-entry-conflicts.md); other ambiguous cases retain the explicit conflict response. A preceding submitted candidate
+conflict response. Two same-basis root-file source candidates, including partial ranges, can now become
+[accepted whole-entry choices](accepted-entry-conflicts.md); other ambiguous cases
+retain the explicit conflict response. Fine-grained range decisions are not yet stored. A preceding submitted candidate
 that differs from its merged accepted projection is not silently relabeled as that
 projection; an operation suffix requiring general range correspondence still conflicts. For accepted whole-entry choices, the suffix retains its submitted alternative attribution.
 

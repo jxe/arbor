@@ -62,18 +62,24 @@ try {
     const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
     const device = graph.account.admins[0]!;
     const tree = generateArborID("tr");
+    const sourceTree = generateArborID("tr");
     await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
       account: graph.account,
-      trees: { version: 1, trees: { ...graph.trees.trees, [tree]: { canonicalPath: "/~owner/protocol", access: [] } } },
+      trees: { version: 1, trees: { ...graph.trees.trees,
+        [tree]: { canonicalPath: "/~owner/protocol", access: [] },
+        [sourceTree]: { canonicalPath: "/~owner/source-admissions", access: [] },
+      } },
       devices: {
         ...graph.devices,
         [device]: { ...graph.devices[device]!, placements: {
           ...graph.devices[device]!.placements,
           [tree]: { server: new URL(canopy.url).origin, path: treeDir },
+          [sourceTree]: { server: new URL(canopy.url).origin },
         } },
       },
     }));
     await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
+    await owner.submitUpdate(sourceTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
 
     // Materialize the accepted configuration checkout into the data home and
     // record the device and community credential the daemon reads at start.
@@ -147,7 +153,10 @@ try {
     };
     await run(["swift", "test", "--package-path", "native/Packages/ArborWire"], { ...fixtures, ...wire });
     await run(["swift", "test", "--package-path", "native/Packages/CanopyClient"], { ...fixtures, ...wire });
-    await run(["swift", "test", "--package-path", "native/Packages/ArborWorkingTree"], fixtures);
+    await run(["swift", "test", "--package-path", "native/Packages/ArborWorkingTree"], {
+      ...fixtures, ARBOR_SOURCE_TEST_URL: canopy.url,
+      ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
+    });
   } finally {
     canopy.server.stop(true);
     await canopy.canopy[Symbol.asyncDispose]();

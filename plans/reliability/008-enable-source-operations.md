@@ -23,7 +23,7 @@ rehearsal remains. Public
 acceptance now executes the exact-basis subset and atomically stores evidence,
 including equal-byte edits. Disjoint concurrent edits from one accepted basis now merge using retained
 contributions and explicit rule evidence. Cross-basis correspondence, snapshot
-attribution beyond the implemented [whole-entry choices](../../docs/accepted-entry-conflicts.md), range-level ambiguity, and validation of the emitted subset remain before client emission.
+attribution beyond the implemented [whole-entry choices](../../docs/accepted-entry-conflicts.md), fine-grained range decisions, and validation of the emitted subset remain before client emission.
 
 - Implement exact basis resolution for accepted updates and preceding submitted candidates. Check object reachability, file hashes, UTF-8 boundaries, TreeID scope, authorization, and immutable origin bindings. Resolve output references in causal order; reject forward references, cycles, retired origins, and contradictory reused change identities.
 - Persist admitted operation records, origin bindings, derivation, and any unresolved state atomically with accepted update/ref/observation. Include provenance-only transitions even when the projected root is unchanged. Supply a bounded retention and resynchronization policy before exposing retained outputs.
@@ -66,7 +66,9 @@ Swift now has an opt-in session/publication runner: retained candidate views,
 immutable predecessor requests, receipt settlement, restart retries and policy-aware
 editor draft recovery. Native passes the coordinator through but leaves emission
 disabled. The prototype excludes structural writes; TS session/publication integration
-and the real-server end-to-end release gate remain. Legacy providers retain their
+and broader source/editor release gates remain. A production Swift session now
+passes stale range admission, restart, hidden-candidate continuation and second-client
+resolution through disposable Canopy. Legacy providers retain their
 revision checks and recovery behavior.
 
 Ownership: the editor bridge maps editing transactions to exact source edits and
@@ -83,11 +85,11 @@ boundary; a transport-only Wire client does not own editor admission.
   dependencies through coalescing, other-page edits, in-flight requests, restart,
   root-equal transitions, and selection of a hidden alternative. TS and Swift clients
   must enforce these invariants; never silently rebuild an old edit against current.
-- Verify the implemented Swift `WorkspaceDocumentIntent` retention and divergent
-  draft recovery against live disposable Canopy and carry that policy into TS.
+- Extend the live Swift session scenario to the editor bridge and divergent draft
+  recovery, and carry that policy into TS.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.
 - Broaden 009's conservative acceptance to the actual snapshot and source forms
-  clients emit, including nested documents, range overlap, longer histories, and
+  clients emit, including nested documents, longer histories, and
   existing structural writes. Better automatic merging is not a prerequisite.
 - Verify deployment coverage before enabling emission. Retain legacy 409 recovery
   until exact requests/drafts/suffixes have been settled or transferred. Only then

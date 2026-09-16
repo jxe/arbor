@@ -108,8 +108,13 @@ a successor admitted during publication, a conflict-bearing peer projection,
 immutable replay after all eight publication failure points, concurrent admission
 retries, and refusing to silently downgrade source state. Bridge tests cover
 retained-basis draft recovery without local review alongside legacy recovery.
-Publication integration tests currently use a controlled transport; the complete
-real-server/editor/second-client scenario remains a release gate.
+The protocol harness also runs the production Swift session/coordinator through
+real disposable Canopy with range edits: R1 capture, R2 installation, stale admission,
+restart, accepted ambiguity, a hidden-candidate successor, historical inspection,
+stale-resolution rejection and resolution from a second client. The test verifies
+both retained file hashes and adoption of an equal-root resolution identity.
+Native UI execution and the broader emitted source/structural forms remain release
+gates; this does not enable installed-client emission.
 
 Verification for this checkpoint: `bun run typecheck`, `bun run test`,
 `bun run test:protocol`, the full `ArborWorkingTree` Swift suite,
@@ -121,8 +126,8 @@ or server was upgraded.
 Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
 - Build the TS working-tree session/publication consumer with the same policies.
-- Integrate structural writes and other source forms, then exercise real Canopy
-  acceptance and resolution through a second client.
+- Integrate structural writes and other source forms; extend the live scenario to
+  the editor bridge, nested files and broader accepted histories.
 - Add safe coalescing and bounded reclamation of settled ancestry and captured views.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.

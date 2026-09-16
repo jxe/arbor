@@ -1,18 +1,29 @@
 # Accepted whole-entry conflicts
 
-Source-built Canopy now retains competing whole-file text edits as accepted choices.
+Source-built Canopy retains competing root-file text edits as accepted choices.
 This checkpoint is on main, not deployed. It uses the existing unversioned Wire
 contract; clients need no identity map, review cache or coordinated upgrade.
 
 ## Implemented slice
 
-Creation starts with two same-basis whole-file source edits to root-level files.
+Creation starts with two same-basis source candidates editing root-level files,
+including partial ranges and multiple operations per file.
 When exact reconciliation cannot combine them, Canopy retains each authored value,
 selects the previously accepted value for the ordinary projection, and acknowledges
 an accepted update with `conflicted: true`. Separate files have separate decisions.
 Equal bytes do not collapse alternative identities. No conflict markers are inserted.
-Nested or range-level conflict creation remains outside this slice; those requests
-keep the prior explicit conflict response.
+Format rules still run first; an unresolved or inapplicable result can retain choices,
+but never forces the proposed text combination into the selected projection.
+Each decision still chooses between complete file values. The portable contract
+also supports text alternatives scoped to source ranges and multiple independent
+decisions in one file; Canopy's current entry storage does not implement that finer
+representation yet. Exact range operations and all their contribution identities
+remain retained, so this fallback does not reduce authored intent to a snapshot.
+
+Creation currently requires exactly one intervening accepted source candidate with
+the same basis. Nested creation and more general histories remain outside this
+slice and retain the prior explicit conflict response. Existing decisions still
+support the continuation behavior below.
 
 Once decisions exist, ordinary snapshot saves continue their attributable selected
 revision. A stale save competing with a newer revision adds an alternative. Deleting
@@ -92,3 +103,19 @@ passed, including the real filesystem continuation case, Swift conflict inspecti
 and acknowledgement, and 60 working-tree tests. Migration 008 passed four preservation,
 rollback, version and direct-upgrade cases. Relative-link and anchor checks introduced
 no new unresolved references. No live database, installed app or deployment was changed.
+
+## Range-input and live-client verification
+
+Range-input tests exercise overlapping replacements, same-anchor insertions,
+equal-byte intent, multiple contributions per file, Unicode replacements and
+format-declined disjoint Markdown in both arrival orders. They check complete
+alternative values/provenance, restart, immutable receipts and storage integrity.
+A negative test retains the nested-creation boundary.
+
+The protocol harness now runs a Swift source-enabled document session through real
+disposable Canopy: capture R1, install peer R2, admit the exact R1 range edit,
+restart the in-memory replica, publish accepted ambiguity, continue the hidden
+candidate, and resolve from a second Wire client. It checks hidden candidate hashes,
+historical inspection, stale resolution rejection, and an equal-root resolution
+advancing accepted identity. This is automated client/server evidence; installed
+Native apps and live Canopy remain unchanged.

@@ -1202,22 +1202,20 @@ export class CanopyDaemon implements AsyncDisposable {
       const currentConflicts = conflictStore.get(remoteUpdate.id);
       let conflictState: ConflictState | undefined;
       let origins: Map<string, Array<{ change: string; operation: string | null }>> | undefined;
-      // First conflict-creation slice: competing whole-file edits at root entries.
-      // Range-level collisions stay in the causal engine until independently representable.
+      // Preserve competing root-file candidates when range reconciliation cannot
+      // resolve them. The decision is whole-entry; exact ranges and every operation
+      // remain in authored evidence rather than being guessed from the projection.
       if (sourceIntent && reconciled.outcome === "rejected" && history?.length === 1 && !remoteUpdate.conflicted) {
         const peer = intentStore.forAccepted(remoteUpdate.id);
-        const whole = async (intent: SourceIntent) => {
-          if (!intent.evidence.length || intent.evidence.some(e => !/^\/[^/]+$/.test(e.path))) return false;
-          const paths = new Set<string>();
-          for (const e of intent.evidence) {
-            if (paths.has(e.path) || e.source.range[0] !== 0 || e.source.range[1] !== (await this.objects.load(e.source.object, proposed)).length) return false;
-            paths.add(e.path);
-          }
-          return true;
-        };
+        const rootFiles = (intent: SourceIntent) => intent.evidence.length > 0 && intent.evidence.every(e => /^\/[^/]+$/.test(e.path));
         if (peer && peer.basisRoot === baseRoot && remoteUpdate.previous?.id === basisUpdate &&
-            await whole(peer) && await whole(sourceIntent)) {
-          origins = new Map(peer.evidence.map(e => [e.path.slice(1), [{ change: peer.change, operation: e.operation }]]));
+            rootFiles(peer) && rootFiles(sourceIntent)) {
+          origins = new Map();
+          for (const e of peer.evidence) {
+            const name = e.path.slice(1), contributions = origins.get(name) ?? [];
+            contributions.push({ change: peer.change, operation: e.operation });
+            origins.set(name, contributions);
+          }
         }
       }
       if (!preconditionFailed && !tree.policy.startsWith("account-config-") &&

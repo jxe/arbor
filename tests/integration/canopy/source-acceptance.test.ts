@@ -62,19 +62,94 @@ test("equal-byte edits create accepted provenance and subsequent batch edits use
   expect(response.results[0]!.update.id).not.toBe(base);
   expect(records()).toHaveLength(2);
 });
-test("concurrent authors retain one accepted edit and return the other as an explicit conflict", async () => {
+test("concurrent range edits retain both accepted alternatives", async () => {
   const a = await edit("AAA"), b = await edit("BBB");
   const results = await Promise.allSettled([client.submitUpdates(tree, { base, updates: [a] }), client.submitUpdates(tree, { base, updates: [b] })]);
-  expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
-  const rejected = results.find(r => r.status === "rejected") as PromiseRejectedResult;
-  expect(rejected.reason).toBeInstanceOf(WireUpdateConflict);
-  expect([a.candidate, b.candidate]).toContain(rejected.reason.result.details.candidate);
-  expect(records()).toHaveLength(1);
+  expect(results.filter(r => r.status === "fulfilled")).toHaveLength(2);
+  const current = (await client.descriptor(tree)).tree;
+  expect(current.conflicted).toBe(true);
+  const decision = (await client.conflicts(tree, current.update, current.root)).decisions[0]!;
+  expect(decision.alternatives.map(a => a.value)).toEqual(expect.arrayContaining([
+    { file: hashObject(new TextEncoder().encode("AAA\r\n")) },
+    { file: hashObject(new TextEncoder().encode("BBB\r\n")) },
+  ]));
+  expect(records()).toHaveLength(2);
+  await running.canopy.verifyIntegrity();
 });
 test("a stale equal-root basis cannot erase newer intent", async () => {
   await client.submitUpdates(tree, { base, updates: [await edit("abc")] });
-  await expect(client.submitUpdates(tree, { base, updates: [await edit("ABC")] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  const accepted = (await client.submitUpdates(tree, { base, updates: [await edit("ABC")] })).results[0]!.update;
+  expect(accepted.conflicted).toBe(true);
+  expect(accepted.root).toBe(root);
+  expect((await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!.alternatives).toHaveLength(2);
+  expect(records()).toHaveLength(2);
+});
+
+type RangeEdit = { range: [number, number]; text: string };
+async function rangeCandidate(edits: RangeEdit[]): Promise<CandidateUpdate> {
+  const file = decodeWireDirectory(objects.get(root)!).entries.find(e => e.name === "note.md")!.file!;
+  const operations = edits.map((edit, i) => ({ key: `range-${i}`, kind: "editSource" as const,
+    source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range: edit.range }, text: edit.text }));
+  const result = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
+  for (const object of result.generated) objects.set(...object);
+  return { change: crypto.randomUUID(), candidate: result.root, operations, resolves: [],
+    objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
+}
+const rangeCases: Array<{ name: string; left: RangeEdit[]; right: RangeEdit[] }> = [
+  { name: "several operations and Unicode replacements", left: [{ range: [0,1], text: "🪴" }, { range: [2,3], text: "C" }],
+    right: [{ range: [0,1], text: "🌲" }, { range: [1,2], text: "B" }] },
+  { name: "same-anchor insertions", left: [{ range: [1,1], text: "X" }], right: [{ range: [1,1], text: "Y" }] },
+  { name: "format rule declines disjoint Markdown edits", left: [{ range: [0,1], text: "**A**" }], right: [{ range: [2,3], text: "C" }] },
+  { name: "equal-byte overlapping intent", left: [{ range: [1,2], text: "b" }], right: [{ range: [1,2], text: "b" }] },
+];
+for (const scenario of rangeCases) for (const reverse of [false, true]) {
+  test(`root range choices preserve complete provenance through restart: ${scenario.name}, reverse=${reverse}`, async () => {
+    const pair = [await rangeCandidate(scenario.left), await rangeCandidate(scenario.right)];
+    if (reverse) pair.reverse();
+    const first = pair[0]!, second = pair[1]!;
+    await client.submitUpdates(tree, { base, updates: [first] });
+    const accepted = (await client.submitUpdates(tree, { base, updates: [second] })).results[0]!.update;
+    expect(accepted.conflicted).toBe(true);
+    expect(accepted.root).toBe(first.candidate);
+    const page = await client.conflicts(tree, accepted.id, accepted.root);
+    expect(page.decisions).toHaveLength(1);
+    expect(page.decisions[0]!.alternatives).toHaveLength(2);
+    for (const request of pair) {
+      const alternative = page.decisions[0]!.alternatives.find(a => a.contributions.some(c => c.change === request.change))!;
+      const file = decodeWireDirectory(objects.get(request.candidate)!).entries.find(e => e.name === "note.md")!.file!;
+      expect(alternative.value).toEqual({ file });
+      expect(alternative.contributions).toEqual(request.operations!.map(op => ({ change: request.change, operation: op.key })));
+    }
+    await stop(); await start();
+    expect(await client.conflicts(tree, accepted.id, accepted.root)).toEqual(page);
+    expect((await client.submitUpdates(tree, { base, updates: [second] })).results[0]!.update).toEqual(accepted);
+    expect(records()).toHaveLength(2);
+    await running.canopy.verifyIntegrity();
+  });
+}
+test("nested range collisions remain outside the root-entry fallback", async () => {
+  const directory = decodeWireDirectory(objects.get(root)!);
+  const original = directory.entries.find(e => e.name === "note.md")!;
+  const child = encodeWireDirectory({ type: "directory", entries: [original] }), childHash = hashObject(child);
+  directory.entries.push({ name: "nested", directory: childHash });
+  directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  const bytes = encodeWireDirectory(directory); root = hashObject(bytes);
+  objects.set(childHash, child); objects.set(root, bytes);
+  base = (await client.submitUpdate(tree, base, { root, objects })).update.id;
+  const candidates: CandidateUpdate[] = [];
+  for (const text of ["A", "B"]) {
+    const operations = [{ key: "nested-edit", kind: "editSource" as const,
+      source: { material: { kind: "basis" as const, path: "/nested/note.md", object: original.file! }, range: [0,1] as [number, number] }, text }];
+    const executed = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
+    for (const object of executed.generated) objects.set(...object);
+    candidates.push({ change: crypto.randomUUID(), candidate: executed.root, operations, resolves: [],
+      objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
+  }
+  const prior = (await client.submitUpdates(tree, { base, updates: [candidates[0]!] })).results[0]!.update;
+  await expect(client.submitUpdates(tree, { base, updates: [candidates[1]!] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  expect((await client.descriptor(tree)).tree.update).toBe(prior.id);
   expect(records()).toHaveLength(1);
+  await running.canopy.verifyIntegrity();
 });
 test("candidate mismatch and dynamic unsupported forms reject before any prefix commits", async () => {
   const first = await edit("ABC"), second = await edit("DEF", first.candidate);
