@@ -1488,6 +1488,76 @@
         "next": null
       },
       "valid": false
+    },
+    {
+      "name": "whole-entry conflict retains a hidden file after visible deletion",
+      "kind": "inspection",
+      "valid": true,
+      "value": {
+        "tree": "tr_test",
+        "state": "deleted-state",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "next": null,
+        "decisions": [
+          {
+            "id": "choice",
+            "kind": "entry",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            ],
+            "selected": "visible",
+            "alternatives": [
+              {
+                "id": "visible",
+                "revision": "deleted",
+                "value": {
+                  "absent": true
+                },
+                "contributions": [
+                  {
+                    "change": "snapshot-delete",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "hidden",
+                "revision": "original",
+                "value": {
+                  "file": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                },
+                "placement": {
+                  "parent": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/",
+                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  },
+                  "name": "note.md"
+                },
+                "contributions": [
+                  {
+                    "change": "peer",
+                    "operation": "replace"
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "resolveConflict"
+            ]
+          }
+        ]
+      }
     }
   ]
 }

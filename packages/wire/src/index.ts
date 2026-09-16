@@ -8,3 +8,5 @@ export * from "./updates/delta.ts";
 export * from "./client.ts";
 
 export type { AuthoredOperation as SourceOperation, Material, MaterialRef, EntryDestination, ResolutionDeclaration } from "./updates/authored-contract.ts";
+
+export type { DecisionPage, InspectedDecision, InspectedAlternative } from "./updates/accepted-contract.ts";

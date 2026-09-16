@@ -1,3 +1,4 @@
+import { decodeDecisionPage, type DecisionPage } from "./updates/accepted-contract.ts";
 import { decodeAcceptedWatchChange } from "./updates/accepted-contract.ts";
 import type {
   AcceptedTransition,
@@ -257,6 +258,13 @@ export class WireClient {
     const value = await response.json() as { tree: RemoteTreeDescriptor; observedThrough: EventCursor };
     if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update || typeof value.tree.conflicted !== "boolean" || typeof value.observedThrough !== "string" || !value.observedThrough) throw new Error("Tree descriptor does not match its tree");
     return { tree: value.tree, observedThrough: value.observedThrough };
+  }
+
+  async conflicts(tree: string, state: string, root: string, options: { after?: string; conflict?: string } = {}): Promise<DecisionPage> {
+    if (options.after !== undefined && options.conflict !== undefined) throw new Error("Conflicting inspection options");
+    const query = new URLSearchParams({ state, ...options });
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/conflicts?${query}`, { headers: this.headers() }));
+    return decodeDecisionPage(await response.json(), { tree, state, root });
   }
 
   async snapshot(tree: string, root: string): Promise<TreeSnapshot> {

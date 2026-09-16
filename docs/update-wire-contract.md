@@ -28,6 +28,15 @@ reviewed decision. Several declarations in one candidate are atomic; several
 candidate elements are sequential and may leave an accepted prefix. The candidate
 must preserve unnamed decisions, and stale dependent evidence invalidates resolution.
 
+## Active conflict inspection subset
+
+The [whole-entry accepted-conflict implementation](accepted-entry-conflicts.md) now
+serves the specified conflict page and alternative-object routes. TypeScript and
+Swift readers use the existing `DecisionPage` encoding and validate accepted context.
+Current operation-mode resolution supports complete current-state guards, keeping
+the projection or replacing a whole text file. This is an additive implementation
+of the existing contract, not a new protocol version. Schema 10 is not deployed.
+
 ## Paired executable models
 
 - [TypeScript semantic model](../packages/wire/src/updates/authored-contract.ts).

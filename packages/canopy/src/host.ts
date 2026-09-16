@@ -418,6 +418,24 @@ export async function serveCanopy(options: {
           );
           return json({ tree: current, observedThrough: canopy.observedThrough(tree.id) });
         }
+        const conflicts = /^\/\.arbor\/trees\/([^/]+)\/conflicts$/.exec(url.pathname);
+        const alternativeObject = /^\/\.arbor\/trees\/([^/]+)\/conflicts\/([^/]+)\/alternatives\/([^/]+)\/objects\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
+        if ((conflicts || alternativeObject) && request.method === "GET") {
+          const tree = decodeURIComponent((conflicts ?? alternativeObject)![1]!);
+          if (!canopy.get(tree) || !canopy.canRead(account, tree, linkDigest(request))) return new Response("Not found", { status: 404 });
+          const state = url.searchParams.get("state"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
+          if (!state || ["state", "after", "conflict"].some(k => url.searchParams.getAll(k).length > 1) ||
+              (after !== null && (!after || selected !== null)) || selected === "" || (alternativeObject && (after !== null || selected !== null))) {
+            return wireError("invalid-request", "Invalid conflict inspection query", 400);
+          }
+          if (alternativeObject) {
+            const hash = alternativeObject[4] as ObjectHash;
+            const bytes = await canopy.conflictObject(tree, state, decodeURIComponent(alternativeObject[2]!), decodeURIComponent(alternativeObject[3]!), hash);
+            return bytes ? new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, { headers: { ...immutableHeaders(request, hash), "content-type": "application/octet-stream" } }) : new Response("Not found", { status: 404 });
+          }
+          const page = canopy.conflictPage(tree, state, after ?? undefined, selected ?? undefined);
+          return page ? json(page) : new Response("Not found", { status: 404 });
+        }
         const acceptedSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (acceptedSnapshot && request.method === "GET") {
           const treeID = decodeURIComponent(acceptedSnapshot[1]!);

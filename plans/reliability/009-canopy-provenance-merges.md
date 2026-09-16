@@ -16,9 +16,9 @@ remain representable without enumerating whole-document alternatives.
 
 The [source execution checkpoint](../../docs/exact-source-execution.md) records the
 implemented subset: accepted-identity ancestry, original contribution retention,
-shared-basis disjoint edits and immutable rule evidence. Overlap still returns a
-conflict response. Durable alternatives must ship with ordinary snapshot attribution
-and authorized accepted-state inspection; merely persisting a conflict signal is
+shared-basis disjoint edits and immutable rule evidence. The [whole-entry lifecycle](../../docs/accepted-entry-conflicts.md) now joins durable
+alternatives, snapshot attribution, authorized inspection and explicit resolution.
+Range-level and nested ambiguities remain; merely persisting a conflict signal is
 insufficient. No live deployment or client emission has been enabled.
 
 ## 1. Establish the decision corpus
@@ -55,10 +55,10 @@ design, not a production layout or a reason to introduce packfiles prematurely.
 
 Choose the smallest production representation that passes the corpus: composable conflict expressions with provenance may be sufficient; use a richer operation graph where tests demonstrate the need. Compare these choices on nested conflicts, selective undo, move/copy lineage, storage growth, and garbage collection before committing to a graph implementation.
 
-- Store alternatives and their origins independently of the ordinary projected root. Ordinary updates must preserve hidden alternatives; equal roots must not clear them.
+- Extend the implemented root-entry alternatives to independent source ranges and nested locations. Preserve the existing snapshot/hidden-alternative and equal-root guarantees.
 - Atomically commit accepted state identity, provenance, projection, conflict signal, and watch observation. Use accepted-update CAS. Preserve exact-request replay and authorization of retained material.
-- Expose bounded, accepted-state-scoped conflict inspection: locations, complete alternative identities, source/object references, selection, causal evidence, and explanation. Specify and fixture any additional read DTOs in TypeScript and Swift together before the UI consumes them; do not expose private graph internals or download a whole history to edit a file.
-- Validate explicit alternative edits and resolution using exact accepted state and reviewed alternative-set guards. Commit independent resolutions separately when appropriate; stale reviews retain the person's draft and all newer evidence.
+- Extend the implemented accepted-state-scoped conflict inspection beyond root entries: locations, complete alternative identities, source/object references, selection, causal evidence, and explanation. Specify and fixture any additional read DTOs in TypeScript and Swift together before the UI consumes them; do not expose private graph internals or download a whole history to edit a file.
+- Implement alternative-target edits and broader resolution forms on top of current whole-entry guarded resolution. Commit independent resolutions separately when appropriate; stale reviews retain the person's draft and all newer evidence.
 - Define retention, compaction, backup, pruning, restart, and historical read semantics. Never compact unresolved alternatives or origins still needed by active references into an ordinary snapshot.
 
 ## 4. Rule selection and execution placement

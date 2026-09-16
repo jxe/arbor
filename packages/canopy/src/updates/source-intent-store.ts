@@ -1,3 +1,4 @@
+import { ConflictStore } from "./conflict-store.ts";
 import { Database } from "bun:sqlite";
 import { validateUpdateRequestIntent, type SourceOperation } from "@arbor/wire";
 import type { SourceEditEvidence } from "./source-edits.ts";
@@ -39,14 +40,14 @@ export class SourceIntentStore {
    */
   insert(record: StoredSourceIntent): void {
     if (!this.db.inTransaction) throw new Error("Source intent requires an accepted-update transaction");
-    const owner = this.db.query("SELECT tree_id, base_root, candidate_root, request_digest FROM accepted_updates WHERE id = ?")
-      .get(record.acceptedUpdate) as { tree_id: string; base_root: string; candidate_root: string; request_digest: string | null } | null;
-    if (!owner || owner.tree_id !== record.tree || owner.base_root !== record.basisRoot || owner.candidate_root !== record.candidateRoot || !owner.request_digest) {
+    const owner = this.db.query("SELECT tree_id, base_root, candidate_root, request_digest, change_id FROM accepted_updates WHERE id = ?")
+      .get(record.acceptedUpdate) as { tree_id: string; base_root: string; candidate_root: string; request_digest: string | null; change_id: string | null } | null;
+    if (!owner || owner.tree_id !== record.tree || owner.change_id !== record.change || owner.base_root !== record.basisRoot || owner.candidate_root !== record.candidateRoot || !owner.request_digest) {
       throw new Error("Source intent does not match its accepted update");
     }
     validateUpdateRequestIntent({ base: record.acceptedUpdate, updates: [{
       change: record.change, candidate: record.candidateRoot, operations: record.operations,
-      resolves: [], objects: [], deltas: [],
+      resolves: new ConflictStore(this.db).get(record.acceptedUpdate)?.resolutions ?? [], objects: [], deltas: [],
     }] });
     if (record.evidence.length !== record.operations.length || record.operations.some((operation, index) =>
       operation.kind !== "editSource" || record.evidence[index]?.operation !== operation.key || record.evidence[index]?.text !== operation.text)) {

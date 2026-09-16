@@ -657,6 +657,23 @@ struct UpdateProtocolTests {
 
 @Suite("Live temporary server", .serialized)
 struct LiveWireTests {
+    @Test("Accepted conflict inspection and snapshot acknowledgement use the existing client contract")
+    func liveConflicts() async throws {
+        guard let address = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"], let origin = URL(string: address),
+              let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"],
+              let tree = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TREE"] else { return }
+        let client = ArborWireClient(origin: origin, credential: token)
+        let current = try await client.descriptor(tree: tree)
+        let page = try await client.conflicts(tree: tree, state: current.tree.update, root: current.tree.root)
+        #expect(page.fields["conflicted"] == .bool(true))
+        guard case .array(let decisions) = page.fields["decisions"] else { Issue.record("Missing decisions"); return }
+        #expect(decisions.count == 1)
+        let snapshot = try await client.snapshot(tree: tree, root: current.tree.root)
+        let prepared = try await client.prepareUpdate(tree: tree, base: WireUpdateBase(root: current.tree.root, update: current.tree.update), snapshot: snapshot)
+        let acknowledged = try await client.submitUpdate(prepared)
+        switch acknowledged { case .accepted(let state), .unchanged(let state): #expect(state.conflicted) }
+    }
+
     @Test("Account snapshots, scoped objects, and locally credentialed pairing")
     func liveWire() async throws {
         guard let originValue = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"],

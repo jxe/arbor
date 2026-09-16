@@ -17,12 +17,13 @@ Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Cano
 ## 1. Build the smallest execution foundation
 
 The [exact-basis executor and candidate validator](../../docs/exact-source-execution.md)
-and atomic evidence storage are implemented and tested. Schema 9 migration 007
-preserves existing history in disposable tests; live rehearsal remains. Public
+and atomic evidence storage are implemented and tested. Schema 10 migration 008
+preserves history and provenance from schema 8 or 9 in disposable tests; live
+rehearsal remains. Public
 acceptance now executes the exact-basis subset and atomically stores evidence,
 including equal-byte edits. Disjoint concurrent edits from one accepted basis now merge using retained
 contributions and explicit rule evidence. Cross-basis correspondence, snapshot
-attribution and accepted ambiguity remain before client emission.
+attribution beyond the implemented [whole-entry choices](../../docs/accepted-entry-conflicts.md), range-level ambiguity, and validation of the emitted subset remain before client emission.
 
 - Implement exact basis resolution for accepted updates and preceding submitted candidates. Check object reachability, file hashes, UTF-8 boundaries, TreeID scope, authorization, and immutable origin bindings. Resolve output references in causal order; reject forward references, cycles, retired origins, and contradictory reused change identities.
 - Persist admitted operation records, origin bindings, derivation, and any unresolved state atomically with accepted update/ref/observation. Include provenance-only transitions even when the projected root is unchanged. Supply a bounded retention and resynchronization policy before exposing retained outputs.

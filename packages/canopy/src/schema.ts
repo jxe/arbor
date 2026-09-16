@@ -9,7 +9,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * history. The migration sets the stamp. "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "9";
+export const CANOPY_SCHEMA_VERSION = "10";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
@@ -17,8 +17,9 @@ export const AUTHORITY_SCHEMA = {
   reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
   accepted_updates: [
     "id", "tree_id", "root", "previous_root", "previous_id", "conflicted", "kind", "accepted_at", "subject",
-    "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest", "transition_json",
+    "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest", "transition_json", "change_id",
   ],
+  accepted_conflicts: ["accepted_id", "state_json"],
   authored_changes: ["tree_id", "change_id", "accepted_id", "basis_root", "candidate_root", "operations_json", "evidence_json"],
   accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
@@ -153,7 +154,7 @@ export function assertCurrentCanopySchema(db: Database): void {
       issues.push(`${table} columns`);
     }
   }
-  for (const index of ["accepted_updates_request", "observations_tree_order"]) {
+  for (const index of ["accepted_updates_request", "accepted_updates_change", "observations_tree_order"]) {
     if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
       issues.push(`missing ${index} index`);
     }

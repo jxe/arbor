@@ -77,6 +77,17 @@ public actor ArborWireClient {
         return try value.validated(expectedTree: tree)
     }
 
+    public func conflicts(tree: String, state: String, root: String, after: String? = nil, conflict: String? = nil) async throws -> WireDecisionPageContract {
+        guard after == nil || conflict == nil else { throw ArborWireValidationError.invalidValue("Conflicting inspection options") }
+        func queryValue(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! }
+        var query = "state=\(queryValue(state))"
+        if let after { query += "&after=\(queryValue(after))" }
+        if let conflict { query += "&conflict=\(queryValue(conflict))" }
+        let page: WireDecisionPageContract = try await get(path: "/.arbor/trees/\(component(tree))/conflicts?\(query)")
+        try page.validateContext(tree: tree, state: state, root: root)
+        return page
+    }
+
     public func resolve(path: String) async throws -> WireLocatorResolution {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
         let value: WireLocatorResolution = try await get(path: "/.well-known/arbor\(encoded)")

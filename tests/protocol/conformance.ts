@@ -1,3 +1,4 @@
+import { executeExactSourceEdits } from "../../packages/canopy/src/updates/source-edits.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -5,7 +6,7 @@ import { serveArborSyncControl } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { canonicalArborLocator, generateArborID } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { WireClient } from "@arbor/wire";
+import { WireClient, decodeWireDirectory, type SourceOperation } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
 
@@ -106,6 +107,34 @@ try {
       const daemon = { ARBOR_TEST_URL: control.url, ARBOR_TEST_TREE: tree };
       await run(["swift", "test", "--package-path", "native/Packages/ArborSyncClient"], { ...fixtures, ...daemon });
       await run(["swift", "test", "--package-path", "native/Packages/ArborKit"], fixtures);
+      // Exercise a real accepted conflict through the baseline filesystem client.
+      const basis = (await owner.descriptor(tree)).tree;
+      const snapshot = await owner.snapshot(tree, basis.root);
+      const file = decodeWireDirectory(snapshot.objects.get(basis.root)!).entries.find(e => e.name === "page.md")!.file!;
+      const objects = new Map(snapshot.objects);
+      async function replacement(text: string) {
+        const operations: SourceOperation[] = [{ key: "replace", kind: "editSource", source: { material: { kind: "basis", path: "/page.md", object: file } }, text }];
+        const result = await executeExactSourceEdits(basis.root, operations, async hash => objects.get(hash)!);
+        for (const object of result.generated) objects.set(...object);
+        return { change: crypto.randomUUID(), candidate: result.root, operations, resolves: [], objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
+      }
+      await owner.submitUpdates(tree, { base: basis.update, updates: [await replacement("First retained choice\n")] });
+      const conflict = (await owner.submitUpdates(tree, { base: basis.update, updates: [await replacement("Hidden retained choice\n")] })).results[0]!.update;
+      if (!conflict.conflicted) throw new Error("Expected accepted ambiguity");
+      const syncOnce = async () => {
+        const response = await fetch(`${control.url}/v1/sync`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        if (!response.ok) throw new Error(`Conflict sync failed: ${response.status}`);
+      };
+      await syncOnce();
+      await writeFile(join(treeDir, "page.md"), "Filesystem continued after accepted ambiguity\n");
+      await syncOnce();
+      const continued = (await owner.descriptor(tree)).tree;
+      const inspection = await owner.conflicts(tree, continued.update, continued.root);
+      if (!continued.conflicted || inspection.decisions.length !== 1 || inspection.decisions[0]!.alternatives.length !== 2) throw new Error("Filesystem sync lost accepted alternatives");
+      const current = await owner.snapshot(tree, continued.root);
+      const currentFile = decodeWireDirectory(current.objects.get(continued.root)!).entries.find(e => e.name === "page.md")!.file!;
+      if (new TextDecoder().decode(current.objects.get(currentFile)) !== "Filesystem continued after accepted ambiguity\n") throw new Error("Filesystem sync paused on accepted ambiguity");
+
     } finally {
       control.server.stop(true);
       await control.service[Symbol.asyncDispose]();

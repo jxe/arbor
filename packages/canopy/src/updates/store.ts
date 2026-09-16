@@ -1,3 +1,4 @@
+import { ConflictStore, type ConflictState } from "./conflict-store.ts";
 import type { MergeSummary } from "./reconcile.ts";
 import { Database } from "bun:sqlite";
 import {
@@ -31,7 +32,9 @@ export interface AcceptedUpdateInput {
   merge?: MergeSummary;
   requestDigest?: string;
   transition?: AcceptedTransitionPayload;
+  change?: string;
   sourceIntent?: SourceIntent;
+  conflicts?: ConflictState;
 }
 
 export interface AcceptedCommitInput extends AcceptedUpdateInput {
@@ -63,7 +66,8 @@ export class AcceptedUpdateStore {
         remote_root TEXT,
         merge_summary TEXT,
         request_digest TEXT,
-        transition_json TEXT
+        transition_json TEXT,
+        change_id TEXT
       )
     `);
     db.run(`
@@ -71,8 +75,10 @@ export class AcceptedUpdateStore {
       ON accepted_updates(tree_id, subject, request_digest)
       WHERE request_digest IS NOT NULL
     `);
+    db.run("CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_change ON accepted_updates(tree_id, change_id) WHERE change_id IS NOT NULL");
     ObservationLog.createSchema(db);
     SourceIntentStore.createSchema(db);
+    ConflictStore.createSchema(db);
   }
 
   private row(value: unknown): AcceptedUpdate | null {
@@ -146,6 +152,11 @@ export class AcceptedUpdateStore {
     };
   }
 
+  acceptedChange(tree: string, change: string): string | null {
+    const row = this.db.query("SELECT id FROM accepted_updates WHERE tree_id = ? AND change_id = ?").get(tree, change) as { id: string } | null;
+    return row?.id ?? null;
+  }
+
   mergeSummary(update: string): MergeSummary | null {
     const row = this.db.query("SELECT merge_summary FROM accepted_updates WHERE id = ?").get(update) as { merge_summary: string | null } | null;
     return row?.merge_summary ? JSON.parse(row.merge_summary) : null;
@@ -189,19 +200,23 @@ export class AcceptedUpdateStore {
   private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
     const prior = this.current(input.tree);
     if (input.previousRoot !== (prior?.root ?? null)) throw new Error("Accepted predecessor does not match current state");
+    const conflicts = new ConflictStore(this.db);
+    const priorState = prior ? conflicts.get(prior.id) : null;
+    if (!input.conflicts && priorState?.decisions.length && input.root !== prior!.root) throw new Error("Conflict attribution is required before changing the projection");
+    const state = input.conflicts ?? (priorState ? { decisions: priorState.decisions, resolutions: [] } : null);
     const observation = this.observations.appendAccepted({ tree: input.tree, createdAt: input.acceptedAt });
     const id = observation.cursor;
     this.db.run(`
       INSERT INTO accepted_updates
-        (id, tree_id, root, previous_root, previous_id, conflicted, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, tree_id, root, previous_root, previous_id, conflicted, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json, change_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       id,
       input.tree,
       input.root,
       input.previousRoot,
       prior?.id ?? null,
-      (input.conflicted ?? prior?.conflicted ?? false) ? 1 : 0,
+      (state ? state.decisions.length > 0 : input.conflicted ?? prior?.conflicted ?? false) ? 1 : 0,
       input.kind,
       input.acceptedAt,
       input.subject ?? null,
@@ -211,8 +226,10 @@ export class AcceptedUpdateStore {
       input.merge ? JSON.stringify(input.merge) : null,
       input.requestDigest ?? null,
       input.transition ? JSON.stringify(encodeTransitionPayloadJSON(input.transition)) : null,
+      input.change ?? input.sourceIntent?.change ?? null,
     ]);
     this.observations.bindUpdate(id, id);
+    if (state) conflicts.insert(id, state);
     if (input.sourceIntent) {
       if (!input.baseRoot || !input.candidateRoot) throw new Error("Source intent requires authored basis and candidate roots");
       new SourceIntentStore(this.db).insert({ ...input.sourceIntent, tree: input.tree,
