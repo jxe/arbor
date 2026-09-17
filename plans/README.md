@@ -21,9 +21,15 @@ merge-rule improvements. [Reliability 011](reliability/011-compatible-accepted-a
 owns remaining compatible adoption after the completed foundational cutover. Review caching and other
 conveniences are deferred. Experimental execution remains on its separate branch.
 
-1. [Reliability 008 — Enable operations and editor emission](reliability/008-enable-source-operations.md), one validated operation family at a time.
-2. [Reliability 009 — Canopy provenance and source-aware merges](reliability/009-canopy-provenance-merges.md), including accepted alternatives, inspection, and bounded history.
+1. [Reliability 008 — Client operation capture and submission](reliability/008-enable-source-operations.md), on main: retain exact intent and emit new forms once Canopy can safely record them, without waiting for semantic merge support.
+2. [Reliability 009 — Canopy intent retention and forwarding](reliability/009-canopy-provenance-merges.md), on main: specify the recorded-versus-validated contract, retain and authorize material, forward to the tool, and own acceptance and deployment.
 3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
+
+Reliability 013, `plans/reliability/013-merge-operations-and-formats.md` on
+`codex/merge-tool`, owns full operation interpretation and format/language support.
+It can progress against fixtures independently of client emission or installation.
+The client and Canopy plans are authoritative on main; the tool plan stays with its
+implementation branch until that work is integrated.
 
 ## What to do soon
 
