@@ -24,7 +24,7 @@ struct UpdateMachineTests {
         let machines = try #require(fixture["machines"] as? [String: Any])
         let machine = try #require(machines["working-tree-updates"] as? [String: Any])
         let scenarios = try #require(machine["scenarios"] as? [[String: Any]])
-        #expect(scenarios.count >= 20)
+        #expect(!scenarios.isEmpty)
         for scenario in scenarios {
             let name = try #require(scenario["name"] as? String)
             var state = try Self.state(from: try #require(scenario["initial"] as? [String: Any]))
@@ -99,15 +99,6 @@ struct UpdateMachineTests {
         )
     }
 
-    private static func conflict(_ json: [String: Any]) throws -> UpdateMachine.ConflictEvidence {
-        .init(
-            current: try base(try #require(json["current"] as? [String: Any])),
-            draft: json["draft"] as? String,
-            localRoot: try #require(json["localRoot"] as? String),
-            failedIndex: json["failedIndex"] as? Int ?? 0
-        )
-    }
-
     private static func state(from json: [String: Any]) throws -> UpdateMachine.State {
         let kind = try #require(json["kind"] as? String)
         let phase: UpdateMachine.Phase
@@ -131,19 +122,6 @@ struct UpdateMachineTests {
             phase = .acceptedPendingApply(
                 result: try result(try #require(json["result"] as? [String: Any])),
                 request: try request(json["request"] as? [String: Any]),
-                head: try head(json["head"] as? [String: Any])
-            )
-        case "conflict":
-            phase = .conflict(
-                request: try #require(try request(json["request"] as? [String: Any])),
-                conflict: try conflict(try #require(json["conflict"] as? [String: Any])),
-                head: try head(json["head"] as? [String: Any])
-            )
-        case "conflict-preparing":
-            phase = .conflictPreparing(
-                request: try #require(try request(json["request"] as? [String: Any])),
-                conflict: try conflict(try #require(json["conflict"] as? [String: Any])),
-                choice: try Self.enumValue(UpdateMachine.Event.Resolution.self, from: json, key: "choice"),
                 head: try head(json["head"] as? [String: Any])
             )
         case "offline":
@@ -202,8 +180,6 @@ struct UpdateMachineTests {
             )
         case "watchGap":
             return .watchGap
-        case "conflicted":
-            return .conflicted(id: try #require(json["id"] as? String), conflict: try conflict(try #require(json["conflict"] as? [String: Any])))
         case "applied":
             return .applied
         case "transportFailed":
@@ -216,10 +192,6 @@ struct UpdateMachineTests {
             return .transportAvailable(try #require(json["available"] as? Bool))
         case "credentialsRefreshed":
             return .credentialsRefreshed
-        case "resolveConflict":
-            return .resolveConflict(try Self.enumValue(UpdateMachine.Event.Resolution.self, from: json, key: "choice"))
-        case "conflictResolutionFailed":
-            return .conflictResolutionFailed
         default:
             throw FixtureError.unknownEvent(String(describing: json["type"]))
         }

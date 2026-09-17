@@ -8,7 +8,7 @@ follow. The
 **update machine** runs inside a working tree against Arbor Wire and is
 specified in [working-tree updates](../spec/09-client-synchronization.md);
 section 8 below describes its runner, the update coordinator, and what it
-adds around the reducer: the durable head, recovery, holds, and watching.
+adds around the reducer: the durable head, recovery, and watching.
 
 The reference implementations are `DocumentAdmissionMachine` in `ArborKit`
 (Swift) and `reduceAdmission` in `@arbor/core` (TypeScript). Both are pure
@@ -134,7 +134,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
    the write at its base revision; the host may run its explicit merge
    helper or surface the retained conflict for review (native Arbor surfaces
    it). Accepted Canopy conflicts are accepted-state data, not an admission failure
-   or a publication hold. The old rejected-update path remains only for compatibility.
+   or a publication hold. Native has retired the old rejected-update path; unexpected retained legacy records fail safely for recovery.
 8. **Failures keep the exact pending source.** `retry` or `flush` resubmits
    the newest retained source; the UI shows failure until then.
 9. **Lifecycle.** `flush` cancels the timer, starts the latest admission,
@@ -236,9 +236,8 @@ in Plan B). Both execute the `working-tree-updates` scenarios in
 Its transitions are the spec's; this section is about the runner around it.
 
 `UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and a Wire
-transport and keeps `UpdateControl` (`sync/control.json` under the tree's
-state root, schema 2; schema 1 files from placed iOS devices decode with the
-new fields absent). The control retains:
+transport and keeps `UpdateControl` (`sync/update-control.json` under the tree's
+state root, schema 3 for source admission and schema 2 for snapshot publication). The control retains:
 
 - **The durable head** `UpdateHead { base, root, generation, objects }`,
   written by `syncImmediately` before the reducer sees `localHead`. Its
@@ -251,7 +250,9 @@ new fields absent). The control retains:
   the body and nothing else. Overlay collection between prepare and resend
   therefore cannot change a resubmission; a test wipes the overlay and asserts
   byte-identical bodies.
-- **The conflict**, **the next base**, and **the hold**.
+- **The next base** for pending snapshot publication, source-journal publication
+  identity and receipts, and the accepted unresolved signal. Conflicts and holds
+  are not current control fields.
 
 **Sparse bodies.** A candidate's objects are the local graph (validated as a
 sparse spine) minus every hash reachable from the base through directory
@@ -262,8 +263,7 @@ watch-transition replay run on a sparse basis: the local graph plus every
 delta base, fetched once each, replayed in `.sparseFiles` mode and bridged
 back with the tree's own file metadata.
 
-**Recovery.** On entry, a retained conflict maps to `conflict`, a retained
-attempt to `prepared`, and a head with no attempt becomes a one-element
+**Recovery.** On entry, a retained attempt maps to `prepared`, and a head with no attempt becomes a one-element
 attempt (its objects make it self-contained) and also maps to `prepared`.
 When an accepted result arrives for a candidate the tree no longer holds and
 the tree has no pending work (it was re-seeded from Canopy while the durable
@@ -271,9 +271,12 @@ record carried the work), the coordinator applies the decision, clears the
 attempt and next base, and pulls the current snapshot; it never re-submits
 the seed.
 
-**Holds.** `setSubmissionHold(_:)` pauses submission: heads and attempts stay
-durable, `presentation` reports `conflict` with the reason, and nothing is
-sent until the hold is lifted and `syncOnce` runs.
+**Rejected requests and old records.** A rejected submission keeps its exact
+attempt for retry and reports the error. It never creates a conflict workspace,
+changes the authored basis, or submits an implicit resolution. Before decoding a
+control file, the loader rejects any non-null legacy `conflict` or `hold` field,
+even an unfamiliar payload, without rewriting the file. Historical backups and
+the previous client provide recovery for unexpected old work.
 
 **Watching.** `CanopyWatchRunner` (`CanopyClient`) follows one tree's watch
 stream, feeds every event to the coordinator, reconnects with backoff, and
@@ -288,12 +291,12 @@ snapshot records preserve explicit predecessor identity alongside source-operati
 records. Local Trash nodes and locally held file objects are private recovery
 material in the same structural record, excluded from Wire candidates. Publication
 and watch still install only Canopy's accepted projection into the accepted tree.
-Native selects source admission when its coordinator has no retained legacy work.
-An existing source journal always selects source mode; a retained legacy head,
-request, conflict, hold or next base selects the compatibility path. Selection is
-read-only, and the constructor independently enforces the boundary. Once legacy
-work is settled, the next open can use source admission. Installed-client upgrade
-and legacy retirement remain gated in [008](../plans/reliability/008-enable-source-operations.md).
+Native always enables source admission. Its constructor refuses old pending
+snapshot work rather than selecting a legacy conflict workflow, and source journals
+cannot downgrade to snapshot mode. Clean older controls can activate source mode.
+The [installed cutover](native-source-cutover.md) verified both devices had no
+retained legacy work before retiring that path. Local filesystem document CAS and
+divergent editor-recovery drafts remain separate from accepted Canopy conflicts.
 
 For source-enabled Native, structural admission is available only when pending
 records form one predecessor chain whose starting graph matches the installed

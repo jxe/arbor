@@ -115,8 +115,6 @@ final class ArborWorkspaceState {
         state: .offline,
         detail: "Open a local tree to start Native synchronization"
     )
-    private(set) var syncConflict: UpdateConflictPresentation?
-    private(set) var syncConflictWorkspace: UpdateConflictWorkspace?
     private(set) var arborsyncProcessKind: ArborSyncProcessKind?
     private(set) var latestStructuralReceipt: WorkspaceStructuralReceipt?
     let linkPreviewService: LinkPreviewService
@@ -230,7 +228,7 @@ final class ArborWorkspaceState {
             transport: transport,
             stateRoot: syncStateRoot,
             transportAvailable: initiallyAvailable,
-            sourceOperationEmission: UpdateCoordinator.sourceAdmissionReady(stateRoot: syncStateRoot)
+            sourceOperationEmission: true
         )
         let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
             try await coordinator.syncImmediately(admission)
@@ -247,8 +245,6 @@ final class ArborWorkspaceState {
         )
         syncCoordinator = coordinator
         syncPresentation = try await coordinator.presentation()
-        syncConflict = try await coordinator.conflict()
-        syncConflictWorkspace = nil
         startServerWatch(client: client, tree: tree, coordinator: coordinator)
     }
 
@@ -298,8 +294,6 @@ final class ArborWorkspaceState {
         serverWatchTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
-        syncConflict = nil
-        syncConflictWorkspace = nil
         await editorWorkspace.closeAll()
     }
 #endif
@@ -774,8 +768,6 @@ final class ArborWorkspaceState {
         visitFollowTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
-        syncConflict = nil
-        syncConflictWorkspace = nil
         openPlacedTreeID = nil
         openVisitLocator = nil
     }
@@ -837,7 +829,7 @@ final class ArborWorkspaceState {
             .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
         let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot,
             transportAvailable: nativeTransportAvailable,
-            sourceOperationEmission: UpdateCoordinator.sourceAdmissionReady(stateRoot: stateRoot))
+            sourceOperationEmission: true)
 
         let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
             try await coordinator.syncImmediately(admission)
@@ -858,8 +850,6 @@ final class ArborWorkspaceState {
         syncCoordinator = coordinator
         openPlacedTreeID = treeID
         syncPresentation = try await coordinator.presentation()
-        syncConflict = try await coordinator.conflict()
-        syncConflictWorkspace = nil
         startServerWatch(client: wireClient, tree: descriptor, coordinator: coordinator)
         Task { [weak self] in
             _ = try? await coordinator.syncOnce()
@@ -1312,8 +1302,6 @@ final class ArborWorkspaceState {
             // a local candidate and can leave a clean, stale replica dependent
             // on an indefinitely open watch connection.
             syncPresentation = try await syncCoordinator.recoverWatchGap()
-            syncConflict = try await syncCoordinator.conflict()
-            syncConflictWorkspace = nil
         }
         catch {
             syncPresentation = (try? await syncCoordinator.presentation())
@@ -1366,51 +1354,6 @@ final class ArborWorkspaceState {
         capabilities = await provider.capabilities()
         syncPresentation = (try? await coordinator.presentation())
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
-        syncConflict = try? await coordinator.conflict()
-        if syncConflict == nil { syncConflictWorkspace = nil }
-    }
-
-    func prepareSyncConflictReview() async {
-        guard let syncCoordinator else { return }
-        do {
-            syncConflictWorkspace = try await syncCoordinator.conflictWorkspace()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func resolveSyncConflict(_ resolutions: [String: UpdateConflictResolution]) async -> Bool {
-        guard let syncCoordinator else { return false }
-        do {
-            try await syncCoordinator.resolveConflict(resolutions)
-            syncConflict = nil
-            syncConflictWorkspace = nil
-            syncPresentation = try await syncCoordinator.syncOnce()
-            syncConflict = try await syncCoordinator.conflict()
-            return syncConflict == nil
-        } catch {
-            errorMessage = error.localizedDescription
-            syncConflict = try? await syncCoordinator.conflict()
-            syncConflictWorkspace = try? await syncCoordinator.conflictWorkspace()
-            syncPresentation = (try? await syncCoordinator.presentation())
-                ?? WorkspaceSyncPresentation(state: .offline, detail: error.localizedDescription)
-            return false
-        }
-    }
-
-    func resolveSyncConflictKeepingLocal() async {
-        guard let syncCoordinator else { return }
-        do {
-            try await syncCoordinator.resolveConflictKeepingLocal()
-            syncConflict = nil
-            syncConflictWorkspace = nil
-            syncPresentation = try await syncCoordinator.syncOnce()
-            syncConflict = try await syncCoordinator.conflict()
-        } catch {
-            errorMessage = error.localizedDescription
-            syncPresentation = (try? await syncCoordinator.presentation())
-                ?? WorkspaceSyncPresentation(state: .offline, detail: error.localizedDescription)
-        }
     }
 
     func flush() async {

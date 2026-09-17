@@ -1620,7 +1620,6 @@ struct ArborRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
-        .animation(.easeInOut(duration: 0.2), value: workspace.syncConflict != nil)
 #if os(macOS)
         .navigationTitle("")
         .navigationBarBackButtonHidden(true)
@@ -1842,15 +1841,6 @@ struct ArborRootView: View {
                     .navigationTitle("arborsync Logs")
             }
             .frame(minWidth: 560, minHeight: 420)
-        case .syncConflict:
-            if workspace.syncConflict != nil {
-                ArborSyncConflictView(
-                    workspace: workspace.syncConflictWorkspace,
-                    load: { await workspace.prepareSyncConflictReview() },
-                    resolve: { await workspace.resolveSyncConflict($0) },
-                    close: { presentedSheet = nil }
-                )
-            }
         case .syncStatus:
             syncStatusPanel
         default:
@@ -1945,13 +1935,6 @@ struct ArborRootView: View {
                 }
             )
             .help("\(analysis.explanation) Current revision: \(conflict.current.contentRevision)")
-        } else if workspace.syncConflict != nil {
-            ArborAttentionBanner(
-                message: "Synchronization needs a conflict choice.",
-                systemImage: "arrow.triangle.branch",
-                primaryLabel: "Review…",
-                primaryAction: { presentedSheet = .syncConflict }
-            )
         } else if let proposal = model.titleRenameProposal {
             ArborAttentionBanner(
                 message: "Rename this page to \"\(proposal.proposedName)\" to match its title?",

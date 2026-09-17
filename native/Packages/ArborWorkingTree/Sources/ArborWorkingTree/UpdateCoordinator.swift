@@ -6,7 +6,7 @@ import Foundation
 /// Effect runner for `UpdateMachine` over a `WorkingTree` and a Wire
 /// transport. The working tree holds the node index; `UpdateControl` retains
 /// the durable head with its objects, the exact request (with its envelopes),
-/// the conflict, the next base, and any hold; the machine owns scheduling:
+/// and the next base; the machine owns scheduling:
 /// one request in flight, one retained successor, a trailing publication delay,
 /// and the single ambiguous-recovery transition on reconnection.
 ///
@@ -39,14 +39,6 @@ public actor UpdateCoordinator {
     private var preparedStructures: [Data: (record: SourceAdmissionRecord, node: WorkspaceNode)] = [:]
     private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
 
-    /// Server-first release selection. Existing legacy work uses its original
-    /// recovery path until settled; already activated journals never downgrade.
-    /// This only reads local state and does not clear or migrate retained work.
-    public static func sourceAdmissionReady(stateRoot: URL) throws -> Bool {
-        let control = try UpdateControlFiles(root: stateRoot).load()
-        return control.sourceMode == true || !control.hasLegacyWork
-    }
-
     public init(
         workingTree: WorkingTree,
         transport: any UpdateTransport,
@@ -68,11 +60,11 @@ public actor UpdateCoordinator {
         }
         if sourceOperationEmission {
             guard !control.hasLegacyWork else {
-                throw ArborWireValidationError.invalidValue("Settle legacy queued work before activating source admission")
+                throw ArborWireValidationError.invalidValue("Retained snapshot work requires recovery before source admission; saved work has not been changed")
             }
         }
         // An incompatible or altered durable request must remain on disk for recovery.
-        for attempt in [control.attempt, control.conflict?.attempt].compactMap({ $0 }) {
+        for attempt in [control.attempt].compactMap({ $0 }) {
             let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
             guard request.base == attempt.base.update,
                   request.updates.last?.candidate == attempt.candidate,
@@ -97,7 +89,7 @@ public actor UpdateCoordinator {
 
     /// Enter the machine from the replica's accepted base and map the retained
     /// durable control onto its phase: a retained attempt is `prepared` (it is
-    /// resubmitted exactly), a retained conflict is `conflict`, and unsent
+    /// resubmitted exactly), and unsent
     /// replica generations are one local head.
     private func ensureMachineEntered() async {
         guard case .unplaced = machine.phase else { return }
@@ -105,23 +97,7 @@ public actor UpdateCoordinator {
               let root = control.nextBase?.root ?? heads.acceptedRoot,
               let update = control.nextBase?.update ?? heads.acceptedUpdate else { return }
         dispatch(.bootstrapInstalled(root: root, update: update, cursor: heads.acceptedCursor, conflicted: control.acceptedConflicted))
-        if let conflict = control.conflict {
-            machine.phase = .conflict(
-                request: UpdateMachine.PreparedRequest(
-                    id: "conflict",
-                    base: conflict.response.base,
-                    candidate: conflict.localRootAtConflict,
-                    digests: []
-                ),
-                conflict: UpdateMachine.ConflictEvidence(
-                    current: .init(root: conflict.response.current.root, update: conflict.response.current.id),
-                    draft: conflict.response.draft.root,
-                    localRoot: conflict.localRootAtConflict,
-                    failedIndex: conflict.response.details.failedIndex
-                ),
-                head: nil
-            )
-        } else if let attempt = control.attempt {
+        if let attempt = control.attempt {
             machine.phase = .prepared(request: Self.preparedRequest(attempt), head: nil)
         } else if let head = control.head, let attempt = try? recoverAttempt(from: head, tree: await workingTree.treeID().rawValue) {
             // The process stopped between the durable head and its publication:
@@ -217,14 +193,10 @@ public actor UpdateCoordinator {
                 guard let self else { return }
                 _ = try? await self.synchronize(admission: admission, extendExistingAttempt: extend)
             }
-        case .submit, .apply, .catchUp, .surfaceConflict, .stop:
+        case .submit, .apply, .catchUp, .stop:
             // Submission, materialization, and catch-up are performed inline by
             // the pass that dispatched the event; they report back with
-            // `applied`, `conflicted`, or a failure.
-            break
-        case .persistConflictResolution:
-            // The coordinator persists the reviewed candidate synchronously
-            // from its public resolution API before starting another pass.
+            // `applied` or a failure.
             break
         }
     }
@@ -247,9 +219,7 @@ public actor UpdateCoordinator {
         value.acceptedConflicted = control.acceptedConflicted
         value.acceptedRoot = control.nextBase?.root ?? heads.acceptedRoot
         value.localRoot = heads.materializedRoot
-        if control.conflict != nil { value.state = .conflict }
-        else if let hold = control.hold { value.state = .conflict; value.detail = hold.reason }
-        else if control.attempt != nil { value.state = .requestPending }
+        if control.attempt != nil { value.state = .requestPending }
         else if sourceOperationEmission, try await hasSourceWork() {
             value.state = .locallyPending
             let local = try await sourceLocalViewState()
@@ -259,177 +229,6 @@ public actor UpdateCoordinator {
         }
         else if heads.pendingRoot != nil { value.state = .locallyPending }
         return value
-    }
-
-    /// The current explicit submission hold, if any.
-    public var submissionHold: UpdateHold? { control.hold }
-
-    /// Pause or resume submission. While held, heads and attempts stay durable
-    /// and `presentation` reports `conflict` with `reason`; nothing is sent.
-    /// Passing `nil` lifts the hold; call `syncOnce` afterwards to publish.
-    public func setSubmissionHold(_ reason: String?) throws {
-        try requireOpen()
-        control.hold = reason.map { UpdateHold(reason: $0) }
-        control.presentation.acceptedConflicted = control.acceptedConflicted
-        try files.write(control)
-    }
-
-    public func conflict() throws -> UpdateConflictPresentation? {
-        try requireOpen()
-        guard let stored = control.conflict else { return nil }
-        return UpdateConflictPresentation(
-            base: stored.response.base,
-            local: stored.localRootAtConflict,
-            remote: stored.response.current.root,
-            draft: stored.response.draft.root,
-            reasons: stored.response.conflicts
-        )
-    }
-
-    /// Reconstruct the four complete, authoritative graphs needed by the
-    /// conflict sheet and expose the actual value at each reported path.
-    /// Material is cached with the durable conflict so review remains possible
-    /// after a restart or a later loss of connectivity.
-    public func conflictWorkspace() async throws -> UpdateConflictWorkspace? {
-        try requireOpen()
-        guard var stored = control.conflict else { return nil }
-        let material: DurableConflictMaterial
-        if let retained = stored.material {
-            material = retained
-        } else {
-            guard let attempt = stored.attempt else { throw UpdateError.conflictSnapshotMissing }
-            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
-            let index = stored.response.details.failedIndex
-            guard request.updates.indices.contains(index) else { throw UpdateError.conflictSnapshotMissing }
-            let failed = request.updates[index]
-            guard failed.candidate == stored.response.candidate else { throw UpdateError.conflictSnapshotMissing }
-            let tree = attempt.tree
-            let baseRoot = stored.response.base
-            let currentRoot = stored.response.current.root
-            async let baseValue = transport.snapshot(tree: tree, root: baseRoot)
-            async let currentValue = transport.snapshot(tree: tree, root: currentRoot)
-            let (base, current) = try await (baseValue, currentValue)
-            guard base.root == baseRoot, current.root == currentRoot else {
-                throw UpdateError.conflictSnapshotMissing
-            }
-            let mine = try WireTransitionReplay.applying(
-                WireTransitionPayload(objects: failed.objects, deltas: failed.deltas),
-                to: base,
-                root: failed.candidate
-            )
-            let draft = try WireTransitionReplay.applying(
-                stored.response.draft.payload,
-                to: mine,
-                root: stored.response.draft.root
-            )
-            material = DurableConflictMaterial(base: base, current: current, mine: mine, draft: draft)
-            stored.material = material
-            control.conflict = stored
-            control.presentation.acceptedConflicted = control.acceptedConflicted
-            try files.write(control)
-        }
-        let grouped = Dictionary(grouping: stored.response.conflicts, by: \.path)
-        let items = try grouped.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { path in
-            let base = try ConflictWorkspaceGraph.content(at: path, in: material.base)
-            let current = try ConflictWorkspaceGraph.content(at: path, in: material.current)
-            let mine = try ConflictWorkspaceGraph.content(at: path, in: material.mine)
-            let draft = try ConflictWorkspaceGraph.content(at: path, in: material.draft)
-            return UpdateConflictItem(
-                path: path,
-                reasons: grouped[path, default: []].map(\.reason),
-                base: base,
-                current: current,
-                mine: mine,
-                draft: draft,
-                offersBoth: draft != current && draft != mine
-            )
-        }
-        let request = try stored.attempt.map { try JSONDecoder().decode(WireUpdateRequest.self, from: $0.body) }
-        let suffix = max(0, (request?.updates.count ?? 1) - stored.response.details.failedIndex - 1)
-        return UpdateConflictWorkspace(
-            identity: stored.attempt?.digest ?? stored.response.candidate,
-            items: items,
-            unattemptedCount: suffix
-        )
-    }
-
-    /// Assemble one reviewed failed-element candidate from the server draft,
-    /// replacing only the explicitly chosen conflict paths. This deliberately
-    /// does not infer a new merge: `both` selects Canopy's own draft value.
-    public func resolveConflict(_ resolutions: [String: UpdateConflictResolution]) async throws {
-        try requireOpen()
-        guard let stored = control.conflict, let attempt = stored.attempt else { throw UpdateError.noConflict }
-        guard let workspace = try await conflictWorkspace(),
-              workspace.identity == attempt.digest,
-              let retained = control.conflict,
-              retained.attempt?.digest == attempt.digest,
-              let material = retained.material else { throw UpdateError.noConflict }
-        guard workspace.unattemptedCount == 0 else { throw UpdateError.conflictSequenceRequiresReview }
-        let paths = workspace.items.map(\.path)
-        guard Set(resolutions.keys) == Set(paths) else { throw UpdateError.conflictResolutionIncomplete }
-        for lhs in paths {
-            for rhs in paths where lhs != rhs {
-                let prefix = lhs == "/" ? "/" : lhs + "/"
-                if rhs.hasPrefix(prefix) { throw UpdateError.conflictPathOverlap }
-            }
-        }
-        var candidate = material.draft
-        for item in workspace.items {
-            guard let resolution = resolutions[item.path] else { throw UpdateError.conflictResolutionIncomplete }
-            switch resolution {
-            case .current:
-                candidate = try ConflictWorkspaceGraph.replacing(path: item.path, in: candidate, with: material.current)
-            case .mine:
-                candidate = try ConflictWorkspaceGraph.replacing(path: item.path, in: candidate, with: material.mine)
-            case .both:
-                guard item.offersBoth else { throw UpdateError.conflictResolutionIncomplete }
-                // The draft is already the destination and therefore already
-                // carries Canopy's explicit combined value for this path.
-                break
-            case let .edit(source):
-                guard item.draft.editableText != nil || item.mine.editableText != nil || item.current.editableText != nil else {
-                    throw UpdateError.conflictContentIsNotEditable
-                }
-                candidate = try ConflictWorkspaceGraph.replacingText(path: item.path, in: candidate, with: source)
-            }
-        }
-        _ = try WireObjectGraph.validate(candidate)
-        let descriptor = try await transport.descriptor(tree: attempt.tree).validated(expectedTree: attempt.tree)
-        guard descriptor.tree.root == retained.response.current.root,
-              descriptor.tree.update == retained.response.current.id else { throw UpdateError.localWorkAdvanced }
-        let heads = try await workingTree.heads()
-        guard heads.materializedRoot == retained.localRootAtConflict else { throw UpdateError.localWorkAdvanced }
-
-        dispatch(.resolveConflict(.draft))
-        do {
-            let replacement = try SnapshotBridge.replacement(
-                snapshot: candidate,
-                tree: await workingTree.treeID(),
-                update: descriptor.tree.update,
-                cursor: descriptor.observedThrough
-            )
-            try await workingTree.replacePendingFromSystem(
-                replacement,
-                acceptedRoot: descriptor.tree.root,
-                acceptedUpdate: descriptor.tree.update,
-                acceptedCursor: descriptor.observedThrough
-            )
-            control.nextBase = WireUpdateBase(root: descriptor.tree.root, update: descriptor.tree.update)
-            control.conflict = nil
-            control.presentation = WorkspaceSyncPresentation(
-                state: .locallyPending,
-                detail: "Reviewed conflict choices are durable as a new root intent",
-                acceptedRoot: descriptor.tree.root,
-                localRoot: candidate.root,
-                localAdditions: candidate.root != descriptor.tree.root,
-                remoteAdditions: true
-            )
-            control.presentation.acceptedConflicted = control.acceptedConflicted
-            try files.write(control)
-        } catch {
-            dispatch(.conflictResolutionFailed)
-            throw error
-        }
     }
 
     public func watchCursor() async throws -> String? {
@@ -729,7 +528,7 @@ public actor UpdateCoordinator {
                 // applied base as one more pass.
                 let heads = try await workingTree.heads()
                 let sourcePending = try await hasSourceWork()
-                if (heads.pendingRoot == nil && !sourcePending) || control.conflict != nil { syncAgain = false }
+                if (heads.pendingRoot == nil && !sourcePending) { syncAgain = false }
                 else { syncAgain = true }
             }
         } while syncAgain
@@ -740,7 +539,6 @@ public actor UpdateCoordinator {
         admission: WorkingTreePatchAdmission?,
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
-        guard control.conflict == nil, control.hold == nil else { return try await presentation() }
         let sourcePending = try await hasSourceWork()
         if sourceOperationEmission, control.sourceAttemptChange != nil || (control.attempt == nil && sourcePending) {
             return try await syncSourcePass()
@@ -786,9 +584,6 @@ public actor UpdateCoordinator {
             try files.write(control)
             try faultInjector.reached(.duringUpload)
             return try await submit(attempt)
-        } catch let error as WireUpdateConflictError {
-            guard let attempt = preparedAttempt else { throw error }
-            return try await recordConflict(try error.conflict.validated(), attempt: attempt, retained: attempt)
         } catch let error as WireHTTPError where error.status == 401 || error.status == 403 {
             control.presentation.state = error.code == "device-revoked" ? .revoked : .authenticationFailure
             control.presentation.detail = error.message ?? error.code
@@ -810,48 +605,6 @@ public actor UpdateCoordinator {
         }
     }
 
-    /// Persist a conflict response with the exact local attempt for review.
-    private func recordConflict(
-        _ validated: WireUpdateConflict,
-        attempt: UpdateAttempt,
-        retained: UpdateAttempt
-    ) async throws -> WorkspaceSyncPresentation {
-        control.conflict = UpdateConflictRecord(
-            response: validated,
-            localRootAtConflict: retained.candidate,
-            attempt: retained
-        )
-        control.attempt = nil
-        control.presentation = WorkspaceSyncPresentation(
-            state: .conflict,
-            detail: validated.conflicts.map { "\($0.path): \($0.reason)" }.joined(separator: ", "),
-            acceptedRoot: validated.current.root,
-            localRoot: retained.candidate,
-            localAdditions: true,
-            remoteAdditions: true
-        )
-        control.presentation.acceptedConflicted = control.acceptedConflicted
-        try files.write(control)
-        noteConflict(validated, attempt: attempt)
-        // The conflict response arrived over a live transport, so retain its
-        // review material now when possible. Failure leaves the exact durable
-        // conflict intact and the sheet can retry later.
-        _ = try? await conflictWorkspace()
-        return control.presentation
-    }
-
-    private func noteConflict(_ validated: WireUpdateConflict, attempt: UpdateAttempt) {
-        dispatch(.conflicted(
-            id: attempt.digest,
-            conflict: UpdateMachine.ConflictEvidence(
-                current: .init(root: validated.current.root, update: validated.current.id),
-                draft: validated.draft.root,
-                localRoot: attempt.candidate,
-                failedIndex: validated.details.failedIndex
-            )
-        ))
-    }
-
     private func submit(_ attempt: UpdateAttempt) async throws -> WorkspaceSyncPresentation {
         guard inFlight.insert(attempt.digest).inserted else { return try await presentation() }
         defer { finishInFlight(attempt.digest) }
@@ -862,11 +615,6 @@ public actor UpdateCoordinator {
             try faultInjector.reached(.afterServerAcceptance)
             try await apply(response, for: attempt)
             return try await presentation()
-        } catch let error as WireUpdateConflictError {
-            guard control.attempt?.allRequestDigests.starts(with: attempt.allRequestDigests) == true else {
-                return try await presentation()
-            }
-            return try await recordConflict(try error.conflict.validated(), attempt: attempt, retained: control.attempt ?? attempt)
         } catch {
             if control.attempt?.digest != attempt.digest { return try await presentation() }
             throw error
@@ -875,29 +623,6 @@ public actor UpdateCoordinator {
 
     private func finishInFlight(_ digest: String) {
         inFlight.remove(digest)
-    }
-
-    public func resolveConflictKeepingLocal() throws {
-        try requireOpen()
-        guard let conflict = control.conflict else { throw UpdateError.noConflict }
-        if let attempt = conflict.attempt,
-           let request = try? JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body),
-           request.updates.count > conflict.response.details.failedIndex + 1 {
-            throw UpdateError.conflictSequenceRequiresReview
-        }
-        control.nextBase = WireUpdateBase(root: conflict.response.current.root, update: conflict.response.current.id)
-        control.conflict = nil
-        if case .conflict = machine.phase { dispatch(.resolveConflict(.local)) }
-        control.presentation = WorkspaceSyncPresentation(
-            state: .locallyPending,
-            detail: "Conflict choice retained the local document as new intent",
-            acceptedRoot: control.nextBase?.root,
-            localRoot: conflict.localRootAtConflict,
-            localAdditions: true,
-            remoteAdditions: true
-        )
-        control.presentation.acceptedConflicted = control.acceptedConflicted
-        try files.write(control)
     }
 
     public func close() {
@@ -941,7 +666,7 @@ public actor UpdateCoordinator {
     /// Record the persisted request in the machine, entering `locally-pending` first if the pass started it.
     private func notePersisted(_ attempt: UpdateAttempt) {
         switch machine.phase {
-        case .current, .prepared, .submitting, .submittingPending, .acceptedPendingApply, .conflict:
+        case .current, .prepared, .submitting, .submittingPending, .acceptedPendingApply:
             machine.phase = .locallyPending(head: .init(root: attempt.candidate, origin: .editor), preparing: true)
         default:
             break

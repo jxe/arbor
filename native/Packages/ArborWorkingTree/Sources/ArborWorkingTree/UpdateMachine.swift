@@ -84,20 +84,6 @@ public enum UpdateMachine {
         }
     }
 
-    public struct ConflictEvidence: Sendable, Equatable {
-        public var current: AcceptedBase
-        public var draft: String?
-        public var localRoot: String
-        public var failedIndex: Int
-
-        public init(current: AcceptedBase, draft: String? = nil, localRoot: String, failedIndex: Int = 0) {
-            self.current = current
-            self.draft = draft
-            self.localRoot = localRoot
-            self.failedIndex = failedIndex
-        }
-    }
-
     public enum Availability: Sendable, Equatable {
         case transport
         case authentication(reason: String?)
@@ -118,8 +104,6 @@ public enum UpdateMachine {
         case submitting(request: PreparedRequest)
         case submittingPending(request: PreparedRequest, head: LocalHead)
         case acceptedPendingApply(result: AuthorityResult, request: PreparedRequest?, head: LocalHead?)
-        case conflict(request: PreparedRequest, conflict: ConflictEvidence, head: LocalHead?)
-        case conflictPreparing(request: PreparedRequest, conflict: ConflictEvidence, choice: Event.Resolution, head: LocalHead?)
         case offline(availability: Availability, request: PreparedRequest?, transmitted: Bool, head: LocalHead?)
         case terminal(reason: String)
 
@@ -132,8 +116,6 @@ public enum UpdateMachine {
             case .submitting: "submitting"
             case .submittingPending: "submitting-pending"
             case .acceptedPendingApply: "accepted-pending-apply"
-            case .conflict: "conflict"
-            case .conflictPreparing: "conflict-preparing"
             case .offline: "offline"
             case .terminal: "terminal"
             }
@@ -178,21 +160,13 @@ public enum UpdateMachine {
         case accepted(id: String, result: AuthorityResult)
         case watch(cursor: String, root: String, update: String, digests: [String], transitions: Bool, conflicted: Bool? = nil)
         case watchGap
-        case conflicted(id: String, conflict: ConflictEvidence)
         case applied
         case transportFailed(id: String?)
         case authenticationFailed(reason: String?)
         case validationFailed(reason: String)
         case transportAvailable(Bool)
         case credentialsRefreshed
-        case resolveConflict(Resolution)
-        case conflictResolutionFailed
 
-        public enum Resolution: String, Sendable, Equatable {
-            case local
-            case remote
-            case draft
-        }
     }
 
     public enum Effect: Sendable, Equatable {
@@ -205,8 +179,6 @@ public enum UpdateMachine {
         case apply(AuthorityResult)
         /// Clean catch-up: apply a contiguous transition batch or pull the current snapshot, then dispatch `applied`.
         case catchUp(cursor: String?)
-        case persistConflictResolution(request: PreparedRequest, conflict: ConflictEvidence, choice: Event.Resolution)
-        case surfaceConflict(ConflictEvidence)
         case stop(reason: String)
 
         public var kind: String {
@@ -217,8 +189,6 @@ public enum UpdateMachine {
             case .submit: "submit"
             case .apply: "apply"
             case .catchUp: "catchUp"
-            case .persistConflictResolution: "persistConflictResolution"
-            case .surfaceConflict: "surfaceConflict"
             case .stop: "stop"
             }
         }
@@ -268,12 +238,6 @@ public enum UpdateMachine {
             case let .acceptedPendingApply(result, request, _):
                 next.phase = .acceptedPendingApply(result: result, request: request, head: latest)
                 return (next, [])
-            case let .conflict(request, conflict, _):
-                next.phase = .conflict(request: request, conflict: conflict, head: latest)
-                return (next, [])
-            case let .conflictPreparing(request, conflict, choice, _):
-                next.phase = .conflictPreparing(request: request, conflict: conflict, choice: choice, head: latest)
-                return (next, [])
             case let .offline(availability, request, transmitted, _):
                 // Later local work replaces one successor head; intermediate generations are compacted.
                 next.phase = .offline(availability: availability, request: request, transmitted: transmitted, head: latest)
@@ -286,10 +250,6 @@ public enum UpdateMachine {
 
         case let .requestPersisted(request):
             switch state.phase {
-            case let .conflictPreparing(_, conflict, _, head):
-                next.base = conflict.current
-                next.phase = .prepared(request: request, head: head?.root == request.candidate ? nil : head)
-                return (next, [.submit(request)])
             case let .locallyPending(head, _):
                 let successor = head.root != request.candidate ? head : nil
                 next.phase = .prepared(request: request, head: successor)
@@ -354,18 +314,6 @@ public enum UpdateMachine {
             guard case .current = state.phase, let base = state.base else { return (state, []) }
             next.phase = .acceptedPendingApply(result: AuthorityResult(kind: .current, root: base.root, update: base.update), request: nil, head: nil)
             return (next, [.catchUp(cursor: nil)])
-
-        case let .conflicted(id, conflict):
-            let request: PreparedRequest
-            var successor: LocalHead?
-            switch state.phase {
-            case let .submitting(value): request = value
-            case let .submittingPending(value, head): request = value; successor = head
-            default: return (state, [])
-            }
-            guard request.id == id else { return (state, []) }
-            next.phase = .conflict(request: request, conflict: conflict, head: successor)
-            return (next, [.surfaceConflict(conflict)])
 
         case .applied:
             guard case let .acceptedPendingApply(result, _, head) = state.phase else { return (state, []) }
@@ -441,15 +389,6 @@ public enum UpdateMachine {
             next.transportAvailable = true
             return resume(next, availability: availability, request: request, transmitted: transmitted, head: head)
 
-        case let .resolveConflict(choice):
-            guard case let .conflict(request, conflict, head) = state.phase else { return (state, []) }
-            next.phase = .conflictPreparing(request: request, conflict: conflict, choice: choice, head: head)
-            return (next, [.persistConflictResolution(request: request, conflict: conflict, choice: choice)])
-
-        case .conflictResolutionFailed:
-            guard case let .conflictPreparing(request, conflict, _, head) = state.phase else { return (state, []) }
-            next.phase = .conflict(request: request, conflict: conflict, head: head)
-            return (next, [.surfaceConflict(conflict)])
         }
     }
 
@@ -545,15 +484,6 @@ extension UpdateMachine.State {
             if let conflicted = result.conflicted { resultValue["conflicted"] = conflicted }
             value["result"] = resultValue
             put(request)
-            put(head)
-        case let .conflict(request, conflict, head),
-             let .conflictPreparing(request, conflict, _, head):
-            put(request)
-            var conflictValue: [String: Any] = ["current": conflict.current.fixtureRepresentation, "localRoot": conflict.localRoot]
-            if let draft = conflict.draft { conflictValue["draft"] = draft }
-            conflictValue["failedIndex"] = conflict.failedIndex
-            value["conflict"] = conflictValue
-            if case let .conflictPreparing(_, _, choice, _) = phase { value["choice"] = choice.rawValue }
             put(head)
         case let .offline(availability, request, transmitted, head):
             value["availability"] = ["kind": availability.kind]

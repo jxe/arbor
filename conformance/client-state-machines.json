@@ -333,9 +333,9 @@
       ]
     },
     "working-tree-updates": {
-      "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "conflict", "conflict-preparing", "offline", "terminal"],
-      "events": ["bootstrapInstalled", "localHead", "publishDelayElapsed", "maxDelayElapsed", "requestPersisted", "submitStarted", "accepted", "watch", "watchGap", "conflicted", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed", "resolveConflict", "conflictResolutionFailed"],
-      "effects": ["schedule", "cancelTimers", "persistRequest", "persistConflictResolution", "submit", "apply", "catchUp", "surfaceConflict", "stop"],
+      "states": ["unplaced", "current", "locally-pending", "prepared", "submitting", "submitting-pending", "accepted-pending-apply", "offline", "terminal"],
+      "events": ["bootstrapInstalled", "localHead", "publishDelayElapsed", "maxDelayElapsed", "requestPersisted", "submitStarted", "accepted", "watch", "watchGap", "applied", "transportFailed", "authenticationFailed", "validationFailed", "transportAvailable", "credentialsRefreshed"],
+      "effects": ["schedule", "cancelTimers", "persistRequest", "submit", "apply", "catchUp", "stop"],
       "scenarios": [
         {
           "name": "accepted conflicts advance identity at the same root without blocking ordinary edits",
@@ -482,28 +482,13 @@
           ]
         },
         {
-          "name": "conflict plus later local work preserves all evidence and the latest head",
+          "name": "accepted conflict projection applies and publishes later work without a review hold",
           "initial": { "kind": "submitting", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "transportAvailable": true },
           "steps": [
-            { "event": { "type": "conflicted", "id": "q1", "conflict": { "current": { "root": "R", "update": "uR" }, "draft": "D", "localRoot": "h1" } }, "state": "conflict", "effects": ["surfaceConflict"], "expect": { "conflict.current.root": "R", "conflict.localRoot": "h1", "request.id": "q1" } },
-            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "conflict", "effects": [], "expect": { "head.root": "h2", "conflict.draft": "D" } },
-            { "event": { "type": "watch", "cursor": "cR", "root": "R", "update": "uR", "digests": [], "transitions": true }, "state": "conflict", "effects": [] }
-          ]
-        },
-        {
-          "name": "explicit conflict resolution prepares the failed element and untouched suffix at the verified current base",
-          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q3", "base": "uA", "candidate": "h3", "digests": ["q1", "q2", "q3"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h3", "failedIndex": 1 }, "head": { "root": "h4", "origin": "editor" }, "transportAvailable": true },
-          "steps": [
-            { "event": { "type": "resolveConflict", "choice": "local" }, "state": "conflict-preparing", "effects": ["persistConflictResolution"], "expect": { "base.root": "A", "conflict.failedIndex": 1, "head.root": "h4" } },
-            { "event": { "type": "requestPersisted", "request": { "id": "r3", "base": "uR", "candidate": "r3", "digests": ["r1", "r2"] } }, "state": "prepared", "effects": ["submit"], "expect": { "base.root": "R", "request.base": "uR", "head.root": "h4" } }
-          ]
-        },
-        {
-          "name": "failed conflict resolution returns to the same retained conflict",
-          "initial": { "kind": "conflict", "base": { "root": "A", "update": "uA" }, "request": { "id": "q1", "base": "uA", "candidate": "h1", "digests": ["q1"] }, "conflict": { "current": { "root": "R", "update": "uR" }, "localRoot": "h1" }, "transportAvailable": true },
-          "steps": [
-            { "event": { "type": "resolveConflict", "choice": "remote" }, "state": "conflict-preparing", "effects": ["persistConflictResolution"] },
-            { "event": { "type": "conflictResolutionFailed" }, "state": "conflict", "effects": ["surfaceConflict"], "expect": { "request.id": "q1", "conflict.current.root": "R" } }
+            { "event": { "type": "accepted", "id": "q1", "result": { "kind": "accepted", "root": "R", "update": "uR", "digests": ["q1"], "conflicted": true } }, "state": "accepted-pending-apply", "effects": ["apply"], "expect": { "result.conflicted": true, "request.id": "q1" } },
+            { "event": { "type": "localHead", "root": "h2", "origin": "editor" }, "state": "accepted-pending-apply", "effects": [], "expect": { "head.root": "h2" } },
+            { "event": { "type": "applied" }, "state": "locally-pending", "effects": ["schedule"], "expect": { "base.root": "R", "base.update": "uR", "base.conflicted": true, "head.root": "h2" } },
+            { "event": { "type": "publishDelayElapsed" }, "state": "locally-pending", "effects": ["cancelTimers", "persistRequest"], "expect": { "preparing": true, "base.conflicted": true } }
           ]
         },
         {

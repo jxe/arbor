@@ -44,7 +44,16 @@ struct UpdateControlFiles: Sendable {
 
     func load() throws -> UpdateControl {
         guard FileManager.default.fileExists(atPath: controlURL.path) else { return UpdateControl() }
-        var control = try JSONDecoder().decode(UpdateControl.self, from: Data(contentsOf: controlURL))
+        let bytes = try Data(contentsOf: controlURL)
+        // Removed Codable fields would otherwise be silently ignored and lost
+        // on the next write. Refuse even unfamiliar legacy payload shapes.
+        let raw = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+        if ["conflict", "hold"].contains(where: { key in
+            raw?[key].map { !($0 is NSNull) } ?? false
+        }) {
+            throw UpdateError.retainedLegacyConflict
+        }
+        var control = try JSONDecoder().decode(UpdateControl.self, from: bytes)
         guard control.schema <= UpdateControl.currentSchema else {
             throw UpdateError.unsupportedControlSchema(control.schema)
         }
@@ -69,8 +78,6 @@ struct UpdateControlFiles: Sendable {
             "attempt": value.attempt?.digest ?? "",
             "candidate": value.attempt?.candidate ?? "",
             "accepted": value.presentation.acceptedRoot ?? "",
-            "conflict": value.conflict != nil,
-            "held": value.hold != nil,
         ]
         event["schema"] = value.schema
         var line = try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys])

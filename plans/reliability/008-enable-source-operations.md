@@ -69,8 +69,7 @@ now captures tree bases atomically and durably retains validated candidate/opera
 chains in Swift and TS, with shared exact-request vectors and restart/failure tests.
 Swift now has an opt-in session/publication runner: retained candidate views,
 immutable predecessor requests, receipt settlement, restart retries and policy-aware
-editor draft recovery. Native now selects source emission for settled coordinator records; retained
-legacy work stays in compatibility mode. The [installed Mac/iPhone cutover](../../docs/native-source-cutover.md) passed source publication and restart checks. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
+editor draft recovery. Native now always selects source emission; unexpected legacy work fails safely for recovery. Its rejected-update machine and UI are removed in source. The [installed Mac/iPhone cutover](../../docs/native-source-cutover.md) passed source publication and restart checks. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
 with disposable-server coverage; host integration and broader source/editor release gates remain. A production Swift session now
 passes root and nested stale range admission after multiple peer updates, restart,
 hidden-candidate continuation and second-client resolution through disposable Canopy. Legacy providers retain their
@@ -100,13 +99,20 @@ boundary; a transport-only Wire client does not own editor admission.
   predecessors now have conservative acceptance. Nested documents, coupled ancestor changes and longer source/snapshot
   histories now have conservative accepted-entry coverage. Verify deployed coverage
   before client activation. Better automatic merging is not a prerequisite.
-- Remove Native's legacy rejected-update workspace, hold/resolution machine and
-  review UI. The installed [Mac/iPhone cutover](../../docs/native-source-cutover.md)
-  passed against the deployed server: source operations, cross-device propagation,
-  restart, exact accepted/local root equality and no retained legacy work. Preserve
-  historical recovery backups and fail safely on unexpected old records; do not
-  discard a durable request merely to simplify the new path. Ordinary errors and
-  stale explicit-resolution guards must still preserve work.
+- Install the tested Native cleanup when the user can quit both apps. Source admission
+  is already installed; this build removes the now-unused rejected-update UI and
+  machinery. Preserve the existing backups. Verify normal opening, continued
+  publication and restart after installation. Evidence is in the
+  [queue checkpoint](../../docs/source-admission-queue.md#rejected-update-retirement-september-17).
+- Close the ordinary snapshot acceptance gap before removing Canopy's old
+  rejection fallback: a snapshot-only overlap without existing decisions can still
+  return `409`. Cover structural/binary changes and authored snapshot successors,
+  retaining accepted alternatives and exact attribution. Keep `ifCurrent`, stale
+  `resolves`, authorization and account-configuration validation failures explicit;
+  they are not obsolete merge conflicts. Remove unused internal `ifMatch`/`onConflict`
+  policy choices only after auditing callers and their focused tests. The current
+  HTTP update/watch endpoints already use only the consolidated contract.
+
 
 Acceptance fixture: editor reads R1, watch installs R2, R1 edit is durably admitted,
 process exits, original intent is submitted, Canopy accepts overlap, another edit

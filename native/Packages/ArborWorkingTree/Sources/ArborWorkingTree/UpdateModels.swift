@@ -8,13 +8,7 @@ public enum UpdateError: Error, Equatable, Sendable {
     case returnedSnapshotMissing
     case returnedSnapshotMismatch
     case returnedRequestDigestMismatch
-    case conflictSnapshotMissing
-    case conflictSequenceRequiresReview
-    case conflictResolutionIncomplete
-    case conflictPathOverlap
-    case conflictContentIsNotEditable
-    case noConflict
-    case localWorkAdvanced
+    case retainedLegacyConflict
     case closed
     case requestEmpty
     case unsupportedControlSchema(Int)
@@ -28,13 +22,7 @@ extension UpdateError: LocalizedError {
         case .returnedSnapshotMissing: "Canopy did not return the snapshot needed to finish synchronization."
         case .returnedSnapshotMismatch: "Canopy returned content that does not match its advertised root."
         case .returnedRequestDigestMismatch: "Canopy answered a different synchronization request."
-        case .conflictSnapshotMissing: "The content needed to review this conflict is unavailable or invalid."
-        case .conflictSequenceRequiresReview: "Later queued changes still need ordered replay after this conflict."
-        case .conflictResolutionIncomplete: "Choose a resolution for every conflicting path."
-        case .conflictPathOverlap: "The reported conflict paths overlap and cannot be resolved independently."
-        case .conflictContentIsNotEditable: "This conflict contains non-text content and cannot be edited as text."
-        case .noConflict: "There is no current synchronization conflict."
-        case .localWorkAdvanced: "The tree changed while this conflict was open. Reopen the review before submitting."
+        case .retainedLegacyConflict: "This device contains an older synchronization conflict or hold. Saved work is unchanged and needs recovery with the prior client."
         case .closed: "This synchronization session is closed."
         case .requestEmpty: "An update request must carry at least one element."
         case let .unsupportedControlSchema(schema): "Update control schema \(schema) is newer than this client."
@@ -115,37 +103,8 @@ struct UpdateHead: Codable, Equatable, Sendable {
     var spilledObjects: [String]?
 }
 
-/// Why submission is paused. A hold keeps every durable record (head, attempt)
-/// intact and reports `conflict`; it never discards work.
-public struct UpdateHold: Codable, Equatable, Sendable {
-    public var reason: String
-
-    public init(reason: String) {
-        self.reason = reason
-    }
-}
-
-struct UpdateConflictRecord: Codable, Equatable, Sendable {
-    var response: WireUpdateConflict
-    var localRootAtConflict: String
-    /// The exact update string that stopped at `response.details.failedIndex`.
-    /// Retaining it preserves the failed element and untouched suffix across
-    /// restart; the final local root alone cannot recover those boundaries.
-    var attempt: UpdateAttempt? = nil
-    /// Complete, hash-validated graphs used by the review sheet. Once fetched,
-    /// these remain available across restart even if the network disappears.
-    var material: DurableConflictMaterial? = nil
-}
-
-struct DurableConflictMaterial: Codable, Equatable, Sendable {
-    var base: WireSnapshot
-    var current: WireSnapshot
-    var mine: WireSnapshot
-    var draft: WireSnapshot
-}
-
-/// Schema 2 adds `head` and `hold`; schema 1 files (placed iOS devices) decode
-/// with both absent and are rewritten as schema 2 on the next write.
+/// Schema 2 retains snapshot heads. Old conflict/hold records are rejected by
+/// the loader before decoding can silently discard their recovery material.
 /// Schema 3 protects opt-in source queues from older clients. Legacy mode stays at 2.
 struct UpdateControl: Codable, Equatable, Sendable {
     static let currentSchema = 3
@@ -157,101 +116,12 @@ struct UpdateControl: Codable, Equatable, Sendable {
     var acceptedConflicted: Bool?
     var schema = 2
     var attempt: UpdateAttempt?
-    var conflict: UpdateConflictRecord?
     var nextBase: WireUpdateBase?
     var head: UpdateHead?
-    var hold: UpdateHold?
     var presentation = WorkspaceSyncPresentation(state: .offline)
 
     var hasLegacyWork: Bool {
-        conflict != nil || head != nil || hold != nil || nextBase != nil ||
+        head != nil || nextBase != nil ||
             (attempt != nil && sourceAttemptChange == nil)
     }
-}
-
-public struct UpdateConflictPresentation: Sendable, Equatable {
-    public var base: String
-    public var local: String
-    public var remote: String
-    public var draft: String
-    public var reasons: [WireConflictReason]
-
-    public init(base: String, local: String, remote: String, draft: String, reasons: [WireConflictReason]) {
-        self.base = base
-        self.local = local
-        self.remote = remote
-        self.draft = draft
-        self.reasons = reasons
-    }
-}
-
-public enum UpdateConflictContent: Sendable, Equatable {
-    case missing
-    case text(String)
-    case binary(Data)
-    case directory([String])
-    case boundary(tree: String)
-
-    public var editableText: String? {
-        if case let .text(value) = self { value } else { nil }
-    }
-
-    public var summary: String {
-        switch self {
-        case .missing: "Not present"
-        case let .text(value): value
-        case let .binary(bytes): "Binary content, \(bytes.count) bytes"
-        case let .directory(entries): entries.isEmpty ? "Empty directory" : "Directory containing: \(entries.joined(separator: ", "))"
-        case let .boundary(tree): "Shared tree boundary: \(tree)"
-        }
-    }
-}
-
-public struct UpdateConflictItem: Identifiable, Sendable, Equatable {
-    public var id: String { path }
-    public var path: String
-    public var reasons: [String]
-    public var base: UpdateConflictContent
-    public var current: UpdateConflictContent
-    public var mine: UpdateConflictContent
-    public var draft: UpdateConflictContent
-    public var offersBoth: Bool
-
-    public init(
-        path: String,
-        reasons: [String],
-        base: UpdateConflictContent,
-        current: UpdateConflictContent,
-        mine: UpdateConflictContent,
-        draft: UpdateConflictContent,
-        offersBoth: Bool
-    ) {
-        self.path = path
-        self.reasons = reasons
-        self.base = base
-        self.current = current
-        self.mine = mine
-        self.draft = draft
-        self.offersBoth = offersBoth
-    }
-}
-
-public struct UpdateConflictWorkspace: Sendable, Equatable {
-    public var identity: String
-    public var items: [UpdateConflictItem]
-    public var unattemptedCount: Int
-
-    public init(identity: String, items: [UpdateConflictItem], unattemptedCount: Int) {
-        self.identity = identity
-        self.items = items
-        self.unattemptedCount = unattemptedCount
-    }
-}
-
-public enum UpdateConflictResolution: Sendable, Equatable {
-    case current
-    case mine
-    /// Use the server-produced draft value at this path.
-    case both
-    case edit(String)
 }

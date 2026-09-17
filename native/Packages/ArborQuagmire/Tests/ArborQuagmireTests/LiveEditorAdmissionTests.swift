@@ -95,7 +95,7 @@ struct LiveEditorAdmissionTests {
             sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let accepted = try await coordinator.syncOnce()
         #expect(accepted.acceptedConflicted == true)
-        #expect(try await coordinator.conflict() == nil)
+        #expect(try await coordinator.presentation().state == .current)
         session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
         binding = try await .open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: recovery)
         #expect(try await session.snapshot().source == peerSource)
@@ -105,7 +105,7 @@ struct LiveEditorAdmissionTests {
         await binding?.flush()
         #expect(binding?.lastError == nil)
         _ = try await coordinator.syncOnce()
-        #expect(try await coordinator.conflict() == nil)
+        #expect(try await coordinator.presentation().state == .current)
         #expect(try await session.snapshot().source == continued)
 
         // Resolve through Canopy's inspection contract, not a local conflict draft.

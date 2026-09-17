@@ -50,13 +50,6 @@ export interface AuthorityResult {
   digests: string[];
 }
 
-export interface ConflictEvidence {
-  current: AcceptedBase;
-  draft?: string;
-  localRoot: string;
-  failedIndex?: number;
-}
-
 export type Availability = { kind: "transport" } | { kind: "authentication"; reason?: string };
 
 interface Base {
@@ -72,8 +65,6 @@ export type UpdateState =
   | (Base & { kind: "submitting"; base: AcceptedBase; request: PreparedRequest })
   | (Base & { kind: "submitting-pending"; base: AcceptedBase; request: PreparedRequest; head: LocalHead })
   | (Base & { kind: "accepted-pending-apply"; base: AcceptedBase; result: AuthorityResult; request?: PreparedRequest; head?: LocalHead })
-  | (Base & { kind: "conflict"; base: AcceptedBase; request: PreparedRequest; conflict: ConflictEvidence; head?: LocalHead })
-  | (Base & { kind: "conflict-preparing"; base: AcceptedBase; request: PreparedRequest; conflict: ConflictEvidence; choice: "local" | "remote" | "draft"; head?: LocalHead })
   | (Base & {
     kind: "offline";
     base: AcceptedBase;
@@ -95,15 +86,12 @@ export type UpdateEvent =
   | { type: "accepted"; id: string; result: AuthorityResult }
   | { type: "watch"; conflicted?: boolean; cursor: string; root: string; update: string; digests: string[]; transitions: boolean }
   | { type: "watchGap" }
-  | { type: "conflicted"; id: string; conflict: ConflictEvidence }
   | { type: "applied" }
   | { type: "transportFailed"; id?: string }
   | { type: "authenticationFailed"; reason?: string }
   | { type: "validationFailed"; reason: string }
   | { type: "transportAvailable"; available: boolean }
-  | { type: "credentialsRefreshed" }
-  | { type: "resolveConflict"; choice: "local" | "remote" | "draft" }
-  | { type: "conflictResolutionFailed" };
+  | { type: "credentialsRefreshed" };
 
 export type UpdateEffect =
   | { type: "schedule"; timer: "trailing" | "max"; delay: number }
@@ -115,8 +103,6 @@ export type UpdateEffect =
   | { type: "apply"; result: AuthorityResult }
   /** Clean catch-up: apply a contiguous transition batch or pull the current snapshot, then dispatch `applied`. */
   | { type: "catchUp"; cursor?: string }
-  | { type: "persistConflictResolution"; request: PreparedRequest; conflict: ConflictEvidence; choice: "local" | "remote" | "draft" }
-  | { type: "surfaceConflict"; conflict: ConflictEvidence }
   | { type: "stop"; reason: string };
 
 export interface UpdateOptions {
@@ -198,8 +184,6 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
           return { state: { ...ctx(state), kind: "submitting-pending", base: state.base, request: state.request, head: latest }, effects: [] };
         case "submitting-pending":
         case "accepted-pending-apply":
-        case "conflict":
-        case "conflict-preparing":
         case "offline":
           // Later local work replaces one successor head; intermediate generations are compacted.
           return { state: { ...state, head: latest }, effects: [] };
@@ -214,13 +198,6 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
     }
 
     case "requestPersisted": {
-      if (state.kind === "conflict-preparing") {
-        const successor = state.head && state.head.root !== event.request.candidate ? state.head : undefined;
-        return {
-          state: { ...ctx(state), kind: "prepared", base: state.conflict.current, request: event.request, ...(successor ? { head: successor } : {}) },
-          effects: [{ type: "submit", request: event.request }],
-        };
-      }
       if (state.kind === "locally-pending") {
         const successor = state.head.root !== event.request.candidate ? state.head : undefined;
         return {
@@ -325,16 +302,6 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
       };
     }
 
-    case "conflicted": {
-      if (state.kind !== "submitting" && state.kind !== "submitting-pending") return { state, effects: [] };
-      if (state.request.id !== event.id) return { state, effects: [] };
-      const successor = state.kind === "submitting-pending" ? state.head : undefined;
-      return {
-        state: { ...ctx(state), kind: "conflict", base: state.base, request: state.request, conflict: event.conflict, ...(successor ? { head: successor } : {}) },
-        effects: [{ type: "surfaceConflict", conflict: event.conflict }],
-      };
-    }
-
     case "applied": {
       if (state.kind !== "accepted-pending-apply") return { state, effects: [] };
       const base: AcceptedBase = { root: state.result.root, update: state.result.update, ...(state.result.conflicted === undefined ? {} : { conflicted: state.result.conflicted }), ...(state.result.cursor ? { cursor: state.result.cursor } : {}) };
@@ -426,21 +393,7 @@ export function reduceUpdate(state: UpdateState, event: UpdateEvent, options: Up
       return resume({ ...state, transportAvailable: true });
     }
 
-    case "resolveConflict": {
-      if (state.kind !== "conflict") return { state, effects: [] };
-      return {
-        state: { ...ctx(state), kind: "conflict-preparing", base: state.base, request: state.request, conflict: state.conflict, choice: event.choice, ...(state.head ? { head: state.head } : {}) },
-        effects: [{ type: "persistConflictResolution", request: state.request, conflict: state.conflict, choice: event.choice }],
-      };
-    }
 
-    case "conflictResolutionFailed": {
-      if (state.kind !== "conflict-preparing") return { state, effects: [] };
-      return {
-        state: { ...ctx(state), kind: "conflict", base: state.base, request: state.request, conflict: state.conflict, ...(state.head ? { head: state.head } : {}) },
-        effects: [{ type: "surfaceConflict", conflict: state.conflict }],
-      };
-    }
   }
   return { state, effects: [] };
 }

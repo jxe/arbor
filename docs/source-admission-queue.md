@@ -6,9 +6,9 @@ This is a client implementation checkpoint for the
 The Swift queue is connected to document acknowledgement, recovery and publication
 behind `UpdateCoordinator.sourceOperationEmission` (default `false`). Native passes
 its coordinator to the provider, which selects this path only when explicitly enabled.
-Installed clients still use the existing head/attempt/rejection path. The TS queue now has a `SourceDocumentSession` and `SourceAdmissionPublisher` consumer;
+Installed Native clients use source admission after the [verified cutover](native-source-cutover.md). The TS queue now has a `SourceDocumentSession` and `SourceAdmissionPublisher` consumer;
 these are library APIs and are not connected to an installed editor host.
-This checkpoint does not enable emission in installed clients or migrate legacy work.
+Native now always enables this path; unexpected legacy work is preserved for recovery rather than opening the retired rejected-update UI.
 
 ## Retained records and enforced policy
 
@@ -274,3 +274,26 @@ through restart. Cleanup restored the original content root. Both devices report
 current state with identical accepted/local roots and no pending or legacy work.
 The installed-client gate for removing legacy recovery machinery and UI is passed;
 that code cleanup remains in 008. Historical backups remain intact.
+
+## Rejected-update retirement (September 17)
+
+The Native app no longer selects a legacy publication path or presents rejected
+updates as a private conflict workspace. Swift's coordinator removes conflict
+records, submission holds and client-owned resolution; both update reducers remove
+the corresponding states, events and effects. Accepted unresolved results still
+advance projection and identity and allow later edits. A rejected request retains
+its exact body and basis across restart without implicit resolution or rebasing.
+
+The control loader detects any non-null old `conflict` or `hold` payload before
+Codable could ignore it, and refuses to open without rewriting the saved bytes.
+Source activation still refuses pending snapshot work. Clean older controls can
+activate source mode. The previous installed builds and private cutover backups
+remain available for unexpected recovery needs.
+
+Verification: 782 product tests, TypeScript checking/build, shared reducer fixtures,
+73 Swift working-tree tests and the live cross-language protocol scenarios, plus
+macOS and iOS app builds. The first combined run exposed a fixed-duration wait in
+the existing filesystem-acknowledgement test; it now waits for the observed state
+with a bounded deadline. This cleanup has not been installed on either device.
+Canopy-backed Native review remains separate work in
+[Reliability 010](../plans/reliability/010-client-conflict-review.md).

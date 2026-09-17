@@ -41,7 +41,6 @@ the authority.
 | `submitting` | the same immutable request record | The outcome may become ambiguous; the request is never mutated or replaced. |
 | `submitting-pending` | the immutable request record plus one latest durable head with its objects | Later local work is a replaceable successor, not another request. |
 | `accepted-pending-apply` | the validated authority result, any later head | The decision is known; the accepted graph is not yet durably applied. |
-| `conflict` | the complete validated conflict, exact prepared request, successful-prefix boundary, failed element, unattempted suffix, and any later head | Client-owned and restart-safe; the authority stores no rejected history. The final local root does not replace the retained element boundaries. |
 | `offline` | one of the pending or prepared shapes, whether the request was transmitted, a classified availability failure | Retry resumes from durable state without changing identity. |
 | `terminal` | a diagnostic and the retained files | A validation or programming invariant failed; automatic mutation stops. |
 
@@ -118,31 +117,19 @@ one client's local condition gate another client's publication.
    transition batch in memory and materializes its final state once, or
    pulls the current snapshot when the batch does not chain. A watch event
    under pending work triggers publication and never overwrites the head.
-8. **Preserve definitively rejected work.** Ordinary, valid concurrent edits are
-   reconciled or retained as accepted ambiguity by Canopy; a stale basis alone
-   is not a reason for a client-owned conflict workflow. During compatibility
-   with earlier authorities and retained requests, a rejected sequence stops at
-   the first failed element. The machine retains the returned successful
-   prefix, the failed element at `failedIndex`, and every unattempted suffix
-   element from the exact prepared request. It reviews only the failed element
-   against the verified current state. By default, once the reviewed element is durably
-   submitted and applied, the machine replays the retained suffix changes in
-   order. The independent-work procedure below permits safe progress without
-   discarding this sequence. A replay applies the exact local change between adjacent original
-   candidates to the newly accepted state; if its guards no longer match, that
-   element becomes the next client-owned conflict before submission. The
-   machine must not collapse the failed element and suffix into the final
-   local root, submit an old suffix candidate against a different logical
-   base, or describe unattempted work as conflicted. Dependent local work
-   remains behind the sequence; proven independent work may proceed under the
-   procedure below.
-   Accepted unresolved state is different: `conflicted: true` on an accepted
-   update does not enter this rejection hold. Apply its ordinary projection,
-   retain its accepted identity and signal, and continue ordinary updates.
-   Metadata-only transitions still advance update/cursor even if root is equal.
-   Review and explicit resolution use the ordinary [source operation contract](10-source-intent.md).
-   An unsupported-operation response holds the exact request for an upgrade or
-   explicit author action; root equality must not discard semantic work.
+8. **Accepted ambiguity is ordinary acceptance.** Ordinary valid concurrent
+   edits are reconciled or retained as accepted ambiguity by Canopy. A stale
+   basis alone does not enter a client-owned conflict workflow. For an accepted
+   update with `conflicted: true`, apply its projection, retain its accepted
+   identity and unresolved signal, and continue ordinary publication. Equal-root
+   transitions still advance accepted identity and observation progress. Inspect
+   and resolve accepted decisions through the [source operation contract](10-source-intent.md).
+   A rejected request remains durable with its original basis, exact elements
+   and any completed-prefix evidence. Rejection does not implicitly rebase,
+   resolve, discard or turn unattempted work into a private merge workspace.
+   A stale explicit-resolution guard requires refreshed inspection while keeping
+   the draft. Unsupported operations require an upgrade or explicit author action.
+   Compatibility recovery for old rejected updates is separate from this machine.
 9. **Availability is distinct from validity.** Transport failure enters
    `offline` and retries automatically when transport returns.
    Authentication failure and revocation enter `offline` with an
@@ -269,7 +256,10 @@ review/hold machinery only after the deployed authority covers the client's emit
 forms and every legacy record has been settled or durably transferred with its
 original basis and attribution. Transfer must not silently reauthor an old request
 against the latest projection. This compatibility path is not part of the target
-ordinary-edit workflow.
+ordinary-edit workflow. After retiring it, an unexpected old durable record MUST
+be detected before decoding or rewriting can discard its recovery data. Refusing
+to open that record with a recovery diagnostic is permitted; silently treating it
+as an empty current record is not.
 
 ## Accepted conflicts and unaccepted local work
 
