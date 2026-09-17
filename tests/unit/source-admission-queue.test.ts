@@ -105,3 +105,14 @@ test("prepared records round-trip optional guards and reject unrepresentable rep
   expect(() => prepareSourceAdmission({ ...a!, graph: initial(), intent: { ...a!.intent,
     edits: [{ offset: 0, length: Buffer.byteLength(fixture.source), replacement: "\ud800" }], source: "\ufffd" } })).toThrow("intent");
 }));
+
+test("first directory-body save retains an exact snapshot without inventing source material", async () => withQueue(async q => {
+  const bytes = encodeWireDirectory({ type: "directory", entries: [] }), root = hashObject(bytes);
+  const graph = { root, objects: new Map([[root, bytes]]) };
+  const record = prepareSourceAdmission({ tree: fixture.tree, graph, basis: { kind: "accepted", root, update: "empty" }, sourcePath: "/_index.md",
+    intent: { basis: { tree: fixture.tree, path: "/", revision: "empty-body", source: "" }, source: "Exact\r\n", edits: [{ offset: 0, length: 0, replacement: "Exact\r\n" }] } });
+  expect(record.update.operations).toBeNull();
+  await q.retain(record);
+  expect((await q.retained())[0]).toEqual(record);
+  expect(decodeTreeSnapshotJSON(record.candidate).objects.has(hashObject(Buffer.from("Exact\r\n")))).toBe(true);
+}));

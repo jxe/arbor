@@ -36,7 +36,7 @@ struct SourceAdmissionQueueTests {
         for change in f.changes {
             let parent = records.first { $0.change == change.basis.change }
             let graph = try parent?.candidate ?? graph(f.source)
-            let source = parent?.intent.source ?? f.source
+            let source = parent?.intent?.source ?? f.source
             let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/nested/note"), source: source, contentRevision: change.revision)
             let patch = WorkspaceDocumentPatch(baseContentRevision: change.revision,
                 edits: [.init(utf8Range: change.offset..<(change.offset + change.length), replacement: change.replacement, expected: change.expected)])
@@ -88,7 +88,7 @@ struct SourceAdmissionQueueTests {
         #expect(try await reopened.request(through: record.change).base.update == "up_r1")
         #expect(record.graph.root == captured.graph.root)
         #expect(record.graph.root != peer.root)
-        #expect(try await reopened.retained().first?.intent.basis.source == f.source)
+        #expect(try await reopened.retained().first?.intent?.basis.source == f.source)
     }
 
     @Test("Missing parents, altered candidates, and reused identities leave all retained work intact")

@@ -13,8 +13,9 @@ This checkpoint does not enable emission in installed clients or migrate legacy 
 ## Retained records and enforced policy
 
 Each immutable record carries a client-generated change identity, tree scope,
-exact source basis and guarded edits, a sparse basis graph, and the generated
-candidate and `editSource` operations. The queue builds the candidate by replacing
+an exact basis graph, candidate and publication dependency. Source records also
+retain guarded edits and `editSource` operations. Swift structural records retain
+snapshot candidates with `operations: null` in the same ordered queue. For source edits, the queue builds the candidate by replacing
 only the selected physical source file and its ancestor directories. It preserves
 other files, directory metadata and tree boundaries. Source ranges must be ordered,
 guarded where supplied, and aligned to UTF-8 scalars. Candidate verification uses
@@ -33,8 +34,10 @@ path, graph and accepted identity synchronously in one actor turn. A later watch
 cannot relabel this value. An unaccepted capture requires an explicit retained
 predecessor; the client does not guess one from a matching root. The captured value
 checks the editor's document reference, revision and exact source before preparing
-a record. This first builder replaces existing file sources; missing directory
-bodies, generated projections and structural changes need their own execution forms.
+a record. Existing file edits use `editSource`. The first save of an empty directory
+body explicitly creates a snapshot in both languages; it never invents an empty
+file hash to use as source material. Generated projections need their own execution
+forms.
 
 Preparation and retention are separate so callers can retry an uncertain disk write
 with the same record. Retention revalidates the graph, operations, tree scope and
@@ -86,8 +89,18 @@ and queue without creating a new legacy conflict workspace.
 Source mode writes local update-control schema 3. A source-disabled coordinator
 refuses to open it; default legacy state remains schema 2. Activation refuses
 retained legacy heads, requests and conflicts. Structural actions, imports and
-assets are disabled in the source provider prototype until they share the durable
-admission path. These are implementation staging limits, not Wire restrictions.
+assets now share the Swift durable admission path. They stage against the latest local candidate or an atomic accepted capture,
+retain a snapshot and explicit predecessor, and only then return to the host.
+Provider navigation, reads and source sessions can use pending candidate graphs;
+the accepted working tree remains Canopy's projection. Structural captures are
+serialized, and a failed retention retries its prepared candidate and identity.
+
+Local Trash is absent from Wire snapshots. Structural records therefore also retain
+private Trash nodes and locally held file objects, so deletion does not destroy
+the ability to restore after another action or restart. Empty Trash state is retained
+after restore to prevent older records from resurrecting it. Existing source-only
+journals remain readable. Source-local revision tokens remain recoverable; newer
+candidate tokens additionally identify the document within a multi-document snapshot.
 
 The editor bridge checks the session policy when restoring an unsaved draft. A
 retained-basis session receives the original basis and guarded patch even when its
@@ -167,8 +180,7 @@ or server was upgraded.
 Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
 - Connect the TS session/publication APIs to a maintained editor host when that host is built; enforce exclusive state-directory ownership there.
-- Integrate structural writes and other source forms; extend the live scenario to
-  coupled structural changes and general merged-predecessor suffixes.
+- Extend server acceptance and live scenarios to coupled structural conflicts (especially changing an ancestor of existing decisions) and general merged-predecessor suffixes before installed-client activation.
 - Add safe coalescing and bounded reclamation of settled ancestry and captured views.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.
@@ -180,3 +192,20 @@ Focused tests cover failed materialization, corrupt settlement, old rejection,
 receipt mismatch and offline admission from a captured graph. Typecheck, the full
 TS unit/integration suite and cross-language protocol gate passed. Installed apps
 and the deployed server were not changed by this consumer implementation.
+
+The Swift mixed-admission scenario now exercises create, source edit, directory
+creation, move, copy, rename, binary import, asset storage, trash and restore through
+real disposable Canopy. It restarts with the queue pending, interrupts after server
+acceptance, then replays and publishes the remaining chain. Focused tests also cover
+first directory-body saves, failed structural retention, pending reads, read-only
+providers and private Trash recovery. Native's activation switch remains off: the
+server still needs broader coupled-ancestor conflict coverage before enabling all
+these forms for ordinary use and removing legacy recovery UI. Interleaved stale
+source branches and structural actions across multiple open documents also remain
+a release gate; the mixed structural test proves a linear dependency chain.
+
+Validation: 772 TS tests, 70 Swift working-tree tests, the cross-language protocol
+gate (including real Quagmire admission), typecheck and the local-workspace macOS
+build passed. One full-suite collection-row test failed initially and passed in
+isolation and on the subsequent full run. Relative-link checks introduced no new
+failures; 24 existing unresolved links remain. No deployed binary was changed.

@@ -82,9 +82,9 @@ struct LiveEditorAdmissionTests {
         #expect(binding?.conflict == nil)
         let queue = try SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
         let record = try #require(try await queue.retained().first)
-        #expect(record.intent.basis.source == r1.source)
-        #expect(record.intent.basis.contentRevision == r1.contentRevision)
-        #expect(record.intent.source == authored)
+        #expect(record.intent?.basis.source == r1.source)
+        #expect(record.intent?.basis.contentRevision == r1.contentRevision)
+        #expect(record.intent?.source == authored)
         #expect(record.basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
         await binding?.close(); binding = nil
         await coordinator.close(); await tree.close()

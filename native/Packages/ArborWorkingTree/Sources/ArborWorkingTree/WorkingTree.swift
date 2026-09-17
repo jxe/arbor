@@ -736,6 +736,40 @@ public actor WorkingTree {
 
     /// Capture source, tree graph and accepted identity atomically. This does not
     /// pin the live projection or discard newer work when the editor submits later.
+    /// Capture identity and graph in one actor turn for structural admission.
+    func captureLocalTrash() throws -> WorkingTreeLocalTrash {
+        let nodes = state.nodes.filter { $0.path == "/Trash" || $0.path.hasPrefix("/Trash/") }
+        var objects: [WireObjectEnvelope] = []
+        for hash in Set(nodes.compactMap { $0.ref?.objectHash }).sorted() {
+            if let bytes = try overlay.storedBytes(hash) { objects.append(.init(hash: hash, bytes: bytes)) }
+        }
+        return WorkingTreeLocalTrash(nodes: nodes, objects: objects)
+    }
+
+    /// Local trash never enters the Wire projection. Candidate staging restores
+    /// it from the same durable record as the structural snapshot.
+    func installLocalTrash(_ trash: WorkingTreeLocalTrash) throws {
+        try trash.validate()
+        try overlay.store(Dictionary(uniqueKeysWithValues: trash.objects.map { ($0.hash, $0.bytes) }))
+        guard let root = control.acceptedRoot, let update = control.acceptedUpdate else {
+            throw WorkingTreeError.corruptState("Trash staging requires an accepted graph")
+        }
+        try transact(mutation: "local-trash", pageKey: "_tree", accepted: (root, update, control.acceptedCursor),
+                     recordsModificationDates: false) { next in
+            next.nodes.removeAll { $0.path == "/Trash" || $0.path.hasPrefix("/Trash/") }
+            next.nodes.append(contentsOf: trash.nodes)
+        }
+    }
+
+    func captureAdmissionGraph() throws -> (base: WireUpdateBase, graph: WireSnapshot) {
+        let graph = try localSnapshot()
+        guard control.pendingRoot == nil, let root = control.acceptedRoot,
+              let update = control.acceptedUpdate, root == graph.root else {
+            throw ArborWireValidationError.invalidValue("Legacy local work has no admission dependency")
+        }
+        return (WireUpdateBase(root: root, update: update), graph)
+    }
+
     public func captureSourceAdmissionBasis(_ reference: WorkspaceReference) throws -> CapturedSourceAdmissionBasis {
         let node = try resolve(reference)
         guard node.kind == .markdown || node.kind == .directory else { throw WorkingTreeError.notDocument(reference) }

@@ -70,7 +70,7 @@ chains in Swift and TS, with shared exact-request vectors and restart/failure te
 Swift now has an opt-in session/publication runner: retained candidate views,
 immutable predecessor requests, receipt settlement, restart retries and policy-aware
 editor draft recovery. Native passes the coordinator through but leaves emission
-disabled. The Swift prototype excludes structural writes. TS now has session/publication library APIs
+disabled. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
 with disposable-server coverage; host integration and broader source/editor release gates remain. A production Swift session now
 passes root and nested stale range admission after multiple peer updates, restart,
 hidden-candidate continuation and second-client resolution through disposable Canopy. Legacy providers retain their
@@ -98,6 +98,7 @@ boundary; a transport-only Wire client does not own editor admission.
   clients emit, including coupled ancestor changes and
   existing structural writes. Nested documents and longer source/snapshot histories
   now have conservative accepted-entry coverage. Better automatic merging is not a prerequisite.
+- Verify interleaved structural and stale-source branches across multiple open documents, including retaining a creation while an older editor admits another file. The completed mixed-queue integration test covers a linear chain; do not infer branch coverage from it.
 - Verify deployment coverage before enabling emission. Retain legacy 409 recovery
   until exact requests/drafts/suffixes have been settled or transferred. Only then
   delete the rejected-update workspace and resolution machine; ordinary errors and

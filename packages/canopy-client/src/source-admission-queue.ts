@@ -49,6 +49,13 @@ export function prepareSourceAdmission(input: {
     const bytes = graph.objects.get(hash);
     if (!bytes) throw new Error("Missing directory basis");
     const directory = decodeWireDirectory(bytes), entry = directory.entries.find(e => e.name === parts[depth]);
+    if (!entry && depth === parts.length - 1 && parts[depth] === "_index.md" && intent.basis.source === "") {
+      const source = encoder.encode(intent.source), file = hashObject(source);
+      objects.set(file, source);
+      directory.entries.push({ name: "_index.md", file });
+      directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+      const next = encodeWireDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
+    }
     if (!entry) throw new Error("Source path is not in basis");
     if (depth === parts.length - 1) {
       if (!entry.file || !equal([...graph.objects.get(entry.file) ?? []], [...encoder.encode(intent.basis.source)]) || !graph.objects.has(entry.file)) throw new Error("Source bytes do not match basis");
@@ -77,7 +84,7 @@ export function prepareSourceAdmission(input: {
     return { kind: "editSource", key: `edit-${i}`, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement };
   });
   const change = input.change ?? crypto.randomUUID();
-  const update = encodeCandidateUpdateJSON({ candidate: root, change, operations, resolves: [],
+  const update = encodeCandidateUpdateJSON({ candidate: root, change, operations: file ? operations : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   decodeCandidateUpdateJSON(update);
   return JSON.parse(JSON.stringify({ change, tree, basis: input.basis, graph: snapshotJSON(graph), sourcePath, intent, candidate: snapshotJSON(candidate), update }));

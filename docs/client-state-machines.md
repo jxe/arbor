@@ -152,10 +152,12 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 - Capture base source and revision from the `admit` effect, never from mutable
   reducer state when an asynchronous callback resumes. Validate that the patch
   applied to this captured source produces the candidate exactly.
-- During compatibility, run `admit` through the session as a guarded write at the accepted revision
-  and classify the outcome as `admitted`, `admissionConflicted`, or
-  `admissionFailed`. An exact-source race (the provider already holds the
-  submitted bytes) is `admitted`.
+- Run `admit` through the session's declared admission policy. A retained-basis
+  session durably binds the original intent and classifies success as `admitted`;
+  a stale/CAS response is `admissionFailed`, never local conflict review. During
+  compatibility, compare-and-swap providers retain their guarded-write and
+  `admissionConflicted` behavior, including exact-source race handling. Equal
+  projected bytes do not prove acceptance for a retained-basis session.
 - On `acknowledge`, advance source authority without reparsing when the
   acknowledged source is the tree already mounted; rebase the editor only when
   the provider returned a transformation.
@@ -277,3 +279,14 @@ sent until the hold is lifted and `syncOnce` runs.
 stream, feeds every event to the coordinator, reconnects with backoff, and
 recovers an expired cursor through `recoverWatchGap`. iOS, the Mac, and
 visits share it.
+
+Native's source-enabled provider routes structural actions, imports and assets
+through the same coordinator-owned admission journal as document edits. It stages
+an action against an immutable candidate, retains the snapshot before returning,
+and supplies pending candidate views for navigation and document sessions. These
+snapshot records preserve explicit predecessor identity alongside source-operation
+records. Local Trash nodes and locally held file objects are private recovery
+material in the same structural record, excluded from Wire candidates. Publication
+and watch still install only Canopy's accepted projection into the accepted tree.
+The app activation switch remains off pending the remaining server acceptance and
+client release checks in [008](../plans/reliability/008-enable-source-operations.md).

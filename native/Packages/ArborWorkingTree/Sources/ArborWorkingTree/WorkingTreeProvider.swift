@@ -25,18 +25,20 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     public func capabilities() async -> WorkspaceProviderCapabilities {
         if readOnly { return .readOnly }
         if sourceCoordinator != nil {
-            return .init(structuralActions: false, assets: false, localHistory: false)
+            return .init(structuralActions: true, assets: true, localHistory: false)
         }
         return .full
     }
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
+        if let sourceCoordinator { return try await sourceCoordinator.sourceReadProvider(readOnly: readOnly).resolve(reference) }
         if let diagnostic = try await diagnostic(for: reference) { return diagnostic }
         let record = try await workingTree.resolve(reference)
         return try await workspaceNode(record)
     }
 
     public func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] {
+        if let sourceCoordinator { return try await sourceCoordinator.sourceReadProvider(readOnly: readOnly).children(of: reference) }
         var nodes = try await workingTree.children(of: reference).asyncMap { try await workspaceNode($0) }
         if reference.path == "/" {
             nodes.append(contentsOf: try await workingTree.diagnostics().asyncMap { await diagnosticNode($0) })
@@ -45,6 +47,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult] {
+        if let sourceCoordinator { return try await sourceCoordinator.sourceReadProvider(readOnly: readOnly).search(query, in: tree) }
         let replicaTree = await workingTree.treeID()
         guard tree == replicaTree else { return [] }
         guard try await workingTree.heads().generation >= 0 else { return [] }
@@ -69,7 +72,8 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] {
-        try await workingTree.backlinks(to: reference).map { entry in
+        if let sourceCoordinator { return try await sourceCoordinator.sourceReadProvider(readOnly: readOnly).backlinks(to: reference) }
+        return try await workingTree.backlinks(to: reference).map { entry in
             WorkspaceSearchResult(
                 reference: WorkspaceReference(
                     tree: reference.tree,
@@ -84,9 +88,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
         if readOnly { throw WorkspaceProviderError.invalidAction("This tree is read-only") }
-        if sourceCoordinator != nil {
-            throw WorkspaceProviderError.invalidAction("Structural writes are not enabled in the source admission prototype")
-        }
+        if let sourceCoordinator { return try await sourceCoordinator.admitStructure(.action(action)) }
         let node: WorkingTreeNode
         switch action {
         case let .createMarkdown(parent, name, source):
@@ -109,8 +111,9 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         if readOnly { throw WorkspaceProviderError.readOnly(parent) }
-        guard sourceCoordinator == nil else {
-            throw WorkspaceProviderError.invalidAction("Structural writes are not enabled in the source admission prototype")
+        if let sourceCoordinator {
+            let node = try await sourceCoordinator.admitStructure(.asset(asset, parent: parent))
+            return WorkspaceStoredAsset(reference: node.reference, markdownSource: node.reference.path)
         }
         let node = try await workingTree.storeAsset(asset, in: parent)
         let reference = await workingTree.workspaceReference(node)
@@ -118,7 +121,8 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func readFile(_ reference: WorkspaceReference) async throws -> Data {
-        try await workingTree.fileBytes(reference)
+        if let sourceCoordinator { return try await sourceCoordinator.sourceReadProvider(readOnly: readOnly).readFile(reference) }
+        return try await workingTree.fileBytes(reference)
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
@@ -141,8 +145,8 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
         in parent: WorkspaceReference
     ) async throws -> WorkspaceNode {
         if readOnly { throw WorkspaceProviderError.readOnly(parent) }
-        guard sourceCoordinator == nil else {
-            throw WorkspaceProviderError.invalidAction("Structural writes are not enabled in the source admission prototype")
+        if let sourceCoordinator {
+            return try await sourceCoordinator.admitStructure(.imported(name: name, bytes: bytes, mediaType: mediaType, parent: parent))
         }
         let record = try await workingTree.importFile(name: name, bytes: bytes, mediaType: mediaType, parent: parent)
         return try await workspaceNode(record)

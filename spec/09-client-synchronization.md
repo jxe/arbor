@@ -225,6 +225,21 @@ publication machines remain separate. The reference reducers are described in
   disk-only sessions may retain their separate compare-and-swap policy during
   compatibility; that policy MUST NOT leak into Canopy intent admission.
 
+### Structural admissions and mixed generations
+
+Durable acknowledgement applies to structural actions, imports and assets as well
+as document edits. A client MUST retain their candidate and exact publication
+dependency before reporting success. When a client represents an action as a
+snapshot, it MUST choose that form explicitly; it MUST NOT fabricate source
+material or operation provenance. A later source edit may depend on that retained
+snapshot, and a structural snapshot may depend on a retained source candidate.
+Neither kind of successor may be silently rebound to an incoming projection.
+
+Client reads MUST make acknowledged local creations and relocations available
+while their publication is pending. Private recovery material, such as local
+trash omitted from the shared tree, MUST remain recoverable across process loss;
+a shared deletion snapshot alone is not sufficient to promise local restoration.
+
 ### Accepted-state review and compatibility
 
 An accepted conflict-bearing receipt follows the ordinary accepted-update path:

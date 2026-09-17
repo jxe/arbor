@@ -141,3 +141,69 @@ struct LiveSourceAdmissionTests {
         await reopenedSession.close(); await reopened.close(); await reopenedTree.close()
     }
 }
+
+extension LiveSourceAdmissionTests {
+    @Test("Mixed structural and source admissions restart and publish through Canopy")
+    func mixedStructuralPublication() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
+              let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "structure-live-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ArborWireClient(origin: origin, credential: token)
+        let transport = ArborWireReplicaTransport(client: client)
+        let initial = try await client.descriptor(tree: treeID)
+        let tree = try await place(initial, client: client)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+        let parent = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/")
+        let name = "created-" + UUID().uuidString
+        let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: name, source: "Created locally\n")))
+        let session = try await provider.openDocument(created.reference)
+        let original = try await session.snapshot(), editedSource = original.source + "Then edited locally\n"
+        _ = try await session.admit(intent: .init(basis: original, patch: .init(baseContentRevision: original.contentRevision,
+            edits: [.init(utf8Range: original.source.utf8.count..<original.source.utf8.count, replacement: "Then edited locally\n")]), source: editedSource))
+        let directory = try #require(try await provider.perform(.createDirectory(parent: parent, name: "group-" + UUID().uuidString)))
+        let moved = try #require(try await provider.perform(.move(reference: created.reference, destination: directory.reference)))
+        let copy = try #require(try await provider.perform(.copy(reference: moved.reference, destination: parent)))
+        let renamed = try #require(try await provider.perform(.rename(reference: copy.reference, name: "copy-" + UUID().uuidString)))
+        let binary = try await provider.importFile(name: "data.bin", bytes: Data([0, 42, 255]), in: directory.reference)
+        let asset = try await provider.store(asset: .init(name: "image.bin", bytes: Data([9, 8, 7])), in: directory.reference)
+        let trashed = try #require(try await provider.perform(.trash(reference: renamed.reference)))
+        _ = try await provider.perform(.restore(reference: trashed.reference))
+        #expect(try await tree.heads().acceptedRoot == initial.tree.root)
+        let records = try await SourceAdmissionQueue(tree: treeID, stateRoot: root).retained()
+        #expect(records.count == 10)
+        await session.close(); await coordinator.close(); await tree.close()
+
+        let current = try await client.descriptor(tree: treeID)
+        let reopenedTree = try await place(current, client: client)
+        let interrupted = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
+            sourceOperationEmission: true, faultInjector: StructuralPublicationCrash(),
+            publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        do { _ = try await interrupted.syncOnce(); Issue.record("Expected uncertain acceptance") }
+        catch is StructuralPublicationCrash.Failure { }
+        #expect(try await client.descriptor(tree: treeID).tree.root == records.first?.candidate.root)
+        await interrupted.close()
+        let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
+            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let recovered = WorkingTreeProvider(workingTree: reopenedTree, sourceCoordinator: reopened)
+        #expect(try await recovered.openDocument(moved.reference).snapshot().source == editedSource)
+        #expect(try await recovered.readFile(binary.reference) == Data([0, 42, 255]))
+        _ = try await reopened.syncOnce()
+        #expect(try await reopened.conflict() == nil)
+        #expect(try await client.descriptor(tree: treeID).tree.root == records.last?.candidate.root)
+        #expect(try await recovered.openDocument(moved.reference).snapshot().source == editedSource)
+        #expect(try await recovered.readFile(asset.reference) == Data([9, 8, 7]))
+        #expect(try await recovered.resolve(renamed.reference).reference.path == renamed.reference.path)
+        await reopened.close(); await reopenedTree.close()
+    }
+}
+
+private struct StructuralPublicationCrash: UpdateFaultInjector {
+    struct Failure: Error {}
+    func reached(_ point: UpdateFailurePoint) throws {
+        if point == .afterServerAcceptance { throw Failure() }
+    }
+}

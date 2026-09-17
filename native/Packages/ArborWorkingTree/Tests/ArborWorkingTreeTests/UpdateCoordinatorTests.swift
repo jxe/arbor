@@ -2023,11 +2023,7 @@ struct SourceSessionPublicationTests {
                 sourceOperationEmission: true, faultInjector: OnePointFault(point: .afterServerAcceptance),
                 publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
             let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
-            #expect(await provider.capabilities().structuralActions == false)
-            do {
-                _ = try await provider.importFile(name: "extra.md", bytes: Data("Unsafe bypass".utf8), in: .init(tree: treeID, path: "/"))
-                Issue.record("Source mode must not admit legacy structural writes")
-            } catch is WorkspaceProviderError { }
+            #expect(await provider.capabilities().structuralActions == true)
             #expect(try await tree.heads().pendingRoot == nil)
             let session = try await provider.openDocument(.init(tree: treeID, path: "/note"))
             _ = try await replace("Mine\n", session: session, basis: session.snapshot())
@@ -2066,6 +2062,115 @@ struct SourceSessionPublicationTests {
             #expect(try await reopened.conflict() == nil)
             if let prior { #expect(await transport.received.last?.body == prior.body) }
             await reopened.close(); await reopenedTree.close(); await session.close()
+        }
+    }
+}
+
+extension SourceSessionPublicationTests {
+    @Test("Structural snapshots and source edits share durable ancestry and pending provider reads")
+    func mixedAdmissions() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n")
+            let tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+            let parent = WorkspaceReference(tree: treeID, path: "/")
+            let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "created", source: "New\n")))
+            let session = try await provider.openDocument(created.reference)
+            let basis = try await session.snapshot()
+            let changed = basis.source + "More\n"
+            _ = try await replace(changed, session: session, basis: basis)
+            let directory = try #require(try await provider.perform(.createDirectory(parent: parent, name: "group")))
+            let moved = try #require(try await provider.perform(.move(reference: created.reference, destination: directory.reference)))
+            #expect(moved.reference.path == "/group/created")
+            #expect(try await provider.openDocument(moved.reference).snapshot().source == changed)
+            let body = try await provider.openDocument(directory.reference)
+            let empty = try await body.snapshot()
+            #expect(empty.source.isEmpty)
+            _ = try await replace("Directory body\n", session: body, basis: empty)
+            let imported = try await provider.importFile(name: "payload.bin", bytes: Data([0, 1, 255]), in: directory.reference)
+            #expect(try await provider.readFile(imported.reference) == Data([0, 1, 255]))
+            let trashed = try #require(try await provider.perform(.trash(reference: moved.reference)))
+            let restored = try #require(try await provider.perform(.restore(reference: trashed.reference)))
+            #expect(restored.reference.path == moved.reference.path)
+            #expect(try await tree.heads().acceptedRoot == initial.root)
+            #expect(try await tree.heads().pendingRoot == nil)
+            let queue = try SourceAdmissionQueue(tree: treeID.rawValue, stateRoot: root)
+            let records = try await queue.retained()
+            #expect(records.count == 8)
+            #expect(records[0].update.operations == nil)
+            #expect(records[1].update.operations?.first?.kind == "editSource")
+            #expect(records[4].update.operations == nil) // New directory material, not a made-up source identity.
+            for index in 1..<records.count { #expect(records[index].basis == .authored(change: records[index - 1].change)) }
+            await coordinator.close(); await session.close(); await body.close()
+            let reopened = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let recovered = WorkingTreeProvider(workingTree: tree, sourceCoordinator: reopened)
+            #expect(try await recovered.openDocument(restored.reference).snapshot().source == changed)
+            #expect(try await recovered.openDocument(directory.reference).snapshot().source == "Directory body\n")
+            #expect(try await recovered.readFile(imported.reference) == Data([0, 1, 255]))
+            await reopened.close(); await tree.close()
+        }
+    }
+}
+
+extension SourceSessionPublicationTests {
+    @Test("Failed structural retention leaves the projection untouched and retries the same prepared candidate")
+    func structuralRetentionFailure() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+            let action = WorkspaceStructuralAction.createMarkdown(parent: .init(tree: treeID, path: "/"), name: "retained", source: "Exact\r\n")
+            let lock = root.appending(path: "sync/source-admissions.lock")
+            try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
+            do { _ = try await provider.perform(action); Issue.record("Expected retention failure") } catch { }
+            #expect(try await tree.heads().acceptedRoot == initial.root)
+            #expect(try await tree.heads().pendingRoot == nil)
+            let queue = try SourceAdmissionQueue(tree: treeID.rawValue, stateRoot: root)
+            #expect(try await queue.retained().isEmpty)
+            try FileManager.default.removeItem(at: lock)
+            let created = try #require(try await provider.perform(action))
+            #expect(try await queue.retained().count == 1)
+            #expect(try await provider.openDocument(created.reference).snapshot().source.hasSuffix("Exact\r\n") == true)
+            let readOnly = WorkingTreeProvider(workingTree: tree, readOnly: true, sourceCoordinator: coordinator)
+            #expect(try await readOnly.resolve(created.reference).isWritable == false)
+            do { _ = try await readOnly.perform(.trash(reference: created.reference)); Issue.record("Read-only source provider mutated") }
+            catch is WorkspaceProviderError { }
+            await coordinator.close(); await tree.close()
+        }
+    }
+}
+
+extension SourceSessionPublicationTests {
+    @Test("Private trashed bytes survive losing the staging tree and are restored from the journal")
+    func trashRestart() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+            let bytes = Data([0, 255, 17])
+            let file = try await provider.importFile(name: "private.bin", bytes: bytes, in: .init(tree: treeID, path: "/"))
+            let trashed = try #require(try await provider.perform(.trash(reference: file.reference)))
+            let records = try await SourceAdmissionQueue(tree: treeID.rawValue, stateRoot: root).retained()
+            #expect(records.last?.candidate.root == initial.root)
+            #expect(records.last?.localTrash?.objects.contains(where: { $0.bytes == bytes }) == true)
+            await coordinator.close(); await tree.close()
+            let clean = try await makeTree(initial, update: "up_initial")
+            let reopened = try UpdateCoordinator(workingTree: clean, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let recovered = WorkingTreeProvider(workingTree: clean, sourceCoordinator: reopened)
+            #expect(try await recovered.readFile(trashed.reference) == bytes)
+            let restored = try #require(try await recovered.perform(.restore(reference: trashed.reference)))
+            #expect(restored.reference.path == "/private.bin")
+            #expect(try await recovered.readFile(restored.reference) == bytes)
+            await reopened.close(); await clean.close()
         }
     }
 }

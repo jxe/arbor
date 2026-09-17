@@ -13,6 +13,7 @@ function source(graph: TreeSnapshot, path: string): string {
   let hash = graph.root;
   for (let index = 0; index < parts.length; index++) {
     const entry = decodeWireDirectory(graph.objects.get(hash)!).entries.find(entry => entry.name === parts[index]);
+    if (!entry && index === parts.length - 1 && parts[index] === "_index.md") return "";
     if (!entry) throw new Error("Source is missing from basis");
     if (index === parts.length - 1) {
       if (!entry.file || !graph.objects.has(entry.file)) throw new Error("Source bytes unavailable");

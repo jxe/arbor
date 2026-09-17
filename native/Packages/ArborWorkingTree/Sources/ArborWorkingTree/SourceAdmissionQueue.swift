@@ -15,10 +15,11 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     public let tree: String
     public let basis: SourceAdmissionBasis
     public let graph: WireSnapshot
-    public let sourcePath: String
-    public let intent: WorkspaceDocumentIntent
+    public let sourcePath: String?
+    public let intent: WorkspaceDocumentIntent?
     public let candidate: WireSnapshot
     public let update: WireCandidateUpdate
+    var localTrash: WorkingTreeLocalTrash?
 
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
                 graph: WireSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent) throws {
@@ -38,9 +39,18 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             return hash
         }
         func replace(_ hash: String, _ depth: Int) throws -> String {
-            guard case let .directory(originalEntries, descriptor)? = decoded[hash],
-                  let index = originalEntries.firstIndex(where: { $0.name == parts[depth] }) else { throw Self.invalid("Source path is not in basis") }
+            guard case let .directory(originalEntries, descriptor)? = decoded[hash] else { throw Self.invalid("Source path is not in basis") }
             var entries = originalEntries
+            // A directory without a stored body has empty source. Its first save
+            // creates material, so publish a snapshot rather than editSource with
+            // a fabricated empty-file identity.
+            if depth == parts.count - 1, parts[depth] == "_index.md",
+               !entries.contains(where: { $0.name == parts[depth] }), intent.basis.source.isEmpty {
+                entries.append(WireDirectoryEntry(name: parts[depth], file: try store(.file(Data(intent.source.utf8)))))
+                entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
+                return try store(.directory(entries, childrenSource: descriptor))
+            }
+            guard let index = entries.firstIndex(where: { $0.name == parts[depth] }) else { throw Self.invalid("Source path is not in basis") }
             if depth == parts.count - 1 {
                 guard let source = entries[index].file, case let .file(value)? = decoded[source],
                       value == Data(intent.basis.source.utf8) else { throw Self.invalid("Source bytes do not match basis") }
@@ -63,21 +73,22 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         try visit(root, .directory)
         let candidate = WireSnapshot(root: root, objects: reachable.sorted().compactMap { hash in bytes[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } })
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
-        let operations = try intent.patch.edits.enumerated().map { index, edit in
+        let operations = try intent.patch.edits.enumerated().compactMap { index, edit -> WireSourceOperation? in
             // Byte-valid output alone does not prove scalar-aligned selection.
             let source = Array(intent.basis.source.utf8)
             for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
                 if offset < source.count && source[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
             }
+            guard let file else { return nil }
             return try WireSourceOperation([
                 "key": .string("edit-\(index)"), "kind": .string("editSource"),
-                "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file!)]),
+                "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
                                    "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
                 "text": .string(edit.replacement)
             ])
         }
         let known = Set(graph.objects.map(\.hash))
-        let update = WireCandidateUpdate(candidate: root, change: change, operations: operations,
+        let update = WireCandidateUpdate(candidate: root, change: change, operations: file == nil ? nil : operations,
                                          objects: candidate.objects.filter { !known.contains($0.hash) })
         // Validate the complete Wire grammar, including change and operation identities.
         _ = try JSONEncoder().encode(update)
@@ -86,8 +97,34 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         self.sourcePath = sourcePath; self.intent = intent; self.candidate = candidate; self.update = update
     }
 
+    /// Structural actions retain an ordinary snapshot in the same dependency queue.
+    /// No move/copy provenance is invented from its resulting bytes.
+    public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
+                graph: WireSnapshot, candidate: WireSnapshot) throws {
+        _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+        _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
+        guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
+              Set(candidate.objects.map(\.hash)).count == candidate.objects.count else { throw Self.invalid("Duplicate snapshot object") }
+        self.change = change; self.tree = tree; self.basis = basis
+        self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
+        self.candidate = WireSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
+        self.sourcePath = nil; self.intent = nil
+        let known = Set(graph.objects.map(\.hash))
+        self.update = WireCandidateUpdate(candidate: candidate.root, change: change, operations: nil,
+                                          objects: self.candidate.objects.filter { !known.contains($0.hash) })
+        _ = try JSONEncoder().encode(update)
+    }
+
     public func validate() throws {
-        let rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, sourcePath: sourcePath, intent: intent)
+        var rebuilt: Self
+        if let intent, let sourcePath {
+            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, sourcePath: sourcePath, intent: intent)
+        } else {
+            guard intent == nil, sourcePath == nil else { throw Self.invalid("Incomplete source intent") }
+            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, candidate: candidate)
+        }
+        try localTrash?.validate()
+        rebuilt.localTrash = localTrash
         guard rebuilt == self else { throw Self.invalid("Retained source candidate or operations changed") }
     }
 
@@ -190,5 +227,20 @@ public struct CapturedSourceAdmissionBasis: Sendable {
         else { throw ArborWireValidationError.invalidValue("Unaccepted basis requires an explicit authored predecessor") }
         return try SourceAdmissionRecord(change: change, tree: document.reference.tree.rawValue,
                                          basis: basis, graph: graph, sourcePath: sourcePath, intent: intent)
+    }
+}
+
+/// Private recovery material, excluded from candidate snapshots and Wire requests.
+struct WorkingTreeLocalTrash: Codable, Equatable, Sendable {
+    var nodes: [WorkingTreeNode]
+    var objects: [WireObjectEnvelope]
+
+    func validate() throws {
+        guard nodes.allSatisfy({ $0.path == "/Trash" || $0.path.hasPrefix("/Trash/") }),
+              Set(nodes.map(\.path)).count == nodes.count,
+              Set(objects.map(\.hash)).count == objects.count,
+              objects.allSatisfy({ WireObjectCodec.hash($0.bytes) == $0.hash }) else {
+            throw ArborWireValidationError.invalidValue("Invalid retained local trash")
+        }
     }
 }

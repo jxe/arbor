@@ -752,6 +752,35 @@
       "expect": {
         "result": "Retain or ignore unknown details without turning them into operations, permission grants or implicit resolutions."
       }
+    },
+    {
+      "id": "mixed-structural-and-source-admission",
+      "area": "client-admission",
+      "given": {
+        "accepted": "R1",
+        "openEditors": [
+          "a",
+          "b"
+        ],
+        "publication": "offline"
+      },
+      "when": [
+        "Durably create a new entry as a snapshot candidate.",
+        "Admit an edit from an editor still holding R1.",
+        "Rename the new entry and retain its publication dependency.",
+        "Restart, publish, lose an acceptance response, and retry exactly."
+      ],
+      "expect": {
+        "local": "Acknowledged creations and each retained document generation remain readable.",
+        "publication": "Each original source intent and structural candidate remains recoverable with its original dependency.",
+        "acceptance": "Install Canopy projection and accepted identity even when conflicted."
+      },
+      "forbid": [
+        "Replacing source intent with the latest projection",
+        "Losing a creation when a stale editor admits another file",
+        "Acknowledging a structural action before durable retention",
+        "Inventing source operations from a snapshot"
+      ]
     }
   ]
 }

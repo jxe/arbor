@@ -1,5 +1,6 @@
 import ArborKit
 import ArborWire
+import ArborObjectStore
 import Foundation
 
 /// Effect runner for `UpdateMachine` over a `WorkingTree` and a Wire
@@ -34,6 +35,8 @@ public actor UpdateCoordinator {
     public nonisolated let sourceOperationEmission: Bool
     private var sourceQueue: SourceAdmissionQueue?
     private var sourceViews: [String: CapturedSourceAdmissionBasis] = [:]
+    private var structuralTail: Task<Void, Never>?
+    private var preparedStructures: [Data: (record: SourceAdmissionRecord, node: WorkspaceNode)] = [:]
     private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
 
     public init(
@@ -1207,6 +1210,71 @@ public actor UpdateCoordinator {
         )
     }
 
+    enum StructuralAdmission: Codable, Sendable {
+        case action(WorkspaceStructuralAction)
+        case asset(WorkspaceAsset, parent: WorkspaceReference)
+        case imported(name: String, bytes: Data, mediaType: String?, parent: WorkspaceReference)
+    }
+
+    /// Serialize structural captures, but never hold the accepted tree while a
+    /// disk write or server request is in flight. Source edits keep their captures.
+    func admitStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
+        try requireOpen()
+        guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
+        let previous = structuralTail
+        let task = Task {
+            await previous?.value
+            return try await self.retainStructure(admission)
+        }
+        structuralTail = Task { _ = try? await task.value }
+        return try await task.value
+    }
+
+    private func retainStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
+        try requireOpen()
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let key = try encoder.encode(admission)
+        let prepared: (record: SourceAdmissionRecord, node: WorkspaceNode)
+        if let previous = preparedStructures[key] { prepared = previous }
+        else {
+            let graph: WireSnapshot, basis: SourceAdmissionBasis
+            if let latest = try await pendingSourceRecords().last {
+                graph = latest.candidate; basis = .authored(change: latest.change)
+            } else {
+                let captured = try await workingTree.captureAdmissionGraph()
+                graph = captured.graph; basis = .accepted(captured.base)
+            }
+            let staging = try await candidateTree(graph)
+            let provider = WorkingTreeProvider(workingTree: staging)
+            do {
+                let node: WorkspaceNode
+                switch admission {
+                case let .action(action):
+                    guard let result = try await provider.perform(action) else { throw ArborWireValidationError.invalidValue("Structural action returned no node") }
+                    node = result
+                case let .asset(asset, parent):
+                    let stored = try await provider.store(asset: asset, in: parent)
+                    node = try await provider.resolve(stored.reference)
+                case let .imported(name, bytes, mediaType, parent):
+                    node = try await provider.importFile(name: name, bytes: bytes, mediaType: mediaType, in: parent)
+                }
+                var record = try SourceAdmissionRecord(tree: await workingTree.treeID().rawValue, basis: basis,
+                    graph: graph, candidate: await staging.localSnapshot())
+                record.localTrash = try await staging.captureLocalTrash()
+                prepared = (record, node)
+                preparedStructures[key] = prepared
+                await staging.close()
+            } catch { await staging.close(); throw error }
+        }
+        try await admissions().retain(prepared.record)
+        preparedStructures[key] = nil
+        await ensureMachineEntered()
+        dispatch(.localHead(root: prepared.record.candidate.root, origin: .editor))
+        if syncActive { syncAgain = true }
+        await workingTree.invalidateDocumentViews()
+        return prepared.node
+    }
+
     private struct SourceViewToken: Codable {
         var base: WireUpdateBase
         var reference: WorkspaceReference
@@ -1230,25 +1298,67 @@ public actor UpdateCoordinator {
 
     private func hasSourceWork() async throws -> Bool { !(try await pendingSourceRecords()).isEmpty }
 
-    private func localSourceView(_ record: SourceAdmissionRecord) -> CapturedSourceAdmissionBasis {
-        let document = WorkspaceDocumentSnapshot(reference: record.intent.basis.reference, source: record.intent.source,
-                                                  contentRevision: "source-local:" + record.change)
-        return CapturedSourceAdmissionBasis(document: document, graph: record.candidate, accepted: nil, sourcePath: record.sourcePath)
+    private struct LocalSourceToken: Codable {
+        var change: String
+        var reference: WorkspaceReference
+    }
+
+    private struct ProjectionObjects: ObjectStore {
+        let tree: WorkingTree
+        func bytes(_ hash: String) async throws -> Data { try await tree.objectBytes(hash: hash) }
+    }
+
+    private func candidateTree(_ graph: WireSnapshot, includeTrash: Bool = true) async throws -> WorkingTree {
+        let tree = try await WorkingTree.inMemory(tree: await workingTree.treeID(), platform: ProjectionObjects(tree: workingTree))
+        try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: graph, tree: await workingTree.treeID(),
+            update: "local-candidate", mode: .sparseFiles))
+        if includeTrash {
+            let trash: WorkingTreeLocalTrash
+            if let retained = try await admissions().retained().last(where: { $0.localTrash != nil })?.localTrash { trash = retained }
+            else { trash = try await workingTree.captureLocalTrash() }
+            if !trash.nodes.isEmpty { try await tree.installLocalTrash(trash) }
+        }
+        return tree
+    }
+
+    /// A disposable view of the retained candidate, never a replacement of the
+    /// accepted working tree. Provider reads see locally created/moved entries.
+    func sourceReadProvider(readOnly: Bool = false) async throws -> WorkingTreeProvider {
+        if let record = try await pendingSourceRecords().last {
+            return WorkingTreeProvider(workingTree: try await candidateTree(record.candidate), readOnly: readOnly)
+        }
+        if try await admissions().retained().last(where: { $0.localTrash != nil })?.localTrash?.nodes.isEmpty == false {
+            return WorkingTreeProvider(workingTree: try await candidateTree(workingTree.localSnapshot()), readOnly: readOnly)
+        }
+        return WorkingTreeProvider(workingTree: workingTree, readOnly: readOnly)
+    }
+
+    private func localSourceView(_ record: SourceAdmissionRecord, reference: WorkspaceReference? = nil) async throws -> CapturedSourceAdmissionBasis {
+        guard let reference = reference ?? record.intent?.basis.reference else {
+            throw ArborWireValidationError.invalidValue("A structural candidate requires a document reference")
+        }
+        let tree = try await candidateTree(record.candidate, includeTrash: false)
+        let captured: CapturedSourceAdmissionBasis
+        do { captured = try await tree.captureSourceAdmissionBasis(reference) }
+        catch { await tree.close(); throw error }
+        await tree.close()
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        var document = captured.document
+        document.contentRevision = "source-candidate:" + (try encoder.encode(LocalSourceToken(change: record.change, reference: captured.document.reference))).base64EncodedString()
+        return CapturedSourceAdmissionBasis(document: document, graph: record.candidate, accepted: nil, sourcePath: captured.sourcePath)
     }
 
     public func sourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
-        if let latest = try await pendingSourceRecords().last(where: { $0.intent.basis.reference.identity == reference.identity }) {
-            let view = localSourceView(latest)
+        if let latest = try await pendingSourceRecords().last(where: { $0.intent == nil || $0.intent?.basis.reference.identity == reference.identity }) {
+            let view = try await localSourceView(latest, reference: reference)
             sourceViews[view.document.contentRevision] = view
             return view.document
         }
         let captured = try await workingTree.captureSourceAdmissionBasis(reference)
-        // Capturing crosses an actor boundary. An admission may have completed
-        // meanwhile; preserve read-your-writes even when that capture is older.
-        if let latest = try await pendingSourceRecords().last(where: { $0.intent.basis.reference.identity == reference.identity }) {
-            let view = localSourceView(latest)
+        if let latest = try await pendingSourceRecords().last(where: { $0.intent == nil || $0.intent?.basis.reference.identity == reference.identity }) {
+            let view = try await localSourceView(latest, reference: reference)
             sourceViews[view.document.contentRevision] = view
             return view.document
         }
@@ -1260,12 +1370,24 @@ public actor UpdateCoordinator {
         return document
     }
 
+    private func localPredecessor(_ revision: String) throws -> String? {
+        if revision.hasPrefix("source-local:") { return String(revision.dropFirst("source-local:".count)) }
+        if revision.hasPrefix("source-candidate:"), let data = Data(base64Encoded: String(revision.dropFirst("source-candidate:".count))) {
+            return try JSONDecoder().decode(LocalSourceToken.self, from: data).change
+        }
+        return nil
+    }
+
     private func sourceView(for intent: WorkspaceDocumentIntent) async throws -> CapturedSourceAdmissionBasis {
         let revision = intent.basis.contentRevision
         if let view = sourceViews[revision] { return view }
         let records = try await admissions().retained()
-        if revision.hasPrefix("source-local:"), let parent = records.first(where: { "source-local:" + $0.change == revision }) {
-            return localSourceView(parent)
+        if let predecessor = try localPredecessor(revision), let parent = records.first(where: { $0.change == predecessor }) {
+            var view = try await localSourceView(parent, reference: intent.basis.reference)
+            // Preserve the old revision spelling when recovering an older journal.
+            var document = view.document; document.contentRevision = revision
+            view = CapturedSourceAdmissionBasis(document: document, graph: view.graph, accepted: nil, sourcePath: view.sourcePath)
+            return view
         }
         guard revision.hasPrefix("source-accepted:"),
               let data = Data(base64Encoded: String(revision.dropFirst("source-accepted:".count))) else {
@@ -1292,12 +1414,14 @@ public actor UpdateCoordinator {
         let queue = try await admissions()
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let intentBytes = try encoder.encode(intent)
-        let existing = try await queue.retained().last { try encoder.encode($0.intent) == intentBytes }
+        let existing = try await queue.retained().last { record in
+            guard let intent = record.intent else { return false }; return try encoder.encode(intent) == intentBytes
+        }
         let record: SourceAdmissionRecord
         if let existing { record = existing }
         else {
             let view = try await sourceView(for: intent)
-            let parent = intent.basis.contentRevision.hasPrefix("source-local:") ? String(intent.basis.contentRevision.dropFirst("source-local:".count)) : nil
+            let parent = try localPredecessor(intent.basis.contentRevision)
             if let prepared = preparedSourceIntents[intentBytes] { record = prepared }
             else {
                 record = try view.prepare(intent: intent, predecessor: parent)
@@ -1305,7 +1429,7 @@ public actor UpdateCoordinator {
             }
         }
         try await queue.retain(record)
-        let local = localSourceView(record)
+        let local = try await localSourceView(record)
         sourceViews[local.document.contentRevision] = local
         await ensureMachineEntered()
         dispatch(.localHead(root: record.candidate.root, origin: .editor))
