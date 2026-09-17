@@ -20,6 +20,21 @@ decisions in one file; Canopy's current entry storage does not implement that fi
 representation yet. Exact range operations and all their contribution identities
 remain retained, so this fallback does not reduce authored intent to a snapshot.
 
+The next representation step is implemented separately in
+`packages/canopy/src/updates/source-regions.ts`: a pure, same-basis partition and
+projection function. It groups connected overlapping operations into source
+regions, retains each change's exact regional text and operation identities, and
+allows independent choices within one file. Untouched bytes come from the immutable
+source object. Equal-byte alternatives remain distinct; insertion anchors follow
+the exact executor's boundary rules. The focused corpus covers two independent
+overlaps, bridging overlaps, insertions, deletion, UTF-8/BOM/CRLF fidelity,
+arrival permutations and serialized layouts. This is not yet called by update
+acceptance or persisted as conflict state. It makes no format-specific resolution
+decision. Durable decision identity, accepted projection correspondence, continuation,
+inspection and guarded partial resolution must be integrated together before
+replacing entry fallback. Different causal bases and structural coupling still
+require additional correspondence.
+
 Conservative entry fallback follows the complete retained accepted chain, including
 source edits against successive bases, ordinary snapshots and equal-root updates.
 It is independent of the automatic range-merger's 64-update limit. It collects exact

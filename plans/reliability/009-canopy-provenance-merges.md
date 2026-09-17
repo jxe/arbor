@@ -18,7 +18,7 @@ The [source execution checkpoint](../../docs/exact-source-execution.md) records 
 implemented subset: accepted-identity ancestry, original contribution retention,
 shared-basis disjoint edits and immutable rule evidence. The [whole-entry lifecycle](../../docs/accepted-entry-conflicts.md) now joins durable
 alternatives, snapshot attribution, authorized inspection and explicit resolution.
-Range-level and nested ambiguities remain; merely persisting a conflict signal is
+Range-level and coupled ancestor ambiguities remain; merely persisting a conflict signal is
 insufficient. No live deployment or client emission has been enabled.
 
 ## 1. Establish the decision corpus
@@ -55,7 +55,7 @@ design, not a production layout or a reason to introduce packfiles prematurely.
 
 Choose the smallest production representation that passes the corpus: composable conflict expressions with provenance may be sufficient; use a richer operation graph where tests demonstrate the need. Compare these choices on nested conflicts, selective undo, move/copy lineage, storage growth, and garbage collection before committing to a graph implementation.
 
-- Extend the implemented root and nested entry alternatives to independent source ranges and coupled ancestor changes. Range inputs currently retain whole-file choices; implement finer-grained storage and projection without losing exact operations. Preserve the existing snapshot/hidden-alternative and equal-root guarantees.
+- Integrate the tested same-basis region partition/projection into durable decisions, inspection and guarded partial resolution; it is not yet used by acceptance. Extend root and nested entry alternatives to independent source ranges and coupled ancestor changes. Range inputs currently retain whole-file choices. Preserve the existing snapshot/hidden-alternative and equal-root guarantees, including continuation after a selected fragment changes length.
 - Atomically commit accepted state identity, provenance, projection, conflict signal, and watch observation. Use accepted-update CAS. Preserve exact-request replay and authorization of retained material.
 - Extend the implemented accepted-state-scoped conflict inspection beyond entry decisions: locations, complete alternative identities, source/object references, selection, causal evidence, and explanation. Specify and fixture any additional read DTOs in TypeScript and Swift together before the UI consumes them; do not expose private graph internals or download a whole history to edit a file.
 - Implement alternative-target edits and broader resolution forms on top of current whole-entry guarded resolution. Commit independent resolutions separately when appropriate; stale reviews retain the person's draft and all newer evidence.
