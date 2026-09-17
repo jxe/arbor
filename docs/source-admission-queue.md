@@ -50,9 +50,23 @@ directory. Cross-process ownership enforcement remains an integration requiremen
 
 The journal is `sync/source-admissions.json`, separate from legacy update control
 and editor backup history. Opening a corrupt journal fails without rewriting it.
-There is no pruning or coalescing yet. This deliberately preserves all ancestors
-after publication settlement; reclamation remains unimplemented. It is not the final
-long-running storage policy and does not require packfiles.
+Schema 2 stores only roots, ordered object hashes and authored metadata. Accepted
+graph bytes resolve through the client's existing content-addressed object API:
+Native iOS uses its durable replica store, Native macOS uses Arbor Sync's object
+route, and a TS host can supply its direct object store. The queue-owned CAS keeps
+only objects introduced by pending updates (and Swift's private Trash material),
+so an unchanged large tree is not copied into admission state. A standalone queue
+without a platform store remains self-contained for library use.
+
+Settlement compacts records only when no pending authored descendant depends on
+them. It retains the latest settled lineage while the process may still have an
+open editor revision for a hidden candidate; a restart with an entirely settled
+journal releases that lineage. Object collection follows the smaller durable
+journal. The iOS replica store uses retain-all policy for accepted objects, so an
+older captured basis remains resolvable until a future explicit store lifecycle
+policy replaces it. On upgrade, a fully settled legacy embedded-object journal is
+identified by a bounded-memory top-level identity scan and retired without decoding
+its snapshots. Unsettled legacy records migrate into the hash journal normally.
 
 ## Request preparation
 
@@ -181,7 +195,7 @@ Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
 - Connect the TS session/publication APIs to a maintained editor host when that host is built; enforce exclusive state-directory ownership there.
 - Verify deployment of ancestor and merged-predecessor acceptance before installed-client activation.
-- Add safe coalescing and bounded reclamation of settled ancestry and captured views.
+- Add any desired long-horizon lifecycle policy for the retain-all iOS replica CAS.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.
 

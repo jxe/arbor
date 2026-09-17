@@ -194,6 +194,7 @@ final class ArborWorkspaceState {
         } ?? StoredDeviceCredentialProvider(origin: origin, store: KeychainDeviceCredentialStore())
         let client = ArborWireClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ArborWireReplicaTransport(client: client)
+        let platform = CanopyObjectStore(client: client, tree: tree.id)
         let root = ArborSupportDirectories.root
         let key = ArborSupportDirectories.workingTreeKey(tree.id)
         let replicaRoot = ArborSupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory)
@@ -208,7 +209,7 @@ final class ArborWorkspaceState {
         let workingTree: WorkingTree
         if placedFormat == Self.workingTreeFormat,
            FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
-            workingTree = try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
+            workingTree = try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id), platform: platform)
         } else {
             // Retain old admissions and materialized content for recovery; never
             // replay an old-format journal against reset accepted history.
@@ -219,7 +220,12 @@ final class ArborWorkspaceState {
                     try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
                 }
             }
-            workingTree = try await WorkingTreePlacementService.place(tree: tree, at: replicaRoot, transport: transport)
+            workingTree = try await WorkingTreePlacementService.place(
+                tree: tree,
+                at: replicaRoot,
+                transport: transport,
+                platform: platform
+            )
             try Self.workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
         }
         let initiallyAvailable = nativeTransportAvailable
@@ -228,7 +234,8 @@ final class ArborWorkspaceState {
             transport: transport,
             stateRoot: syncStateRoot,
             transportAvailable: initiallyAvailable,
-            sourceOperationEmission: true
+            sourceOperationEmission: true,
+            sourceObjectStore: workingTree
         )
         let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
             try await coordinator.syncImmediately(admission)
@@ -809,10 +816,8 @@ final class ArborWorkspaceState {
         let credentialProvider = ArborSyncCredentialProvider(client: client, configurationTree: placed.configurationTree)
         let wireClient = ArborWireClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ArborWireReplicaTransport(client: wireClient)
-        let workingTree = try await WorkingTree.inMemory(
-            tree: TreeID(rawValue: treeID),
-            platform: DaemonObjectStore(client: client, tree: treeID)
-        )
+        let platform = DaemonObjectStore(client: client, tree: treeID)
+        let workingTree = try await WorkingTree.inMemory(tree: TreeID(rawValue: treeID), platform: platform)
         let replacement = try SnapshotBridge.replacement(
             snapshot: bootstrap.spine,
             tree: TreeID(rawValue: treeID),
@@ -829,7 +834,8 @@ final class ArborWorkspaceState {
             .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
         let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot,
             transportAvailable: nativeTransportAvailable,
-            sourceOperationEmission: true)
+            sourceOperationEmission: true,
+            sourceObjectStore: platform)
 
         let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
             try await coordinator.syncImmediately(admission)

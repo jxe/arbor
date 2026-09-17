@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionRecord } from "@arbor/canopy-client";
@@ -115,4 +115,53 @@ test("first directory-body save retains an exact snapshot without inventing sour
   await q.retain(record);
   expect((await q.retained())[0]).toEqual(record);
   expect(decodeTreeSnapshotJSON(record.candidate).objects.has(hashObject(Buffer.from("Exact\r\n")))).toBe(true);
+}));
+
+test("journal references platform objects and compacts only dependency-free settlements", async () => withQueue(async (_q, root) => {
+  const note = Buffer.from(fixture.source), noteHash = hashObject(note), asset = Buffer.alloc(1_000_000, 0x5a), assetHash = hashObject(asset);
+  const nested = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: noteHash }] }), nestedHash = hashObject(nested);
+  const rootBytes = encodeWireDirectory({ type: "directory", entries: [{ name: "asset.bin", file: assetHash }, { name: "nested", directory: nestedHash }] });
+  const initialGraph: TreeSnapshot = { root: hashObject(rootBytes), objects: new Map([[assetHash, asset], [noteHash, note], [nestedHash, nested], [hashObject(rootBytes), rootBytes]]) };
+  const platform = { bytes: async (hash: string) => initialGraph.objects.get(hash) };
+  const q = new SourceAdmissionQueue(fixture.tree, root, platform);
+  let graph = initialGraph;
+  const all: SourceAdmissionRecord[] = [];
+  for (const change of fixture.changes) {
+    const parent = all.find(record => record.change === change.basis.change), source = parent?.intent.source ?? fixture.source;
+    graph = parent ? decodeTreeSnapshotJSON(parent.candidate) : initialGraph;
+    const candidate = Buffer.concat([Buffer.from(source).subarray(0, change.offset), Buffer.from(change.replacement), Buffer.from(source).subarray(change.offset + change.length)]).toString();
+    all.push(prepareSourceAdmission({ change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
+      basis: parent ? change.basis : { ...change.basis, root: graph.root }, intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: change.revision, source },
+        edits: [{ offset: change.offset, length: change.length, expected: change.expected, replacement: change.replacement }], source: candidate } }));
+  }
+  for (const record of all) await q.retain(record);
+  expect((await stat(q.path)).size).toBeLessThan(100_000);
+  expect(await readFile(q.path, "utf8")).not.toContain('"bytes"');
+  await expect(stat(join(q.objectsPath, assetHash.slice("sha256:".length)))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await new SourceAdmissionQueue(fixture.tree, root, platform).retained()).toEqual(all);
+  await q.compact(new Set([all[0]!.change, all[1]!.change]));
+  expect((await q.retained()).map(record => record.change)).toEqual([all[2]!.change]);
+  expect(await q.compact(new Set([all[2]!.change]), false)).toBe(true);
+  expect(await q.retained()).toEqual([]);
+  expect(await readdir(q.objectsPath)).toEqual([]);
+}));
+
+test("fully settled embedded-object journals upgrade directly to an empty hash journal", async () => withQueue(async (q, root) => {
+  const all = records();
+  await mkdir(join(root, "sync"), { recursive: true });
+  await writeFile(q.path, JSON.stringify(all));
+  const legacySize = (await stat(q.path)).size;
+  expect(await q.compact(new Set(all.map(record => record.change)), false)).toBe(true);
+  expect((await stat(q.path)).size).toBeLessThan(legacySize);
+  expect(JSON.parse(await readFile(q.path, "utf8"))).toMatchObject({ schema: 2, tree: fixture.tree, records: [] });
+}));
+
+test("pending legacy migration remains self-contained when its old platform basis is gone", async () => withQueue(async (q, root) => {
+  const all = records();
+  await mkdir(join(root, "sync"), { recursive: true });
+  await writeFile(q.path, JSON.stringify(all));
+  const unavailable = { bytes: async (_hash: string) => undefined };
+  const migrated = new SourceAdmissionQueue(fixture.tree, root, unavailable);
+  expect(await migrated.retained()).toEqual(all);
+  expect(await new SourceAdmissionQueue(fixture.tree, root, unavailable).retained()).toEqual(all);
 }));

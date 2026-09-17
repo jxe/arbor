@@ -17,6 +17,7 @@ import Foundation
 public actor UpdateCoordinator {
     private let workingTree: WorkingTree
     private let transport: any UpdateTransport
+    private let sourceObjectStore: (any ObjectStore)?
     private let files: UpdateControlFiles
     private let faultInjector: any UpdateFaultInjector
     private var control: UpdateControl
@@ -45,6 +46,7 @@ public actor UpdateCoordinator {
         stateRoot: URL,
         transportAvailable: Bool = true,
         sourceOperationEmission: Bool = false,
+        sourceObjectStore: (any ObjectStore)? = nil,
         faultInjector: any UpdateFaultInjector = NoUpdateFaults(),
         publicationDelay: Duration = UpdateMachine.publicationDelay,
         publicationMaxDelay: Duration = UpdateMachine.publicationMaxDelay
@@ -52,6 +54,7 @@ public actor UpdateCoordinator {
         self.sourceOperationEmission = sourceOperationEmission
         self.workingTree = workingTree
         self.transport = transport
+        self.sourceObjectStore = sourceObjectStore
         self.files = try UpdateControlFiles(root: stateRoot)
         self.faultInjector = faultInjector
         self.control = try files.load()
@@ -1017,15 +1020,19 @@ public actor UpdateCoordinator {
 
     private func admissions() async throws -> SourceAdmissionQueue {
         if let sourceQueue { return sourceQueue }
-        let queue = try SourceAdmissionQueue(tree: await workingTree.treeID().rawValue,
-                                             stateRoot: files.directory.deletingLastPathComponent())
+        let queue = try await SourceAdmissionQueue(tree: await workingTree.treeID().rawValue,
+                                             stateRoot: files.directory.deletingLastPathComponent(),
+                                             platform: sourceObjectStore,
+                                             settled: Set(control.sourceAcceptedChanges ?? []))
         sourceQueue = queue
         return queue
     }
 
-    private func pendingSourceRecords() async throws -> [SourceAdmissionRecord] {
+    private func pendingSourceRecords(_ retained: [SourceAdmissionRecord]? = nil) async throws -> [SourceAdmissionRecord] {
         guard sourceOperationEmission else { return [] }
-        let records = try await admissions().retained()
+        let records: [SourceAdmissionRecord]
+        if let retained { records = retained }
+        else { records = try await admissions().retained() }
         let accepted = Set(control.sourceAcceptedChanges ?? [])
         return records.filter { !accepted.contains($0.change) }
     }
@@ -1034,8 +1041,8 @@ public actor UpdateCoordinator {
     /// a single dependency chain based on the installed graph permits structure.
     /// Comparing roots here checks display coherence; authored identities remain
     /// unchanged in every retained request.
-    private func sourceLocalViewState() async throws -> (navigation: SourceAdmissionRecord?, structural: Bool) {
-        let records = try await pendingSourceRecords()
+    private func sourceLocalViewState(_ retained: [SourceAdmissionRecord]? = nil) async throws -> (navigation: SourceAdmissionRecord?, structural: Bool) {
+        let records = try await pendingSourceRecords(retained)
         guard let first = records.first else { return (nil, true) }
         let accepted = try await workingTree.heads().acceptedRoot
         let linear = zip(records, records.dropFirst()).allSatisfy { previous, next in
@@ -1067,13 +1074,8 @@ public actor UpdateCoordinator {
         var reference: WorkspaceReference
     }
 
-    private struct ProjectionObjects: ObjectStore {
-        let tree: WorkingTree
-        func bytes(_ hash: String) async throws -> Data { try await tree.objectBytes(hash: hash) }
-    }
-
     private func candidateTree(_ graph: WireSnapshot, includeTrash: Bool = true) async throws -> WorkingTree {
-        let tree = try await WorkingTree.inMemory(tree: await workingTree.treeID(), platform: ProjectionObjects(tree: workingTree))
+        let tree = try await WorkingTree.inMemory(tree: await workingTree.treeID(), platform: workingTree)
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: graph, tree: await workingTree.treeID(),
             update: "local-candidate", mode: .sparseFiles))
         if includeTrash {
@@ -1088,10 +1090,11 @@ public actor UpdateCoordinator {
     /// A disposable view of the retained candidate, never a replacement of the
     /// accepted working tree. Provider reads see locally created/moved entries.
     func sourceReadProvider(readOnly: Bool = false) async throws -> WorkingTreeProvider {
-        if let record = try await sourceLocalViewState().navigation {
+        let retained = try await admissions().retained()
+        if let record = try await sourceLocalViewState(retained).navigation {
             return WorkingTreeProvider(workingTree: try await candidateTree(record.candidate), readOnly: readOnly)
         }
-        if try await admissions().retained().last(where: { $0.localTrash != nil })?.localTrash?.nodes.isEmpty == false {
+        if retained.last(where: { $0.localTrash != nil })?.localTrash?.nodes.isEmpty == false {
             return WorkingTreeProvider(workingTree: try await candidateTree(workingTree.localSnapshot()), readOnly: readOnly)
         }
         return WorkingTreeProvider(workingTree: workingTree, readOnly: readOnly)
@@ -1288,6 +1291,15 @@ public actor UpdateCoordinator {
                 acceptedRoot: installation.root, localRoot: installation.root)
             control.presentation.acceptedConflicted = current.tree.conflicted
             try files.write(control)
+            let queueEmpty = try await queue.compact(settled: Set(control.sourceAcceptedChanges ?? []))
+            if queueEmpty {
+                control.sourceAcceptedChanges = []
+                try files.write(control)
+            } else {
+                let retained = Set(try await queue.retained().map(\.change))
+                control.sourceAcceptedChanges = (control.sourceAcceptedChanges ?? []).filter { retained.contains($0) }
+                try files.write(control)
+            }
             dispatch(.applied)
             machine.base = .init(root: installation.root, update: current.tree.update,
                 cursor: current.observedThrough, conflicted: current.tree.conflicted)

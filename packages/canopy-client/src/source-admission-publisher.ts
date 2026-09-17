@@ -20,10 +20,9 @@ export class SourceAdmissionPublisher {
   }
 
   async pending(): Promise<string[]> {
-    const records = await this.queue.retained();
     const settled = await this.settled();
-    const known = new Set(records.map(record => record.change));
-    if (settled.some(change => !known.has(change))) throw new Error("Settlement has no retained admission");
+    await this.queue.compact(new Set(settled));
+    const records = await this.queue.retained();
     return records.filter(record => !settled.includes(record.change)).map(record => record.change);
   }
 
@@ -70,6 +69,14 @@ export class SourceAdmissionPublisher {
     verifyTreeSnapshotGraph(snapshot, "sparse-files");
     await this.install(current, snapshot);
     const changes = [...new Set([...(await this.settled()), ...request.updates.map(update => update.change)])];
+    await this.writeSettled(changes);
+    await this.queue.compact(new Set(changes));
+    const retained = new Set((await this.queue.retained()).map(record => record.change));
+    await this.writeSettled(changes.filter(change => retained.has(change)));
+    return true;
+  }
+
+  private async writeSettled(changes: string[]): Promise<void> {
     const directory = dirname(this.path), temporary = `${this.path}.${crypto.randomUUID()}.tmp`;
     await mkdir(directory, { recursive: true, mode: 0o700 });
     try {
@@ -80,6 +87,5 @@ export class SourceAdmissionPublisher {
       const dir = await open(directory, "r");
       try { await dir.sync(); } finally { await dir.close(); }
     } finally { await rm(temporary, { force: true }); }
-    return true;
   }
 }

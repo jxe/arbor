@@ -112,6 +112,7 @@ public final class ArborEditorHost: EditorHost {
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
+    private var deferredPersistTask: Task<Void, Never>?
     private var cachedMoveDocuments: [ArborMoveDocument] = []
     private var cachedStructuralDestinations: [WorkspaceIdentity: [ArborStructuralDestination]] = [:]
 
@@ -213,8 +214,25 @@ public final class ArborEditorHost: EditorHost {
         }
     }
 
-    public func suggestDocuments(_ query: String, in _: Document) async -> [MentionItem] {
-        let results = (try? await provider.search(query, in: binding.reference.tree)) ?? []
+    public func suggestDocuments(_ rawQuery: String, in _: Document) async -> [MentionItem] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allResults = (try? await provider.search("", in: binding.reference.tree)) ?? []
+        let results: [WorkspaceSearchResult]
+        if query.isEmpty {
+            results = allResults
+        } else {
+            results = allResults.filter {
+                $0.title.localizedCaseInsensitiveContains(query)
+                    || $0.reference.path.localizedCaseInsensitiveContains(query)
+            }.sorted { lhs, rhs in
+                let lhsRank = mentionSuggestionRank(lhs, query: query)
+                let rhsRank = mentionSuggestionRank(rhs, query: query)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+                if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+                return lhs.reference.path.localizedStandardCompare(rhs.reference.path) == .orderedAscending
+            }
+        }
         return results.prefix(8).map {
             MentionItem(
                 id: ArborDocumentReferenceCodec.encode($0.reference),
@@ -223,6 +241,14 @@ public final class ArborEditorHost: EditorHost {
                 isHome: $0.reference.path == "/"
             )
         }
+    }
+
+    private func mentionSuggestionRank(_ result: WorkspaceSearchResult, query: String) -> Int {
+        if result.title.compare(query, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame {
+            return 0
+        }
+        if result.title.localizedCaseInsensitiveContains(query) { return 1 }
+        return 2
     }
 
     public func openDocument(_ reference: DocumentReference) {
@@ -704,11 +730,33 @@ public final class ArborEditorHost: EditorHost {
 
     public func persistCommit(changes _: [DocumentChange], in document: Document) {
         guard document === binding.document else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = nil
         binding.admitCurrentGeneration()
+    }
+
+    public func persistCommit(changes _: [DocumentChange], in document: Document, after delay: Duration) {
+        guard document === binding.document else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = Task { @MainActor [weak self, weak document] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, let document, document === self.binding.document,
+                  !Task.isCancelled else { return }
+            self.deferredPersistTask = nil
+            self.binding.admitCurrentGeneration()
+        }
+    }
+
+    public func noteEditingActivity(in document: Document) {
+        guard document === binding.document, deferredPersistTask != nil else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = nil
     }
 
     public func flush(_ document: Document) async {
         guard document === binding.document else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = nil
         await binding.flush()
     }
 

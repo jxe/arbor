@@ -13,20 +13,20 @@ struct ArborAppTests {
     @Test("Profile toolbar summarizes synchronization into four visible states")
     func profileToolbarSyncStatus() {
         for synchronization in [WorkspaceSynchronization.current, .autoMerged] {
-            #expect(ArborToolbarSyncStatus.resolve(
+            #expect(ArborSyncStatus.resolve(
                 synchronization: synchronization,
                 documentIsSaving: false,
                 documentNeedsAttention: false
             ) == .synchronized)
         }
         for synchronization in [WorkspaceSynchronization.locallyPending, .requestPending, .uploading, .downloading] {
-            #expect(ArborToolbarSyncStatus.resolve(
+            #expect(ArborSyncStatus.resolve(
                 synchronization: synchronization,
                 documentIsSaving: false,
                 documentNeedsAttention: false
             ) == .syncing)
         }
-        #expect(ArborToolbarSyncStatus.resolve(
+        #expect(ArborSyncStatus.resolve(
             synchronization: .offline,
             documentIsSaving: false,
             documentNeedsAttention: false
@@ -36,7 +36,7 @@ struct ArborAppTests {
             .authenticationFailure,
             .revoked,
         ] {
-            #expect(ArborToolbarSyncStatus.resolve(
+            #expect(ArborSyncStatus.resolve(
                 synchronization: synchronization,
                 documentIsSaving: false,
                 documentNeedsAttention: false
@@ -59,16 +59,24 @@ struct ArborAppTests {
 
     @Test("Profile toolbar never reports fully synced over pending or failed local retention")
     func profileToolbarSyncStatusPrecedence() {
-        #expect(ArborToolbarSyncStatus.resolve(
+        #expect(ArborSyncStatus.resolve(
             synchronization: .current,
             documentIsSaving: true,
             documentNeedsAttention: false
         ) == .syncing)
-        #expect(ArborToolbarSyncStatus.resolve(
+        #expect(ArborSyncStatus.resolve(
             synchronization: .offline,
             documentIsSaving: false,
             documentNeedsAttention: true
         ) == .attention)
+    }
+
+    @Test("iOS keeps Share for a healthy tree and replaces it with actionable sync states")
+    func iosToolbarSyncStatus() {
+        #expect(ArborSyncStatus.synchronized.showsIOSShareAction)
+        #expect(!ArborSyncStatus.syncing.showsIOSShareAction)
+        #expect(!ArborSyncStatus.offline.showsIOSShareAction)
+        #expect(!ArborSyncStatus.attention.showsIOSShareAction)
     }
 
     @Test("A current tree cannot hide a document conflict after continued typing")

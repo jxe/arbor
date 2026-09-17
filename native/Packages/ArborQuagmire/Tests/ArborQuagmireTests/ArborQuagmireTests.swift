@@ -200,6 +200,38 @@ struct ArborQuagmireTests {
         #expect(reopened.blocks[2].text.characters.isEmpty)
     }
 
+    @Test("Empty headings survive Markdown round trips")
+    func emptyHeadingRoundTrip() throws {
+        let blocks = (1...6).map { level in
+            Block.heading(level: level, text: AttributedString())
+        }
+        let source = ArborMarkdownCodec.serializeBlocks(blocks)
+        let reopened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "empty-headings"
+        )
+
+        var reopenedHeadings: [Block] = []
+        func collect(_ blocks: [Block]) {
+            for block in blocks {
+                reopenedHeadings.append(block)
+                collect(block.children)
+            }
+        }
+        collect(reopened.blocks)
+
+        #expect(reopenedHeadings.count == 6)
+        for (index, block) in reopenedHeadings.enumerated() {
+            guard case let .heading(level, text) = block.kind else {
+                Issue.record("Expected heading at index \(index)")
+                continue
+            }
+            #expect(level.rawValue == index + 1)
+            #expect(text.characters.isEmpty)
+        }
+    }
+
     @Test("Rebase reserves later preserved IDs when an earlier parsed kind changes")
     func rebaseReservesPreservedIDs() throws {
         let source = "# Tasks\n\n- First\n\n- Second\n\n- Third\n"
@@ -455,6 +487,84 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("Autoexpand waits for inactivity and later typing supersedes its save")
+    func autoexpandPersistenceCoalescing() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\n\u{00A0}\n\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: linkPreviewService()
+        )
+        let block = try #require(binding.document.children.last)
+
+        binding.document.transaction(name: "Format Block") {
+            binding.document.mutate(block.id) {
+                $0.kind = .heading(level: .h1, text: AttributedString())
+            }
+        }
+        host.persistCommit(changes: [], in: binding.document, after: .milliseconds(750))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await session.admissionCount() == 0)
+
+        host.noteEditingActivity(in: binding.document)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(await session.admissionCount() == 0)
+
+        binding.document.transaction(name: "Type") {
+            _ = binding.document.setText(block.id, AttributedString("Later text"))
+        }
+        host.persistCommit(changes: [], in: binding.document)
+        try await Task.sleep(for: .milliseconds(800))
+
+        #expect(await session.admissionCount() == 1)
+        let saved = await session.snapshot()
+        #expect(saved.source.contains("# Later text"), Comment(rawValue: saved.source))
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("Autoexpand persists after inactivity when no more text arrives")
+    func autoexpandPersistenceAfterInactivity() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\n\u{00A0}\n\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: linkPreviewService()
+        )
+        let block = try #require(binding.document.children.last)
+
+        binding.document.transaction(name: "Format Block") {
+            binding.document.mutate(block.id) {
+                $0.kind = .heading(level: .h1, text: AttributedString())
+            }
+        }
+        host.persistCommit(changes: [], in: binding.document, after: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(500))
+
+        #expect(await session.admissionCount() == 1)
+        let saved = await session.snapshot()
+        let reopened = ArborMarkdownCodec.open(
+            source: saved.source,
+            revision: saved.contentRevision,
+            identitySeed: "autoexpand-inactivity"
+        )
+        #expect(reopened.blocks.last?.kind == .heading(level: .h1, text: AttributedString()))
+        await binding.close()
+    }
+
+    @MainActor
     @Test("Writable page links expose the emoji picker and persist title icons")
     func linkedPageIcon() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
@@ -595,6 +705,47 @@ struct ArborQuagmireTests {
         #expect(ArborDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)
         #expect(ArborDocumentReferenceCodec.decode(disambiguated)?.path == "/welcome/Collision-2")
         #expect(errors.isEmpty)
+        await session.close()
+    }
+
+    @MainActor
+    @Test("Mention search prioritizes matching page names over body-text matches")
+    func mentionSearchUsesPageIdentityFields() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        for index in 0..<9 {
+            _ = try #require(await provider.perform(.createMarkdown(
+                parent: root,
+                name: "noise-\(index)",
+                source: "# A\(index)\n\nValues appears only in this page body.\n"
+            )))
+        }
+        let target = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Values",
+            source: "# Values\n"
+        )))
+
+        let suggestions = await host.suggestDocuments("Values", in: binding.document)
+
+        #expect(suggestions.first?.title == "Values")
+        #expect(suggestions.first?.id == ArborDocumentReferenceCodec.encode(target.reference))
+        #expect(suggestions.allSatisfy {
+            $0.title.localizedCaseInsensitiveContains("Values")
+                || ($0.subtitle?.localizedCaseInsensitiveContains("Values") == true)
+        })
         await session.close()
     }
 

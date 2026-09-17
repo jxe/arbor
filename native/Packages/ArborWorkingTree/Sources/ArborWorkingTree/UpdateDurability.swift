@@ -8,11 +8,13 @@ struct UpdateControlFiles: Sendable {
     let directory: URL
     let controlURL: URL
     let objectsDirectory: URL
+    let sourceAdmissionsURL: URL
 
     init(root: URL) throws {
         directory = root.appending(path: "sync", directoryHint: .isDirectory)
         controlURL = directory.appending(path: "update-control.json")
         objectsDirectory = directory.appending(path: "objects", directoryHint: .isDirectory)
+        sourceAdmissionsURL = directory.appending(path: "source-admissions.json")
         try Self.createPrivateDirectory(directory)
     }
 
@@ -25,16 +27,30 @@ struct UpdateControlFiles: Sendable {
         return try action()
     }
 
-    func readSourceAdmissions() throws -> [SourceAdmissionRecord] {
-        let url = directory.appending(path: "source-admissions.json")
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        return try JSONDecoder().decode([SourceAdmissionRecord].self, from: Data(contentsOf: url))
+    func lockSourceAdmissions() throws -> Int32 {
+        let descriptor = Darwin.open(directory.appending(path: "source-admissions.lock").path, O_RDWR | O_CREAT, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            Darwin.close(descriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return descriptor
     }
 
-    func writeSourceAdmissions(_ records: [SourceAdmissionRecord]) throws {
+    func unlockSourceAdmissions(_ descriptor: Int32) {
+        flock(descriptor, LOCK_UN)
+        Darwin.close(descriptor)
+    }
+
+    func readSourceAdmissionsData() throws -> Data? {
+        guard FileManager.default.fileExists(atPath: sourceAdmissionsURL.path) else { return nil }
+        return try Data(contentsOf: sourceAdmissionsURL, options: .mappedIfSafe)
+    }
+
+    func writeSourceAdmissions<T: Encodable>(_ value: T) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        try atomicWrite(try encoder.encode(records), to: directory.appending(path: "source-admissions.json"))
+        try atomicWrite(try encoder.encode(value), to: sourceAdmissionsURL)
         // Persist a newly created sync directory as well as its journal entry.
         let parent = Darwin.open(directory.deletingLastPathComponent().path, O_RDONLY)
         guard parent >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }

@@ -7,10 +7,20 @@ import Foundation
 /// the tree produces and, because iOS keeps every accepted object it has seen,
 /// the platform store for accepted bytes.
 public struct DirectoryObjectStore: ObjectOverlay {
-    public let directory: URL
+    public enum RetentionPolicy: Sendable {
+        /// The directory is an authoritative content-addressed archive. GC is
+        /// owned by a higher-level lifecycle, not by one working-tree head.
+        case retainAll
+        /// The directory is an overlay whose unreferenced objects are disposable.
+        case collectUnreachable
+    }
 
-    public init(directory: URL) throws {
+    public let directory: URL
+    public let retentionPolicy: RetentionPolicy
+
+    public init(directory: URL, retentionPolicy: RetentionPolicy = .collectUnreachable) throws {
         self.directory = directory
+        self.retentionPolicy = retentionPolicy
         try Self.createPrivateDirectory(directory)
     }
 
@@ -54,6 +64,7 @@ public struct DirectoryObjectStore: ObjectOverlay {
     }
 
     public func retain(reachableFrom roots: Set<String>, files: Set<String>) throws {
+        guard retentionPolicy == .collectUnreachable else { return }
         let reachable = try reachableHashes(from: roots).union(files)
         for hash in try hashes() where !reachable.contains(hash) {
             try? FileManager.default.removeItem(at: objectURL(hash: hash))

@@ -660,7 +660,7 @@ struct ArborPageSearchControls: View {
     }
 }
 
-enum ArborToolbarSyncStatus: Equatable {
+enum ArborSyncStatus: Equatable {
     case synchronized
     case syncing
     case offline
@@ -691,6 +691,19 @@ enum ArborToolbarSyncStatus: Equatable {
         case .offline: "Offline; changes will sync when reconnected"
         case .attention: "Synchronization needs attention"
         }
+    }
+
+    var label: String {
+        switch self {
+        case .synchronized: "Fully synced"
+        case .syncing: "Syncing"
+        case .offline: "Offline"
+        case .attention: "Sync needs attention"
+        }
+    }
+
+    var showsIOSShareAction: Bool {
+        self == .synchronized
     }
 }
 
@@ -1102,7 +1115,7 @@ struct ArborRootView: View {
                     results: model.searchResults,
                     order: sidebarPageOrder,
                     alphabeticalSectionTitle: nil,
-                    topSpacing: 4
+                    topSpacing: 8
                 ) { result, showsBacklinkCount in
                     sidebarSearchRow(result, showsBacklinkCount: showsBacklinkCount)
                 }
@@ -1456,15 +1469,17 @@ struct ArborRootView: View {
 #endif
     }
 
-#if os(macOS)
-    private var toolbarSyncStatus: ArborToolbarSyncStatus {
-        ArborToolbarSyncStatus.resolve(
+    private var toolbarSyncStatus: ArborSyncStatus {
+        syncStatus(for: model.binding)
+    }
+
+    private func syncStatus(for binding: ArborDocumentBinding?) -> ArborSyncStatus {
+        ArborSyncStatus.resolve(
             synchronization: workspace.syncPresentation.state,
-            documentIsSaving: model.binding?.isSaving == true,
-            documentNeedsAttention: model.binding?.conflict != nil || model.binding?.lastError != nil
+            documentIsSaving: binding?.isSaving == true,
+            documentNeedsAttention: binding?.conflict != nil || binding?.lastError != nil
         )
     }
-#endif
 
 #if os(macOS)
     private func localTreeTitle(_ tree: LocalArborSyncTreePresentation) -> String {
@@ -1678,8 +1693,18 @@ struct ArborRootView: View {
                     )
                     .disabled(location != model.currentLocation)
                 }
-                Button("Share", systemImage: "square.and.arrow.up") {
-                    sharePresented = true
+                if toolbarSyncStatus.showsIOSShareAction {
+                    Button("Share", systemImage: "square.and.arrow.up") {
+                        sharePresented = true
+                    }
+                } else {
+                    Button {
+                        showStatusPanel()
+                    } label: {
+                        ArborSyncToolbarIndicator(status: toolbarSyncStatus)
+                            .frame(width: 18, height: 18)
+                    }
+                    .accessibilityLabel(toolbarSyncStatus.accessibilityDescription)
                 }
 #else
                 HStack(spacing: 4) {
@@ -1802,9 +1827,7 @@ struct ArborRootView: View {
                             topOverscrollAction: editorTopOverscrollAction
                         ) {
                             ArborDocumentFooter(
-                                provider: workspace.providerDetail,
-                                sync: workspace.syncPresentation,
-                                binding: lease.binding,
+                                status: syncStatus(for: lease.binding),
                                 backlinks: presentation.backlinks,
                                 open: { destination in Task { await model.navigate(to: destination) } },
                                 showStatus: showStatusPanel
@@ -1980,7 +2003,7 @@ struct ArborRootView: View {
 
 #if os(macOS)
 private struct ArborProfileSyncToolbarLabel: View {
-    let status: ArborToolbarSyncStatus
+    let status: ArborSyncStatus
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -1992,13 +2015,23 @@ private struct ArborProfileSyncToolbarLabel: View {
             badge
                 .frame(width: 13, height: 13)
                 .background(.bar, in: Circle())
-                .offset(x: 1, y: 1)
+                .offset(x: -2, y: -2)
         }
         .contentShape(.rect)
     }
 
     @ViewBuilder
     private var badge: some View {
+        ArborSyncToolbarIndicator(status: status)
+    }
+}
+#endif
+
+struct ArborSyncToolbarIndicator: View {
+    let status: ArborSyncStatus
+
+    @ViewBuilder
+    var body: some View {
         switch status {
         case .synchronized:
             Image(systemName: "checkmark.circle.fill")
@@ -2019,7 +2052,6 @@ private struct ArborProfileSyncToolbarLabel: View {
         }
     }
 }
-#endif
 
 #if os(iOS)
 private struct ArborEditorUndoButtons: View {

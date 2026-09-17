@@ -54,7 +54,7 @@ public actor WorkingTree {
         clock: @escaping Clock = Date.init
     ) async throws -> WorkingTree {
         let files = try DurableWorkingTreeFiles(root: root)
-        let overlay = try DirectoryObjectStore(directory: files.objectsDirectory)
+        let overlay = try DirectoryObjectStore(directory: files.objectsDirectory, retentionPolicy: .retainAll)
         return try await open(
             store: files,
             overlay: overlay,
@@ -1190,5 +1190,11 @@ public actor WorkingTree {
         if !state.nodes.contains(where: { $0.path.hasPrefix("/Trash/") }) {
             state.nodes.removeAll { $0.path == "/Trash" }
         }
+    }
+}
+
+extension WorkingTree: ObjectStore {
+    public func bytes(_ hash: String) async throws -> Data {
+        try await objectBytes(hash: hash)
     }
 }

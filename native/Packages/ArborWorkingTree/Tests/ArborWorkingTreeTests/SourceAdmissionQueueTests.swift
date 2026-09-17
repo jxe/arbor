@@ -1,4 +1,5 @@
 import ArborKit
+import ArborObjectStore
 import ArborWire
 @testable import ArborWorkingTree
 import Foundation
@@ -51,9 +52,9 @@ struct SourceAdmissionQueueTests {
     @Test("Shared requests retain same-root dependencies and restart with original operation identities")
     func sharedRequests() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let queue = try SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
         for record in all { try await queue.retain(record) }
-        let reopened = try SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
         #expect(try await reopened.retained() == all)
         try await reopened.retain(all[0])
         #expect(try await reopened.retained().count == 3)
@@ -79,12 +80,12 @@ struct SourceAdmissionQueueTests {
         let intent = try WorkspaceDocumentIntent(basis: captured.document, patch: patch, source: patch.applying(to: captured.document.source))
         #expect(throws: (any Error).self) { try captured.prepare(intent: intent, predecessor: "invented-parent") }
         let record = try captured.prepare(intent: intent, change: "captured-r1")
-        let queue = try SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
         try await queue.retain(record)
         #expect(try await tree.heads().acceptedRoot == peer.root)
         #expect(try await tree.heads().pendingRoot == nil)
         await tree.close()
-        let reopened = try SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
         #expect(try await reopened.request(through: record.change).base.update == "up_r1")
         #expect(record.graph.root == captured.graph.root)
         #expect(record.graph.root != peer.root)
@@ -94,7 +95,7 @@ struct SourceAdmissionQueueTests {
     @Test("Missing parents, altered candidates, and reused identities leave all retained work intact")
     func invalidRecords() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let queue = try SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
         await #expect(throws: (any Error).self) { try await queue.retain(all[1]) }
         #expect(try await queue.retained().isEmpty)
         try await queue.retain(all[0])
@@ -105,14 +106,14 @@ struct SourceAdmissionQueueTests {
         #expect(try await queue.retained() == [all[0]])
         let path = root.appending(path: "sync/source-admissions.json"), corrupt = Data("[{\"change\":\"broken\"}]".utf8)
         try corrupt.write(to: path)
-        #expect(throws: (any Error).self) { try SourceAdmissionQueue(tree: f.tree, stateRoot: root) }
+        await #expect(throws: (any Error).self) { try await SourceAdmissionQueue(tree: f.tree, stateRoot: root) }
         #expect(try Data(contentsOf: path) == corrupt)
     }
 
     @Test("A failed disk commit retries the same record and concurrent owners do not lose appends")
     func durability() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let queue = try SourceAdmissionQueue(tree: f.tree, stateRoot: root), other = try SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), other = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root), all = try records(f)
         let path = root.appending(path: "sync/source-admissions.json")
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: false)
         await #expect(throws: (any Error).self) { try await queue.retain(all[0]) }
@@ -121,5 +122,86 @@ struct SourceAdmissionQueueTests {
         async let c: Void = other.retain(all[2])
         _ = try await (a, c)
         #expect(try await queue.retained().count == 2)
+    }
+
+    @Test("Journal stores object hashes once and compacts only dependency-free accepted records")
+    func objectStorageAndCompaction() async throws {
+        let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let asset = Data(repeating: 0x5a, count: 1_000_000), assetHash = WireObjectCodec.hash(asset)
+        let source = Data(f.source.utf8), sourceHash = WireObjectCodec.hash(source)
+        let nested = try WireObjectCodec.encode(.directory([.init(name: "note.md", file: sourceHash)])), nestedHash = WireObjectCodec.hash(nested)
+        let rootBytes = try WireObjectCodec.encode(.directory([
+            .init(name: "asset.bin", file: assetHash), .init(name: "nested", directory: nestedHash),
+        ]))
+        let initialGraph = WireSnapshot(root: WireObjectCodec.hash(rootBytes), objects: [asset, source, nested, rootBytes].map {
+            .init(hash: WireObjectCodec.hash($0), bytes: $0)
+        })
+        var graph = initialGraph
+        var all: [SourceAdmissionRecord] = []
+        for change in f.changes {
+            let prior = all.first { $0.change == change.basis.change }
+            graph = prior?.candidate ?? initialGraph
+            let basisSource = prior?.intent?.source ?? f.source
+            let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/nested/note"),
+                source: basisSource, contentRevision: change.revision)
+            let patch = WorkspaceDocumentPatch(baseContentRevision: change.revision,
+                edits: [.init(utf8Range: change.offset..<(change.offset + change.length), replacement: change.replacement, expected: change.expected)])
+            all.append(try SourceAdmissionRecord(change: change.change, tree: f.tree,
+                basis: prior.map { .authored(change: $0.change) } ?? .accepted(.init(root: graph.root, update: change.basis.update!)),
+                graph: graph, sourcePath: f.sourcePath, intent: .init(basis: basis, patch: patch, source: patch.applying(to: basisSource))))
+        }
+        let platform = try DirectoryObjectStore(
+            directory: root.appending(path: "platform-objects"),
+            retentionPolicy: .retainAll
+        )
+        try platform.store(Dictionary(uniqueKeysWithValues: initialGraph.objects.map { ($0.hash, $0.bytes) }))
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: platform)
+        for record in all { try await queue.retain(record) }
+        let journal = root.appending(path: "sync/source-admissions.json")
+        let journalBytes = try Data(contentsOf: journal)
+        #expect(journalBytes.count < 100_000)
+        #expect(!String(decoding: journalBytes, as: UTF8.self).contains("\"bytes\""))
+        let objectDirectory = root.appending(path: "sync/source-admission-objects")
+        #expect(!FileManager.default.fileExists(atPath: objectDirectory.appending(path: String(assetHash.dropFirst(7))).path))
+        #expect(try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: platform).retained() == all)
+
+        // The replica store keeps accepted hashes even when the live head no
+        // longer reaches them; source journals may still reference that basis.
+        try platform.retain(reachableFrom: [], files: [])
+        #expect(try await platform.bytes(assetHash) == asset)
+
+        _ = try await queue.compact(settled: [all[0].change, all[1].change])
+        #expect(try await queue.retained().map(\.change) == [all[2].change])
+        #expect(try await queue.compact(settled: [all[2].change], preservingSettledTail: false))
+        #expect(try await queue.retained().isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: objectDirectory.path).isEmpty)
+    }
+
+    @Test("A fully settled embedded-object journal is scanned without decoding its snapshots")
+    func settledLegacyMigration() async throws {
+        let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let all = try records(f), path = root.appending(path: "sync/source-admissions.json")
+        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoded = String(decoding: try JSONEncoder().encode(all), as: UTF8.self)
+            .replacingOccurrences(of: "\"tree\":\"(f.tree)\"", with: "\"tree\":42")
+        try Data(encoded.utf8).write(to: path)
+        let legacySize = try Data(contentsOf: path).count
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, settled: Set(all.map(\.change)))
+        #expect(try await queue.retained().isEmpty)
+        #expect((try Data(contentsOf: path)).count < legacySize)
+        let raw = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
+        #expect(raw["schema"] as? Int == 2)
+    }
+
+    @Test("Pending legacy migration remains self-contained when its old platform basis is gone")
+    func pendingLegacyMigration() async throws {
+        let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let all = try records(f), path = root.appending(path: "sync/source-admissions.json")
+        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(all).write(to: path)
+        let migrated = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: EmptyObjectStore())
+        #expect(try await migrated.retained() == all)
+        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: EmptyObjectStore())
+        #expect(try await reopened.retained() == all)
     }
 }
