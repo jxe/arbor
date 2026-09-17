@@ -25,11 +25,11 @@ conveniences are deferred. Experimental execution remains on its separate branch
 2. [Reliability 009 — Canopy intent retention and forwarding](reliability/009-canopy-provenance-merges.md), on main: specify the recorded-versus-validated contract, retain and authorize material, forward to the tool, and own acceptance and deployment.
 3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
 
-Reliability 013, `plans/reliability/013-merge-operations-and-formats.md` on
-`codex/merge-tool`, owns full operation interpretation and format/language support.
-It can progress against fixtures independently of client emission or installation.
-The client and Canopy plans are authoritative on main; the tool plan stays with its
-implementation branch until that work is integrated.
+[Reliability 013 — Merge operations and formats](_done/reliability/013-merge-operations-and-formats.md)
+is complete on `codex/merge-tool`, with a verified tool-only support contract for
+all operation families and the format/language matrix. It is not deployed. The
+client and Canopy plans remain authoritative for emission, retention and installation;
+no old/new evaluator compatibility path is required for that installation.
 
 ## What to do soon
 

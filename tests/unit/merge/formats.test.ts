@@ -143,3 +143,64 @@ test("code overlaps do not authorize independent-looking edits within the same d
   expect(result.decisions).toHaveLength(1);
   expect(result.decisions[0]!.reason).toContain("Format policy");
 });
+
+for (const c of [
+  ...cases,
+  { name: "opaque.bin", source: "\u0000\u0001opaque" },
+]) {
+  test(`${c.name}: entry transformations and inverse preserve opaque source`, async () => {
+    for (const kind of [
+      "moveEntry",
+      "copyEntry",
+      "removeEntry",
+      "replaceEntry",
+    ] as const) {
+      const f = new Fixture(),
+        base = f.tree({ [c.name]: c.source, "other.txt": "old" });
+      const candidate = f.tree({
+        ...(kind === "moveEntry" || kind === "removeEntry"
+          ? {}
+          : { [c.name]: kind === "replaceEntry" ? "replacement" : c.source }),
+        ...(kind === "moveEntry" || kind === "copyEntry"
+          ? { destination: c.source }
+          : {}),
+        "other.txt": "old",
+      });
+      const operation = {
+        key: "op",
+        kind,
+        source: f.ref("/" + c.name, c.source),
+        ...(kind === "moveEntry" || kind === "copyEntry"
+          ? { destination: { parent: f.root(base), name: "destination" } }
+          : {}),
+        ...(kind === "replaceEntry"
+          ? { value: { file: f.put("replacement") } }
+          : {}),
+      };
+      const transformed = await f.run(
+        f.request(
+          base,
+          candidate,
+          [operation as import("@arbor/wire").SourceOperation],
+          kind,
+        ),
+      );
+      const undo = await f.run(
+        f.request(
+          transformed.result,
+          base,
+          [
+            {
+              key: "undo",
+              kind: "undoOperation",
+              target: { change: kind, operation: "op" },
+            },
+          ],
+          "undo",
+        ),
+      );
+      expect(undo.result.object).toBe(base);
+      expect(undo.decisions).toEqual([]);
+    }
+  });
+}

@@ -80,3 +80,71 @@ test("operation evaluation is identical through library, fresh worker, persisten
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("typed evaluation refusals match library and executable modes", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const valid = f.request(base, f.tree({ "a.txt": "new" }), [
+    {
+      key: "edit",
+      kind: "editSource",
+      source: f.ref("/a.txt", "old"),
+      text: "new",
+    },
+  ]);
+  const invalid = structuredClone(valid);
+  invalid.incoming.object = base;
+  const missing = structuredClone(valid);
+  missing.base.object = "sha256:" + "0".repeat(64);
+  const limited = structuredClone(valid);
+  limited.rules.config = { maxBytes: 1 };
+  const unsupported = structuredClone(valid);
+  (unsupported.incoming.operations[0] as { kind: string }).kind =
+    "futureOperation";
+  const requests = [invalid, missing, limited, unsupported, valid];
+  const expected = await Promise.all(requests.map((r) => f.evaluate(r)));
+  expect(expected.map((r) => r.outcome)).toEqual([
+    "invalid",
+    "missing-context",
+    "limit",
+    "unsupported",
+    "evaluated",
+  ]);
+  const directory = await mkdtemp(join(tmpdir(), "arbor-operation-refusals-"));
+  try {
+    const shared = join(directory, "objects");
+    await new ObjectStore(shared).store(
+      [...f.objects].map(([hash, bytes]) => ({ hash, bytes })),
+    );
+    for (const mode of ["evaluate", "serve"]) {
+      for (const batch of mode === "serve"
+        ? [requests]
+        : requests.map((r) => [r])) {
+        const child = Bun.spawn(
+          [
+            process.execPath,
+            "packages/merge/src/cli.ts",
+            mode,
+            "--objects",
+            shared,
+            "--staging",
+            join(directory, mode),
+          ],
+          { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+        );
+        child.stdin.write(
+          batch.map((r) => JSON.stringify(r)).join("\n") + "\n",
+        );
+        child.stdin.end();
+        const lines = (await new Response(child.stdout).text())
+          .trim()
+          .split("\n")
+          .map((s) => JSON.parse(s));
+        expect(await child.exited).toBe(0);
+        expect(lines).toEqual(batch.map((r) => expected[requests.indexOf(r)]));
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

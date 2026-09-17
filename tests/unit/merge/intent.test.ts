@@ -1187,3 +1187,859 @@ test("an old source move cannot claim lineage through equal-byte opaque replacem
   );
   expect(late.decisions.length).toBeGreaterThan(0);
 });
+test("structural alternative references support exact descendant reads and hidden edits", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const current = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "new" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "new",
+        },
+      ],
+      "current",
+    ),
+  );
+  const removed = await f.run(
+    f.request(
+      base,
+      f.tree({}),
+      [{ key: "remove", kind: "removeEntry", source: f.ref("/a.txt", "old") }],
+      "remove",
+      current.result,
+    ),
+  );
+  const ref: MaterialRef = {
+    material: {
+      kind: "alternative",
+      state: "accepted",
+      conflict: "entry",
+      alternative: "kept",
+    },
+  };
+  const request = f.request(
+    removed.result,
+    removed.result.object,
+    [
+      {
+        key: "edit",
+        kind: "editSource",
+        source: { ...ref, within: ["a.txt"] },
+        text: "NEW",
+      },
+    ],
+    "hidden",
+  );
+  request.alternatives = [
+    {
+      ref,
+      decision: removed.decisions[0]!.key,
+      alternative: 0,
+      value: { object: current.result.object, kind: "directory" },
+    },
+  ];
+  const result = await f.run(request);
+  expect(result.result.object).toBe(removed.result.object);
+  expect(result.decisions[0]!.alternatives[0]!.object).toBe(
+    f.tree({ "a.txt": "NEW" }),
+  );
+  const again = f.request(
+    result.result,
+    result.result.object,
+    [
+      {
+        key: "edit",
+        kind: "editSource",
+        source: { ...ref, within: ["a.txt"] },
+        text: "NEWER",
+      },
+    ],
+    "again",
+  );
+  again.alternatives = [
+    {
+      ref,
+      decision: result.decisions[0]!.key,
+      alternative: 0,
+      value: { object: f.tree({ "a.txt": "NEW" }), kind: "directory" },
+    },
+  ];
+  expect((await f.run(again)).decisions[0]!.alternatives[0]!.object).toBe(
+    f.tree({ "a.txt": "NEWER" }),
+  );
+});
+test("selected structural alternatives continue and retained nested choices remain usable", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old", "b.txt": "same" });
+  const current = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "new", "b.txt": "same" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "new",
+        },
+      ],
+      "current",
+    ),
+  );
+  const removed = await f.run(
+    f.request(
+      base,
+      f.tree({ "b.txt": "same" }),
+      [{ key: "remove", kind: "removeEntry", source: f.ref("/a.txt", "old") }],
+      "remove",
+      current.result,
+    ),
+  );
+  const next = await f.run(
+    f.request(
+      removed.result,
+      f.tree({ "b.txt": "NEXT" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/b.txt", "same"),
+          text: "NEXT",
+        },
+      ],
+      "next",
+    ),
+  );
+  expect(next.decisions[0]!.alternatives[1]!.object).toBe(next.result.object);
+  await f.run(
+    f.request(
+      next.result,
+      f.tree({ "b.txt": "LATER" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/b.txt", "NEXT"),
+          text: "LATER",
+        },
+      ],
+      "later",
+    ),
+  );
+});
+test("keeping an enclosing alternative retains its child choice; discarding requires child guards", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const removed = await f.run(
+    f.request(
+      b.result,
+      f.tree({}),
+      [{ key: "remove", kind: "removeEntry", source: f.ref("/a.txt", "two") }],
+      "remove",
+    ),
+  );
+  const parent = removed.decisions[1]!,
+    child = removed.decisions[0]!;
+  const bad = f.request(removed.result, removed.result.object, [], "discard");
+  bad.incoming.resolves = [parent.key];
+  expect((await f.evaluate(bad)).outcome).toBe("invalid");
+  const ref: MaterialRef = {
+    material: {
+      kind: "alternative",
+      state: "state",
+      conflict: "parent",
+      alternative: "kept",
+    },
+  };
+  const keep = f.request(
+    removed.result,
+    b.result.object,
+    [
+      {
+        key: "restore",
+        kind: "moveEntry",
+        source: { ...ref, within: ["a.txt"] },
+        destination: { parent: f.root(removed.result.object), name: "a.txt" },
+      },
+    ],
+    "keep",
+  );
+  keep.alternatives = [
+    {
+      ref,
+      decision: parent.key,
+      alternative: 0,
+      value: { object: b.result.object, kind: "directory" },
+    },
+  ];
+  keep.incoming.resolves = [parent.key];
+  const kept = await f.run(keep);
+  expect(kept.decisions.map((d) => d.key)).toEqual([child.key]);
+  expect(kept.decisions[0]!.context).toBeUndefined();
+  await f.run(
+    f.request(
+      kept.result,
+      f.tree({ "a.txt": "THREE" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "two"),
+          text: "THREE",
+        },
+      ],
+      "later",
+    ),
+  );
+  bad.incoming.change = "guarded";
+  bad.incoming.resolves = [parent.key, child.key];
+  expect((await f.run(bad)).decisions).toEqual([]);
+});
+test("hidden source continuation propagates through two enclosing structural decisions", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old", "b.txt": "stay" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one", "b.txt": "stay" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two", "b.txt": "stay" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const removed = await f.run(
+    f.request(
+      b.result,
+      f.tree({ "b.txt": "stay" }),
+      [{ key: "remove", kind: "removeEntry", source: f.ref("/a.txt", "two") }],
+      "remove",
+    ),
+  );
+  const outer = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "OUTER", "b.txt": "stay" }),
+      [
+        {
+          key: "replace",
+          kind: "replaceEntry",
+          source: f.ref("/a.txt", "old"),
+          value: { file: f.put("OUTER") },
+        },
+      ],
+      "outer",
+      removed.result,
+    ),
+  );
+  const ref: MaterialRef = {
+    material: {
+      kind: "alternative",
+      state: "state",
+      conflict: "source",
+      alternative: "two",
+    },
+  };
+  const request = f.request(
+    outer.result,
+    outer.result.object,
+    [{ key: "edit", kind: "editSource", source: ref, text: "THREE" }],
+    "deep",
+  );
+  request.alternatives = [
+    {
+      ref,
+      decision: b.decisions[0]!.key,
+      alternative: 1,
+      value: { object: f.put("two"), kind: "file" },
+    },
+  ];
+  const result = await f.run(request);
+  expect(result.result.object).toBe(outer.result.object);
+  expect(result.decisions[0]!.alternatives[1]!.object).toBe(f.put("THREE"));
+  await f.run(
+    f.request(
+      result.result,
+      f.tree({ "a.txt": "OUTER", "b.txt": "LATER" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/b.txt", "stay"),
+          text: "LATER",
+        },
+      ],
+      "later",
+    ),
+  );
+});
+test.each([3, 5])(
+  "hidden continuation propagates through %s enclosing decisions",
+  async (depth) => {
+    const f = new Fixture(),
+      base = f.tree({ "a.txt": "old", "b.txt": "stay" });
+    const a = await f.run(
+      f.request(
+        base,
+        f.tree({ "a.txt": "one", "b.txt": "stay" }),
+        [
+          {
+            key: "edit",
+            kind: "editSource",
+            source: f.ref("/a.txt", "old"),
+            text: "one",
+          },
+        ],
+        "a",
+      ),
+    );
+    const b = await f.run(
+      f.request(
+        base,
+        f.tree({ "a.txt": "two", "b.txt": "stay" }),
+        [
+          {
+            key: "edit",
+            kind: "editSource",
+            source: f.ref("/a.txt", "old"),
+            text: "two",
+          },
+        ],
+        "b",
+        a.result,
+      ),
+    );
+    const removed = await f.run(
+      f.request(
+        b.result,
+        f.tree({ "b.txt": "stay" }),
+        [
+          {
+            key: "remove",
+            kind: "removeEntry",
+            source: f.ref("/a.txt", "two"),
+          },
+        ],
+        "remove",
+      ),
+    );
+    let outer = await f.run(
+      f.request(
+        base,
+        f.tree({ "a.txt": "OUTER", "b.txt": "stay" }),
+        [
+          {
+            key: "replace",
+            kind: "replaceEntry",
+            source: f.ref("/a.txt", "old"),
+            value: { file: f.put("OUTER") },
+          },
+        ],
+        "outer",
+        removed.result,
+      ),
+    );
+    for (let i = 2; i < depth; i++)
+      outer = await f.run(
+        f.request(
+          base,
+          f.tree({ "a.txt": "OUTER", "b.txt": "stay" }),
+          [
+            {
+              key: "replace",
+              kind: "replaceEntry",
+              source: f.ref("/a.txt", "old"),
+              value: { file: f.put("OUTER") },
+            },
+          ],
+          `outer${i}`,
+          outer.result,
+        ),
+      );
+    const ref: MaterialRef = {
+      material: {
+        kind: "alternative",
+        state: "state",
+        conflict: "source",
+        alternative: "two",
+      },
+    };
+    const request = f.request(
+      outer.result,
+      outer.result.object,
+      [{ key: "edit", kind: "editSource", source: ref, text: "THREE" }],
+      "deep",
+    );
+    request.alternatives = [
+      {
+        ref,
+        decision: b.decisions[0]!.key,
+        alternative: 1,
+        value: { object: f.put("two"), kind: "file" },
+      },
+    ];
+    const result = await f.run(request);
+    expect(result.result.object).toBe(outer.result.object);
+    expect(result.decisions[0]!.alternatives[1]!.object).toBe(f.put("THREE"));
+    await f.run(
+      f.request(
+        result.result,
+        f.tree({ "a.txt": "OUTER", "b.txt": "LATER" }),
+        [
+          {
+            key: "edit",
+            kind: "editSource",
+            source: f.ref("/b.txt", "stay"),
+            text: "LATER",
+          },
+        ],
+        "later",
+      ),
+    );
+  },
+);
+test("a partial copy through a source choice stays coupled rather than inventing a slice of another value", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old", "b.txt": "end" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one", "b.txt": "end" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two", "b.txt": "end" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const copied = await f.run(
+    f.request(
+      b.result,
+      f.tree({ "a.txt": "two", "b.txt": "endwo" }),
+      [
+        {
+          key: "copy",
+          kind: "copySource",
+          source: f.ref("/a.txt", "two", [1, 3]),
+          at: f.ref("/b.txt", "end", [3, 3]),
+          side: "after",
+        },
+      ],
+      "copy",
+    ),
+  );
+  expect(copied.decisions).toHaveLength(2);
+  expect(copied.decisions[1]!.dependencies).toEqual([b.decisions[0]!.key]);
+  const edited = await f.run(
+    f.request(
+      copied.result,
+      f.tree({ "a.txt": "THREE", "b.txt": "endwo" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "two"),
+          text: "THREE",
+        },
+      ],
+      "later",
+    ),
+  );
+  expect(edited.decisions[1]!.alternatives[0]!.object).toBe(
+    f.tree({ "a.txt": "THREE", "b.txt": "end" }),
+  );
+  expect(edited.decisions[1]!.alternatives[1]!.object).toBe(
+    edited.result.object,
+  );
+});
+test("undoing an edited insertion retains a choice and independent later text", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "one two" });
+  const inserted = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "ONE two" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "one two", [0, 3]),
+          text: "ONE",
+        },
+      ],
+      "insert",
+    ),
+  );
+  const edited = await f.run(
+    f.request(
+      inserted.result,
+      f.tree({ "a.txt": "NEW TWO" }),
+      [
+        {
+          key: "inside",
+          kind: "editSource",
+          source: f.ref("/a.txt", "ONE two", [0, 3]),
+          text: "NEW",
+        },
+        {
+          key: "outside",
+          kind: "editSource",
+          source: f.ref("/a.txt", "ONE two", [4, 7]),
+          text: "TWO",
+        },
+      ],
+      "edit",
+    ),
+  );
+  const undo = await f.run(
+    f.request(
+      edited.result,
+      f.tree({ "a.txt": "one TWO" }),
+      [
+        {
+          key: "undo",
+          kind: "undoOperation",
+          target: { change: "insert", operation: "edit" },
+        },
+      ],
+      "undo",
+    ),
+  );
+  expect(undo.decisions).toHaveLength(1);
+  expect(undo.decisions[0]!.alternatives[0]!.object).toBe(edited.result.object);
+  expect(f.content(undo.result.object, "a.txt")).toBe("one TWO");
+});
+test("undoing a copy with later edits retains the edited copy as an alternative", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "original" });
+  const copy = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "original", "b.txt": "original" }),
+      [
+        {
+          key: "copy",
+          kind: "copyEntry",
+          source: f.ref("/a.txt", "original"),
+          destination: { parent: f.root(base), name: "b.txt" },
+        },
+      ],
+      "copy",
+    ),
+  );
+  const edit = await f.run(
+    f.request(
+      copy.result,
+      f.tree({ "a.txt": "original", "b.txt": "edited" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/b.txt", "original"),
+          text: "edited",
+        },
+      ],
+      "edit",
+    ),
+  );
+  const undone = await f.run(
+    f.request(
+      edit.result,
+      base,
+      [
+        {
+          key: "undo",
+          kind: "undoOperation",
+          target: { change: "copy", operation: "copy" },
+        },
+      ],
+      "undo",
+    ),
+  );
+  expect(undone.decisions).toHaveLength(1);
+  expect(undone.decisions[0]!.alternatives[0]!.object).toBe(edit.result.object);
+});
+
+test("three same-anchor prose contributions have one order across all arrivals", async () => {
+  for (const order of ["abc", "acb", "bac", "bca", "cab", "cba"]) {
+    const f = new Fixture(),
+      base = f.tree({ "note.md": "hello" });
+    let current: { object: string; state: string } | string = base;
+    for (const change of order) {
+      const request = f.request(
+        base,
+        f.tree({ "note.md": `hello ${change}` }),
+        [
+          {
+            key: "insert",
+            kind: "editSource",
+            source: f.ref("/note.md", "hello", [5, 5]),
+            text: ` ${change}`,
+          },
+        ],
+        change,
+        current,
+      );
+      request.rules.config = {
+        formats: { "/note.md": { proseInsertions: "preserve-both" } },
+      };
+      const result = await f.run(request);
+      expect(result.decisions).toEqual([]);
+      current = result.result;
+    }
+    expect(
+      f.content(
+        typeof current === "string" ? current : current.object,
+        "note.md",
+      ),
+    ).toBe("hello a b c");
+  }
+});
+test("retained effects include exact authored copy intent and its basis", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "original" });
+  const operation: SourceOperation = {
+    key: "copy",
+    kind: "copyEntry",
+    source: f.ref("/a.txt", "original"),
+    destination: { parent: f.root(base), name: "b.txt" },
+  };
+  const result = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "original", "b.txt": "original" }),
+      [operation],
+      "copy",
+    ),
+  );
+  const state = JSON.parse(
+    new TextDecoder().decode(f.objects.get(result.result.state)),
+  );
+  const effect = Object.values(state.effects)[0] as {
+    authored: { basis: string; operation: string };
+  };
+  expect(effect.authored.basis).toBe(base);
+  expect(
+    JSON.parse(
+      new TextDecoder().decode(f.objects.get(effect.authored.operation)),
+    ),
+  ).toEqual(operation);
+});
+
+test("a source copy does not silently order a concurrent insertion at its destination", async () => {
+  for (const reverse of [false, true]) {
+    const f = new Fixture(),
+      base = f.tree({ "a.txt": "one two" });
+    const copy = f.request(
+      base,
+      f.tree({ "a.txt": "one twoone" }),
+      [
+        {
+          key: "copy",
+          kind: "copySource",
+          source: f.ref("/a.txt", "one two", [0, 3]),
+          at: f.ref("/a.txt", "one two", [7, 7]),
+          side: "after",
+        },
+      ],
+      "copy",
+    );
+    const insert = f.request(
+      base,
+      f.tree({ "a.txt": "one two!" }),
+      [
+        {
+          key: "insert",
+          kind: "editSource",
+          source: f.ref("/a.txt", "one two", [7, 7]),
+          text: "!",
+        },
+      ],
+      "insert",
+    );
+    const first = await f.run(reverse ? insert : copy),
+      second = reverse ? copy : insert;
+    second.current = first.result;
+    expect((await f.run(second)).decisions.length).toBeGreaterThan(0);
+  }
+});
+
+test("generated UTF-8 disjoint edits preserve exact bytes in every arrival order", async () => {
+  for (const prefix of ["", "α", "👩🏽‍💻", "\uFEFF"]) {
+    for (const newline of ["\n", "\r\n", ""]) {
+      for (const reverse of [false, true]) {
+        const f = new Fixture(),
+          source = `${prefix}one / two${newline}`,
+          base = f.tree({ "a.txt": source });
+        const start = Buffer.byteLength(prefix);
+        const a = f.request(
+          base,
+          f.tree({ "a.txt": `${prefix}ONE / two${newline}` }),
+          [
+            {
+              key: "edit",
+              kind: "editSource",
+              source: f.ref("/a.txt", source, [start, start + 3]),
+              text: "ONE",
+            },
+          ],
+          "a",
+        );
+        const b = f.request(
+          base,
+          f.tree({ "a.txt": `${prefix}one / TWO${newline}` }),
+          [
+            {
+              key: "edit",
+              kind: "editSource",
+              source: f.ref("/a.txt", source, [start + 6, start + 9]),
+              text: "TWO",
+            },
+          ],
+          "b",
+        );
+        const first = await f.run(reverse ? b : a),
+          second = reverse ? a : b;
+        second.current = first.result;
+        const result = await f.run(second);
+        expect(result.decisions).toEqual([]);
+        expect(result.result.object).toBe(
+          f.tree({ "a.txt": `${prefix}ONE / TWO${newline}` }),
+        );
+      }
+    }
+  }
+});
+
+test("copying an empty selected alternative preserves the hidden value", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const copy = await f.run(
+    f.request(
+      b.result,
+      f.tree({ "a.txt": "", "b.txt": "" }),
+      [
+        {
+          key: "copy",
+          kind: "copyEntry",
+          source: f.ref("/a.txt", ""),
+          destination: { parent: f.root(b.result.object), name: "b.txt" },
+        },
+      ],
+      "copy",
+    ),
+  );
+  expect(copy.decisions).toHaveLength(2);
+  expect(copy.decisions[1]!.alternatives.map((a) => a.object)).toEqual([
+    f.put("one"),
+    f.put(""),
+  ]);
+});

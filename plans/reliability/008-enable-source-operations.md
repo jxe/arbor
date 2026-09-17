@@ -7,7 +7,7 @@ not operation interpretation or merge policy. Native review stays in
 [010](010-client-conflict-review.md).
 
 This is one of three coordinated plans: 008 clients, 009 Canopy, and Reliability
-013 (`plans/reliability/013-merge-operations-and-formats.md` on `codex/merge-tool`)
+013 (`plans/_done/reliability/013-merge-operations-and-formats.md` on `codex/merge-tool`)
 for full operation semantics and format/language rules. The merge tool can develop
 against fixtures before client changes ship. A client need not wait for semantic
 support when Canopy can safely accept its explicitly recorded, unvalidated intent.

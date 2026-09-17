@@ -1,32 +1,48 @@
 # Reliability 013: Complete merge-tool operation and language support
 
-Status: IN PROGRESS on `codex/merge-tool`. Priority: P1.
-This is the tool-only track of three plans: [008](008-enable-source-operations.md)
-owns client capture/submission on main; [009](009-canopy-provenance-merges.md) owns
-Canopy retention, forwarding, authority and deployment on main. This plan owns
-`@arbor/merge`: operation interpretation, source correspondence, format/language
-policy and proposed results. The [process checkpoint](../../docs/merge-tool.md) is
-implemented; its deployment is 009's task, not a prerequisite for this development.
+Status: COMPLETE on `codex/merge-tool`, September 17, 2026. Not deployed.
 
-## Current checkpoint and remaining gates
+## Delivered scope and verification
 
-The [operation evaluation checkpoint](../../docs/merge-operation-evaluation.md)
-implements all operation kinds, immutable interval correspondence, source choices,
-selected/hidden continuation, enclosing deletion, selective undo, pinned parsers and
-conservative automatic subsets for every format row below. The original source-intent
-lineage/transfer corpus runs in both arrival orders. Library, fresh/persistent process
-and Canopy staging parity are tested. This plan remains open: an implemented syntax
-row is not by itself proof of the full lifecycle contract.
+The tool-only implementation covers all eight operation kinds, exact authored
+candidate validation, retained operation/envelope objects, immutable origin
+correspondence, selective undo/redo and independent deletion contributions.
+Source and structural choices survive selected/hidden continuation, copying,
+partial copies, nested enclosures and guarded resolution. Ambiguous inverses retain
+both the pre-undo work and inverse proposal. All format rows below have an explicit
+automatic subset and conservative review contract in
+[operation evaluation](../../../docs/merge-operation-evaluation.md).
 
-Remaining completion gates include partial choice copying, structural-alternative
-material addressing, arbitrary nested continuation/resolution, operation inverses
-across those choices, broader generated adversarial cases, and final verification.
-Record explicit refusals separately from successful merges; do not silently count
-missing semantic context as completed operation support.
+The original source-intent experiments supplied the lineage/transfer regression
+corpus. Added coverage includes all arrival orders for three same-anchor writers,
+Unicode/CRLF/BOM combinations, empty choices, five nested enclosures, every format's
+entry transformations/inverses, parser/binding hazards and immutable authored intent.
+The 135 focused tests cover library, fresh/persistent process, typed refusals,
+Canopy staging validation and accepted fallback on worker failure.
+
+Final repository verification: 930 product tests passed across 82 files; all
+135 focused merge tests passed. TypeScript checking, full TypeScript/Swift protocol
+conformance, the 14-test standalone Swift client suite, build, frozen dependency
+installation, object-index performance gate and whitespace checks passed. The
+relative-link scan reported no new broken links (24 pre-existing unresolved
+links). One initial parallel product run hit the unrelated offline CLI reconnect
+test; its focused rerun and the complete 930-test rerun both passed. The implementation and measurements
+are documented in [the process API](../../../docs/merge-tool.md) and
+[operation evaluation](../../../docs/merge-operation-evaluation.md).
+The implementation is one executable/API; installation does not require parallel
+old/new semantic engines. Client capture remains
+[008](../../reliability/008-enable-source-operations.md); production Canopy retention,
+forwarding, authorization and activation remain
+[009](../../reliability/009-canopy-provenance-merges.md). Private tool state is not a
+promise about the final Canopy storage schema or compactness.
+
+## Original executor scope
+
+The following records the completed scope and its conservative support criteria.
 
 ## Outcome and meaning of full support
 
-Implement every operation family in the [goal contract](../../spec/10-source-intent.md)
+Implement every operation family in the [goal contract](../../../spec/10-source-intent.md)
 and the format/language matrix below, with exact execution, reconciliation and
 explicit ambiguity. Full support means valid inputs have defined, source-preserving
 behavior and uncertain cases preserve choices; it does not mean every conflict can
@@ -165,6 +181,6 @@ Run the golden corpus through both library and executable, including fresh/persi
 workers, malformed requests, missing objects, limits and deterministic evidence.
 Use disposable Canopy integration to verify returned proposals can be validated and
 retained; do not require installed clients to complete tool-only slices. Run applicable
-[development gates](../../DEVELOPMENT.md). Record delivered subsets in status/docs,
+[development gates](../../../DEVELOPMENT.md). Record delivered subsets in status/docs,
 remove completed work here, and archive only when every chosen row has an explicit,
 verified support contract rather than an unqualified claim to merge all programs.

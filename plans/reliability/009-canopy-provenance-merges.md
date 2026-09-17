@@ -5,7 +5,7 @@ P1. This plan owns the authoritative envelope, durable retention, worker integra
 and acceptance. [008](008-enable-source-operations.md) owns client capture/submission;
 [010](010-client-conflict-review.md) owns review. Operation interpretation, source
 correspondence and language rules belong to Reliability 013
-(`plans/reliability/013-merge-operations-and-formats.md` on `codex/merge-tool`).
+(`plans/_done/reliability/013-merge-operations-and-formats.md` on `codex/merge-tool`).
 
 The merge process and shared immutable store are implemented at `7d30066` on
 `codex/merge-tool`, not on main or deployed at this checkpoint. Inspect its implementation

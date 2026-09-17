@@ -55,8 +55,9 @@ The two lists must agree. Canopy proves the causal history and reconstructs the
 proposal before asking a format rule whether it is valid. The source result is
 that proposal with a resolved/unresolved/inapplicable decision and reason. Existing
 plain-text and Markdown-prose rules validate it conservatively; they do not infer
-operations from snapshots. Full unresolved-state/alternative-aware rule inputs and
-new operation execution are remaining work in [Reliability 013](../plans/reliability/013-merge-operations-and-formats.md).
+operations from snapshots. Authored execution and unresolved alternatives now use
+the operation-bearing tree request described in [operation evaluation](merge-operation-evaluation.md).
+Canopy forwarding/activation remains Reliability 009.
 
 The rule revision identifies algorithm semantics; it is not a versioned client API.
 Unrecognized rules, invalid responses or missing material fail evaluation. There
@@ -110,7 +111,7 @@ caller's working directory or execute authored schemas in the host runtime.
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint
 checks; plain-text and Markdown source-proposal validation; account configuration
-v1/v2 merging. The subsequent [operation evaluation checkpoint](merge-operation-evaluation.md) adds exact authored-operation execution and conservative format rules; its remaining completion gates are tracked in 013.
+v1/v2 merging. The [operation evaluator](merge-operation-evaluation.md) adds exact authored-operation execution, nested choices and conservative format rules; its verified support contract completes the tool-only scope of 013.
 
 ## Verification
 

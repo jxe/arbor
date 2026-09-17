@@ -187,6 +187,7 @@ export interface Material {
   view?: View;
 }
 export interface Effect {
+  authored: { operation: string; basis: string };
   change: string;
   operation: string;
   kind: string;
@@ -334,6 +335,7 @@ const stateSchema = z
       z.string(),
       z
         .object({
+          authored: z.object({ operation: hash, basis: hash }).strict(),
           change: token,
           operation: token,
           kind: token,
@@ -442,6 +444,7 @@ export function intentDependencies(state: IntentState): Set<string> {
       pieces(n.pieces);
     });
   nodes(state.nodes);
+  Object.values(state.changes).forEach((hash) => hashes.add(hash));
   for (const material of Object.values(state.outputs)) {
     pieces(material.pieces);
     pieces(material.anchor?.observed);
@@ -449,6 +452,8 @@ export function intentDependencies(state: IntentState): Set<string> {
   }
   Object.values(state.origins).forEach(pieces);
   for (const effect of Object.values(state.effects)) {
+    hashes.add(effect.authored.operation);
+    hashes.add(effect.authored.basis);
     nodes(effect.before);
     nodes(effect.after);
   }

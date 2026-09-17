@@ -93,6 +93,7 @@ function normalize(pieces: Piece[]): Piece[] {
 
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
+  readonly pendingEnclosures = new Set<string>();
   readonly formatEvidence: FormatEvidence[] = [];
   readonly generated = new Map<string, Uint8Array>();
   private readonly cache = new Map<string, Uint8Array>();
@@ -294,10 +295,13 @@ class Engine {
       checkDecision(decision.key);
       for (const alternative of decision.alternatives)
         if (
+          !decision.context &&
           alternative.node &&
           (await this.project(state, alternative.node)) !== alternative.object
         )
-          return fail("Alternative does not match retained material");
+          return fail(
+            `Alternative does not match retained material: ${decision.key} (${alternative.node})`,
+          );
       if (decision.placement && !decision.context) {
         const node = state.nodes[decision.placement.node];
         if (!node?.active || !node.pieces)
@@ -566,6 +570,35 @@ class Engine {
     }
     return [positions[0]![0], end];
   }
+  realm(view: View, id: string): string {
+    const seen = new Set<string>();
+    let node = view.nodes[id];
+    while (node?.parent !== null) {
+      if (!node || seen.has(node.id) || seen.size > 256)
+        return fail("Invalid material occurrence scope");
+      seen.add(node.id);
+      node = view.nodes[node.parent!];
+    }
+    return node?.id ?? fail("Missing material occurrence");
+  }
+  importContext(
+    state: IntentState,
+    context: IntentState,
+    prefix: string,
+  ): { root: string; ids: Map<string, string> } {
+    const ids = new Map<string, string>();
+    const visit = (id: string, parent: string | null): string => {
+      const prior = context.nodes[id]!,
+        next = `${prefix}/${encodeURIComponent(id)}`;
+      ids.set(id, next);
+      if (state.nodes[next])
+        return fail("Alternative occurrence identity reused");
+      state.nodes[next] = { ...clone(prior), id: next, parent };
+      for (const child of this.children(context, id)) visit(child.id, next);
+      return next;
+    };
+    return { root: visit(context.root, null), ids };
+  }
   path(view: View, id: string): string {
     const parts: string[] = [],
       seen = new Set<string>();
@@ -652,12 +685,15 @@ class Engine {
       const at = placement.pieces.length
         ? this.locate(source, placement.pieces, [0, length(placement.pieces)])
         : [placement.anchor, placement.anchor];
-      if (at[1]! <= sourceRange[0] || at[0]! >= sourceRange[1]) continue;
-      if (at[0]! < sourceRange[0] || at[1]! > sourceRange[1])
-        throw new IntentError(
-          "missing-context",
-          "Partial copy of a choice requires alternative slice correspondence",
-        );
+      if (at[0] === at[1]) {
+        if (at[0]! < sourceRange[0] || at[0]! > sourceRange[1]) continue;
+      } else if (at[1]! <= sourceRange[0] || at[0]! >= sourceRange[1]) continue;
+      if (at[0]! < sourceRange[0] || at[1]! > sourceRange[1]) {
+        // There is no justified character mapping into the other value. Keep
+        // the literal authored copy inside a coupled choice with its source.
+        this.pendingEnclosures.add(original.key);
+        continue;
+      }
       const decision = clone(original);
       decision.key = `${key}:${original.key}`;
       decision.affected = [destinationID];
@@ -706,6 +742,9 @@ class Engine {
     if (Object.hasOwn(state.effects, key))
       return fail("Operation identity reused");
     let result: Material | undefined;
+    const undoBefore =
+      operation.kind === "undoOperation" ? clone(state) : undefined;
+    let undoAmbiguous = false;
     if (operation.kind === "undoOperation") {
       const effect =
         state.effects[
@@ -720,8 +759,7 @@ class Engine {
           after = effect.after[id],
           current = state.nodes[id];
         if (!old) {
-          if (current && !same(current, after))
-            return fail("Undo would discard later work");
+          if (current?.active && !same(current, after)) undoAmbiguous = true;
           if (current) this.remove(state, id);
           continue;
         }
@@ -752,7 +790,25 @@ class Engine {
           ) {
             let pieces = current.pieces;
             for (const edit of pieceEdits(after.pieces, old.pieces).reverse()) {
-              const range = this.locate(pieces, after.pieces, edit.range);
+              let range: [number, number];
+              try {
+                range = this.locate(pieces, after.pieces, edit.range);
+              } catch (error) {
+                if (error instanceof IntentError && error.code === "limit")
+                  throw error;
+                undoAmbiguous = true;
+                try {
+                  range = this.evolved(
+                    state,
+                    pieces,
+                    slice(after.pieces, ...edit.range),
+                  );
+                } catch (error) {
+                  if (error instanceof IntentError && error.code === "limit")
+                    throw error;
+                  range = [0, length(pieces)];
+                }
+              }
               pieces = normalize([
                 ...slice(pieces, 0, range[0]),
                 ...edit.pieces,
@@ -762,8 +818,7 @@ class Engine {
             current.pieces = pieces;
             continue;
           }
-          if (!same(current[field], after[field]))
-            return fail("Undo overlaps later work");
+          if (!same(current[field], after[field])) undoAmbiguous = true;
           (current as unknown as Record<string, unknown>)[field] = clone(
             old[field],
           );
@@ -785,7 +840,7 @@ class Engine {
         const matches = Object.values(state.nodes).filter(
           (n) =>
             n.active &&
-            (n.parent !== null || n.id === source.node) &&
+            this.realm(state, n.id) === this.realm(state, source.node) &&
             n.kind === "file" &&
             n.pieces?.some((p) =>
               source.selected.some(
@@ -941,7 +996,9 @@ class Engine {
                 anchor: moved[0],
               };
               decision.affected = [destination.id];
-            } catch {
+            } catch (error) {
+              if (error instanceof IntentError && error.code === "limit")
+                throw error;
               /* A partial choice is enclosed by the lifecycle pass. */
             }
           }
@@ -1072,6 +1129,10 @@ class Engine {
       }
     }
     const effect: Effect = {
+      authored: {
+        operation: this.put(encoder.encode(stableJSONString(operation))),
+        basis: await this.project(basis),
+      },
       change,
       operation: operation.key,
       kind: operation.kind,
@@ -1095,6 +1156,28 @@ class Engine {
       }
     state.effects[key] = effect;
     if (result) state.outputs[key] = result;
+    if (undoAmbiguous && undoBefore) {
+      const before = await this.record(undoBefore);
+      for (const decision of state.decisions) decision.context ??= before.state;
+      const after = await this.record(state);
+      const dependencies = state.decisions.map((d) => d.key);
+      state.decisions.push({
+        key: `undo:${key}`,
+        kind: "directory",
+        affected: Object.keys(effect.after),
+        selected: 1,
+        alternatives: [
+          { ...before, contributions: [] },
+          {
+            ...after,
+            node: state.root,
+            contributions: [{ change, operation: operation.key }],
+          },
+        ],
+        dependencies,
+        reason: "Selective inverse overlaps a later contribution",
+      });
+    }
   }
   edits(base: Piece[], changed: Piece[], state: IntentState): PieceEdit[] {
     return pieceEdits(base, changed).map((edit) => ({
@@ -1118,7 +1201,7 @@ class Engine {
             if (
               node.active &&
               node.pieces &&
-              (node.parent !== null || node.id === id)
+              this.realm(state, node.id) === this.realm(state, id)
             ) {
               const out: Piece[] = [];
               for (const p of node.pieces) {
@@ -1146,6 +1229,168 @@ class Engine {
       }
     }
   }
+  async propagateDecisions(
+    authored: IntentState,
+    base: IntentState,
+  ): Promise<void> {
+    for (const decision of authored.decisions) {
+      if (
+        same(
+          decision,
+          base.decisions.find((d) => d.key === decision.key),
+        )
+      )
+        continue;
+      const parents = authored.decisions.filter((d) =>
+        d.dependencies.includes(decision.key),
+      );
+      for (const parent of parents)
+        for (const branch of parent.alternatives) {
+          const context = await this.context(branch.state),
+            retained = context.decisions.find((d) => d.key === decision.key);
+          // A dependency can be present only in another alternative/context.
+          if (!retained || retained.context) continue;
+          const updated = clone(decision);
+          delete updated.context;
+          let oldPieces: Piece[] | undefined, newPieces: Piece[] | undefined;
+          if (retained.placement) {
+            const target = context.nodes[retained.placement.node];
+            if (
+              !target?.active ||
+              !target.pieces ||
+              this.realm(context, target.id) !== context.root
+            )
+              continue;
+            const selected = decision.alternatives[decision.selected]!,
+              prior = retained.alternatives[retained.selected]!;
+            const material =
+              (selected.node ? authored.nodes[selected.node] : undefined) ??
+              (prior.node ? context.nodes[prior.node] : undefined);
+            if (!material?.pieces)
+              throw new IntentError(
+                "missing-context",
+                "Hidden selected source material is unavailable",
+              );
+            const at = this.locate(target.pieces, retained.placement.pieces, [
+              0,
+              length(retained.placement.pieces),
+            ]);
+            oldPieces = retained.placement.pieces;
+            newPieces = material.pieces;
+            target.pieces = normalize([
+              ...slice(target.pieces, 0, at[0]),
+              ...newPieces,
+              ...slice(target.pieces, at[1], length(target.pieces)),
+            ]);
+            updated.placement = {
+              node: target.id,
+              pieces: clone(newPieces),
+              anchor: at[0],
+            };
+            for (const [index, alternative] of updated.alternatives.entries()) {
+              if (alternative.node && authored.nodes[alternative.node])
+                context.nodes[alternative.node] = clone(
+                  authored.nodes[alternative.node]!,
+                );
+              else if (
+                retained.alternatives[index]?.object === alternative.object
+              )
+                alternative.node = retained.alternatives[index]!.node;
+              else
+                throw new IntentError(
+                  "missing-context",
+                  "Hidden alternative material is unavailable",
+                );
+            }
+          } else if (retained.kind === "directory") {
+            const selected = updated.alternatives[updated.selected]!;
+            if ((await this.project(context)) !== selected.object) {
+              const value = await this.context(selected.state);
+              if ((await this.project(value)) !== selected.object)
+                throw new IntentError(
+                  "missing-context",
+                  "Selected structural branch is unavailable",
+                );
+              const imported = this.importContext(
+                context,
+                value,
+                `continuation:${this.request.incoming.change}:${decision.key}`,
+              );
+              context.root = imported.root;
+              selected.node = imported.root;
+            }
+            for (const alternative of updated.alternatives)
+              if (
+                alternative.node &&
+                (!context.nodes[alternative.node] ||
+                  (await this.project(context, alternative.node)) !==
+                    alternative.object)
+              )
+                delete alternative.node;
+          } else
+            throw new IntentError(
+              "missing-context",
+              "Decision correspondence is unavailable",
+            );
+          context.decisions[context.decisions.indexOf(retained)] = updated;
+          for (const [index, child] of context.decisions.entries()) {
+            const latest = authored.decisions.find((d) => d.key === child.key);
+            if (latest?.context && child.key !== updated.key)
+              context.decisions[index] = clone(latest);
+          }
+          for (const map of ["origins", "effects", "outputs"] as const)
+            for (const [key, value] of Object.entries(authored[map]))
+              if (!same(base[map][key], value))
+                (context[map] as Record<string, unknown>)[key] = clone(value);
+          const oldState = branch.state,
+            result = await this.record(context);
+          branch.state = result.state;
+          if (
+            parent.kind === "content" &&
+            branch.node &&
+            oldPieces &&
+            newPieces
+          ) {
+            const fragment = authored.nodes[branch.node];
+            if (!fragment?.pieces)
+              throw new IntentError(
+                "missing-context",
+                "Containing fragment is unavailable",
+              );
+            try {
+              const at = this.locate(fragment.pieces, oldPieces, [
+                0,
+                length(oldPieces),
+              ]);
+              fragment.pieces = normalize([
+                ...slice(fragment.pieces, 0, at[0]),
+                ...newPieces,
+                ...slice(fragment.pieces, at[1], length(fragment.pieces)),
+              ]);
+              branch.object = await this.project(authored, fragment.id);
+              if (
+                parent.alternatives[parent.selected] === branch &&
+                parent.placement
+              )
+                parent.placement.pieces = clone(fragment.pieces);
+            } catch (error) {
+              if (error instanceof IntentError && error.code === "limit")
+                throw error;
+            }
+          } else if (parent.kind !== "content") branch.object = result.object;
+          // A structural child can change retained decisions without changing the
+          // containing text. Its context root is never a text-fragment object.
+          for (const child of authored.decisions)
+            if (child.context === oldState) child.context = result.state;
+        }
+    }
+  }
+  async context(hash: string): Promise<IntentState> {
+    const state = parseIntentState(
+      JSON.parse(decoder.decode(await this.read(hash))),
+    );
+    return this.load({ object: await this.project(state), state: hash });
+  }
   async record(state: IntentState): Promise<{ object: string; state: string }> {
     const object = await this.project(state),
       stored = this.put(encoder.encode(stableJSONString(state)));
@@ -1155,7 +1400,7 @@ class Engine {
     const request = this.request,
       base = await this.load(request.base),
       current = await this.load(request.current);
-    const signature = hashObject(
+    const signature = this.put(
       encoder.encode(
         stableJSONString({
           base: request.base,
@@ -1173,17 +1418,55 @@ class Engine {
       const result = await this.record(current);
       return this.response(result, current);
     }
+    const guardDecisions = clone(base.decisions);
     for (const binding of request.alternatives ?? []) {
       const decision = base.decisions.find((d) => d.key === binding.decision),
         alternative = decision?.alternatives[binding.alternative];
-      if (
-        !alternative ||
-        !alternative.node ||
-        alternative.object !== binding.value.object
-      )
+      if (!alternative || alternative.object !== binding.value.object)
         return fail(
           "Alternative binding does not match retained decision material",
         );
+      if (
+        decision?.context &&
+        (!alternative.node ||
+          !base.nodes[alternative.node] ||
+          (await this.project(base, alternative.node)) !== alternative.object)
+      ) {
+        const bytes = await this.read(decision.context);
+        const context = parseIntentState(JSON.parse(decoder.decode(bytes)));
+        const retained = context.decisions.find((d) => d.key === decision.key)
+          ?.alternatives[binding.alternative];
+        if (!retained?.node)
+          throw new IntentError(
+            "missing-context",
+            "Context alternative material is unavailable",
+          );
+        const imported = this.importContext(
+          base,
+          { ...context, root: retained.node },
+          `context:${binding.decision}:${binding.alternative}`,
+        );
+        alternative.node = imported.root;
+      }
+      if (!alternative.node) {
+        if (binding.value.kind !== "directory")
+          return fail("Structural branch material is a directory");
+        const context = await this.load({
+          object: alternative.object,
+          state: alternative.state,
+        });
+        const imported = this.importContext(
+          base,
+          context,
+          `alternative:${binding.decision}:${binding.alternative}`,
+        );
+        alternative.node = imported.root;
+        for (const child of base.decisions)
+          if (child.context === alternative.state && child.placement) {
+            const node = imported.ids.get(child.placement.node);
+            if (node) child.placement.node = node;
+          }
+      }
       const node = base.nodes[alternative.node];
       if (!node || node.kind !== binding.value.kind)
         return fail("Alternative kind does not match retained material");
@@ -1193,30 +1476,48 @@ class Engine {
     if (resolved.size !== (request.incoming.resolves?.length ?? 0))
       return fail("Duplicate resolution declaration");
     for (const key of resolved) {
-      const decision = base.decisions.find((d) => d.key === key),
+      const decision = guardDecisions.find((d) => d.key === key),
         now = current.decisions.find((d) => d.key === key);
       if (!decision || !same(decision, now))
         return fail("Resolution decision is absent or stale");
-      if (decision.dependencies.some((key) => !resolved.has(key)))
-        return fail("Coupled decisions require one guarded resolution");
     }
     const authored = clone(base),
       basis = clone(base);
     for (const operation of request.incoming.operations)
       await this.apply(authored, basis, operation, request.incoming.change);
-    const wrapped = new Set<string>();
+    const wrapped = new Set<string>(this.pendingEnclosures);
     for (const decision of authored.decisions) {
       for (const [index, alternative] of decision.alternatives.entries()) {
         if (!alternative.node) continue;
         const old = base.nodes[alternative.node],
           node = authored.nodes[alternative.node];
         if (!old || !node) continue;
+        if (node.kind === "directory") {
+          if (
+            decision.context &&
+            this.realm(authored, node.id) === authored.root
+          )
+            continue;
+          const object = await this.project(authored, node.id);
+          if (object !== alternative.object) {
+            alternative.object = object;
+            const context = clone(authored);
+            context.root = node.id;
+            alternative.state = (await this.record(context)).state;
+            alternative.contributions.push(
+              ...request.incoming.operations.map((op) => ({
+                change: request.incoming.change,
+                operation: op.key,
+              })),
+            );
+          }
+          continue;
+        }
         const placement = decision.placement,
           visibleBefore = placement ? base.nodes[placement.node] : undefined,
           visibleAfter = placement ? authored.nodes[placement.node] : undefined;
         if (
           index === decision.selected &&
-          !decision.context &&
           placement &&
           same(old, node) &&
           !same(visibleBefore, visibleAfter)
@@ -1238,7 +1539,9 @@ class Engine {
             node.pieces = clone(slice(visibleAfter.pieces, ...at));
             placement.pieces = clone(node.pieces);
             placement.anchor = at[0];
-          } catch {
+          } catch (error) {
+            if (error instanceof IntentError && error.code === "limit")
+              throw error;
             wrapped.add(decision.key);
             continue;
           }
@@ -1275,90 +1578,21 @@ class Engine {
         }
       }
     }
-    for (const decision of authored.decisions) {
-      if (
-        !decision.context ||
-        same(
-          decision,
-          base.decisions.find((d) => d.key === decision.key),
-        )
-      )
-        continue;
-      const parent = authored.decisions.find(
-        (d) =>
-          d.dependencies.includes(decision.key) &&
-          d.alternatives.some((a) => a.state === decision.context),
-      );
-      const branch = parent?.alternatives.find(
-        (a) => a.state === decision.context,
-      );
-      if (!branch)
-        throw new IntentError(
-          "missing-context",
-          "Hidden ancestor context is unavailable",
-        );
-      const context = await this.load({
-        object: branch.object,
-        state: branch.state,
-      });
-      const retained = context.decisions.find((d) => d.key === decision.key);
-      if (!retained?.placement)
-        throw new IntentError(
-          "missing-context",
-          "Hidden source decision has no placement",
-        );
-      const target = context.nodes[retained.placement.node];
-      if (!target?.pieces)
-        throw new IntentError(
-          "missing-context",
-          "Hidden source material is unavailable",
-        );
-      const selected = decision.alternatives[decision.selected]!,
-        material = selected.node ? authored.nodes[selected.node] : undefined;
-      if (!material?.pieces)
-        throw new IntentError(
-          "missing-context",
-          "Hidden selected alternative is unavailable",
-        );
-      const at = this.locate(target.pieces, retained.placement.pieces, [
-        0,
-        length(retained.placement.pieces),
-      ]);
-      target.pieces = normalize([
-        ...slice(target.pieces, 0, at[0]),
-        ...material.pieces,
-        ...slice(target.pieces, at[1], length(target.pieces)),
-      ]);
-      for (const alternative of decision.alternatives)
-        if (alternative.node)
-          context.nodes[alternative.node] = clone(
-            authored.nodes[alternative.node]!,
-          );
-      const updated = clone(decision);
-      delete updated.context;
-      updated.placement = {
-        node: retained.placement.node,
-        pieces: clone(material.pieces),
-        anchor: at[0],
-      };
-      context.decisions[context.decisions.indexOf(retained)] = updated;
-      const oldState = branch.state,
-        result = await this.record(context);
-      branch.state = result.state;
-      branch.object = result.object;
-      for (const child of authored.decisions)
-        if (child.context === oldState) child.context = result.state;
-    }
+    await this.propagateDecisions(authored, base);
     this.enforceDeletions(authored);
     const authoredRoot = await this.project(authored);
     if (authoredRoot !== request.incoming.object)
       return fail("Operations do not reproduce the complete candidate");
     authored.changes[request.incoming.change] = signature;
     if (wrapped.size) {
-      const old = await this.record(base),
-        candidate = await this.record(authored);
+      const old = await this.record(base);
       for (const decision of authored.decisions)
-        if (wrapped.has(decision.key)) decision.context = old.state;
+        if (
+          wrapped.has(decision.key) &&
+          !this.pendingEnclosures.has(decision.key)
+        )
+          decision.context = decision.context ?? old.state;
+      const candidate = await this.record(authored);
       authored.decisions.push({
         key: `enclosure:${request.incoming.change}`,
         kind: "directory",
@@ -1368,6 +1602,7 @@ class Engine {
           { ...old, contributions: [] },
           {
             ...candidate,
+            node: authored.root,
             contributions: request.incoming.operations.map((op) => ({
               change: request.incoming.change,
               operation: op.key,
@@ -1395,7 +1630,11 @@ class Engine {
             ["moveSource", "copySource"].includes(e.kind),
         );
       let transported: IntentState | undefined;
-      if (structuralTransfer && current.root === base.root) {
+      if (
+        structuralTransfer &&
+        current.root === base.root &&
+        authored.decisions.length === base.decisions.length
+      ) {
         const attempt = clone(current);
         try {
           for (const operation of request.incoming.operations) {
@@ -1407,6 +1646,32 @@ class Engine {
               throw new Error(
                 "Mixed structural transfer needs a coupled decision",
               );
+            // Replaying a transfer must not quietly order concurrent insertions.
+            // Compare immutable authored anchors before locating them in current.
+            const anchorRef =
+              operation.kind === "editSource"
+                ? operation.source
+                : operation.kind === "moveSource" ||
+                    operation.kind === "copySource"
+                  ? operation.at
+                  : undefined;
+            if (anchorRef) {
+              const anchor = await this.selection(anchorRef, basis, authored);
+              const old = base.nodes[anchor.node],
+                now = current.nodes[anchor.node];
+              if (
+                anchor.range[0] === anchor.range[1] &&
+                old?.pieces &&
+                now?.pieces &&
+                pieceEdits(old.pieces, now.pieces).some(
+                  (e) =>
+                    e.range[0] === e.range[1] && e.range[0] === anchor.range[0],
+                )
+              )
+                throw new Error(
+                  "Concurrent source destination requires anchor policy",
+                );
+            }
             if (operation.kind === "moveSource") {
               const selected = await this.selection(
                 operation.source,
@@ -1637,10 +1902,18 @@ class Engine {
                 coupledByFormat = policy.outcome !== "resolved";
               }
               if (coupledByFormat) groups.splice(0, groups.length, edits);
+              const existingChoice = current.decisions.some(
+                (d) => d.placement?.node === id && !d.context,
+              );
+              if (existingChoice) groups.splice(0, groups.length, edits);
               const selected = [];
               for (const group of groups) {
-                const start = Math.min(...group.map((e) => e.range[0])),
-                  end = Math.max(...group.map((e) => e.range[1]));
+                const start = existingChoice
+                    ? 0
+                    : Math.min(...group.map((e) => e.range[0])),
+                  end = existingChoice
+                    ? length(b.pieces)
+                    : Math.max(...group.map((e) => e.range[1]));
                 const versions = [0, 1].map((side) =>
                   applyPieceEdits(
                     slice(b.pieces!, start, end),
@@ -1665,11 +1938,41 @@ class Engine {
                     start === end &&
                     formatConfig?.proseInsertions === "preserve-both"
                   ) {
-                    const combined = [...versions]
-                      .sort((a, b) =>
-                        (a[0]?.origin ?? "") < (b[0]?.origin ?? "") ? -1 : 1,
-                      )
-                      .flat();
+                    const basisOrigins = new Set(b.pieces.map((p) => p.origin));
+                    const origins = { ...current.origins, ...authored.origins };
+                    const contribution = (
+                      origin: string,
+                      seen = new Set<string>(),
+                    ): string => {
+                      if (seen.has(origin) || seen.size > 256) return origin;
+                      const parents = origins[origin];
+                      if (
+                        parents?.length &&
+                        parents.every((p) => !basisOrigins.has(p.origin))
+                      ) {
+                        const keys = new Set(
+                          parents.map((p) =>
+                            contribution(p.origin, new Set(seen).add(origin)),
+                          ),
+                        );
+                        if (keys.size === 1) return [...keys][0]!;
+                      }
+                      // Copy suffixes identify pieces of one fresh contribution.
+                      return origin.startsWith("[")
+                        ? origin.slice(0, origin.indexOf("]") + 1)
+                        : origin;
+                    };
+                    const contributions = new Map<string, Piece[]>();
+                    for (const pieces of versions)
+                      for (const piece of pieces) {
+                        const key = contribution(piece.origin);
+                        const group = contributions.get(key) ?? [];
+                        group.push(piece);
+                        contributions.set(key, group);
+                      }
+                    const combined = [...contributions]
+                      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+                      .flatMap(([, pieces]) => pieces);
                     const proposal = applyPieceEdits(b.pieces, [
                       { range: [start, end], pieces: combined },
                     ]);
@@ -1783,7 +2086,8 @@ class Engine {
       this.enforceDeletions(merged);
       try {
         if (!affected.length) await this.project(merged);
-      } catch {
+      } catch (error) {
+        if (error instanceof IntentError && error.code === "limit") throw error;
         affected.push(merged.root);
       }
       if (affected.length) {
@@ -1798,6 +2102,7 @@ class Engine {
             { ...old, contributions: [] },
             {
               ...candidate,
+              node: authored.root,
               contributions: request.incoming.operations.map((op) => ({
                 change: request.incoming.change,
                 operation: op.key,
@@ -1807,16 +2112,103 @@ class Engine {
           dependencies: current.decisions.map((d) => d.key),
           reason: "Concurrent material changes require a choice",
         };
-        resultState.decisions = [...current.decisions, decision];
+        const retained = new Map<string, IntentState["decisions"][number]>(
+          current.decisions.map((d) => [
+            d.key,
+            { ...clone(d), context: d.context ?? old.state },
+          ]),
+        );
+        for (const authoredDecision of authored.decisions)
+          if (!retained.has(authoredDecision.key))
+            retained.set(authoredDecision.key, clone(authoredDecision));
+        decision.dependencies = [...retained.keys()];
+        resultState.decisions = [...retained.values(), decision];
       } else {
         merged.decisions.push(...contentDecisions);
         resultState = merged;
       }
       if (transported) resultState = transported;
     }
+    let continuedContext: { object: string; state: string } | undefined;
+    for (const decision of resultState.decisions) {
+      if (decision.context) continue;
+      if (decision.placement) {
+        const node = resultState.nodes[decision.placement.node];
+        try {
+          if (!node?.active || !node.pieces)
+            throw new Error("Placement disappeared");
+          const at = this.locate(node.pieces, decision.placement.pieces, [
+            0,
+            length(decision.placement.pieces),
+          ]);
+          decision.placement.anchor = at[0];
+        } catch (error) {
+          if (error instanceof IntentError && error.code === "limit")
+            throw error;
+          continuedContext ??= await this.record(current);
+          decision.context = continuedContext.state;
+        }
+      }
+    }
+    for (const decision of resultState.decisions) {
+      if (decision.context || decision.kind !== "directory") continue;
+      const selected = decision.alternatives[decision.selected]!;
+      if (selected.node === resultState.root) {
+        const root = await this.project(resultState);
+        if (root !== selected.object) {
+          selected.object = root;
+          selected.state = (await this.record(resultState)).state;
+        }
+      }
+    }
+    for (const key of resolved) {
+      const enclosing = resultState.decisions.find((d) => d.key === key);
+      if (!enclosing) continue;
+      for (const dependency of enclosing.dependencies) {
+        if (resolved.has(dependency)) continue;
+        const child = resultState.decisions.find((d) => d.key === dependency);
+        if (!child?.placement)
+          return fail("Coupled decisions require one guarded resolution");
+        const matches: Array<{ node: Node; range: [number, number] }> = [];
+        for (const node of Object.values(resultState.nodes)) {
+          if (
+            !node.active ||
+            !node.pieces ||
+            this.realm(resultState, node.id) !== resultState.root
+          )
+            continue;
+          try {
+            const range = this.locate(node.pieces, child.placement.pieces, [
+              0,
+              length(child.placement.pieces),
+            ]);
+            matches.push({ node, range });
+          } catch (error) {
+            if (error instanceof IntentError && error.code === "limit")
+              throw error;
+          }
+        }
+        if (matches.length !== 1)
+          return fail(
+            "Resolution would discard an unguarded dependent decision",
+          );
+        const match = matches[0]!;
+        child.placement = {
+          node: match.node.id,
+          pieces: clone(slice(match.node.pieces!, ...match.range)),
+          anchor: match.range[0],
+        };
+        child.affected = [match.node.id];
+        delete child.context;
+      }
+    }
     resultState.decisions = resultState.decisions.filter(
       (d) => !resolved.has(d.key),
     );
+    for (const decision of resultState.decisions)
+      decision.dependencies = decision.dependencies.filter(
+        (key) => !resolved.has(key),
+      );
     const result = await this.record(resultState);
     return this.response(result, resultState);
   }

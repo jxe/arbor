@@ -1,11 +1,11 @@
 # Merge operation evaluation
 
-This is the implementation checkpoint for the tool-only work in
-[Reliability 013](../plans/reliability/013-merge-operations-and-formats.md).
+This records the completed tool-only scope of
+[Reliability 013](../plans/_done/reliability/013-merge-operations-and-formats.md).
 It runs in `codex/merge-tool`; it is not deployed. Canopy retention/activation is
 [009](../plans/reliability/009-canopy-provenance-merges.md), and editor capture is
 [008](../plans/reliability/008-enable-source-operations.md). No public Wire or client
-state-machine change accompanies this checkpoint.
+state-machine change accompanies this implementation.
 
 ## One evaluator
 
@@ -62,7 +62,8 @@ deterministically. Canopy still owns durable request receipts and accepted ident
 
 Retained state is a hash-addressed implementation object. It contains entry
 occurrences, immutable origin intervals, operation results, inverse material,
-active deletion contributions, and proposed choices. These IDs are private to
+active deletion contributions, exact authored operation objects and basis references,
+immutable submitted envelopes with causal bases, and proposed choices. These IDs are private to
 this evaluator, not Wire identities or parser node IDs. Copies receive new
 origins; verified moves and preservation lineage retain existing origins.
 
@@ -93,11 +94,20 @@ The evaluator checks that declared decisions still match the basis and requires
 coupled declarations when discarding dependent choices. It does not authenticate
 public resolution guards; Canopy must do that before accepting a proposal.
 
-The checkpoint is intentionally not the final storage contract. Partial copying
-through a choice boundary currently needs additional alternative correspondence;
-it returns `missing-context`. Broader structural-alternative addressing, arbitrary
-nested continuation, and inverse/copy combinations still need the completion
-corpus tracked in 013. Do not activate these semantics from this document alone.
+Partial copying through a choice boundary executes the literal authored copy and
+retains a coupled decision when correspondence into the other value is ambiguous.
+Whole copies, including empty selected values, receive distinct choices. Structural
+alternatives support descendant addressing. Hidden changes propagate through nested
+source and structural contexts; generated tests cover up to five enclosing decisions.
+Keeping an enclosing alternative can preserve an unresolved child; discarding it
+requires a guarded declaration for that child as well.
+
+Selective undo preserves independent edits and deletion contributions. If later work
+interferes with the inverse, the tool retains the pre-undo tree as an alternative;
+it does not silently discard that work. Choices may be coarse when correspondence
+is insufficient. Retained inverse material is required. The state objects are a
+private implementation format, not the final Canopy storage contract. Installation,
+recursive retention and public resolution authorization remain Canopy work in 009.
 
 ## Format support contract
 
@@ -144,7 +154,7 @@ choices. Canopy's worker supervisor retains its queue, timeout, kill and output
 limits. No timeout can commit accepted state inside this process.
 
 The Canopy adapter verifies the ordinary root and direct retained-state object
-dependencies, including alternatives and inverse material, before releasing job
+dependencies, including alternatives, authored operations/envelopes and inverse material, before releasing job
 staging. Production reachability/GC leases, recursive retained-history validation,
 and accepted transactions remain 009/storage work.
 
@@ -156,15 +166,18 @@ bun tools/benchmark-merge-tool.ts
 bun run typecheck
 ```
 
-A September 17, 2026 local 32-edit run over a 65,536-byte file measured 32 ms cold,
-6 ms median, 15 ms p95, 449,278 bytes for the final retained state, 7,546,110 total
-immutable bytes and about 147 MB process RSS. These are synthetic library results,
-not a production throughput claim or a storage migration recommendation. The
-benchmark retains every intermediate state; packing/compaction remains separate.
+A September 17, 2026 local 32-edit run over a 65,536-byte file measured 10 ms cold,
+6 ms median, 12 ms p95, 455,070 bytes for the final retained state, 7,664,600 total
+immutable bytes and about 150 MB process RSS. Parser samples measured TypeScript
+13 ms cold / 0.26 ms warm median, Swift 8 ms / 0.32 ms, and Python 1.7 ms / 0.14 ms.
+RSS reached about 252 MB after loading all three grammars. These are synthetic
+library results, not a production throughput claim or a storage recommendation.
+The benchmark retains every intermediate state; packing/compaction remains separate.
 
-Checkpoint verification: 899 product tests passed; the subsequent equal-byte
-replacement/move regression passed in the focused suite. TypeScript checking,
-build, full TypeScript/Swift protocol conformance, frozen installation and whitespace
-checks passed. The repository-wide Markdown scan found no new broken relative links
-(24 existing unresolved targets). This evidence is a checkpoint, not completion of
-013 or live activation.
+Verification covers the original exploratory corpus, all operation families,
+all format rows, generated Unicode/line-ending and arrival-order combinations,
+deep choices, exact operation retention, malformed syntax, binding changes and
+explicit refusals. The 135 focused tests pass, including identical successful and
+typed-refusal results through library, fresh worker and persistent worker, plus
+Canopy staging validation and conservative worker-failure acceptance. Final
+repository gate results are recorded in the archived plan. This is not live activation.
