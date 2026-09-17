@@ -269,15 +269,17 @@ size lookup, or payload sniffing is needed.
 modification times for pages in the spine, scoped to this tree and keyed by
 logical path (`/` for the root page). A directory page uses `_index.md` when
 present, otherwise its sibling Markdown body; directory mtimes and shadowed
-bodies do not count. The daemon checks that each body still matches its snapshot
-hash while reading its timestamp and omits dates it cannot establish. These are
-local filesystem dates, not cross-device edit history. They are presentation
-metadata outside Wire objects, roots, and update digests. Clients preserve them
-when seeding a working tree and distinguish missing dates from old dates. Older
-daemons may omit this field; clients treat omission as an empty map.
+bodies do not count. The daemon reads only filesystem metadata, so a cloud
+placeholder can contribute its modification date without downloading its body.
+The date describes the local replica and may therefore be newer than the
+accepted snapshot when the placed file has an unaccepted edit. It is not
+cross-device edit history or a timestamp attached to an accepted object.
+Modification dates remain presentation metadata outside Wire objects, roots,
+and update digests. Clients preserve them when seeding a working tree and
+distinguish missing dates from old dates. Older daemons may omit this field;
+clients treat omission as an empty map.
 
-When the local page byte differs from its accepted object, the path's date is
-omitted without changing bootstrap content. Every successful response is a
+Every successful response is a
 clean installation boundary. Concurrent folder work is reconciled later by
 Canopy and the ordinary watch/update protocol, like work from any other client.
 

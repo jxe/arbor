@@ -1,6 +1,6 @@
 import { encodeWireDirectory } from "@arbor/wire";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
@@ -442,11 +442,27 @@ describe("arborsync bootstrap and credential routes", () => {
     }
   });
 
+  test("bootstrap reads recency metadata without requiring local file content", async () => {
+    const note = join(treeDir, "note.md");
+    const modifiedAt = (await stat(note)).mtimeMs;
+    await chmod(note, 0o000);
+    try {
+      const bootstrap = await placedClient.bootstrap(tree);
+      expect(bootstrap.modifiedAtByPath["/note"]).toBe(modifiedAt);
+      const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree);
+      if (!descriptor?.root) throw new Error("Placed tree lost its accepted root");
+      expect(bootstrap.accepted.root).toBe(descriptor.root);
+    } finally {
+      await chmod(note, 0o644);
+    }
+  });
+
   test("bootstraps the accepted Canopy root while the folder has a pending edit", async () => {
     const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
     const { decodeSparseSnapshotBundle, decodeWireDirectory } = await import("@arbor/wire");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
+    const localModifiedAt = (await stat(join(treeDir, "note.md"))).mtimeMs;
     await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, await folderSnapshot()));
     try {
       const bootstrap = await placedClient.bootstrap(tree);
@@ -457,7 +473,7 @@ describe("arborsync bootstrap and credential routes", () => {
       const root = decodeWireDirectory(spine.get(accepted.root as never)!);
       const note = root.entries.find((entry) => entry.name === "note.md")?.file;
       expect(new TextDecoder().decode(spine.get(note!)!)).toBe("A note\n");
-      expect(bootstrap.modifiedAtByPath["/note"]).toBeUndefined();
+      expect(bootstrap.modifiedAtByPath["/note"]).toBe(localModifiedAt);
     } finally {
       await writeFile(join(treeDir, "note.md"), "A note\n");
       await clearPendingTreeUpdate(tree);

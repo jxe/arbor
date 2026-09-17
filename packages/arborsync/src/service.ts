@@ -1,7 +1,7 @@
 import { localSyncConnections, type SyncConnections } from "./sync-connections.ts";
 import { conflictContent, replaceConflictTarget } from "./conflict-tree.ts";
 import { LocalFileService } from "./local-files.ts";
-import { lstat, readFile, realpath, stat } from "node:fs/promises";
+import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
   Hash,
@@ -77,7 +77,7 @@ async function sparseSpine(
   readObject: (hash: ObjectHash) => Promise<Uint8Array | undefined>,
 ): Promise<{ spine: string; modifiedAtByPath: Record<string, number> }> {
   const spine = new Map<ObjectHash, Uint8Array>();
-  const bodies: Array<{ path: string; logicalPath: string; hash: ObjectHash; index: boolean }> = [];
+  const bodies: Array<{ path: string; logicalPath: string; index: boolean }> = [];
   const indexedDirectories = new Set<string>();
   const visit = async (hash: ObjectHash, path: string): Promise<void> => {
     const bytes = spine.get(hash) ?? await readObject(hash);
@@ -94,7 +94,7 @@ async function sparseSpine(
         spine.set(entry.file, child);
         const index = entry.name === "_index.md";
         if (index) indexedDirectories.add(path);
-        bodies.push({ path: childPath, logicalPath: index ? path : childPath.slice(0, -3), hash: entry.file, index });
+        bodies.push({ path: childPath, logicalPath: index ? path : childPath.slice(0, -3), index });
       }
     }
   };
@@ -107,15 +107,12 @@ async function sparseSpine(
     if (!body.index && indexedDirectories.has(body.logicalPath)) continue;
     const file = join(root, body.path.slice(1));
     try {
-      const before = await stat(file);
-      const bytes = await readFile(file);
-      const after = await stat(file);
-      // A racing filesystem edit must not supply a date for different bytes.
-      if (before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
-        || before.size !== after.size || hashObject(bytes) !== body.hash) continue;
-      modifiedAtByPath[body.logicalPath] = after.mtimeMs;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // This is deliberately local replica metadata, not a timestamp attached
+      // to the accepted object. stat reads cloud-placeholder metadata without
+      // materializing every page merely to sort the sidebar by recency.
+      modifiedAtByPath[body.logicalPath] = (await stat(file)).mtimeMs;
+    } catch {
+      // Recency is optional and must never prevent the accepted snapshot from opening.
     }
   }
   return { spine: Buffer.from(encodeSparseSnapshotBundle(spine)).toString("base64"), modifiedAtByPath };

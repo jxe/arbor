@@ -10,6 +10,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function localContentUnavailable(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === "EDEADLK";
+}
+
 type SyncHTTPService = Pick<ArborSyncDaemon,
   "events" | "synchronizeNow" | "moveLocalPlacement" | "treeList" | "bootstrapTree" |
   "objectBytes" | "treeConflictWorkspace" | "resolveReviewedTreeConflict" | "resolveLocator">;
@@ -70,7 +74,19 @@ export function syncHandler(service: SyncHTTPService, options: {
     if (request.method === "GET" && url.pathname === "/v1/bootstrap") {
       const tree = url.searchParams.get("tree");
       if (!tree) throw new ProtocolError("invalid-request", "bootstrap requires explicit tree scope", 400);
-      return json(await service.bootstrapTree(tree));
+      try {
+        return json(await service.bootstrapTree(tree));
+      } catch (error) {
+        if (localContentUnavailable(error)) {
+          throw new ProtocolError(
+            "internal-error",
+            "Arbor Sync could not read local file content while opening the tree. One or more files may be unavailable cloud placeholders; make them available locally, then reconnect.",
+            500,
+            { tree, retryable: true, kind: "local-content-unavailable", reason: error.code } as ProtocolError["details"],
+          );
+        }
+        throw error;
+      }
     }
     if (request.method === "GET" && url.pathname.startsWith("/v1/objects/")) {
       const hash = decodeURIComponent(url.pathname.slice("/v1/objects/".length));

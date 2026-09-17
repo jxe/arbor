@@ -6,6 +6,11 @@ public struct ArborSyncServerError: Error, LocalizedError, Sendable {
     public var status: Int
     public var value: ArborSyncErrorValue
 
+    public init(status: Int, value: ArborSyncErrorValue) {
+        self.status = status
+        self.value = value
+    }
+
     public var errorDescription: String? { value.message }
 }
 

@@ -1,5 +1,6 @@
 import ArborKit
 import ArborQuagmire
+import ArborSyncClient
 import ArborWire
 import Foundation
 import Quagmire
@@ -151,6 +152,30 @@ struct ArborAppTests {
         #expect(diagnostic.kind == .daemonTimedOut)
         #expect(diagnostic.conditionLabel == "Local daemon timed out")
         #expect(diagnostic.bannerMessage.contains("did not respond"))
+    }
+
+    @Test("Bootstrap rejection banner includes the daemon's explanation")
+    func rejectedBootstrapShowsServerExplanation() throws {
+        let error = ArborSyncServerError(
+            status: 500,
+            value: ArborSyncErrorValue(
+                code: "internal-error",
+                message: "Some files are unavailable cloud placeholders.",
+                retryable: true,
+                tree: nil,
+                path: nil,
+                details: nil
+            )
+        )
+        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+            error,
+            processKind: .external,
+            context: .bootstrap
+        ))
+
+        #expect(diagnostic.bannerMessage.contains("unavailable cloud placeholders"))
+        #expect(ArborWorkspaceState.bootstrapFailureMessage(error, processKind: .external)
+            .contains("unavailable cloud placeholders"))
     }
 
     @Test("Local document retention never classifies a connection failure as a daemon outage")

@@ -189,6 +189,22 @@ public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
     public var tree: String?
     public var path: String?
     public var details: JSONValue?
+
+    public init(
+        code: String,
+        message: String,
+        retryable: Bool,
+        tree: String? = nil,
+        path: String? = nil,
+        details: JSONValue? = nil
+    ) {
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.tree = tree
+        self.path = path
+        self.details = details
+    }
 }
 
 public struct ArborSyncErrorEnvelope: Codable, Sendable, Equatable {

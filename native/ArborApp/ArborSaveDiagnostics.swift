@@ -47,10 +47,10 @@ struct ArborSaveDiagnostic: Equatable {
             if let serverError = error as? ArborSyncServerError {
                 return ArborSaveDiagnostic(
                     kind: .requestRejected,
-                    bannerMessage: "Arbor Sync refused to open the tree.",
+                    bannerMessage: "Arbor Sync could not open the tree: \(serverError.localizedDescription)",
                     conditionLabel: "Request rejected by Arbor Sync",
                     explanation: "The local daemon responded with HTTP \(serverError.status), so this is not a connection failure.",
-                    recovery: "Inspect the response or Arbor Sync logs, correct the reported problem, then reconnect.",
+                    recovery: "Correct the reported problem, then reconnect.",
                     technicalDetail: "\(serverError.value.code): \(serverError.localizedDescription)",
                     synchronizationOverride: nil
                 )
