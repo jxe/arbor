@@ -10,7 +10,7 @@ import {
   type MaterialRef,
   type SourceOperation,
 } from "@arbor/wire";
-import { MergeTool } from "../merge-tool.ts";
+import { MergeTool, CheckpointBatchTooLargeError } from "../merge-tool.ts";
 import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
 import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
@@ -20,7 +20,7 @@ import {
   type IntentResponse,
 } from "../../../merge/src/intent-model.ts";
 import { verifyIntentRetention } from "../../../merge/src/retention.ts";
-import type { CheckpointRequest } from "../../../merge/src/checkpoint.ts";
+import { MAX_CHECKPOINT_BATCH, type CheckpointRequest } from "../../../merge/src/checkpoint.ts";
 const encoder = new TextEncoder();
 const id = (value: unknown) =>
   hashObject(encoder.encode(stableJSONString(value))).slice(7);
@@ -142,40 +142,50 @@ export class SemanticMerge {
     update: AcceptedUpdate,
     objects: Map<string, Uint8Array>
   ): Promise<StateRef> {
-    const cached = this.checkpoints.get(update.id);
-    if (cached) return cached;
-    const retained = this.store.get(update.id);
-    if (retained) return { object: update.root, state: retained.state };
-    // A snapshot barrier preserves older causal material without inventing source edits.
-    const predecessor = update.previous
-      ? this.updates.get(update.previous.id)
-      : null;
-    const prior: { object: string; state?: string } = predecessor
-      ? await this.state(predecessor, objects)
-      : { object: update.root };
-    const evaluated = await this.tool.evaluate(
-      {
-        kind: "checkpoint",
-        tree: update.tree,
-        current: prior,
-        projection: update.root,
-        change:
-          this.updates.changeForAccepted(update.id) ?? `accepted-${update.id}`,
-        decisions: await this.legacyDecisions(update, objects),
-      },
-      objects
-    );
-    // Checkpoint outputs are durable shared objects before later jobs refer to
-    // them. Do not accumulate them in the candidate map: doing so restages every
-    // earlier checkpoint for every later historical update.
-    await this.persist(
-      [...evaluated.objects].map(([hash, bytes]) => ({ hash, bytes }))
-    );
-    this.checkpoints.set(update.id, evaluated.response.result);
-    if (this.checkpoints.size > 256)
-      this.checkpoints.delete(this.checkpoints.keys().next().value!);
-    return evaluated.response.result;
+    const pending: AcceptedUpdate[] = [];
+    let cursor: AcceptedUpdate | null = update;
+    let prior: {object: string; state?: string} | undefined;
+    while (cursor) {
+      const cached = this.checkpoints.get(cursor.id);
+      const retained = this.store.get(cursor.id);
+      if (cached || retained) {
+        prior = cached ?? {object: cursor.root, state: retained!.state};
+        break;
+      }
+      pending.push(cursor);
+      cursor = cursor.previous ? this.updates.get(cursor.previous.id) : null;
+    }
+    pending.reverse();
+    let current: {object: string; state?: string} = prior ?? {object: pending[0]!.root};
+    let offset = 0;
+    while (offset < pending.length) {
+      let size = Math.min(MAX_CHECKPOINT_BATCH, pending.length - offset);
+      for (;;) {
+        const slice = pending.slice(offset, offset + size);
+        const inputs = new Map(objects), steps = [];
+        for (const accepted of slice) steps.push({
+          projection: accepted.root,
+          change: this.updates.changeForAccepted(accepted.id) ?? `accepted-${accepted.id}`,
+          decisions: await this.legacyDecisions(accepted, inputs),
+        });
+        try {
+          const evaluated = await this.tool.evaluate({kind: "checkpoint-batch", tree: update.tree, current, steps}, inputs);
+          // Persist only this slice and original inputs, never its growing prefix.
+          await this.persist([...inputs, ...evaluated.objects].map(([hash,bytes]) => ({hash,bytes})));
+          for (let index = 0; index < slice.length; index++)
+            this.remember(slice[index]!.id, evaluated.response.checkpoints[index]!);
+          current = evaluated.response.result;
+          offset += size;
+          break;
+        } catch (error) {
+          if (!(error instanceof CheckpointBatchTooLargeError) || size === 1) throw error;
+          size = Math.max(1, Math.floor(size / 2));
+        }
+      }
+    }
+    return current as StateRef;
   }
+
   async evaluate(
     tree: string,
     basis: StateRef,

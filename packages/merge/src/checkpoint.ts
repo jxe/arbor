@@ -53,3 +53,22 @@ export const checkpointResponseSchema = z
   })
   .strict();
 export type CheckpointResponse = z.infer<typeof checkpointResponseSchema>;
+
+/** A bounded linear slice of already-accepted history; no authored execution. */
+export const MAX_CHECKPOINT_BATCH = 64;
+export const CHECKPOINT_BATCH_TOO_LARGE_EXIT = 75;
+export const checkpointBatchSchema = z.object({
+  kind: z.literal("checkpoint-batch"),
+  tree: z.string().min(1),
+  current: material,
+  steps: z.array(checkpointSchema.pick({ projection: true, change: true, decisions: true }))
+    .min(1).max(MAX_CHECKPOINT_BATCH),
+}).strict();
+export type CheckpointBatchRequest = z.infer<typeof checkpointBatchSchema>;
+export const checkpointBatchResponseSchema = z.object({
+  kind: z.literal("checkpoint-batch"),
+  result: z.object({ object: hash, state: hash }).strict(),
+  checkpoints: z.array(z.object({ object: hash, state: hash }).strict()).min(1).max(MAX_CHECKPOINT_BATCH),
+  objects: z.array(hash),
+}).strict();
+export type CheckpointBatchResponse = z.infer<typeof checkpointBatchResponseSchema>;

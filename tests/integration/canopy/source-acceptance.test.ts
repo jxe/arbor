@@ -861,7 +861,7 @@ test("source admission preserves an existing snapshot conflict's public identiti
 
 test("cold history reads durable checkpoints without restaging its growing prefix", async () => {
   let current = root, accepted = base;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 70; i++) {
     const update = await edit(String(i).padStart(3, "0"), current);
     const result = await client.submitUpdates(tree, {
       base: accepted, updates: [{ ...update, operations: null }],
@@ -875,17 +875,50 @@ test("cold history reads durable checkpoints without restaging its growing prefi
   }).mergeTool;
   const original = tool.evaluate.bind(tool);
   const checkpointInputs: string[][] = [];
+  const sizes: number[] = [];
   tool.evaluate = (async (request: any, inputs: ReadonlyMap<string, Uint8Array>) => {
-    if (request.kind === "checkpoint") checkpointInputs.push([...inputs.keys()].sort());
+    if (request.kind === "checkpoint-batch") {
+      checkpointInputs.push([...inputs.keys()].sort()); sizes.push(request.steps.length);
+    }
     return original(request, inputs);
   }) as typeof tool.evaluate;
   const update = await edit("new", current);
   const result = await client.submitUpdates(tree, { base: accepted, updates: [update] });
   expect(result.results[0]!.update.root).toBe(update.candidate);
-  expect(checkpointInputs.length).toBeGreaterThan(12);
+  expect(checkpointInputs).toHaveLength(2);
+  expect(sizes[0]).toBe(64);
+  expect(sizes.reduce((a,b)=>a+b,0)).toBeGreaterThan(70);
   for (const inputs of checkpointInputs) expect(inputs).toEqual(checkpointInputs[0]!);
   await stop(); await start();
   expect((await client.submitUpdates(tree, { base: accepted, updates: [update] })).results[0]!.update.id)
     .toBe(result.results[0]!.update.id);
+  await running.canopy.verifyIntegrity();
+});
+
+
+test("large historical batches split without changing their accepted basis", async () => {
+  let current = root, accepted = base;
+  for (let i=0;i<10;i++) {
+    const update=await edit(String(i).padStart(3,"0"),current);
+    const result=await client.submitUpdates(tree,{base:accepted,updates:[{...update,operations:null}]});
+    current=result.results[0]!.update.root;accepted=result.results[0]!.update.id;
+  }
+  await stop();await start();
+  const {CheckpointBatchTooLargeError}=await import("../../../packages/canopy/src/merge-tool.ts");
+  const tool=(running.canopy as unknown as {mergeTool:import("../../../packages/canopy/src/merge-tool.ts").MergeTool}).mergeTool;
+  const evaluate=tool.evaluate.bind(tool);let splits=0,successfulSteps=0;
+  tool.evaluate=(async(request:any,inputs:ReadonlyMap<string,Uint8Array>)=>{
+    if(request.kind==="checkpoint-batch"){
+      if(request.steps.length>4){splits++;throw new CheckpointBatchTooLargeError("test budget");}
+      successfulSteps+=request.steps.length;
+    }
+    return evaluate(request,inputs);
+  }) as typeof tool.evaluate;
+  const update=await edit("new",current),request={base:accepted,updates:[update]};
+  const result=await client.submitUpdates(tree,request);
+  expect(splits).toBeGreaterThan(0);expect(successfulSteps).toBeGreaterThan(10);
+  expect(result.results[0]!.update.root).toBe(update.candidate);
+  await stop();await start();
+  expect((await client.submitUpdates(tree,request)).results[0]!.update.id).toBe(result.results[0]!.update.id);
   await running.canopy.verifyIntegrity();
 });

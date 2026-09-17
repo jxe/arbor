@@ -67,6 +67,21 @@ Unrecognized rules, invalid responses or missing material fail evaluation. There
 is no supported-operation advertisement to clients. Ship server support before
 clients emit additional operations.
 
+## Historical checkpoints
+
+Canopy reconstructs missing legacy semantic states with `checkpoint-batch`
+requests containing an initial material reference and up to 64 ordered accepted
+projections, change identities and legacy decisions. The worker applies the same
+checkpoint semantics at each step and returns every intermediate state reference.
+Canopy checks each against its accepted projection, then validates their combined
+retention closure once before persisting objects and caching references.
+
+Each batch retains at most 128 MiB of generated objects and 32 MiB of cached input
+bytes. Exceeding the generated-object budget exits with code 75; Canopy retries a
+smaller slice against the same basis. Other failures remain failures. These are
+internal worker requests, with no public Wire or database schema change.
+Bun uses native SHA-256 with the same object identities as the portable fallback.
+
 ## Objects, authority and failure
 
 `@arbor/object-store` extracts the existing immutable, hash-sharded store unchanged.

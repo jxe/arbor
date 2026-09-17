@@ -1,5 +1,7 @@
+import { CHECKPOINT_BATCH_TOO_LARGE_EXIT } from "../../merge/src/checkpoint.ts";
 import { stableJSONString } from "@arbor/core";
 import type {
+  CheckpointBatchRequest, CheckpointBatchResponse,
   CheckpointRequest,
   CheckpointResponse,
 } from "../../merge/src/checkpoint.ts";
@@ -21,6 +23,7 @@ import type { MergeResult } from "./updates/merge.ts";
 
 type EvaluatedResponse =
   | CheckpointResponse
+  | CheckpointBatchResponse
   | ProjectionResponse
   | Extract<IntentResponse, { outcome: "evaluated" }>;
 export interface MergeToolOptions {
@@ -29,6 +32,8 @@ export interface MergeToolOptions {
   timeoutMs?: number;
   maxConcurrent?: number;
 }
+
+export class CheckpointBatchTooLargeError extends Error {}
 
 export class MergeTool {
   private readonly shared: ObjectStore;
@@ -48,6 +53,7 @@ export class MergeTool {
     this.shared = new ObjectStore(join(dataRoot, "objects"));
   }
 
+  evaluate(request: CheckpointBatchRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{response:CheckpointBatchResponse;objects:Map<ObjectHash,Uint8Array>}>;
   evaluate(
     request: CheckpointRequest,
     inputs: ReadonlyMap<ObjectHash, Uint8Array>
@@ -150,8 +156,12 @@ export class MergeTool {
               TZ: process.env.TZ,
             },
           },
-          (error, stdout) =>
-            error || inputError ? reject(error ?? inputError) : resolve(stdout)
+          (error, stdout) => {
+            if (request.kind === "checkpoint-batch" && (error as (Error & {code?:unknown}) | null)?.code === CHECKPOINT_BATCH_TOO_LARGE_EXIT)
+              reject(new CheckpointBatchTooLargeError("Historical checkpoint batch exceeds its byte budget"));
+            else if (error || inputError) reject(error ?? inputError);
+            else resolve(stdout);
+          }
         );
         // Wait for process exit before removing staging or releasing the slot,
         // even if the worker closes stdin before reading the entire request.
@@ -193,9 +203,17 @@ export class MergeTool {
           "../../merge/src/retention.ts"
         );
         const roots = [response.result.state];
+        if (request.kind === "checkpoint-batch" && "checkpoints" in response) {
+          // Each projection stays bound to its authoritative step. Verify the
+          // union of retained dependencies once, sharing the graph walk's cache.
+          for (const ref of response.checkpoints) {
+            await validateIntentState(ref, tree, access);
+            roots.push(ref.state);
+          }
+        }
         if (
           "authored" in response &&
-          request.kind !== "checkpoint" &&
+          request.kind !== "checkpoint" && request.kind !== "checkpoint-batch" &&
           "operations" in request.incoming
         ) {
           const intent = request as IntentRequest;

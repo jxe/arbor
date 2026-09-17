@@ -1,3 +1,5 @@
+import {checkpointBatch} from "./checkpoint-batch.ts";
+import type {CheckpointBatchRequest,CheckpointBatchResponse} from "./checkpoint.ts";
 import {checkpointIntent} from "./intent-engine.ts";
 import type {CheckpointRequest,CheckpointResponse} from "./checkpoint.ts";
 import { decodeWireDirectory, wireEntryObject, type ObjectHash, type TreeSnapshot } from "@arbor/wire";
@@ -33,6 +35,7 @@ async function snapshot(root: string, objects: MergeObjects): Promise<TreeSnapsh
 }
 
 /** Pure rule evaluation plus immutable object IO. No accepted-state or database access. */
+export function merge(raw:CheckpointBatchRequest,objects:MergeObjects):Promise<CheckpointBatchResponse>;
 export function merge(raw:CheckpointRequest,objects:MergeObjects):Promise<CheckpointResponse>;
 export function merge(raw:IntentRequest,objects:MergeObjects):Promise<IntentResponse>;
 export function merge(raw:ProjectionRequest,objects:MergeObjects):Promise<ProjectionResponse>;
@@ -41,6 +44,7 @@ export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<M
   if(isIntentRequest(raw))return mergeIntent(raw,objects);
   const request = parseRequest(raw);
   if(isIntentRequest(request))throw new Error("Unexpected intent request");
+  if(request.kind === "checkpoint-batch")return checkpointBatch(request,objects);
   if(request.kind === "checkpoint")return checkpointIntent(request,objects);
   const evidence = { rule: request.rules };
   if (request.kind === "source") {

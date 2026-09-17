@@ -199,3 +199,47 @@ test("unchanged shared outputs need no staging copies and existing objects are n
   await writeFile(store.path(base.root), "corrupt");
   await expect(store.store([{ hash: base.root, bytes: base.objects.get(base.root)! }])).rejects.toThrow("hash mismatch");
 });
+
+
+test("batched checkpoints exactly preserve individual states including legacy alternatives", async () => {
+  const roots = [snapshot("base"), snapshot("one"), snapshot("two"), snapshot("hidden")];
+  await store.store(roots.flatMap(r => [...r.objects].map(([hash,bytes]) => ({hash,bytes}))));
+  const steps = [
+    {projection:roots[1]!.root,change:"first",decisions:[]},
+    {projection:roots[2]!.root,change:"second",decisions:[{
+      key:"legacy-choice",path:["note.md"],dependencies:[],selected:0,
+      alternatives:[{object:roots[2]!.root,contributions:[{change:"second",operation:null}]},
+        {object:roots[3]!.root,contributions:[{change:"hidden",operation:null}]}],
+    }]},
+  ];
+  let current: {object:string;state?:string} = {object:roots[0]!.root};
+  const expected: Array<{object:string;state:string}> = [];
+  for (const step of steps) {
+    const value = await tool.evaluate({kind:"checkpoint",tree:"history-tree",current,...step},new Map());
+    await store.store([...value.objects].map(([hash,bytes])=>({hash,bytes})));
+    expected.push(value.response.result); current = value.response.result;
+  }
+  const request = {kind:"checkpoint-batch" as const,tree:"history-tree",current:{object:roots[0]!.root},steps};
+  const result = await tool.evaluate(request,new Map());
+  expect(result.response.checkpoints).toEqual(expected);
+  expect(result.response.result).toEqual(expected.at(-1)!);
+  const {parseResponse} = await import("@arbor/merge");
+  expect(() => parseResponse({...result.response,checkpoints:expected.slice(1)},request)).toThrow();
+  expect(() => parseResponse({...result.response,checkpoints:[...expected].reverse()},request)).toThrow();
+  const other = await tool.evaluate({kind:"checkpoint",tree:"other-tree",current:request.current,...steps[0]!},new Map());
+  await store.store([...other.objects].map(([hash,bytes])=>({hash,bytes})));
+  const forged = {...result.response,checkpoints:[other.response.result,expected[1]!],objects:[]};
+  const fake = join(directory,"wrong-checkpoint.ts");
+  await writeFile(fake, `console.log(${JSON.stringify(JSON.stringify(forged))});`);
+  await expect(new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map())).rejects.toThrow();
+});
+
+
+test("only explicit checkpoint byte limits request a smaller historical batch",async()=>{
+  const {CheckpointBatchTooLargeError}=await import("../../../packages/canopy/src/merge-tool.ts");
+  const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));
+  const fake=join(directory,"batch-limit.ts");await writeFile(fake,"process.exit(75);");
+  const request={kind:"checkpoint-batch" as const,tree:"tree",current:{object:base.root},steps:[{projection:base.root,change:"change",decisions:[]}]};
+  await expect(new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map())).rejects.toBeInstanceOf(CheckpointBatchTooLargeError);
+  expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
+});

@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { ObjectStore } from "@arbor/object-store";
 import { merge } from "./index.ts";
 import { hashObject } from "@arbor/wire";
+import { CheckpointBatchLimitError } from "./checkpoint-batch.ts";
+import { CHECKPOINT_BATCH_TOO_LARGE_EXIT } from "./checkpoint.ts";
 
 const maxRequestBytes = 8 * 1024 * 1024;
 async function* requests(lines: boolean): AsyncGenerator<string> {
@@ -88,5 +90,5 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
 if (import.meta.main)
   run().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
-    process.exitCode = 1;
+    process.exitCode = error instanceof CheckpointBatchLimitError ? CHECKPOINT_BATCH_TOO_LARGE_EXIT : 1;
   });
