@@ -148,6 +148,19 @@ export class ObjectStore {
       if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
       const path = this.path(object.hash);
       const directory = dirname(path);
+      try {
+        const existing = new Uint8Array(await readFile(path));
+        if (hashObject(existing) !== object.hash) {
+          throw new Error(`Stored object hash mismatch: ${object.hash}`);
+        }
+        // Another publisher may have linked the flushed inode just before this
+        // read. Complete directory durability without rewriting identical bytes.
+        await syncDirectory(directory);
+        await syncDirectory(dirname(directory));
+        continue;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
       await mkdir(directory, { recursive: true });
       const temporary = `${path}.${crypto.randomUUID()}.tmp`;
       try {

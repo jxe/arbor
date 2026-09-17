@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@arbor/object-store";
@@ -176,4 +176,26 @@ test("collection rule process runs outside the checkout with a minimal environme
   expect(errors).toBe(""); expect(code).toBe(0);
   const expected = await mergeWireTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
   expect(JSON.parse(out).result.object).toBe(expected.root);
+});
+
+
+test("unchanged shared outputs need no staging copies and existing objects are not rewritten", async () => {
+  const base = snapshot("unchanged"), { request } = await prepare(base, base, base);
+  const staging = join(directory, "empty-staging");
+  const child = Bun.spawn([process.execPath, "packages/merge/src/cli.ts", "evaluate",
+    "--objects", join(directory, "objects"), "--staging", staging],
+    { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  child.stdin.write(JSON.stringify(request)); child.stdin.end();
+  const out = JSON.parse(await new Response(child.stdout).text());
+  expect(await child.exited).toBe(0);
+  expect(out.result.object).toBe(base.root);
+  expect(await readdir(staging).catch(() => [])).toEqual([]);
+  expect((await tool.evaluate(request, base.objects)).response.result.object).toBe(base.root);
+  const shard = join(directory, "objects", base.root.slice(7, 9));
+  const timestamp = new Date("2020-01-01T00:00:00Z");
+  await utimes(shard, timestamp, timestamp);
+  await store.store([{ hash: base.root, bytes: base.objects.get(base.root)! }]);
+  expect((await stat(shard)).mtimeMs).toBe(timestamp.getTime());
+  await writeFile(store.path(base.root), "corrupt");
+  await expect(store.store([{ hash: base.root, bytes: base.objects.get(base.root)! }])).rejects.toThrow("hash mismatch");
 });

@@ -2,6 +2,7 @@
 import { resolve } from "node:path";
 import { ObjectStore } from "@arbor/object-store";
 import { merge } from "./index.ts";
+import { hashObject } from "@arbor/wire";
 
 const maxRequestBytes = 8 * 1024 * 1024;
 async function* requests(lines: boolean): AsyncGenerator<string> {
@@ -49,7 +50,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   const objects = {
     read: async (hash: string) =>
       (await staging.find(hash)) ?? (await shared.read(hash)),
-    store: staging.store.bind(staging),
+    store: async (values: Parameters<ObjectStore["store"]>[0]) => {
+      for (const value of values) {
+        if (hashObject(value.bytes) !== value.hash) throw new Error("Object hash mismatch");
+        // Existing immutable material is already available to both processes.
+        if (!(await shared.find(value.hash))) await staging.store([value]);
+      }
+    },
   };
   if (mode === "evaluate") {
     for await (const text of requests(false))

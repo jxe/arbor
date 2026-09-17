@@ -110,9 +110,10 @@ export class MergeTool {
     try {
       const stagingPath = join(job, "objects");
       const staging = new ObjectStore(stagingPath);
-      await staging.store(
-        [...inputs].map(([hash, bytes]) => ({ hash, bytes }))
-      );
+      for (const [hash, bytes] of inputs) {
+        if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
+        if (!(await this.shared.find(hash))) await staging.store([{ hash, bytes }]);
+      }
       // Retained history is currently append-only (no object GC). This manifest
       // names live job inputs for a future collector; a collector must honor it.
       await writeFile(join(job, "request.json"), JSON.stringify(request));
@@ -163,7 +164,7 @@ export class MergeTool {
       const response = parseResponse(JSON.parse(stdout), request);
       const objects = new Map<ObjectHash, Uint8Array>();
       for (const hash of response.objects)
-        objects.set(hash, await staging.read(hash));
+        objects.set(hash, (await staging.find(hash)) ?? await this.shared.read(hash));
       // Validate the referenced closure before releasing staging. Canopy still
       // applies its graph/schema/boundary checks and owns publication/acceptance.
       const available = new Map([...inputs, ...objects]);

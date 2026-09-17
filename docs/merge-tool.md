@@ -72,7 +72,10 @@ clients emit additional operations.
 `@arbor/object-store` extracts the existing immutable, hash-sharded store unchanged.
 Reads verify hashes; writes flush files and atomically link them into place. A merge
 job reads the shared store plus its private staged inputs, and writes generated
-objects only into staging. Request JSON contains no object-store filesystem paths.
+objects only into staging. Generated hashes already present in the shared store
+reuse those verified bytes; Canopy reads returned hashes from staging or shared
+storage. Neither process recopies existing immutable material into every job.
+Request JSON contains no object-store filesystem paths.
 
 Canopy creates a unique `/data/merge-jobs/job-*` directory, stages uncommitted input
 objects, and records the request. The worker receives fixed paths, with a minimal
