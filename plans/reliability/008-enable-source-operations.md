@@ -10,7 +10,7 @@ checkout. Target semantic models here do not implement execution.
 
 ## Outcome and boundaries
 
-Enable each operation in [the source-intent contract](../../spec/10-source-intent.md) only when Canopy can validate, execute, reconcile, and persist it safely and clients can emit it durably. Current clients send `operations: null`; deployed Canopy accepts the [exact-basis subset](../../docs/exact-source-execution.md). Preserve that fail-closed behavior for every operation not yet enabled. No API version fork, silent snapshot fallback, or residual field.
+Enable each operation in [the source-intent contract](../../spec/10-source-intent.md) only when Canopy can validate, execute, reconcile, and persist it safely and clients can emit it durably. Installed Native emits supported `editSource` operations and explicit structural snapshots; filesystem clients send `operations: null`. Deployed Canopy supports the [source execution foundation](../../docs/exact-source-execution.md) and [accepted ambiguity lifecycle](../../docs/accepted-entry-conflicts.md). Preserve that fail-closed behavior for every operation not yet enabled. No API version fork, silent snapshot fallback, or residual field.
 
 Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Canopy's update/store path, `packages/canopy-client/src/sync-state.ts`, Swift `WireOperations.swift`, `WireModels.swift`, and `ArborWorkingTree/UpdateCoordinator.swift` before implementing. Recheck Quagmire ownership and the exact-source ledger before editor changes; follow repository local-workspace and release-pin instructions.
 

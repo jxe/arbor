@@ -1,7 +1,9 @@
 # Accepted whole-entry conflicts
 
 Source-built Canopy retains competing file edits, including nested files, as accepted choices.
-The server checkpoint is deployed with schema 11; installed clients still emit snapshots. It uses the existing unversioned Wire
+The server checkpoint is deployed with schema 11. Installed Native now emits
+source operations after its [verified cutover](native-source-cutover.md); filesystem
+clients continue to emit snapshots. It uses the existing unversioned Wire
 contract; clients need no identity map, review cache or coordinated upgrade.
 
 ## Implemented slice
