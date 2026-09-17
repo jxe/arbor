@@ -599,6 +599,47 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("Mention search prioritizes matching page names over body-text matches")
+    func mentionSearchUsesPageIdentityFields() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        for index in 0..<9 {
+            _ = try #require(await provider.perform(.createMarkdown(
+                parent: root,
+                name: "noise-\(index)",
+                source: "# A\(index)\n\nValues appears only in this page body.\n"
+            )))
+        }
+        let target = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Values",
+            source: "# Values\n"
+        )))
+
+        let suggestions = await host.suggestDocuments("Values", in: binding.document)
+
+        #expect(suggestions.first?.title == "Values")
+        #expect(suggestions.first?.id == ArborDocumentReferenceCodec.encode(target.reference))
+        #expect(suggestions.allSatisfy {
+            $0.title.localizedCaseInsensitiveContains("Values")
+                || ($0.subtitle?.localizedCaseInsensitiveContains("Values") == true)
+        })
+        await session.close()
+    }
+
+    @MainActor
     @Test("A deleted full-row link only offers to trash a now-unlinked writable page")
     func deletedDocumentLinkTrashDecision() async throws {
         let provider = InMemoryWorkspaceProvider.sample()

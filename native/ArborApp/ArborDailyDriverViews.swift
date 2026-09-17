@@ -173,7 +173,7 @@ struct ArborSidebarSearchRow: View {
         let titleParts = arborSidebarTitleParts(result.title)
 
         Button(action: open) {
-            HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let emoji = titleParts.emoji {
                     Text(emoji)
                         .frame(width: 16)
@@ -922,9 +922,7 @@ struct ArborAttentionBanner: View {
 }
 
 struct ArborDocumentFooter: View {
-    let provider: String
-    let sync: WorkspaceSyncPresentation
-    let binding: ArborDocumentBinding?
+    let status: ArborSyncStatus
     let backlinks: [WorkspaceSearchResult]
     let open: (WorkspaceReference) -> Void
     let showStatus: () -> Void
@@ -958,43 +956,24 @@ struct ArborDocumentFooter: View {
             }
 
             Button(action: showStatus) {
-                VStack(spacing: 3) {
-                    Label(statusTitle, systemImage: statusSymbol)
+                HStack(spacing: 5) {
+                    ArborSyncToolbarIndicator(status: status)
+                        .frame(width: 13, height: 13)
+                        .background(.bar, in: Circle())
+                    Text(status.label)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(statusTint)
-                    Text(provider)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help(sync.detail ?? statusTitle)
+            .help(status.accessibilityDescription)
+            .accessibilityLabel(status.accessibilityDescription)
             .accessibilityHint("Shows local durability and synchronization details")
         }
         .padding(.top, 24)
         .padding(.bottom, 12)
-    }
-
-    private var statusTitle: String {
-        if binding?.isSaving == true { return "Retaining edit" }
-        if binding?.conflict != nil { return "Edit conflict" }
-        if binding?.lastError != nil { return "Local retention failed" }
-        return sync.state.label
-    }
-
-    private var statusSymbol: String {
-        if binding?.isSaving == true { return "ellipsis.circle" }
-        if binding?.conflict != nil { return "exclamationmark.triangle" }
-        if binding?.lastError != nil { return "exclamationmark.circle" }
-        return sync.state.symbol
-    }
-
-    private var statusTint: Color {
-        if binding?.lastError != nil { return .red }
-        if binding?.conflict != nil || sync.state == .conflict { return .orange }
-        return .secondary
     }
 }
 
