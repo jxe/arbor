@@ -30,8 +30,14 @@ beforeEach(async () => {
 });
 afterEach(async () => { await stop(); await rm(dir, { recursive: true, force: true }); });
 async function edit(text: string, basis = root, range: [number, number] = [0, 3]): Promise<CandidateUpdate> {
-  const file = decodeWireDirectory(objects.get(basis)!).entries.find(e => e.name === "note.md")!.file!;
-  const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range }, text }];
+  return editAt("/note.md", text, basis, range);
+}
+async function editAt(path: string, text: string, basis = root, range: [number, number] = [0, 3]): Promise<CandidateUpdate> {
+  let directory = decodeWireDirectory(objects.get(basis)!);
+  const parts = path.slice(1).split("/"), name = parts.pop()!;
+  for (const part of parts) directory = decodeWireDirectory(objects.get(directory.entries.find(e => e.name === part)!.directory!)!);
+  const file = directory.entries.find(e => e.name === name)!.file!;
+  const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path, object: file }, range }, text }];
   const executed = await executeExactSourceEdits(basis, operations, async hash => objects.get(hash)!);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
   return { change: crypto.randomUUID(), candidate: executed.root, operations, resolves: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
@@ -127,7 +133,7 @@ for (const scenario of rangeCases) for (const reverse of [false, true]) {
     await running.canopy.verifyIntegrity();
   });
 }
-test("nested range collisions remain outside the root-entry fallback", async () => {
+test("nested range collisions create a decision at the physical file", async () => {
   const directory = decodeWireDirectory(objects.get(root)!);
   const original = directory.entries.find(e => e.name === "note.md")!;
   const child = encodeWireDirectory({ type: "directory", entries: [original] }), childHash = hashObject(child);
@@ -146,9 +152,13 @@ test("nested range collisions remain outside the root-entry fallback", async () 
       objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   }
   const prior = (await client.submitUpdates(tree, { base, updates: [candidates[0]!] })).results[0]!.update;
-  await expect(client.submitUpdates(tree, { base, updates: [candidates[1]!] })).rejects.toBeInstanceOf(WireUpdateConflict);
-  expect((await client.descriptor(tree)).tree.update).toBe(prior.id);
-  expect(records()).toHaveLength(1);
+  const accepted = (await client.submitUpdates(tree, { base, updates: [candidates[1]!] })).results[0]!.update;
+  expect(accepted.root).toBe(prior.root);
+  expect(accepted.conflicted).toBe(true);
+  const decision = (await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!;
+  expect(decision.affected).toEqual([{ material: { kind: "basis", path: "/", object: accepted.root }, within: ["nested"] }]);
+  expect(decision.alternatives.map(a => a.placement?.name)).toEqual(["note.md", "note.md"]);
+  expect(records()).toHaveLength(2);
   await running.canopy.verifyIntegrity();
 });
 test("candidate mismatch and dynamic unsupported forms reject before any prefix commits", async () => {
@@ -412,5 +422,98 @@ test("entry kind changes retain hidden files and nested batch edits keep their a
   const selected = page.decisions[0]!.alternatives.find(a => a.id === page.decisions[0]!.selected)!;
   expect(selected.contributions.map(c => c.change)).toContain(second.change);
   expect(page.decisions[0]!.alternatives.some(a => "file" in a.value)).toBe(true);
+  await running.canopy.verifyIntegrity();
+});
+
+async function installNestedPeers() {
+  const file = hashObject(new TextEncoder().encode("abc\r\n"));
+  const leaf = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file }] });
+  const leafHash = hashObject(leaf); objects.set(leafHash, leaf);
+  const folder = encodeWireDirectory({ type: "directory", entries: [{ name: "left", directory: leafHash }, { name: "right", directory: leafHash }] });
+  const folderHash = hashObject(folder); objects.set(folderHash, folder);
+  const directory = decodeWireDirectory(objects.get(root)!);
+  directory.entries.push({ name: "nested", directory: folderHash });
+  directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  const bytes = encodeWireDirectory(directory); root = hashObject(bytes); objects.set(root, bytes);
+  base = (await client.submitUpdate(tree, base, { root, objects })).update.id;
+}
+
+test("nested decisions stay independent across histories, hidden successors, resolution and restart", async () => {
+  await installNestedPeers();
+  const a = await editAt("/nested/left/note.md", "peer-left");
+  await client.submitUpdates(tree, { base, updates: [a] });
+  const first = (await client.descriptor(tree)).tree;
+  const b = await editAt("/nested/right/note.md", "peer-right", first.root);
+  const second = (await client.submitUpdates(tree, { base: first.update, updates: [b] })).results[0]!.update;
+  const left = await editAt("/nested/left/note.md", "my-left"), right = await editAt("/nested/right/note.md", "my-right");
+  const leftAccepted = (await client.submitUpdates(tree, { base, updates: [left] })).results[0]!.update;
+  const leftHistory = await client.conflicts(tree, leftAccepted.id, leftAccepted.root);
+  const current = (await client.submitUpdates(tree, { base, updates: [right] })).results[0]!.update;
+  expect(current.root).toBe(second.root);
+  const page = await client.conflicts(tree, current.id, current.root);
+  expect(page.decisions).toHaveLength(2);
+  const l = page.decisions.find(d => d.affected[0]?.within?.join("/") === "nested/left")!;
+  const r = page.decisions.find(d => d.affected[0]?.within?.join("/") === "nested/right")!;
+  expect(l.id).not.toBe(r.id);
+  expect(l.alternatives.find(v => v.id === l.selected)!.contributions).toEqual([{ change: a.change, operation: "edit" }]);
+  expect(r.alternatives.find(v => v.id === r.selected)!.contributions).toEqual([{ change: b.change, operation: "edit" }]);
+  const suffix = await editAt("/nested/left/note.md", "continued", left.candidate, [0,7]);
+  const continued = (await client.submitUpdates(tree, { base, updates: [left, suffix] })).results[1]!.update;
+  const continuedPage = await client.conflicts(tree, continued.id, continued.root);
+  const hidden = continuedPage.decisions.find(d => d.id === l.id)!.alternatives.find(v => v.id !== l.selected)!;
+  expect(hidden.value).toEqual({ file: hashObject(new TextEncoder().encode("continued\r\n")) });
+  expect(continuedPage.decisions.find(d => d.id === r.id)!.alternatives).toEqual(r.alternatives);
+  if (!("file" in hidden.value)) throw new Error("Expected file");
+  const response = await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${l.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${continued.id}`, { headers: { authorization: `Bearer ${token}` } });
+  expect(response.status).toBe(200); expect(await response.text()).toBe("continued\r\n");
+  // Removing an ancestor is not allowed to silently orphan a nested decision.
+  const directory = decodeWireDirectory(objects.get(continued.root)!);
+  directory.entries = directory.entries.filter(e => e.name !== "nested");
+  const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes);
+  await expect(client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate, operations: null,
+    resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] }] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  expect((await client.descriptor(tree)).tree.update).toBe(continued.id);
+  const resolved = (await client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate: continued.root,
+    operations: [], resolves: [{ state: continued.id, conflict: l.id, alternatives: l.alternatives.map(v => v.id) }], objects: [], deltas: [] }] })).results[0]!.update;
+  expect(resolved.conflicted).toBe(true);
+  expect((await client.conflicts(tree, resolved.id, resolved.root)).decisions.map(d => d.id)).toEqual([r.id]);
+  const snapshotEdit = await editAt("/nested/right/note.md", "snapshot-right", resolved.root, [0,10]);
+  const snapshotAccepted = (await client.submitUpdates(tree, { base: resolved.id, updates: [{ ...snapshotEdit, operations: null }] })).results[0]!.update;
+  const snapshotDecision = (await client.conflicts(tree, snapshotAccepted.id, snapshotAccepted.root)).decisions[0]!;
+  expect(snapshotDecision.id).toBe(r.id);
+  expect(snapshotDecision.alternatives.find(a => a.id === r.selected)!.value).toEqual({ file: hashObject(new TextEncoder().encode("snapshot-right\r\n")) });
+  const { placement: _oldPlacement, ...unchangedHidden } = r.alternatives.find(a => a.id !== r.selected)!;
+  const snapshotHidden = snapshotDecision.alternatives.find(a => a.id !== r.selected)!;
+  expect(snapshotHidden).toMatchObject(unchangedHidden);
+  expect(snapshotHidden.placement?.parent).toMatchObject({ material: { object: snapshotAccepted.root }, within: ["nested", "right"] });
+  await stop(); await start();
+  expect(await client.conflicts(tree, leftAccepted.id, leftAccepted.root)).toEqual(leftHistory);
+  expect((await client.conflicts(tree, resolved.id, resolved.root)).decisions[0]!.id).toBe(r.id);
+  expect((await client.conflicts(tree, snapshotAccepted.id, snapshotAccepted.root)).decisions[0]).toEqual(snapshotDecision);
+  await running.canopy.verifyIntegrity();
+});
+
+test("a stale nested source edit survives eighty intervening source and snapshot updates", async () => {
+  await installNestedPeers();
+  const initial = base, initialRoot = root;
+  const peers: Array<{ change: string; operation: string | null }> = [];
+  let current = { id: base, root };
+  for (let i = 0; i < 80; i++) {
+    const authored = await editAt("/nested/left/note.md", String(i).padStart(3, "0"), current.root);
+    const request = i % 7 === 0 ? { ...authored, operations: null } : authored;
+    peers.push({ change: request.change, operation: request.operations === null ? null : "edit" });
+    current = (await client.submitUpdates(tree, { base: current.id, updates: [request] })).results[0]!.update;
+  }
+  const stale = await editAt("/nested/left/note.md", "old-basis", initialRoot);
+  const request = { base: initial, updates: [stale] };
+  const accepted = (await client.submitUpdates(tree, request)).results[0]!.update;
+  expect(accepted.conflicted).toBe(true); expect(accepted.root).toBe(current.root);
+  const page = await client.conflicts(tree, accepted.id, accepted.root);
+  const decision = page.decisions[0]!;
+  expect(decision.alternatives.find(v => v.id === decision.selected)!.contributions).toEqual(peers);
+  expect(decision.alternatives.find(v => v.id !== decision.selected)!.value).toEqual({ file: hashObject(new TextEncoder().encode("old-basis\r\n")) });
+  await stop(); await start();
+  expect((await client.submitUpdates(tree, request)).results[0]!.update).toEqual(accepted);
+  expect(await client.conflicts(tree, accepted.id, accepted.root)).toEqual(page);
   await running.canopy.verifyIntegrity();
 });

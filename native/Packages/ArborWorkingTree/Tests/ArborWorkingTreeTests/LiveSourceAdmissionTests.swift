@@ -6,7 +6,7 @@ import Testing
 
 /// The protocol harness gives this scenario its own disposable tree without a filesystem checkout.
 /// It deliberately uses the production transport and coordinator, not a receipt stub.
-@Suite("Live source admission")
+@Suite("Live source admission", .serialized)
 struct LiveSourceAdmissionTests {
     private func intent(_ source: String, from basis: WorkspaceDocumentSnapshot) throws -> WorkspaceDocumentIntent {
         // Preserve the existing final newline: this is a range edit, not the
@@ -25,8 +25,8 @@ struct LiveSourceAdmissionTests {
         return tree
     }
 
-    @Test("Stale admission survives restart, continues a hidden candidate, and adopts another client's resolution")
-    func staleAdmissionThroughCanopy() async throws {
+    @Test("Stale admission survives several peer updates, restart, hidden continuation and resolution", arguments: ["/page", "/sub/child"])
+    func staleAdmissionThroughCanopy(path: String) async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
               let token = environment["ARBOR_SOURCE_TEST_TOKEN"],
@@ -38,7 +38,7 @@ struct LiveSourceAdmissionTests {
         let transport = ArborWireReplicaTransport(client: client)
         let initial = try await client.descriptor(tree: treeID)
         let tree = try await place(initial, client: client)
-        let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
+        let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: path)
         let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
             sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
@@ -46,10 +46,15 @@ struct LiveSourceAdmissionTests {
 
         // A peer changes exactly the same source while our editor still holds R1.
         let captured = try await tree.captureSourceAdmissionBasis(reference)
-        let peerEdit = try captured.prepare(intent: intent("Peer at R2\n", from: captured.document))
+        let peerEdit = try captured.prepare(intent: intent("Intermediate peer\n", from: captured.document))
         let peerRequest = try await peer.prepareUpdates(tree: treeID,
             base: .init(root: initial.tree.root, update: initial.tree.update), updates: [peerEdit.update])
         _ = try await peer.submitUpdateResponse(peerRequest)
+        _ = try await coordinator.recoverWatchGap()
+        let nextCapture = try await tree.captureSourceAdmissionBasis(reference)
+        let nextPeer = try nextCapture.prepare(intent: intent("Peer at R2\n", from: nextCapture.document))
+        let nextRequest = try await peer.prepareUpdates(tree: treeID, base: #require(nextCapture.accepted), updates: [nextPeer.update])
+        _ = try await peer.submitUpdateResponse(nextRequest)
         _ = try await coordinator.recoverWatchGap()
         let r2 = try await client.descriptor(tree: treeID)
         #expect(try await tree.heads().acceptedUpdate == r2.tree.update)
@@ -91,6 +96,12 @@ struct LiveSourceAdmissionTests {
             Issue.record("Expected one complete accepted decision"); return
         }
         #expect(alternatives.count == 2)
+        if path == "/sub/child" {
+            guard case let .array(affected) = decision["affected"], case let .object(parent) = affected.first else {
+                Issue.record("Missing nested decision location"); return
+            }
+            #expect(parent["within"] == .array([.string("sub")]))
+        }
         let hashes = alternatives.compactMap { value -> String? in
             guard case let .object(fields) = value, case let .object(content) = fields["value"],
                   case let .string(hash) = content["file"] else { return nil }

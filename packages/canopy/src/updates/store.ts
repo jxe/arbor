@@ -157,6 +157,11 @@ export class AcceptedUpdateStore {
     return row?.id ?? null;
   }
 
+  changeForAccepted(update: string): string | null {
+    const row = this.db.query("SELECT change_id FROM accepted_updates WHERE id = ?").get(update) as { change_id: string | null } | null;
+    return row?.change_id ?? null;
+  }
+
   mergeSummary(update: string): MergeSummary | null {
     const row = this.db.query("SELECT merge_summary FROM accepted_updates WHERE id = ?").get(update) as { merge_summary: string | null } | null;
     return row?.merge_summary ? JSON.parse(row.merge_summary) : null;

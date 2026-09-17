@@ -1,5 +1,5 @@
 import { ConflictStore, type ConflictState } from "./updates/conflict-store.ts";
-import { reconcileEntryAmbiguity, entryValue, authoredConflictBasis } from "./updates/entry-ambiguity.ts";
+import { reconcileEntryAmbiguity, entryValue, authoredConflictBasis, changedEntryPaths } from "./updates/entry-ambiguity.ts";
 import type { DecisionPage } from "@arbor/wire";
 import { reconcileSourceEdits } from "./updates/source-reconciliation.ts";
 import { validateSourceEditCandidate, UnsupportedSourceEdit } from "./updates/source-edits.ts";
@@ -401,11 +401,15 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     const selected = conflict === undefined ? decisions.slice(offset, offset + 32) : decisions.filter(d => d.id === conflict);
     if (conflict !== undefined && !selected.length) return null;
-    const parent = { material: { kind: "basis" as const, path: "/", object: update.root } };
+    const parentFor = (within: string[] = []) => ({ material: { kind: "basis" as const, path: "/", object: update.root },
+      ...(within.length ? { within } : {}) });
     return { tree, state, root: update.root, conflicted: update.conflicted,
-      decisions: selected.map(d => ({ id: d.id, kind: "entry", affected: [parent], selected: d.selected,
-        alternatives: d.alternatives.map(a => ({ ...a, ...("absent" in a.value ? {} : { placement: { parent, name: d.name } }) })),
-        dependencies: [], actions: ["resolveConflict"] })),
+      decisions: selected.map(d => {
+        const parent = parentFor(d.parent);
+        return { id: d.id, kind: "entry", affected: [parent], selected: d.selected,
+          alternatives: d.alternatives.map(a => ({ ...a, ...("absent" in a.value ? {} : { placement: { parent, name: d.name } }) })),
+          dependencies: [], actions: ["resolveConflict"] };
+      }),
       next: conflict === undefined && offset + selected.length < decisions.length
         ? Buffer.from(JSON.stringify({ tree, state, offset: offset + selected.length })).toString("base64url") : null };
   }
@@ -1202,19 +1206,32 @@ export class CanopyDaemon implements AsyncDisposable {
       const currentConflicts = conflictStore.get(remoteUpdate.id);
       let conflictState: ConflictState | undefined;
       let origins: Map<string, Array<{ change: string; operation: string | null }>> | undefined;
-      // Preserve competing root-file candidates when range reconciliation cannot
-      // resolve them. The decision is whole-entry; exact ranges and every operation
-      // remain in authored evidence rather than being guessed from the projection.
-      if (sourceIntent && reconciled.outcome === "rejected" && history?.length === 1 && !remoteUpdate.conflicted) {
-        const peer = intentStore.forAccepted(remoteUpdate.id);
-        const rootFiles = (intent: SourceIntent) => intent.evidence.length > 0 && intent.evidence.every(e => /^\/[^/]+$/.test(e.path));
-        if (peer && peer.basisRoot === baseRoot && remoteUpdate.previous?.id === basisUpdate &&
-            rootFiles(peer) && rootFiles(sourceIntent)) {
+      const contributions = new Map<string, Array<{ change: string; operation: string | null }>>();
+      for (const e of sourceIntent?.evidence ?? []) {
+        const values = contributions.get(e.path) ?? [];
+        values.push({ change: sourceIntent!.change, operation: e.operation });
+        contributions.set(e.path, values);
+      }
+      // Automatic range correspondence has a bounded history. Conservative entry
+      // choices can still retain the exact candidate after that bound or a snapshot
+      // transition, provided its accepted basis has a complete retained ancestry.
+      if (sourceIntent && reconciled.outcome === "rejected" && !preconditionFailed &&
+          this.update(basisUpdate!)?.root === baseRoot) {
+        const retained = history ?? this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id, Infinity);
+        if (retained) {
           origins = new Map();
-          for (const e of peer.evidence) {
-            const name = e.path.slice(1), contributions = origins.get(name) ?? [];
-            contributions.push({ change: peer.change, operation: e.operation });
-            origins.set(name, contributions);
+          for (const update of retained) {
+            const intent = intentStore.forAccepted(update.id);
+            const change = this.acceptedStore.changeForAccepted(update.id);
+            const paths = update.previous ? await changedEntryPaths(update.previous.root, update.root,
+              hash => this.objects.load(hash, proposed)) : [];
+            // Same-byte authored operations remain evidence even without a diff.
+            for (const path of new Set([...paths, ...(intent?.evidence.map(e => e.path) ?? [])])) {
+              const values = origins.get(path) ?? [];
+              if (intent) for (const e of intent.evidence.filter(e => e.path === path)) values.push({ change: intent.change, operation: e.operation });
+              else if (change) values.push({ change, operation: null });
+              origins.set(path, values);
+            }
           }
         }
       }
@@ -1222,7 +1239,7 @@ export class CanopyDaemon implements AsyncDisposable {
           (origins || currentConflicts?.decisions.length || baseConflicts?.decisions.length || request.resolves.length)) {
         const ambiguity = await reconcileEntryAmbiguity({ base: baseRoot, current: remoteTree.ref, currentID: remoteUpdate.id,
           request, baseState: baseConflicts, currentState: currentConflicts, origins,
-          explicitNames: sourceIntent ? new Set(sourceIntent.evidence.map(e => e.path.split("/")[1]!)) : undefined,
+          contributions, explicitPaths: sourceIntent ? new Set(sourceIntent.evidence.map(e => e.path)) : undefined,
         }, hash => this.objects.load(hash, proposed));
         if (ambiguity) {
           conflictState = ambiguity.state;
@@ -1540,8 +1557,14 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!owner || owner.conflicted !== (state.decisions.length > 0)) throw new Error("Invalid conflict state ownership");
       const projected = decodeWireDirectory(await this.objects.load(owner.root));
       for (const decision of state.decisions) {
+        let parent = projected;
+        for (const name of decision.parent ?? []) {
+          const directory = parent.entries.find(e => e.name === name)?.directory;
+          if (!directory) throw new Error("Invalid conflict parent path");
+          parent = decodeWireDirectory(await this.objects.load(directory));
+        }
         const selected = decision.alternatives.find(a => a.id === decision.selected);
-        if (!selected || JSON.stringify(selected.value) !== JSON.stringify(entryValue(projected.entries.find(e => e.name === decision.name)))) throw new Error("Invalid conflict projection");
+        if (!selected || JSON.stringify(selected.value) !== JSON.stringify(entryValue(parent.entries.find(e => e.name === decision.name)))) throw new Error("Invalid conflict projection");
       }
     }
   }

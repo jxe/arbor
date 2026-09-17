@@ -78,9 +78,11 @@ receipts or rewrite stored decisions.
 The rule requires complete retained history, at most 64 intervening accepted states
 and 4096 combined operations. Snapshot transitions, changed causal bases, unresolved
 states and overlapping/same-anchor peer contributions return the existing structured
-conflict response. Two same-basis root-file source candidates, including partial ranges, can now become
-[accepted whole-entry choices](accepted-entry-conflicts.md); other ambiguous cases
-retain the explicit conflict response. Fine-grained range decisions are not yet stored. A preceding submitted candidate
+conflict response. Source candidates based on a retained accepted state, including nested files and
+partial ranges across longer source/snapshot histories, can become
+[accepted whole-entry choices](accepted-entry-conflicts.md). This conservative
+fallback follows retained ancestry independently of the automatic merger limit.
+Missing history and unsupported structural cases retain the explicit conflict response. Fine-grained range decisions are not yet stored. A preceding submitted candidate
 that differs from its merged accepted projection is not silently relabeled as that
 projection; an operation suffix requiring general range correspondence still conflicts. For accepted whole-entry choices, the suffix retains its submitted alternative attribution.
 
@@ -104,10 +106,11 @@ compaction and backup; define resynchronization before exposing retained outputs
 [storage 001](../plans/canopy-storage/001-pack-object-storage.md); packing itself is
 not required.
 
-Extend correspondence beyond one shared accepted basis. The [whole-entry lifecycle](accepted-entry-conflicts.md) now connects durable alternatives, inspection and ordinary snapshot attribution. Extend it to range-level and nested conflicts without losing hidden work. Keep ordinary filesystem snapshot clients
+Extend correspondence beyond one shared accepted basis. The [whole-entry lifecycle](accepted-entry-conflicts.md) now connects durable alternatives, inspection and ordinary snapshot attribution. Extend it to independent range decisions and coupled ancestor changes without losing hidden work. Keep ordinary filesystem snapshot clients
 working without a new conflict-induced pause. Run mixed-client and arrival-order
-cases, then deploy and verify server support before editor emission. The schema 9
-server storage upgrade is required, but no coordinated client cutover is needed.
+cases, then deploy and verify server support before editor emission. The current schema 11 server storage upgrade is required;
+[migration 009](../migrations/009-nested-conflict-locations/README.md) also covers
+older provenance storage. No coordinated client cutover is needed.
 
 The [operation plan](../plans/reliability/008-enable-source-operations.md) owns this
 remaining work. The old experiment remains useful for causal runs and arrival-order

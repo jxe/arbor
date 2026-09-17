@@ -3,7 +3,9 @@ import type { ResolutionDeclaration, InspectedAlternative } from "@arbor/wire";
 
 export type EntryValue = Exclude<InspectedAlternative["value"], { text: string }>;
 export interface EntryAlternative { id: string; revision: string; value: EntryValue; contributions: InspectedAlternative["contributions"] }
-export interface EntryDecision { id: string; name: string; selected: string; alternatives: EntryAlternative[] }
+export interface EntryDecision { id: string; name: string; parent?: string[]; selected: string; alternatives: EntryAlternative[] }
+/** Missing parent is the historical root-entry encoding. */
+export function decisionPath(decision: EntryDecision): string { return `/${[...(decision.parent ?? []), decision.name].join("/")}`; }
 export interface ConflictState { decisions: EntryDecision[]; resolutions: ResolutionDeclaration[] }
 
 /** Accepted-state snapshots of decisions. No cache or separate mutable head. */

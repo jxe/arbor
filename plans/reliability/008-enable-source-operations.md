@@ -17,9 +17,8 @@ Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Cano
 ## 1. Build the smallest execution foundation
 
 The [exact-basis executor and candidate validator](../../docs/exact-source-execution.md)
-and atomic evidence storage are implemented and tested. Schema 10 migration 008
-preserves history and provenance from schema 8 or 9 in disposable tests; live
-rehearsal remains. Public
+and atomic evidence storage are implemented and tested. Schema 11 migration 009 preserves history and provenance from schema 8, 9 or 10
+in disposable tests; live rehearsal remains. Public
 acceptance now executes the exact-basis subset and atomically stores evidence,
 including equal-byte edits. Disjoint concurrent edits from one accepted basis now merge using retained
 contributions and explicit rule evidence. Cross-basis correspondence, snapshot
@@ -67,8 +66,8 @@ immutable predecessor requests, receipt settlement, restart retries and policy-a
 editor draft recovery. Native passes the coordinator through but leaves emission
 disabled. The prototype excludes structural writes; TS session/publication integration
 and broader source/editor release gates remain. A production Swift session now
-passes stale range admission, restart, hidden-candidate continuation and second-client
-resolution through disposable Canopy. Legacy providers retain their
+passes root and nested stale range admission after multiple peer updates, restart,
+hidden-candidate continuation and second-client resolution through disposable Canopy. Legacy providers retain their
 revision checks and recovery behavior.
 
 Ownership: the editor bridge maps editing transactions to exact source edits and
@@ -89,8 +88,9 @@ boundary; a transport-only Wire client does not own editor admission.
   recovery, and carry that policy into TS.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.
 - Broaden 009's conservative acceptance to the actual snapshot and source forms
-  clients emit, including nested documents, longer histories, and
-  existing structural writes. Better automatic merging is not a prerequisite.
+  clients emit, including coupled ancestor changes and
+  existing structural writes. Nested documents and longer source/snapshot histories
+  now have conservative accepted-entry coverage. Better automatic merging is not a prerequisite.
 - Verify deployment coverage before enabling emission. Retain legacy 409 recovery
   until exact requests/drafts/suffixes have been settled or transferred. Only then
   delete the rejected-update workspace and resolution machine; ordinary errors and
