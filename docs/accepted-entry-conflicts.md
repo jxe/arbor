@@ -1,7 +1,7 @@
 # Accepted whole-entry conflicts
 
 Source-built Canopy retains competing file edits, including nested files, as accepted choices.
-This checkpoint is on main, not deployed. It uses the existing unversioned Wire
+The server checkpoint is deployed with schema 11; installed clients still emit snapshots. It uses the existing unversioned Wire
 contract; clients need no identity map, review cache or coordinated upgrade.
 
 ## Implemented slice
@@ -110,7 +110,7 @@ verification checks both hidden objects and selected projection correspondence.
 8, 9 or 10 directly to 11. Existing schema 10 decisions and all accepted history are
 preserved without rewriting their JSON. Known operation change IDs are backfilled
 when upgrading older storage; old snapshot identities remain explicitly unknown.
-Disposable migration tests and the [fresh schema 8 → 11 live-copy rehearsal](../migrations/009-nested-conflict-locations/rehearsal.md) pass; deployment remains pending. Do not downgrade an authority
+Disposable migration tests and the [fresh schema 8 → 11 live-copy rehearsal](../migrations/009-nested-conflict-locations/rehearsal.md) pass; the [live server cutover](../migrations/009-nested-conflict-locations/live-cutover.md) is complete. Do not downgrade an authority
 to a binary that can discard accepted alternatives. Storage snapshots are deliberately
 simple; packing and compaction must preserve these dependencies and remain separate
 work under [storage 001](../plans/canopy-storage/001-pack-object-storage.md).

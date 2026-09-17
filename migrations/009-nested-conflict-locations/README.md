@@ -2,7 +2,7 @@
 
 Offline schema 8, 9 or 10 → 11 migration. This is a server storage change, not a
 Wire or client migration. The [fresh live-copy rehearsal](rehearsal.md) passed;
-it has not been deployed or run against the live database.
+the [live server cutover](live-cutover.md) completed on September 17, 2026.
 Follow the [migration procedure](../README.md): back up the database and objects,
 stop writers, rehearse on a copy, and compare history and object inventories.
 
