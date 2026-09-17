@@ -24,7 +24,11 @@ import {
   type View,
 } from "./intent-model.ts";
 
-import { evaluateFormat, type FormatEvidence } from "./format-rules.ts";
+import {
+  evaluateFormat,
+  evaluateProseInsertions,
+  type FormatEvidence,
+} from "./format-rules.ts";
 import {
   pieceEdits,
   applyPieceEdits,
@@ -1901,6 +1905,27 @@ class Engine {
                 this.formatEvidence.push(policy);
                 coupledByFormat = policy.outcome !== "resolved";
               }
+              if (
+                coupledByFormat &&
+                edits.every((e) => e.range[0] === e.range[1])
+              ) {
+                const path = this.path(base, id),
+                  bytes = await this.bytes(b.pieces);
+                const policies = await Promise.all(
+                  groups.map(async (group) =>
+                    evaluateProseInsertions(
+                      path,
+                      bytes,
+                      group[0]!.range[0],
+                      await Promise.all(group.map((e) => this.bytes(e.pieces))),
+                      request.rules.config?.formats?.[path],
+                    ),
+                  ),
+                );
+                this.formatEvidence.push(...policies);
+                if (policies.every((p) => p.outcome === "resolved"))
+                  coupledByFormat = false;
+              }
               if (coupledByFormat) groups.splice(0, groups.length, edits);
               const existingChoice = current.decisions.some(
                 (d) => d.placement?.node === id && !d.context,
@@ -1934,10 +1959,7 @@ class Engine {
                 ) {
                   const formatConfig =
                     request.rules.config?.formats?.[this.path(base, id)];
-                  if (
-                    start === end &&
-                    formatConfig?.proseInsertions === "preserve-both"
-                  ) {
+                  if (start === end) {
                     const basisOrigins = new Set(b.pieces.map((p) => p.origin));
                     const origins = { ...current.origins, ...authored.origins };
                     const contribution = (
@@ -1973,17 +1995,11 @@ class Engine {
                     const combined = [...contributions]
                       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
                       .flatMap(([, pieces]) => pieces);
-                    const proposal = applyPieceEdits(b.pieces, [
-                      { range: [start, end], pieces: combined },
-                    ]);
-                    const policy = await evaluateFormat(
+                    const policy = evaluateProseInsertions(
                       this.path(base, id),
                       await this.bytes(b.pieces),
-                      await this.bytes(remote.pieces),
-                      await this.bytes(incoming.pieces),
-                      await this.bytes(proposal),
-                      pieceEdits(b.pieces, incoming.pieces),
-                      pieceEdits(b.pieces, remote.pieces),
+                      start,
+                      await Promise.all(versions.map((p) => this.bytes(p))),
                       formatConfig,
                     );
                     this.formatEvidence.push(policy);

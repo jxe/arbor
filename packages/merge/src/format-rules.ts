@@ -1,4 +1,4 @@
-import { markdownLayout } from "./markdown-format.ts";
+import { markdownLayout, markdownProseInsertion } from "./markdown-format.ts";
 import { xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
@@ -616,5 +616,46 @@ export async function evaluateFormat(
     return result(false, "Parser or semantic context unavailable");
   } finally {
     for (const tree of trees) tree.delete();
+  }
+}
+
+/** Same-anchor insertion policy is separate from replacement independence. */
+export function evaluateProseInsertions(
+  path: string,
+  base: Uint8Array,
+  offset: number,
+  additions: Uint8Array[],
+  config: FormatConfig = {},
+): FormatEvidence {
+  const format =
+    config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
+  const policy =
+    config.proseInsertions ??
+    (format === "markdown" ? "preserve-both" : "review");
+  const result = (safe: boolean, reason: string): FormatEvidence => ({
+    id: `${format}-insertions`,
+    revision: 1,
+    outcome: safe ? "resolved" : "unresolved",
+    reason,
+    config: { ...config, proseInsertions: policy },
+  });
+  if (policy !== "preserve-both" || !["markdown", "text"].includes(format))
+    return result(false, "Competing insertions require review for this policy");
+  if (base.length + additions.reduce((n, a) => n + a.length, 0) > 256 * 1024)
+    return result(false, "Source exceeds insertion analysis budget");
+  try {
+    const source = decoder.decode(base),
+      texts = additions.map((a) => decoder.decode(a));
+    return format === "text" || markdownProseInsertion(source, offset, texts)
+      ? result(
+          true,
+          "Preserve independent prose insertions in contribution order",
+        )
+      : result(
+          false,
+          "Insertion affects structured or unsupported Markdown syntax",
+        );
+  } catch {
+    return result(false, "Invalid UTF-8 for prose insertion");
   }
 }

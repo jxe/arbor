@@ -132,11 +132,20 @@ policy restrictions.
 | CSS | Different unique declaration values with stable selectors/properties/order | Duplicate declarations, variables, unsupported selectors and cascade-changing structure |
 | Binary/media | Entry move/copy and independent tree changes | Competing opaque content; no byte concatenation |
 
-Markdown/text may opt into `proseInsertions: "preserve-both"` for same-anchor
-insertions. Ordering then uses contribution identity and is arrival-order
-independent. The default remains review. This option never enables code/data
-concatenation. Configuration is validated in the tool; future per-tree/default
-selection belongs to Canopy.
+Markdown defaults to `proseInsertions: "preserve-both"`: competing additions of
+ordinary prose, new paragraphs and simple list/task items are preserved in stable
+contribution order, independent of arrival order. Exact authored bytes are retained;
+the tool does not add separators, deduplicate equal text or clear existing choices.
+The insertion rule records the effective policy in its evidence. Set
+`proseInsertions: "review"` to require review instead. Plain text retains the review
+default and can opt into preserve-both.
+
+This insertion policy excludes frontmatter, fences (including unlabelled fences),
+inline code, links, tables, indented code and unsupported Markdown syntax. Documents
+with raw HTML remain conservative until its enclosing scopes are analyzed. Structured
+formats cannot opt into prose concatenation. Replacement conflicts and mixed changes
+whose structural independence is unproved still retain choices. Configuration is
+validated in the tool; future per-tree/default selection belongs to Canopy.
 
 Tree-sitter grammars/runtime and the strict XML parser are pinned package
 dependencies. Only grammar modules are cached; parsed trees are disposed after
@@ -177,7 +186,9 @@ The benchmark retains every intermediate state; packing/compaction remains separ
 Verification covers the original exploratory corpus, all operation families,
 all format rows, generated Unicode/line-ending and arrival-order combinations,
 deep choices, exact operation retention, malformed syntax, binding changes and
-explicit refusals. The 135 focused tests pass, including identical successful and
+explicit refusals. The 158 focused tests pass, including identical successful and
 typed-refusal results through library, fresh worker and persistent worker, plus
 Canopy staging validation and conservative worker-failure acceptance. Final
-repository gate results are recorded in the archived plan. This is not live activation.
+repository gate results for the original milestone are recorded in the archived plan.
+The lenient Markdown default follow-up passed 953 product tests, type checking, build
+and the relative-link/whitespace checks. This is not live activation.

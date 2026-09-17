@@ -123,3 +123,61 @@ export function markdownLayout(source: string): MarkdownLayout | null {
   }
   return block ? null : { units, embedded, skeleton: skeleton.join("") };
 }
+
+/** Deliberately modest prose policy: retain authored insertions without inventing
+ * separators or treating code/data/link syntax as ordinary paragraph text. */
+export function markdownProseInsertion(
+  source: string,
+  offset: number,
+  additions: string[],
+): boolean {
+  const layout = markdownLayout(source);
+  if (
+    !layout ||
+    layout.embedded.some((e) => offset >= e.start && offset <= e.end)
+  )
+    return false;
+  // Raw HTML can span otherwise ordinary-looking lines. This analyzer does not
+  // yet establish those boundaries, so leave such documents to review.
+  if (/^\s*</m.test(source)) return false;
+  const bytes = Buffer.from(source),
+    prefix = bytes.subarray(0, offset).toString("utf8"),
+    suffix = bytes.subarray(offset).toString("utf8");
+  const before = prefix.slice(prefix.lastIndexOf("\n") + 1),
+    after = suffix.split("\n", 1)[0]!;
+  const line = (before + after).replace(/\r$/, "");
+  const safeLine = (line: string) => {
+    if (/^\s{4}|^\t|^\s*(?:[-=*_]\s*){3,}$/.test(line)) return false;
+    const body = line.replace(
+      /^(?:#{1,6}\s+| {0,3}[-+*]\s+(?:\[[ xX]\]\s+)?| {0,3}\d+[.)]\s+)/,
+      "",
+    );
+    return !/[`~|\[\]<>\\*_]/.test(body);
+  };
+  if (!safeLine(line)) return false;
+  // Do not insert into a heading/list marker or task checkbox.
+  const marker =
+    /^(?:#{1,6}\s+| {0,3}[-+*]\s+(?:\[[ xX]\]\s+)?| {0,3}\d+[.)]\s+)/.exec(
+      line,
+    )?.[0] ?? "";
+  if (before.length > 0 && before.length < marker.length) return false;
+  if (before.endsWith("\r") && suffix.startsWith("\n")) return false;
+  const following = suffix.slice(suffix.indexOf("\n") + 1).split("\n", 1)[0]!;
+  if (suffix.includes("\n") && /^\s*(?:=+|-+)\s*$/.test(following))
+    return false;
+  if (!additions.every((text) => text.split(/\r?\n/).every(safeLine)))
+    return false;
+  if (additions.some((text) => /[\r\n]/.test(text))) {
+    // Complete lines at a line boundary, or new paragraphs after the document.
+    return (
+      (before === "" && additions.every((text) => text.endsWith("\n"))) ||
+      (offset === bytes.length &&
+        additions.every((text) => /^(?:\r?\n){2}/.test(text)))
+    );
+  }
+  // Inline prose must not create new structural markers at the start of a line.
+  return (
+    additions.every((text) => !/^(?:#{1,6}\s|[-+*]\s|\d+[.)]\s)/.test(text)) &&
+    safeLine(before + additions.join("") + after)
+  );
+}

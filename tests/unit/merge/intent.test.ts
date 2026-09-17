@@ -603,7 +603,7 @@ test("hidden alternative edits change retained state without resolving or changi
   expect((await f.run(resolve)).decisions).toEqual([]);
 });
 
-test("the earlier source-edit corpus retains its safe and ambiguous outcomes", async () => {
+test("the earlier source-edit corpus retains its outcomes under the review insertion policy", async () => {
   const corpus = await Bun.file(
     "tests/fixtures/canopy/merge-source-intent.json",
   ).json();
@@ -637,15 +637,19 @@ test("the earlier source-edit corpus retains its safe and ambiguous outcomes", a
           "first",
         ),
       );
-      const result = await f.run(
-        f.request(
-          base,
-          f.tree({ "note.md": execute(second) }),
-          [operation(second)],
-          "second",
-          current.result,
-        ),
+      const request = f.request(
+        base,
+        f.tree({ "note.md": execute(second) }),
+        [operation(second)],
+        "second",
+        current.result,
       );
+      // Keep the exploratory corpus's original policy explicit; current defaults
+      // have separate preserve-both coverage.
+      request.rules.config = {
+        formats: { "/note.md": { proseInsertions: "review" } },
+      };
+      const result = await f.run(request);
       if (example.conflict)
         expect(result.decisions.length, example.name).toBeGreaterThan(0);
       else {
@@ -1857,9 +1861,6 @@ test("three same-anchor prose contributions have one order across all arrivals",
         change,
         current,
       );
-      request.rules.config = {
-        formats: { "/note.md": { proseInsertions: "preserve-both" } },
-      };
       const result = await f.run(request);
       expect(result.decisions).toEqual([]);
       current = result.result;
