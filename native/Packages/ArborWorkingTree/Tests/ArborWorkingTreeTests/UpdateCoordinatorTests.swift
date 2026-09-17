@@ -2244,3 +2244,45 @@ extension SourceSessionPublicationTests {
         }
     }
 }
+
+extension SourceSessionPublicationTests {
+    @Test("Server-first source activation preserves legacy work and never downgrades a source journal")
+    func releaseSelection() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let files = try UpdateControlFiles(root: root)
+            #expect(try UpdateCoordinator.sourceAdmissionReady(stateRoot: root))
+            var held = UpdateControl()
+            held.hold = .init(reason: "Retained legacy work")
+            try files.write(held)
+            let original = try Data(contentsOf: files.controlURL)
+            #expect(try UpdateCoordinator.sourceAdmissionReady(stateRoot: root) == false)
+            let legacy = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: UpdateCoordinator.sourceAdmissionReady(stateRoot: root))
+            #expect(legacy.sourceOperationEmission == false)
+            #expect(try Data(contentsOf: files.controlURL) == original)
+            #expect(throws: ArborWireValidationError.self) {
+                try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, sourceOperationEmission: true)
+            }
+            try await legacy.setSubmissionHold(nil)
+            await legacy.close()
+            #expect(try UpdateCoordinator.sourceAdmissionReady(stateRoot: root))
+            let source = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: UpdateCoordinator.sourceAdmissionReady(stateRoot: root))
+            #expect(source.sourceOperationEmission)
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: source)
+            let session = try await provider.openDocument(.init(tree: treeID, path: "/note"))
+            #expect(await session.admissionPolicy == .retainedBasis)
+            let basis = try await session.snapshot()
+            _ = try await replace("Retained\n", session: session, basis: basis)
+            await session.close(); await source.close()
+            #expect(try UpdateCoordinator.sourceAdmissionReady(stateRoot: root))
+            #expect(throws: ArborWireValidationError.self) {
+                try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root)
+            }
+            #expect(try await SourceAdmissionQueue(tree: treeID.rawValue, stateRoot: root).retained().count == 1)
+            await tree.close()
+        }
+    }
+}

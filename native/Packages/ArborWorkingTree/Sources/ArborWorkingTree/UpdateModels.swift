@@ -162,6 +162,11 @@ struct UpdateControl: Codable, Equatable, Sendable {
     var head: UpdateHead?
     var hold: UpdateHold?
     var presentation = WorkspaceSyncPresentation(state: .offline)
+
+    var hasLegacyWork: Bool {
+        conflict != nil || head != nil || hold != nil || nextBase != nil ||
+            (attempt != nil && sourceAttemptChange == nil)
+    }
 }
 
 public struct UpdateConflictPresentation: Sendable, Equatable {

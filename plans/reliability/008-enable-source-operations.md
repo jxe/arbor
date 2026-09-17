@@ -69,8 +69,8 @@ now captures tree bases atomically and durably retains validated candidate/opera
 chains in Swift and TS, with shared exact-request vectors and restart/failure tests.
 Swift now has an opt-in session/publication runner: retained candidate views,
 immutable predecessor requests, receipt settlement, restart retries and policy-aware
-editor draft recovery. Native passes the coordinator through but leaves emission
-disabled. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
+editor draft recovery. Native now selects source emission for settled coordinator records; retained
+legacy work stays in compatibility mode. Installed-app upgrade and restart checks remain. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
 with disposable-server coverage; host integration and broader source/editor release gates remain. A production Swift session now
 passes root and nested stale range admission after multiple peer updates, restart,
 hidden-candidate continuation and second-client resolution through disposable Canopy. Legacy providers retain their
@@ -99,12 +99,13 @@ boundary; a transport-only Wire client does not own editor admission.
   predecessors now have conservative acceptance. Nested documents, coupled ancestor changes and longer source/snapshot
   histories now have conservative accepted-entry coverage. Verify deployed coverage
   before client activation. Better automatic merging is not a prerequisite.
-- Verify deployed merged-predecessor continuation before enabling clients. The live
+- Complete installed Native upgrade and restart verification against the deployed
+  [merged-predecessor server](../../docs/merged-successor-deployment.md). The live
   create-A, stale-edit-B, edit-B-again, continue-A scenario now passes through
   restart and uncertain acceptance. Native preserves each authored basis and
   temporarily gates structural actions while pending branches await Canopy.
-  Complete real-app release and compatibility checks before activation.
-- Verify deployment coverage before enabling emission. Retain legacy 409 recovery
+  Recheck exact durable state at the app-upgrade boundary.
+- Retain legacy 409 recovery
   until exact requests/drafts/suffixes have been settled or transferred. Only then
   delete the rejected-update workspace and resolution machine; ordinary errors and
   stale explicit-resolution guards still preserve work.

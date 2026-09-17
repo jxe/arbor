@@ -229,7 +229,8 @@ final class ArborWorkspaceState {
             workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
-            transportAvailable: initiallyAvailable
+            transportAvailable: initiallyAvailable,
+            sourceOperationEmission: UpdateCoordinator.sourceAdmissionReady(stateRoot: syncStateRoot)
         )
         let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
             try await coordinator.syncImmediately(admission)
@@ -834,7 +835,9 @@ final class ArborWorkspaceState {
 
         let stateRoot = ArborSupportDirectories.workingTrees
             .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
-        let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot, transportAvailable: nativeTransportAvailable)
+        let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot,
+            transportAvailable: nativeTransportAvailable,
+            sourceOperationEmission: UpdateCoordinator.sourceAdmissionReady(stateRoot: stateRoot))
 
         let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
             try await coordinator.syncImmediately(admission)

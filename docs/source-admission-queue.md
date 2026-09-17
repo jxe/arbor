@@ -249,3 +249,18 @@ The stronger live branch scenario now includes B's second edit and A's continuat
 then verifies retry after uncertain acceptance, accepted publication, and resumed
 structural actions. This closes the server rejection recorded above; deployment
 verification and Native release/compatibility checks remain before activation.
+
+## Native activation preparation
+
+The [server continuation upgrade](merged-successor-deployment.md) is deployed.
+Native now selects source mode for settled coordinator records on both platforms.
+Retained legacy work still opens its original recovery path; after settlement a
+subsequent open selects source mode. The constructor rejects incompatible state
+and source-mode journals cannot reopen in snapshot mode. This is a local
+compatibility gate, not capability negotiation with Canopy. Installed apps are not
+changed by the source edit; their backup, upgrade and restart checks remain before
+removing legacy code and UI.
+
+Activation preparation validation: all 74 working-tree tests, the full protocol
+gate, and signed Debug builds for macOS and iOS passed. Relative-link checks added
+no unresolved links. The installed app transition has not yet run.

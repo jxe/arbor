@@ -288,8 +288,12 @@ snapshot records preserve explicit predecessor identity alongside source-operati
 records. Local Trash nodes and locally held file objects are private recovery
 material in the same structural record, excluded from Wire candidates. Publication
 and watch still install only Canopy's accepted projection into the accepted tree.
-The app activation switch remains off pending the remaining server acceptance and
-client release checks in [008](../plans/reliability/008-enable-source-operations.md).
+Native selects source admission when its coordinator has no retained legacy work.
+An existing source journal always selects source mode; a retained legacy head,
+request, conflict, hold or next base selects the compatibility path. Selection is
+read-only, and the constructor independently enforces the boundary. Once legacy
+work is settled, the next open can use source admission. Installed-client upgrade
+and legacy retirement remain gated in [008](../plans/reliability/008-enable-source-operations.md).
 
 For source-enabled Native, structural admission is available only when pending
 records form one predecessor chain whose starting graph matches the installed

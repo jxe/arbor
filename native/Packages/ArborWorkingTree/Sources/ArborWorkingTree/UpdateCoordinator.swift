@@ -31,13 +31,21 @@ public actor UpdateCoordinator {
     private var maxPublicationTask: Task<Void, Never>?
     /// The most recent durable editor admission, for the immediate-delta fast path.
     private var latestAdmission: WorkingTreePatchAdmission?
-    /// Opt-in prototype; enable only after the destination accepts every emitted form.
+    /// Enable only after the destination accepts every emitted form.
     public nonisolated let sourceOperationEmission: Bool
     private var sourceQueue: SourceAdmissionQueue?
     private var sourceViews: [String: CapturedSourceAdmissionBasis] = [:]
     private var admissionTail: Task<Void, Never>?
     private var preparedStructures: [Data: (record: SourceAdmissionRecord, node: WorkspaceNode)] = [:]
     private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
+
+    /// Server-first release selection. Existing legacy work uses its original
+    /// recovery path until settled; already activated journals never downgrade.
+    /// This only reads local state and does not clear or migrate retained work.
+    public static func sourceAdmissionReady(stateRoot: URL) throws -> Bool {
+        let control = try UpdateControlFiles(root: stateRoot).load()
+        return control.sourceMode == true || !control.hasLegacyWork
+    }
 
     public init(
         workingTree: WorkingTree,
@@ -59,9 +67,7 @@ public actor UpdateCoordinator {
             throw ArborWireValidationError.invalidValue("Retained source admissions require the source-enabled client path")
         }
         if sourceOperationEmission {
-            let legacy = control
-            guard legacy.conflict == nil, legacy.head == nil, legacy.hold == nil, legacy.nextBase == nil,
-                  legacy.attempt == nil || legacy.sourceAttemptChange != nil else {
+            guard !control.hasLegacyWork else {
                 throw ArborWireValidationError.invalidValue("Settle legacy queued work before activating source admission")
             }
         }
