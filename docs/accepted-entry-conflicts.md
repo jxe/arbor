@@ -59,9 +59,13 @@ have equal bytes.
 
 Attribution preserves independent physical entries and all open choices; it does
 not infer renames or movement from snapshot equality. Deleting or replacing an
-ancestor of unresolved nested decisions remains guarded until coupled structural
-decisions can preserve their meaning. Directory backing metadata changes also
-remain outside this reconciliation subset. Authority
+ancestor of unresolved nested decisions adds an enclosing entry decision and keeps
+the selected directory spine. The deletion or replacement remains a hidden
+alternative; later selected-child edits update the enclosing selected directory,
+while attributable hidden-ancestor edits continue their own alternative. A snapshot
+move conservatively retains the old location and adds the destination; it does not
+invent relocation intent. Directory backing metadata changes remain outside this
+reconciliation subset. Authority
 write paths that bypass attribution refuse to change an unresolved projection rather
 than publish stale decision correspondence. Ordinary filesystem and Wire submissions
 use the attribution path and do not pause on accepted conflicts.
@@ -86,17 +90,23 @@ sniffed as directory encodings.
 The TypeScript `WireClient.conflicts` and Swift `ArborWireClient.conflicts` validate
 the requested tree/state/root context. Inspection advertises `resolveConflict`;
 alternative-target editing is not yet enabled. A resolution uses ordinary supported
-source operations plus `resolves`, or `operations: []` to keep the current projection.
+source operations or an explicit snapshot (`operations: null`) plus `resolves`,
+or `operations: []` to keep the current projection.
 The declaration must name the current accepted state and complete alternative set.
 A reviewed whole-file replacement can choose another value. Several declarations
-are atomic, and unnamed decisions survive. Snapshot-mode resolution, configuration
-resolution, and additional operation kinds remain unsupported. Stale/incomplete guards
+are atomic, and unnamed decisions survive. Inspection derives ancestor/descendant
+`dependencies` from existing physical locations. Choosing an ancestor result that
+would discard an unguarded descendant's selected material fails; guard those
+decisions in the same package. Keeping an ancestor can resolve it alone, and a
+child can resolve while its ancestor stays open. Configuration resolution and
+additional operation kinds remain unsupported. Stale/incomplete guards
 return the existing structured conflict response without discarding work.
 
 ## Persistence and upgrade
 
 Schema 10 introduced immutable per-accepted-state decision snapshots in `accepted_conflicts`.
 Schema 11 adds an optional physical parent path to their private entry encoding.
+Coupled ancestor decisions reuse that encoding and require no schema upgrade.
 Missing parent paths keep their historical root meaning. Integrity checks follow
 the parent spine and verify the selected value at the exact physical entry.
 Accepted changes, including snapshots, retain tree-scoped unique change identities.
@@ -123,7 +133,7 @@ choice of a hidden value, guard failures, rollback and exact batch replay. The p
 gate also creates a real conflict, edits through the filesystem synchronizer, and
 checks Swift inspection and snapshot acknowledgement against that accepted state.
 
-Next: independent source-range decisions, coupled ancestor changes, broader causal
+Next: independent source-range decisions, broader causal
 correspondence, direct alternative edits, and the client review UI. Existing format
 rules and their asynchronous execution boundary remain separate from persistence;
 rule configuration, a sidecar, packfiles and review caching are not introduced here.
@@ -141,7 +151,7 @@ equal-byte intent, multiple contributions per file, Unicode replacements and
 format-declined disjoint Markdown in both arrival orders. They check complete
 alternative values/provenance, restart, immutable receipts and storage integrity.
 Nested tests exercise independent decisions, hidden successors, snapshot continuation,
-partial resolution, ancestor-change rejection and 80 intervening source/snapshot
+partial resolution and 80 intervening source/snapshot
 updates. They verify exact historical pages and storage integrity after restart.
 
 The protocol harness now runs a Swift source-enabled document session through real
@@ -164,3 +174,16 @@ and the complete CLI suite passed on both. Reproduce the focused comparison with
 `bun test tests/integration/cli-sync.test.ts --test-name-pattern 'stopped Canopy'`;
 the ordinary file-level check is `bun test tests/integration/cli-sync.test.ts`.
 This change does not alter CLI account configuration or reconnect behavior.
+
+## Ancestor acceptance checkpoint
+
+Seven HTTP scenarios cover deletion, file replacement and hidden continuation,
+snapshot movement, selected-child continuation, multiple enclosing decisions,
+ancestor-only and child-only resolution, and atomic child resolution with ancestor
+deletion. They verify dependency inspection, incomplete/stale guards, exact retry,
+restart, historical reads and full storage integrity with schema 11 unchanged.
+
+Validation: typecheck, all 779 product tests, the cross-language protocol gate and
+CLI build passed. The documented intermittent CLI reconnect failure occurred on
+the first full run; its file-level rerun and the next full run passed. Repository
+relative-link checks introduced no new failures (24 existing unresolved links).

@@ -14,8 +14,9 @@ function alternative(value: EntryValue, contributions: EntryAlternative["contrib
 }
 
 /** Entry attribution follows physical paths without crossing nested tree mounts.
- * A directory with decisions below it must keep its parent spine; destructive
- * ancestor changes need coupled decisions and are deliberately not inferred here.
+ * Ancestor choices keep the selected directory spine while descendant decisions
+ * remain open. A resolution may discard that spine only when it explicitly
+ * guards every descendant whose selected material would no longer be represented.
  */
 export async function reconcileEntryAmbiguity(input: {
   base: ObjectHash; current: ObjectHash; currentID: string; request: CandidateUpdate;
@@ -57,34 +58,63 @@ export async function reconcileEntryAmbiguity(input: {
       const authored = entryValue(candidate.entries.find(e => e.name === name));
       const prior = input.baseState?.decisions.find(d => decisionPath(d) === path);
       let decision = state.decisions.find(d => decisionPath(d) === path);
-      const descendants = [...state.decisions, ...(input.baseState?.decisions ?? [])].some(d => decisionPath(d).startsWith(`${path}/`));
-      // Recurse even when parent hashes match: equal-byte operations and nested
-      // resolution declarations still have meaning at the leaf.
-      if (!decision && !prior && "directory" in before && "directory" in remote && "directory" in authored) {
-        const child = await directory(before.directory, remote.directory, authored.directory, [...parent, name]);
-        if (child === null) return null;
-        output.push({ name, directory: child });
-        continue;
-      }
-      if (descendants) return null;
+      const descendants = state.decisions.filter(d => decisionPath(d).startsWith(`${path}/`));
       const changed = !same(before, authored) || explicitAt(path);
       const contributions = request.operations === null ? [{ change: request.change, operation: null }] : contributionsAt(input.contributions, path);
+      const selected = decision?.alternatives.find(a => a.id === decision!.selected);
+      if (decision && (!selected || !same(selected.value, remote))) throw new Error("Stored conflict projection does not match accepted entry");
+      const basisAlternative = prior?.alternatives.find(a => a.id === prior.selected);
+      const attributable = basisAlternative && decision?.alternatives.find(a => a.id === basisAlternative.id && a.revision === basisAlternative.revision);
       let value = remote;
-      if (decision) {
-        const selected = decision.alternatives.find(a => a.id === decision!.selected)!;
-        if (!same(selected.value, remote)) throw new Error("Stored conflict projection does not match accepted entry");
+
+      // A guarded ancestor may choose a concrete subtree, but cannot silently
+      // discard another open choice. Inspect against the authored result, not
+      // merely entry kind or equality of enclosing directory hashes.
+      async function preservesOpenDescendants() {
+        for (const descendant of descendants) {
+          if (guards.has(descendant.id)) continue;
+          let actual = authored;
+          for (const part of decisionPath(descendant).slice(path.length + 1).split("/")) {
+            if (!("directory" in actual)) return false;
+            const body = decodeWireDirectory(await load(actual.directory));
+            actual = entryValue(body.entries.find(e => e.name === part));
+          }
+          if (!same(actual, descendant.alternatives.find(a => a.id === descendant.selected)!.value)) return false;
+        }
+        return true;
+      }
+      if (decision && guards.has(decision.id)) {
+        if (!await preservesOpenDescendants()) return null;
+        value = authored;
+      } else if ("directory" in before && "directory" in remote && "directory" in authored &&
+          (!decision && !prior || attributable?.id === decision?.selected && !!decision)) {
+        // Edits within the selected ancestor continue its children. An authored
+        // hidden ancestor instead remains a whole-subtree alternative below.
+        const child = await directory(before.directory, remote.directory, authored.directory, [...parent, name]);
+        if (child === null) return null;
+        value = { directory: child };
+        if (selected && (!same(selected.value, value) || changed)) {
+          selected.value = value; selected.revision = crypto.randomUUID();
+          selected.contributions = [...selected.contributions, ...contributions];
+        }
+      } else if (descendants.some(d => guards.has(d.id))) {
+        // Removing an ancestor that has no decision of its own can explicitly
+        // resolve the affected children in this same update package. Once the
+        // ancestor has alternatives, that choice needs its own guard too.
+        if (decision || !await preservesOpenDescendants()) return null;
+        value = authored;
+      } else if (decision) {
         if (changed) {
-          const basisAlternative = prior?.alternatives.find(a => a.id === prior.selected);
-          const attributable = basisAlternative && decision.alternatives.find(a => a.id === basisAlternative.id && a.revision === basisAlternative.revision);
-          if (attributable) {
+          // Continuing a hidden subtree is safe. Replacing the selected spine
+          // while children are unresolved must add a choice, not mutate it away.
+          if (attributable && (attributable.id !== decision.selected || !descendants.length)) {
             attributable.value = authored; attributable.revision = crypto.randomUUID();
             attributable.contributions = [...attributable.contributions, ...contributions];
           } else decision.alternatives.push(alternative(authored, contributions));
         }
         value = decision.alternatives.find(a => a.id === decision!.selected)!.value;
-        if (guards.has(decision.id)) value = authored;
       } else if (changed) {
-        if (same(remote, before) && !prior && !originsAt(path)) value = authored;
+        if (same(remote, before) && !prior && !originsAt(path) && !descendants.length) value = authored;
         else if (same(remote, authored) && !prior && !explicitAt(path)) value = remote;
         else {
           const accepted = alternative(remote, contributionsAt(input.origins, path));

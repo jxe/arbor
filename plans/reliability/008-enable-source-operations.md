@@ -95,9 +95,10 @@ boundary; a transport-only Wire client does not own editor admission.
   editor-only draft recovery through Canopy; interactive Native UI/release checks remain.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.
 - Broaden 009's conservative acceptance to the actual snapshot and source forms
-  clients emit, including coupled ancestor changes and
-  existing structural writes. Nested documents and longer source/snapshot histories
-  now have conservative accepted-entry coverage. Better automatic merging is not a prerequisite.
+  clients emit, including existing structural writes and general merged-predecessor
+  suffixes. Nested documents, coupled ancestor changes and longer source/snapshot
+  histories now have conservative accepted-entry coverage. Verify deployed coverage
+  before client activation. Better automatic merging is not a prerequisite.
 - Verify interleaved structural and stale-source branches across multiple open documents, including retaining a creation while an older editor admits another file. The completed mixed-queue integration test covers a linear chain; do not infer branch coverage from it.
 - Verify deployment coverage before enabling emission. Retain legacy 409 recovery
   until exact requests/drafts/suffixes have been settled or transferred. Only then

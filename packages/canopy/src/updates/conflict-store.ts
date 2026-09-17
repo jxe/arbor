@@ -6,6 +6,14 @@ export interface EntryAlternative { id: string; revision: string; value: EntryVa
 export interface EntryDecision { id: string; name: string; parent?: string[]; selected: string; alternatives: EntryAlternative[] }
 /** Missing parent is the historical root-entry encoding. */
 export function decisionPath(decision: EntryDecision): string { return `/${[...(decision.parent ?? []), decision.name].join("/")}`; }
+/** Coupling is derivable from existing physical locations; no stored graph edge
+ * or schema change is needed. Related decisions must be inspected together. */
+export function decisionDependencies(decision: EntryDecision, decisions: EntryDecision[]): string[] {
+  const path = decisionPath(decision);
+  return decisions.filter(other => other.id !== decision.id &&
+    (decisionPath(other).startsWith(`${path}/`) || path.startsWith(`${decisionPath(other)}/`)))
+    .map(other => other.id).sort();
+}
 export interface ConflictState { decisions: EntryDecision[]; resolutions: ResolutionDeclaration[] }
 
 /** Accepted-state snapshots of decisions. No cache or separate mutable head. */

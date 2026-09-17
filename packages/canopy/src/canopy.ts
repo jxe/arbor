@@ -1,4 +1,4 @@
-import { ConflictStore, type ConflictState } from "./updates/conflict-store.ts";
+import { decisionDependencies, ConflictStore, type ConflictState } from "./updates/conflict-store.ts";
 import { reconcileEntryAmbiguity, entryValue, authoredConflictBasis, changedEntryPaths } from "./updates/entry-ambiguity.ts";
 import type { DecisionPage } from "@arbor/wire";
 import { reconcileSourceEdits } from "./updates/source-reconciliation.ts";
@@ -408,7 +408,7 @@ export class CanopyDaemon implements AsyncDisposable {
         const parent = parentFor(d.parent);
         return { id: d.id, kind: "entry", affected: [parent], selected: d.selected,
           alternatives: d.alternatives.map(a => ({ ...a, ...("absent" in a.value ? {} : { placement: { parent, name: d.name } }) })),
-          dependencies: [], actions: ["resolveConflict"] };
+          dependencies: decisionDependencies(d, decisions), actions: ["resolveConflict"] };
       }),
       next: conflict === undefined && offset + selected.length < decisions.length
         ? Buffer.from(JSON.stringify({ tree, state, offset: offset + selected.length })).toString("base64url") : null };
@@ -1033,7 +1033,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
-      if ((update.resolves.length && update.operations === null) || update.operations?.some(operation => operation.kind !== "editSource") ||
+      if (update.operations?.some(operation => operation.kind !== "editSource") ||
           (request.base === null && update.operations !== null)) {
         throw new UpdateProtocolError("unsupported-operation", `Update ${index} (${update.change}) contains operations or resolutions not yet supported by Canopy`);
       }

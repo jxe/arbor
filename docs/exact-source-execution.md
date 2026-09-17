@@ -105,7 +105,7 @@ compaction and backup; define resynchronization before exposing retained outputs
 [storage 001](../plans/canopy-storage/001-pack-object-storage.md); packing itself is
 not required.
 
-Extend correspondence beyond one shared accepted basis. The [whole-entry lifecycle](accepted-entry-conflicts.md) now connects durable alternatives, inspection and ordinary snapshot attribution. Extend it to independent range decisions and coupled ancestor changes without losing hidden work. Keep ordinary filesystem snapshot clients
+Extend correspondence beyond one shared accepted basis. The [whole-entry lifecycle](accepted-entry-conflicts.md) now connects durable alternatives, inspection and ordinary snapshot attribution. It also retains coupled ancestor changes. Extend it to independent range decisions without losing hidden work. Keep ordinary filesystem snapshot clients
 working without a new conflict-induced pause. Run mixed-client and arrival-order
 cases, then deploy and verify server support before editor emission. The current schema 11 server storage upgrade is required;
 [migration 009](../migrations/009-nested-conflict-locations/README.md) also covers

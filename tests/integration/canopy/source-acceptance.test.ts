@@ -466,13 +466,6 @@ test("nested decisions stay independent across histories, hidden successors, res
   if (!("file" in hidden.value)) throw new Error("Expected file");
   const response = await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${l.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${continued.id}`, { headers: { authorization: `Bearer ${token}` } });
   expect(response.status).toBe(200); expect(await response.text()).toBe("continued\r\n");
-  // Removing an ancestor is not allowed to silently orphan a nested decision.
-  const directory = decodeWireDirectory(objects.get(continued.root)!);
-  directory.entries = directory.entries.filter(e => e.name !== "nested");
-  const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes);
-  await expect(client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate, operations: null,
-    resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] }] })).rejects.toBeInstanceOf(WireUpdateConflict);
-  expect((await client.descriptor(tree)).tree.update).toBe(continued.id);
   const resolved = (await client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate: continued.root,
     operations: [], resolves: [{ state: continued.id, conflict: l.id, alternatives: l.alternatives.map(v => v.id) }], objects: [], deltas: [] }] })).results[0]!.update;
   expect(resolved.conflicted).toBe(true);
@@ -557,5 +550,161 @@ test("TS document session admits stale intent, restarts, continues a hidden cand
   const refreshed = await restarted.document.snapshot();
   expect(refreshed.revision).not.toBe(beforeResolution.revision);
   expect(refreshed.source).toBe("PEER\r\n");
+  await running.canopy.verifyIntegrity();
+});
+
+async function nestedConflict() {
+  await installNestedPeers();
+  const peer = await editAt("/nested/left/note.md", "PEER");
+  await client.submitUpdates(tree, { base, updates: [peer] });
+  const mine = await editAt("/nested/left/note.md", "MINE");
+  const accepted = (await client.submitUpdates(tree, { base, updates: [mine] })).results[0]!.update;
+  return { accepted, page: await client.conflicts(tree, accepted.id, accepted.root) };
+}
+function rootSnapshot(basis: ObjectHash, modify: (directory: ReturnType<typeof decodeWireDirectory>) => void): CandidateUpdate {
+  const directory = decodeWireDirectory(objects.get(basis)!);
+  modify(directory);
+  directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes); objects.set(candidate, bytes);
+  return { change: crypto.randomUUID(), candidate, operations: null, resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] };
+}
+const resolutionGuard = (state: string, decision: Awaited<ReturnType<WireClient["conflicts"]>>["decisions"][number]) =>
+  ({ state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) });
+
+test("ancestor deletion retains children and requires coherent joint guards, with replay and restart", async () => {
+  const { accepted, page: before } = await nestedConflict();
+  const deletion = rootSnapshot(accepted.root, d => { d.entries = d.entries.filter(e => e.name !== "nested"); });
+  const request = { base: accepted.id, updates: [deletion] };
+  const result = (await client.submitUpdates(tree, request)).results[0]!;
+  expect(result.update.conflicted).toBe(true);
+  expect(result.update.root).toBe(accepted.root);
+  const page = await client.conflicts(tree, result.update.id, result.update.root);
+  const child = page.decisions.find(d => d.id === before.decisions[0]!.id)!;
+  const ancestor = page.decisions.find(d => d.id !== child.id)!;
+  expect(child.alternatives).toEqual(before.decisions[0]!.alternatives);
+  expect(child.dependencies).toEqual([ancestor.id]);
+  expect(ancestor.dependencies).toEqual([child.id]);
+  expect(ancestor.alternatives.map(a => a.value)).toContainEqual({ absent: true });
+  const snapshot = new Database(`${dir}/canopy.sqlite3`, { readonly: true });
+  expect(snapshot.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: "11" }); snapshot.close();
+  // An ancestor-only guard cannot abandon either retained child alternative.
+  const incomplete = { ...deletion, change: crypto.randomUUID(), resolves: [resolutionGuard(result.update.id, ancestor)] };
+  await expect(client.submitUpdates(tree, { base: result.update.id, updates: [incomplete] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  expect((await client.descriptor(tree)).tree.update).toBe(result.update.id);
+  await stop(); await start();
+  expect(await client.conflicts(tree, result.update.id, result.update.root)).toEqual(page);
+  expect((await client.submitUpdates(tree, request)).results[0]!.update.id).toBe(result.update.id);
+  const complete = { ...incomplete, change: crypto.randomUUID(), resolves: page.decisions.map(d => resolutionGuard(result.update.id, d)) };
+  const resolved = (await client.submitUpdates(tree, { base: result.update.id, updates: [complete] })).results[0]!.update;
+  expect(resolved.root).toBe(deletion.candidate);
+  expect(resolved.conflicted).toBe(false);
+  expect((await client.conflicts(tree, resolved.id, resolved.root)).decisions).toEqual([]);
+  expect(await client.conflicts(tree, result.update.id, result.update.root)).toEqual(page);
+  await running.canopy.verifyIntegrity();
+});
+
+test("selected child edits update the ancestor projection; partial keep resolution leaves children attached", async () => {
+  const { accepted, page: before } = await nestedConflict();
+  const deletion = rootSnapshot(accepted.root, d => { d.entries = d.entries.filter(e => e.name !== "nested"); });
+  const ancestorState = (await client.submitUpdates(tree, { base: accepted.id, updates: [deletion] })).results[0]!.update;
+  const firstPage = await client.conflicts(tree, ancestorState.id, ancestorState.root);
+  const changed = await editAt("/nested/left/note.md", "EDITED", ancestorState.root, [0,4]);
+  const continued = (await client.submitUpdates(tree, { base: ancestorState.id, updates: [changed] })).results[0]!.update;
+  for (const [hash, bytes] of (await client.snapshot(tree, continued.root)).objects) objects.set(hash, bytes);
+  const page = await client.conflicts(tree, continued.id, continued.root);
+  const child = page.decisions.find(d => d.id === before.decisions[0]!.id)!;
+  expect(child.alternatives.find(a => a.id === child.selected)!.value).toEqual({ file: hashObject(Buffer.from("EDITED\r\n")) });
+  const ancestor = page.decisions.find(d => d.id !== child.id)!;
+  expect(ancestor.alternatives.find(a => a.id === ancestor.selected)!.value).not.toEqual(firstPage.decisions.find(d => d.id === ancestor.id)!.alternatives.find(a => a.id === ancestor.selected)!.value);
+  // An older reviewed parent is stale even though its alternative IDs survived.
+  await expect(client.submitUpdates(tree, { base: continued.id, updates: [{ ...deletion, change: crypto.randomUUID(),
+    resolves: firstPage.decisions.map(d => resolutionGuard(ancestorState.id, d)) }] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  const kept = (await client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate: continued.root,
+    operations: [], resolves: [resolutionGuard(continued.id, ancestor)], objects: [], deltas: [] }] })).results[0]!.update;
+  expect(kept.root).toBe(continued.root); expect(kept.conflicted).toBe(true);
+  const remaining = await client.conflicts(tree, kept.id, kept.root);
+  expect(remaining.decisions.map(d => d.id)).toEqual([child.id]);
+  expect(remaining.decisions[0]!.dependencies).toEqual([]);
+  await running.canopy.verifyIntegrity();
+});
+
+test("hidden ancestor replacement continues through a batch suffix without losing child choices", async () => {
+  const { accepted, page: before } = await nestedConflict();
+  const body = Buffer.from("opaque ancestor"), file = hashObject(body); objects.set(file, body);
+  const replacement = rootSnapshot(accepted.root, d => { d.entries = d.entries.map(e => e.name === "nested" ? { name: "nested", file } : e); });
+  replacement.objects.push({ hash: file, bytes: body });
+  const suffix = await editAt("/nested", "continued", replacement.candidate, [0, body.length]);
+  const request = { base: accepted.id, updates: [replacement, suffix] };
+  const response = await client.submitUpdates(tree, request), result = response.results[1]!.update;
+  expect(result.root).toBe(accepted.root);
+  const page = await client.conflicts(tree, result.id, result.root);
+  const child = page.decisions.find(d => d.id === before.decisions[0]!.id)!;
+  expect(child.alternatives).toEqual(before.decisions[0]!.alternatives);
+  const ancestor = page.decisions.find(d => d.id !== child.id)!;
+  expect(ancestor.alternatives).toHaveLength(2);
+  const hidden = ancestor.alternatives.find(a => a.id !== ancestor.selected)!;
+  expect(hidden.value).toEqual({ file: hashObject(Buffer.from("continued")) });
+  expect(hidden.contributions.map(c => c.change)).toEqual([replacement.change, suffix.change]);
+  await stop(); await start();
+  expect((await client.submitUpdates(tree, request)).results.map(r => r.update.id)).toEqual(response.results.map(r => r.update.id));
+  expect(await client.conflicts(tree, result.id, result.root)).toEqual(page);
+  await running.canopy.verifyIntegrity();
+});
+
+test("snapshot ancestor moves preserve old nested choices rather than guessing a relocation of intent", async () => {
+  const { accepted, page: before } = await nestedConflict();
+  const moved = rootSnapshot(accepted.root, d => { d.entries = d.entries.map(e => e.name === "nested" ? { ...e, name: "moved" } : e); });
+  const result = (await client.submitUpdates(tree, { base: accepted.id, updates: [moved] })).results[0]!.update;
+  const projection = await client.snapshot(tree, result.root);
+  expect(decodeWireDirectory(projection.objects.get(result.root)!).entries.map(e => e.name)).toEqual(expect.arrayContaining(["nested", "moved"]));
+  const page = await client.conflicts(tree, result.id, result.root);
+  expect(page.decisions.find(d => d.id === before.decisions[0]!.id)!.alternatives.map(a => a.value)).toEqual(before.decisions[0]!.alternatives.map(a => a.value));
+  await running.canopy.verifyIntegrity();
+});
+
+test("several enclosing choices keep dependency closure and cannot resolve away an unguarded grandchild", async () => {
+  const { accepted, page: before } = await nestedConflict();
+  const rootDirectory = decodeWireDirectory(objects.get(accepted.root)!);
+  const subtree = rootDirectory.entries.find(e => e.name === "nested")!.directory!;
+  const inside = decodeWireDirectory(objects.get(subtree)!);
+  inside.entries = inside.entries.filter(e => e.name !== "left");
+  const innerBytes = encodeWireDirectory(inside), innerRoot = hashObject(innerBytes); objects.set(innerRoot, innerBytes);
+  const innerDeletion = rootSnapshot(accepted.root, d => { d.entries = d.entries.map(e => e.name === "nested" ? { name: e.name, directory: innerRoot } : e); });
+  innerDeletion.objects.push({ hash: innerRoot, bytes: innerBytes });
+  const inner = (await client.submitUpdates(tree, { base: accepted.id, updates: [innerDeletion] })).results[0]!.update;
+  const outerDeletion = rootSnapshot(inner.root, d => { d.entries = d.entries.filter(e => e.name !== "nested"); });
+  const outer = (await client.submitUpdates(tree, { base: inner.id, updates: [outerDeletion] })).results[0]!.update;
+  const page = await client.conflicts(tree, outer.id, outer.root);
+  expect(page.decisions).toHaveLength(3);
+  for (const decision of page.decisions) expect(new Set(decision.dependencies)).toEqual(new Set(page.decisions.filter(d => d.id !== decision.id).map(d => d.id)));
+  const leaf = before.decisions[0]!.id;
+  const incomplete = { ...outerDeletion, change: crypto.randomUUID(), resolves: page.decisions.filter(d => d.id !== leaf).map(d => resolutionGuard(outer.id, d)) };
+  await expect(client.submitUpdates(tree, { base: outer.id, updates: [incomplete] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  const resolved = (await client.submitUpdates(tree, { base: outer.id, updates: [{ ...incomplete, change: crypto.randomUUID(), resolves: page.decisions.map(d => resolutionGuard(outer.id, d)) }] })).results[0]!.update;
+  expect(resolved.conflicted).toBe(false);
+  expect(resolved.root).toBe(outerDeletion.candidate);
+  await running.canopy.verifyIntegrity();
+});
+
+test("a single explicit snapshot can resolve children while deleting their previously uncontested ancestor", async () => {
+  const { accepted, page } = await nestedConflict();
+  const deletion = rootSnapshot(accepted.root, d => { d.entries = d.entries.filter(e => e.name !== "nested"); });
+  deletion.resolves = page.decisions.map(d => resolutionGuard(accepted.id, d));
+  const result = (await client.submitUpdates(tree, { base: accepted.id, updates: [deletion] })).results[0]!.update;
+  expect(result.root).toBe(deletion.candidate); expect(result.conflicted).toBe(false);
+  await running.canopy.verifyIntegrity();
+});
+
+test("an ancestor choice can remain open while one child is explicitly resolved", async () => {
+  const { accepted, page: before } = await nestedConflict();
+  const deletion = rootSnapshot(accepted.root, d => { d.entries = d.entries.filter(e => e.name !== "nested"); });
+  const added = (await client.submitUpdates(tree, { base: accepted.id, updates: [deletion] })).results[0]!.update;
+  const page = await client.conflicts(tree, added.id, added.root), child = page.decisions.find(d => d.id === before.decisions[0]!.id)!;
+  const resolved = (await client.submitUpdates(tree, { base: added.id, updates: [{ change: crypto.randomUUID(), candidate: added.root,
+    operations: [], resolves: [resolutionGuard(added.id, child)], objects: [], deltas: [] }] })).results[0]!.update;
+  const remaining = await client.conflicts(tree, resolved.id, resolved.root);
+  expect(remaining.decisions).toHaveLength(1); expect(remaining.decisions[0]!.id).not.toBe(child.id);
+  expect(remaining.decisions[0]!.dependencies).toEqual([]);
+  expect(resolved.root).toBe(added.root);
   await running.canopy.verifyIntegrity();
 });

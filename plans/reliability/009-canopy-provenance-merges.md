@@ -18,8 +18,10 @@ The [source execution checkpoint](../../docs/exact-source-execution.md) records 
 implemented subset: accepted-identity ancestry, original contribution retention,
 shared-basis disjoint edits and immutable rule evidence. The [whole-entry lifecycle](../../docs/accepted-entry-conflicts.md) now joins durable
 alternatives, snapshot attribution, authorized inspection and explicit resolution.
-Range-level and coupled ancestor ambiguities remain; merely persisting a conflict signal is
-insufficient. No live deployment or client emission has been enabled.
+Entry-level coupled ancestors are implemented using schema 11 decisions and
+derived inspection dependencies. Range-level ambiguity and broader correspondence
+remain; merely persisting a conflict signal is insufficient. Installed clients
+still emit snapshots.
 
 ## 1. Establish the decision corpus
 

@@ -180,7 +180,7 @@ or server was upgraded.
 Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
 - Connect the TS session/publication APIs to a maintained editor host when that host is built; enforce exclusive state-directory ownership there.
-- Extend server acceptance and live scenarios to coupled structural conflicts (especially changing an ancestor of existing decisions) and general merged-predecessor suffixes before installed-client activation.
+- Verify deployed ancestor acceptance and cover general merged-predecessor suffixes before installed-client activation.
 - Add safe coalescing and bounded reclamation of settled ancestry and captured views.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.
@@ -199,8 +199,8 @@ real disposable Canopy. It restarts with the queue pending, interrupts after ser
 acceptance, then replays and publishes the remaining chain. Focused tests also cover
 first directory-body saves, failed structural retention, pending reads, read-only
 providers and private Trash recovery. Native's activation switch remains off: the
-server still needs broader coupled-ancestor conflict coverage before enabling all
-these forms for ordinary use and removing legacy recovery UI. Interleaved stale
+server ancestor acceptance now has dedicated HTTP coverage; deployment and client
+release checks are required before ordinary use and legacy recovery UI removal. Interleaved stale
 source branches and structural actions across multiple open documents also remain
 a release gate; the mixed structural test proves a linear dependency chain.
 
