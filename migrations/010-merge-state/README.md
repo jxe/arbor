@@ -58,3 +58,8 @@ rows for exact equality and reruns integrity. Never point it at a live volume.
 The write rehearsal passed with 581 accepted rows after five temporary updates,
 576 unchanged historical rows, accepted conflict, restart replay, guarded resolution,
 exact original-root cleanup and full integrity. No live client or service was used.
+
+A subsequent [fresh Railway rehearsal](fresh-rehearsal.md) fetched a new backup
+containing 590 accepted updates and 1,288 objects. Migration, idempotence, exact
+historical preservation, source writes, restart/replay, resolution and integrity
+all passed on the local copy; production remained on schema 11.
