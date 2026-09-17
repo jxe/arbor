@@ -1,28 +1,29 @@
-# Reliability 009: Retain, forward and validate operation intent in Canopy
+# Reliability 009: Remaining Canopy provenance and policy work
 
-Status: READY for contract design and incremental implementation on main. Priority:
-P1. This plan owns the authoritative envelope, durable retention, worker integration
-and acceptance. [008](008-enable-source-operations.md) owns client capture/submission;
-[010](010-client-conflict-review.md) owns review. Operation interpretation, source
-correspondence and language rules belong to Reliability 013
-(`plans/_done/reliability/013-merge-operations-and-formats.md` on `codex/merge-tool`).
+Status: PARTIAL, with the authority integration implemented in `codex/merge-tool`
+and not deployed. See the [integration checkpoint](../../docs/merge-authority-integration.md)
+and [schema-12 rehearsal](../../migrations/010-merge-state/README.md) for completed
+work and verification. This plan contains only remaining work.
 
-The merge process and shared immutable store are implemented at `7d30066` on
-`codex/merge-tool`, not on main or deployed at this checkpoint. Inspect its implementation
-before integrating it; do not rebuild another rule engine on main. Existing behavior
-is recorded in [source execution](../../docs/exact-source-execution.md),
-[accepted conflicts](../../docs/accepted-entry-conflicts.md) and
-[the source queue](../../docs/source-admission-queue.md). Read source/tests first.
+[008](008-enable-source-operations.md) owns client capture/submission;
+[010](010-client-conflict-review.md) owns review. The tool's operation/language
+milestone is [013](../_done/reliability/013-merge-operations-and-formats.md).
 
-## Outcome
+## Next deployment
 
-Canopy can durably accept and forward intent before a merge rule understands its
-operation-specific meaning, without treating unverified client claims as trusted
-semantic evidence. It owns authorization, accepted identity, retention, guards and
-atomic commits. The tool owns execution and reconciliation proposals. Clients and
-rules can then improve independently after the common retention contract is deployed.
+- Review and merge the worktree. Package Canopy and the merge executable together;
+  use one operation execution path, with on-demand workers initially.
+- Perform the schema-12 server-only cutover using the migration runbook and a fresh
+  backup. Verify installed source clients and filesystem snapshot clients, accepted
+  conflicts, continued publication, replay and restart. Existing clients do not need
+  a coordinated rebuild or Wire change for this milestone.
+- Record live deployment evidence separately from local rehearsal. Enable new client
+  operations only after the corresponding server support is installed.
 
-## 1. Specify the retention contract before changing acceptance
+## Future retention contract expansion
+
+This is separate from the existing eight-operation integration. Unknown operations
+remain invalid today; do not reinterpret authoritative operations as unchecked hints.
 
 - Revise the goal specification to distinguish recording authored intent, validating
   its execution against its candidate, and using it in reconciliation. Today's
@@ -52,83 +53,25 @@ rules can then improve independently after the common retention contract is depl
   supported-operation advertisement. Review the concrete contract before enabling
   broader client emission.
 
-## 2. Retain and authorize without interpreting every operation
+## Remaining policy and storage work
 
-- Validate tree scope, submitting authority, envelope shape and declared references;
-  retain the exact operations, candidate and dependency bindings with accepted state.
-  Never drop unknown-but-retainable payloads during decoding, retries or forwarding.
-- Record authored claims separately from validation evidence, including the rule
-  identity/revision/configuration and exact material used when verification occurs.
-  Persist failed or unavailable validation appropriately without promoting a claim.
-- Preserve candidate, accepted identity, conflict state, origins, observations and
-  retained intent atomically. Cover accepted updates with unchanged roots and cases
-  where retained intent must survive an otherwise unchanged submission.
-- Keep accepted receipts immutable. A later tool may validate old intent for a new
-  reconciliation or record additional evaluation evidence, but must not retroactively
-  rewrite historical results, clear choices or change exact retry responses.
-- Preserve historical reads and authorization of hidden alternatives. Missing ancestry
-  is explicit; unavailable context never authorizes guessing correspondence.
-- Specify retention for operation outputs, copies, deleted material, inverse fragments,
-  undo activity and alternative dependencies. Rehearse any required schema migration
-  on a backup; do not reset accepted history.
-
-## 3. Integrate the merge executable as the semantic engine
-
-- Bring the reviewed process/object-store implementation from `codex/merge-tool` onto
-  main separately from these plans. Forward exact operations and immutable material
-  through the normal base/current/incoming request; Canopy need not interpret each
-  format-specific payload. Pass unresolved alternatives and complete dependency
-  context when relevant, rather than only the visible projection.
-- Resolve and authorize references at the Canopy boundary; let the tool validate
-  operation execution and produce correspondence, merge results and decision proposals.
-  Do not duplicate format or operation algorithms in Canopy as new families arrive.
-- Validate returned object hashes, graph closure, request/input binding, scope,
-  decision dependencies and allowed dispositions. Canopy assigns durable identities
-  and checks user resolution guards and configured automatic-resolution policy.
-  Existing choices survive omission. Coupled decisions commit atomically.
-- Provide collection-only and shadow evaluation stages: store intent first; compare
-  tool proposals against normal acceptance without committing them; then enable
-  selected validated rules. Treat shadow output as diagnostics, not accepted truth.
-- Preserve ordinary accepted ambiguity and continued publishing on safe worker
-  failure paths. Where snapshot material is insufficient, retain work and report
-  the specific failure rather than fabricate a result. Preserve account authorization.
-- Configure Canopy defaults and per-tree rule selection, retaining rule/configuration
-  evidence. Do not make clients mirror merge policy. Unknown/unavailable rules preserve
-  evidence and use the explicitly specified fallback behavior.
-
-## 4. Own process lifetime and durable conflict lifecycle
-
-- Keep on-demand workers initially; measure latency and memory before adding supervised
-  persistent workers. Enforce concurrency, queue, IO, deadline and cancellation bounds;
-  clean up staging only after the worker exits and needed results are safely retained.
-- Shared immutable storage needs no migration merely to split processes. Before GC or
-  packing, pin active-job inputs, staged objects, outputs awaiting commit and historical
-  alternative/provenance roots. Coordinate leases, recovery and pruning with
-  [packfiles](../canopy-storage/001-pack-object-storage.md) and
+- Add Canopy-wide and per-tree rule selection with retained configuration evidence.
+  Keep format policy in the tool; clients must not reproduce merge policy.
+- Measure on-demand worker latency, history growth and memory before adding supervised
+  persistent workers or caching. Preserve bounded jobs, durable retries and exact
+  receipts across tool upgrades.
+- Adopt finer-grained inspection when clients can present it usefully. The tool
+  supports source choices; initial Canopy policy exposes whole-file choices and
+  enclosing structural decisions. Preserve independent review and coherent guards.
+- Implement any future opaque-retention contract in TypeScript/Swift DTOs, reference
+  API documentation and shared fixtures together. Exercise unknown payload round
+  trips, false claims, missing/unauthorized references and operation-output bindings.
+- Before garbage collection or packing, pin accepted/authored semantic roots, all
+  transitive hidden/undo dependencies, staged inputs and results awaiting commit.
+  Coordinate with [packfiles](../canopy-storage/001-pack-object-storage.md) and
   [fragment storage](../canopy-storage/002-composable-conflict-fragments.md).
-- Integrate finer-grained tool decisions through the fragment-storage plan when ready;
-  preserve exact source, nested dependencies, selected/hidden continuation, guarded
-  partial resolution and unchanged-root transitions. Whole-entry choices remain a
-  valid conservative result; finer storage is not an early-retention prerequisite.
-- Extend authoritative inspection when new decisions require it, pairing TS/Swift
-  DTOs and fixtures before clients use them. Keep format-specific evidence open within
-  the shared contract and do not expose private database structure.
 
-## Rollout and verification
-
-Order: specify the retention semantics; deploy retention/forwarding support; enable
-008's broader client submissions; install and shadow-evaluate tool improvements;
-activate individual semantic rules. Tool development against fixtures can proceed
-throughout. This is ordered compatibility, not a coordinated per-capability cutover.
-
-Test unknown retained payload round trips, false claims, missing/unauthorized
-references, output bindings, causal batches, exact replay, unchanged projections,
-transaction rollback, restart, worker crash/timeout and upgrades between receipt and
-retry. Verify validation cannot silently resolve accepted alternatives. Exercise live
-Swift/TS clients against retain-only and semantically enabled configurations.
-
-Use the existing [fragment proof](../../docs/conflict-fragment-storage.md) as evidence,
-not a production migration shortcut. Run focused acceptance/storage tests, shared
-conformance and [development gates](../../DEVELOPMENT.md). Measure incorrect automatic
-resolutions separately from merge coverage. Record shipped behavior in status/docs;
-remove completed tasks here. Keep implementation details out of the portable spec.
+Keep the portable spec ahead of implementation. Record implementation restrictions
+in status/docs, not by weakening the contract. Additional retain-only or diagnostic
+modes require their own specified semantics; they are not a second execution path
+needed for this deployment.

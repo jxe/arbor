@@ -1,3 +1,4 @@
+import {MergeStateStore,type MergeStateRecord} from "./merge-state-store.ts";
 import { ConflictStore, type ConflictState } from "./conflict-store.ts";
 import type { MergeSummary } from "./reconcile.ts";
 import { Database } from "bun:sqlite";
@@ -35,6 +36,7 @@ export interface AcceptedUpdateInput {
   change?: string;
   sourceIntent?: SourceIntent;
   conflicts?: ConflictState;
+  mergeState?:MergeStateRecord;
 }
 
 export interface AcceptedCommitInput extends AcceptedUpdateInput {
@@ -79,6 +81,7 @@ export class AcceptedUpdateStore {
     ObservationLog.createSchema(db);
     SourceIntentStore.createSchema(db);
     ConflictStore.createSchema(db);
+    MergeStateStore.createSchema(db);
   }
 
   private row(value: unknown): AcceptedUpdate | null {
@@ -207,7 +210,7 @@ export class AcceptedUpdateStore {
     if (input.previousRoot !== (prior?.root ?? null)) throw new Error("Accepted predecessor does not match current state");
     const conflicts = new ConflictStore(this.db);
     const priorState = prior ? conflicts.get(prior.id) : null;
-    if (!input.conflicts && priorState?.decisions.length && input.root !== prior!.root) throw new Error("Conflict attribution is required before changing the projection");
+    if (!input.mergeState && !input.conflicts && priorState?.decisions.length && input.root !== prior!.root) throw new Error("Conflict attribution is required before changing the projection");
     const state = input.conflicts ?? (priorState ? { decisions: priorState.decisions, resolutions: [] } : null);
     const observation = this.observations.appendAccepted({ tree: input.tree, createdAt: input.acceptedAt });
     const id = observation.cursor;
@@ -221,7 +224,7 @@ export class AcceptedUpdateStore {
       input.root,
       input.previousRoot,
       prior?.id ?? null,
-      (state ? state.decisions.length > 0 : input.conflicted ?? prior?.conflicted ?? false) ? 1 : 0,
+      (input.mergeState ? input.mergeState.decisions.length > 0 : state ? state.decisions.length > 0 : input.conflicted ?? prior?.conflicted ?? false) ? 1 : 0,
       input.kind,
       input.acceptedAt,
       input.subject ?? null,
@@ -234,7 +237,8 @@ export class AcceptedUpdateStore {
       input.change ?? input.sourceIntent?.change ?? null,
     ]);
     this.observations.bindUpdate(id, id);
-    if (state) conflicts.insert(id, state);
+    if (state && !input.mergeState) conflicts.insert(id, state);
+    if(input.mergeState)new MergeStateStore(this.db).insert(id,input.mergeState);
     if (input.sourceIntent) {
       if (!input.baseRoot || !input.candidateRoot) throw new Error("Source intent requires authored basis and candidate roots");
       new SourceIntentStore(this.db).insert({ ...input.sourceIntent, tree: input.tree,

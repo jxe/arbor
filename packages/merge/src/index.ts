@@ -1,3 +1,5 @@
+import {checkpointIntent} from "./intent-engine.ts";
+import type {CheckpointRequest,CheckpointResponse} from "./checkpoint.ts";
 import { decodeWireDirectory, wireEntryObject, type ObjectHash, type TreeSnapshot } from "@arbor/wire";
 import type { ObjectStore } from "@arbor/object-store";
 import { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
@@ -31,6 +33,7 @@ async function snapshot(root: string, objects: MergeObjects): Promise<TreeSnapsh
 }
 
 /** Pure rule evaluation plus immutable object IO. No accepted-state or database access. */
+export function merge(raw:CheckpointRequest,objects:MergeObjects):Promise<CheckpointResponse>;
 export function merge(raw:IntentRequest,objects:MergeObjects):Promise<IntentResponse>;
 export function merge(raw:ProjectionRequest,objects:MergeObjects):Promise<ProjectionResponse>;
 export function merge(raw:MergeRequest,objects:MergeObjects):Promise<MergeResponse>;
@@ -38,6 +41,7 @@ export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<M
   if(isIntentRequest(raw))return mergeIntent(raw,objects);
   const request = parseRequest(raw);
   if(isIntentRequest(request))throw new Error("Unexpected intent request");
+  if(request.kind === "checkpoint")return checkpointIntent(request,objects);
   const evidence = { rule: request.rules };
   if (request.kind === "source") {
     const rule = [plainTextSourceRule, markdownProseSourceRule].find(rule => rule.id === request.rules.id);

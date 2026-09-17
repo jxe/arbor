@@ -16,6 +16,7 @@ import {
   parseIntentState,
   type Effect,
   type IntentRequest,
+  type IntentDecision,
   type IntentResponse,
   type IntentState,
   type Material,
@@ -97,6 +98,7 @@ function normalize(pieces: Piece[]): Piece[] {
 
 /** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
+  authoredResult?: { object: string; state: string };
   readonly pendingEnclosures = new Set<string>();
   readonly formatEvidence: FormatEvidence[] = [];
   readonly generated = new Map<string, Uint8Array>();
@@ -111,10 +113,7 @@ class Engine {
     )
       throw new IntentError("limit", "Evaluation time budget exceeded");
   }
-  constructor(
-    readonly request: IntentRequest,
-    readonly store: MergeObjects,
-  ) {}
+  constructor(readonly request: IntentRequest, readonly store: MergeObjects) {}
   async read(hash: string): Promise<Uint8Array> {
     this.checkBudget();
     const known = this.generated.get(hash) ?? this.cache.get(hash);
@@ -192,7 +191,7 @@ class Engine {
     kind: Node["kind"],
     id: string,
     parent: string | null,
-    name: string,
+    name: string
   ): Promise<string> {
     if (id.length > 16_384)
       throw new IntentError("limit", "Material nesting budget exceeded");
@@ -220,7 +219,7 @@ class Engine {
           entry.file ? "file" : entry.directory ? "directory" : "tree",
           `${id}/${encodeURIComponent(entry.name)}`,
           id,
-          entry.name,
+          entry.name
         );
       }
     }
@@ -247,7 +246,7 @@ class Engine {
     let state: IntentState;
     try {
       state = parseIntentState(
-        JSON.parse(decoder.decode(await this.read(ref.state))),
+        JSON.parse(decoder.decode(await this.read(ref.state)))
       );
     } catch (error) {
       if (error instanceof IntentError) throw error;
@@ -304,7 +303,7 @@ class Engine {
           (await this.project(state, alternative.node)) !== alternative.object
         )
           return fail(
-            `Alternative does not match retained material: ${decision.key} (${alternative.node})`,
+            `Alternative does not match retained material: ${decision.key} (${alternative.node})`
           );
       if (decision.placement && !decision.context) {
         const node = state.nodes[decision.placement.node];
@@ -328,7 +327,7 @@ class Engine {
   async project(
     view: View,
     root = view.root,
-    visiting = new Set<string>(),
+    visiting = new Set<string>()
   ): Promise<string> {
     this.checkBudget();
     const node = view.nodes[root];
@@ -346,7 +345,7 @@ class Engine {
       const entries = [];
       const names = new Set<string>();
       for (const child of this.children(view, root).sort((a, b) =>
-        Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)),
+        Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
       )) {
         if (names.has(child.name)) return fail("Duplicate directory placement");
         names.add(child.name);
@@ -355,8 +354,8 @@ class Engine {
           child.kind === "file"
             ? { name: child.name, file: object }
             : child.kind === "directory"
-              ? { name: child.name, directory: object }
-              : { name: child.name, tree: object },
+            ? { name: child.name, directory: object }
+            : { name: child.name, tree: object }
         );
       }
       return this.put(
@@ -364,7 +363,7 @@ class Engine {
           ...node.directory,
           type: "directory",
           entries,
-        } as WireDirectory),
+        } as WireDirectory)
       );
     } finally {
       visiting.delete(root);
@@ -373,7 +372,7 @@ class Engine {
   async binding(
     ref: MaterialRef,
     basis: View,
-    state: IntentState,
+    state: IntentState
   ): Promise<Material> {
     let material: Material;
     if (ref.material.kind === "basis") {
@@ -414,7 +413,7 @@ class Engine {
   async selection(
     ref: MaterialRef,
     basis: View,
-    state: IntentState,
+    state: IntentState
   ): Promise<{
     node: string;
     observed: Piece[];
@@ -429,7 +428,7 @@ class Engine {
     const bytes = await this.bytes(observed),
       range: [number, number] = binding.anchor
         ? [binding.anchor.offset, binding.anchor.offset]
-        : (ref.range ?? [0, bytes.length]);
+        : ref.range ?? [0, bytes.length];
     if (
       binding.anchor &&
       ref.range &&
@@ -461,7 +460,7 @@ class Engine {
   locate(
     current: Piece[],
     observed: Piece[],
-    range: [number, number],
+    range: [number, number]
   ): [number, number] {
     if (current.length * observed.length > 2_000_000)
       throw new IntentError("limit", "Source lookup work budget exceeded");
@@ -497,7 +496,7 @@ class Engine {
     const right = slice(
       observed,
       range[0],
-      Math.min(length(observed), range[0] + 1),
+      Math.min(length(observed), range[0] + 1)
     )[0];
     let l: number | undefined = left ? undefined : 0,
       r: number | undefined = right ? undefined : length(current);
@@ -528,7 +527,7 @@ class Engine {
   evolved(
     state: IntentState,
     current: Piece[],
-    selected: Piece[],
+    selected: Piece[]
   ): [number, number] {
     if (current.length * selected.length > 2_000_000)
       throw new IntentError("limit", "Source transport work budget exceeded");
@@ -537,7 +536,7 @@ class Engine {
         (q) =>
           q.origin === p.origin &&
           q.start <= p.start &&
-          q.start + q.length >= p.start + p.length,
+          q.start + q.length >= p.start + p.length
       );
     const derives = (p: Piece, seen = new Set<string>()): boolean => {
       if (contained(p)) return true;
@@ -588,7 +587,7 @@ class Engine {
   importContext(
     state: IntentState,
     context: IntentState,
-    prefix: string,
+    prefix: string
   ): { root: string; ids: Map<string, string> } {
     const ids = new Map<string, string>();
     const visit = (id: string, parent: string | null): string => {
@@ -650,7 +649,7 @@ class Engine {
     id: string,
     prefix: string,
     parent: string | null,
-    name: string,
+    name: string
   ): string {
     const before = view.nodes[id]!;
     const newID = `${prefix}/${encodeURIComponent(id)}`;
@@ -679,10 +678,10 @@ class Engine {
     destination: Piece[],
     key: string,
     sourceRange: [number, number] = [0, length(source)],
-    destinationOffset = 0,
+    destinationOffset = 0
   ) {
     const originals = state.decisions.filter(
-      (d) => d.placement?.node === sourceID,
+      (d) => d.placement?.node === sourceID
     );
     for (const original of originals) {
       const placement = original.placement!;
@@ -714,7 +713,7 @@ class Engine {
           if (!alternative.node)
             throw new IntentError(
               "missing-context",
-              "Copied choice material is unavailable",
+              "Copied choice material is unavailable"
             );
           const node = clone(state.nodes[alternative.node]!);
           node.id = `${key}:${alternative.node}`;
@@ -729,7 +728,7 @@ class Engine {
                 }));
           state.nodes[node.id] = node;
           return { ...alternative, node: node.id };
-        },
+        }
       );
       state.decisions.push(decision);
     }
@@ -738,7 +737,7 @@ class Engine {
     state: IntentState,
     basis: View,
     operation: SourceOperation,
-    change: string,
+    change: string
   ): Promise<void> {
     this.checkBudget();
     const key = keyOf(change, operation.key),
@@ -779,7 +778,7 @@ class Engine {
             current.deletions = [
               ...new Set([
                 ...(current.deletions ?? []).filter(
-                  (d) => !afterSet.has(d) || oldSet.has(d),
+                  (d) => !afterSet.has(d) || oldSet.has(d)
                 ),
                 ...[...oldSet].filter((d) => !afterSet.has(d)),
               ]),
@@ -805,7 +804,7 @@ class Engine {
                   range = this.evolved(
                     state,
                     pieces,
-                    slice(after.pieces, ...edit.range),
+                    slice(after.pieces, ...edit.range)
                   );
                 } catch (error) {
                   if (error instanceof IntentError && error.code === "limit")
@@ -824,7 +823,7 @@ class Engine {
           }
           if (!same(current[field], after[field])) undoAmbiguous = true;
           (current as unknown as Record<string, unknown>)[field] = clone(
-            old[field],
+            old[field]
           );
         }
       }
@@ -851,9 +850,9 @@ class Engine {
                 (q) =>
                   p.origin === q.origin &&
                   p.start < q.start + q.length &&
-                  q.start < p.start + p.length,
-              ),
-            ),
+                  q.start < p.start + p.length
+              )
+            )
         );
         if (matches.length === 1) node = matches[0];
         else if (matches.length > 1)
@@ -866,8 +865,8 @@ class Engine {
           operation.kind === "copySource"
             ? source.range
             : operation.kind === "moveSource" && source.selected.length
-              ? this.evolved(state, current, source.selected)
-              : this.locate(current, source.observed, source.range);
+            ? this.evolved(state, current, source.selected)
+            : this.locate(current, source.observed, source.range);
       let pieces: Piece[];
       if (operation.kind === "editSource") {
         const bytes = encoder.encode(operation.text);
@@ -884,10 +883,10 @@ class Engine {
                 ...slice(
                   source.observed,
                   Math.max(0, source.range[0] - 1),
-                  source.range[0],
+                  source.range[0]
                 ),
                 ...slice(source.observed, source.range[0], source.range[0] + 1),
-              ],
+              ]
         );
         let cursor = 0;
         const mapped: Piece[] = [],
@@ -910,17 +909,17 @@ class Engine {
                 (q) =>
                   p.origin === q.origin &&
                   p.start < q.start + q.length &&
-                  q.start < p.start + p.length,
-              ),
+                  q.start < p.start + p.length
+              )
             )
           )
             return fail(
-              "Preservation lineage duplicates material; use copySource",
+              "Preservation lineage duplicates material; use copySource"
             );
           preserved.push(...selected.selected);
           if (
             !Buffer.from(await this.bytes(selected.selected)).equals(
-              Buffer.from(bytes.subarray(start, end)),
+              Buffer.from(bytes.subarray(start, end))
             )
           )
             return fail("False source lineage");
@@ -949,13 +948,13 @@ class Engine {
         const atRange = this.locate(
           targetPieces,
           target.observed,
-          target.range,
+          target.range
         );
         let at = operation.side === "before" ? atRange[0] : atRange[1];
         pieces = clone(
           operation.kind === "moveSource"
             ? slice(current, ...range)
-            : source.selected,
+            : source.selected
         );
         if (operation.kind === "copySource")
           pieces = pieces.map((p, i) => ({
@@ -992,7 +991,7 @@ class Engine {
               const moved = this.evolved(
                 state,
                 destination.pieces,
-                decision.placement.pieces,
+                decision.placement.pieces
               );
               decision.placement = {
                 node: destination.id,
@@ -1016,7 +1015,7 @@ class Engine {
             destination.pieces,
             key,
             source.range,
-            at,
+            at
           );
         result = { node: destination.id, pieces: clone(pieces) };
       }
@@ -1038,7 +1037,7 @@ class Engine {
         const target = await this.binding(
           operation.destination.parent,
           basis,
-          state,
+          state
         );
         if (operation.destination.parent.range || target.pieces)
           return fail("Invalid entry destination");
@@ -1051,7 +1050,7 @@ class Engine {
                 node.id,
                 key,
                 null,
-                node.name,
+                node.name
               );
         this.placement(state, id, target.node, operation.destination.name);
         if (operation.kind === "copyEntry") {
@@ -1064,7 +1063,7 @@ class Engine {
                 copied.id,
                 old.pieces,
                 copied.pieces,
-                key,
+                key
               );
           }
         }
@@ -1119,7 +1118,7 @@ class Engine {
               "directory",
               key,
               null,
-              node.name,
+              node.name
             );
             node.directory = temporary.nodes[key]!.directory;
             for (const child of this.children(temporary, key))
@@ -1216,7 +1215,7 @@ class Engine {
                       const start = Math.max(part.start, q.start),
                         end = Math.min(
                           part.start + part.length,
-                          q.start + q.length,
+                          q.start + q.length
                         );
                       if (end <= start) return [part];
                       return [
@@ -1235,18 +1234,18 @@ class Engine {
   }
   async propagateDecisions(
     authored: IntentState,
-    base: IntentState,
+    base: IntentState
   ): Promise<void> {
     for (const decision of authored.decisions) {
       if (
         same(
           decision,
-          base.decisions.find((d) => d.key === decision.key),
+          base.decisions.find((d) => d.key === decision.key)
         )
       )
         continue;
       const parents = authored.decisions.filter((d) =>
-        d.dependencies.includes(decision.key),
+        d.dependencies.includes(decision.key)
       );
       for (const parent of parents)
         for (const branch of parent.alternatives) {
@@ -1273,7 +1272,7 @@ class Engine {
             if (!material?.pieces)
               throw new IntentError(
                 "missing-context",
-                "Hidden selected source material is unavailable",
+                "Hidden selected source material is unavailable"
               );
             const at = this.locate(target.pieces, retained.placement.pieces, [
               0,
@@ -1294,7 +1293,7 @@ class Engine {
             for (const [index, alternative] of updated.alternatives.entries()) {
               if (alternative.node && authored.nodes[alternative.node])
                 context.nodes[alternative.node] = clone(
-                  authored.nodes[alternative.node]!,
+                  authored.nodes[alternative.node]!
                 );
               else if (
                 retained.alternatives[index]?.object === alternative.object
@@ -1303,7 +1302,7 @@ class Engine {
               else
                 throw new IntentError(
                   "missing-context",
-                  "Hidden alternative material is unavailable",
+                  "Hidden alternative material is unavailable"
                 );
             }
           } else if (retained.kind === "directory") {
@@ -1313,12 +1312,12 @@ class Engine {
               if ((await this.project(value)) !== selected.object)
                 throw new IntentError(
                   "missing-context",
-                  "Selected structural branch is unavailable",
+                  "Selected structural branch is unavailable"
                 );
               const imported = this.importContext(
                 context,
                 value,
-                `continuation:${this.request.incoming.change}:${decision.key}`,
+                `continuation:${this.request.incoming.change}:${decision.key}`
               );
               context.root = imported.root;
               selected.node = imported.root;
@@ -1334,7 +1333,7 @@ class Engine {
           } else
             throw new IntentError(
               "missing-context",
-              "Decision correspondence is unavailable",
+              "Decision correspondence is unavailable"
             );
           context.decisions[context.decisions.indexOf(retained)] = updated;
           for (const [index, child] of context.decisions.entries()) {
@@ -1359,7 +1358,7 @@ class Engine {
             if (!fragment?.pieces)
               throw new IntentError(
                 "missing-context",
-                "Containing fragment is unavailable",
+                "Containing fragment is unavailable"
               );
             try {
               const at = this.locate(fragment.pieces, oldPieces, [
@@ -1391,7 +1390,7 @@ class Engine {
   }
   async context(hash: string): Promise<IntentState> {
     const state = parseIntentState(
-      JSON.parse(decoder.decode(await this.read(hash))),
+      JSON.parse(decoder.decode(await this.read(hash)))
     );
     return this.load({ object: await this.project(state), state: hash });
   }
@@ -1399,6 +1398,26 @@ class Engine {
     const object = await this.project(state),
       stored = this.put(encoder.encode(stableJSONString(state)));
     return { object, state: stored };
+  }
+  async contributions(
+    current: IntentState,
+    base: IntentState,
+    id: string
+  ): Promise<Array<{ change: string; operation: string | null }>> {
+    const result: Array<{ change: string; operation: string | null }> =
+      Object.entries(current.effects)
+        .filter(
+          ([key, e]) =>
+            !Object.hasOwn(base.effects, key) && (e.before[id] || e.after[id])
+        )
+        .map(([, e]) => ({ change: e.change, operation: e.operation }));
+    for (const [change, hash] of Object.entries(current.changes)) {
+      if (Object.hasOwn(base.changes, change)) continue;
+      const envelope = JSON.parse(decoder.decode(await this.read(hash)));
+      if (envelope.checkpoint?.affected.includes(id))
+        result.push({ change, operation: null });
+    }
+    return result;
   }
   async run(): Promise<IntentResponse> {
     const request = this.request,
@@ -1410,8 +1429,9 @@ class Engine {
           base: request.base,
           incoming: request.incoming,
           alternatives: request.alternatives,
-        }),
-      ),
+          rules: request.rules,
+        })
+      )
     );
     const prior = Object.hasOwn(current.changes, request.incoming.change)
       ? current.changes[request.incoming.change]
@@ -1428,7 +1448,7 @@ class Engine {
         alternative = decision?.alternatives[binding.alternative];
       if (!alternative || alternative.object !== binding.value.object)
         return fail(
-          "Alternative binding does not match retained decision material",
+          "Alternative binding does not match retained decision material"
         );
       if (
         decision?.context &&
@@ -1443,12 +1463,12 @@ class Engine {
         if (!retained?.node)
           throw new IntentError(
             "missing-context",
-            "Context alternative material is unavailable",
+            "Context alternative material is unavailable"
           );
         const imported = this.importContext(
           base,
           { ...context, root: retained.node },
-          `context:${binding.decision}:${binding.alternative}`,
+          `context:${binding.decision}:${binding.alternative}`
         );
         alternative.node = imported.root;
       }
@@ -1462,7 +1482,7 @@ class Engine {
         const imported = this.importContext(
           base,
           context,
-          `alternative:${binding.decision}:${binding.alternative}`,
+          `alternative:${binding.decision}:${binding.alternative}`
         );
         alternative.node = imported.root;
         for (const child of base.decisions)
@@ -1512,7 +1532,7 @@ class Engine {
               ...request.incoming.operations.map((op) => ({
                 change: request.incoming.change,
                 operation: op.key,
-              })),
+              }))
             );
           }
           continue;
@@ -1538,7 +1558,7 @@ class Engine {
             const at = this.evolved(
               authored,
               visibleAfter.pieces,
-              placement.pieces,
+              placement.pieces
             );
             node.pieces = clone(slice(visibleAfter.pieces, ...at));
             placement.pieces = clone(node.pieces);
@@ -1556,7 +1576,7 @@ class Engine {
           ...request.incoming.operations.map((op) => ({
             change: request.incoming.change,
             operation: op.key,
-          })),
+          }))
         );
         if (
           index === decision.selected &&
@@ -1617,6 +1637,15 @@ class Engine {
         reason: "Opaque transformation encloses existing decisions",
       });
     }
+    const authoredSnapshot = clone(authored);
+    authoredSnapshot.decisions = authoredSnapshot.decisions.filter(
+      (d) => !resolved.has(d.key)
+    );
+    for (const decision of authoredSnapshot.decisions)
+      decision.dependencies = decision.dependencies.filter(
+        (d) => !resolved.has(d)
+      );
+    this.authoredResult = await this.record(authoredSnapshot);
     let resultState = authored;
     if (
       request.current.object !== request.base.object ||
@@ -1626,12 +1655,12 @@ class Engine {
       // correspondence; branches without retained identity remain explicit choices.
       const structuralTransfer =
         request.incoming.operations.some((op) =>
-          ["moveSource", "copySource"].includes(op.kind),
+          ["moveSource", "copySource"].includes(op.kind)
         ) ||
         Object.entries(current.effects).some(
           ([key, e]) =>
             !Object.hasOwn(base.effects, key) &&
-            ["moveSource", "copySource"].includes(e.kind),
+            ["moveSource", "copySource"].includes(e.kind)
         );
       let transported: IntentState | undefined;
       if (
@@ -1644,11 +1673,11 @@ class Engine {
           for (const operation of request.incoming.operations) {
             if (
               !["editSource", "moveSource", "copySource"].includes(
-                operation.kind,
+                operation.kind
               )
             )
               throw new Error(
-                "Mixed structural transfer needs a coupled decision",
+                "Mixed structural transfer needs a coupled decision"
               );
             // Replaying a transfer must not quietly order concurrent insertions.
             // Compare immutable authored anchors before locating them in current.
@@ -1656,9 +1685,9 @@ class Engine {
               operation.kind === "editSource"
                 ? operation.source
                 : operation.kind === "moveSource" ||
-                    operation.kind === "copySource"
-                  ? operation.at
-                  : undefined;
+                  operation.kind === "copySource"
+                ? operation.at
+                : undefined;
             if (anchorRef) {
               const anchor = await this.selection(anchorRef, basis, authored);
               const old = base.nodes[anchor.node],
@@ -1669,18 +1698,18 @@ class Engine {
                 now?.pieces &&
                 pieceEdits(old.pieces, now.pieces).some(
                   (e) =>
-                    e.range[0] === e.range[1] && e.range[0] === anchor.range[0],
+                    e.range[0] === e.range[1] && e.range[0] === anchor.range[0]
                 )
               )
                 throw new Error(
-                  "Concurrent source destination requires anchor policy",
+                  "Concurrent source destination requires anchor policy"
                 );
             }
             if (operation.kind === "moveSource") {
               const selected = await this.selection(
                 operation.source,
                 basis,
-                authored,
+                authored
               );
               for (const [key, effect] of Object.entries(current.effects))
                 if (
@@ -1692,9 +1721,9 @@ class Engine {
                         (q) =>
                           p.origin === q.origin &&
                           p.start < q.start + q.length &&
-                          q.start < p.start + p.length,
-                      ),
-                    ),
+                          q.start < p.start + p.length
+                      )
+                    )
                   )
                 )
                   throw new Error("Competing source moves");
@@ -1703,7 +1732,7 @@ class Engine {
               attempt,
               basis,
               operation,
-              request.incoming.change,
+              request.incoming.change
             );
           }
           // Transfer policy is deliberately restricted to ordinary prose/text;
@@ -1728,7 +1757,7 @@ class Engine {
               bytes,
               [],
               [],
-              config,
+              config
             );
             this.formatEvidence.push(evidence);
             if (
@@ -1765,6 +1794,80 @@ class Engine {
           else merged.decisions[index] = clone(decision);
         }
       }
+      // A queued successor is authored on its predecessor's candidate, which
+      // may now be a hidden alternative. Match retained occurrence provenance,
+      // never equal bytes, before reconciling against the visible projection.
+      const continuedNodes = new Set<string>();
+      let branchContinuation = false;
+
+      for (const decision of merged.decisions) {
+        if (decision.kind !== "directory") continue;
+        for (const [index, alternative] of decision.alternatives.entries()) {
+          if (
+            index === decision.selected ||
+            alternative.object !== request.base.object
+          )
+            continue;
+          const context = await this.context(alternative.state);
+          const visible = (view: IntentState) =>
+            Object.values(view.nodes)
+              .filter((n) => n.active && this.realm(view, n.id) === view.root)
+              .map((n) => [
+                this.path(view, n.id),
+                n.kind,
+                n.kind === "file"
+                  ? n.pieces
+                  : n.kind === "tree"
+                  ? n.object
+                  : null,
+              ])
+              .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+          if (!same(visible(base), visible(context))) continue;
+          branchContinuation = true;
+          alternative.object = this.authoredResult!.object;
+          alternative.state = this.authoredResult!.state;
+          delete alternative.node;
+          alternative.contributions.push(
+            ...request.incoming.operations.map((op) => ({
+              change: request.incoming.change,
+              operation: op.key,
+            }))
+          );
+          for (const id of Object.keys(base.nodes)) continuedNodes.add(id);
+          for (const id of Object.keys(authored.nodes)) continuedNodes.add(id);
+        }
+      }
+      for (const [id, before] of Object.entries(base.nodes)) {
+        const after = authored.nodes[id];
+        if (!before.pieces || !after?.pieces || same(before, after)) continue;
+        const matches = merged.decisions.flatMap((decision) =>
+          decision.kind === "content"
+            ? decision.alternatives.flatMap((alternative, index) => {
+                const node = alternative.node
+                  ? merged.nodes[alternative.node]
+                  : undefined;
+                return node?.pieces && same(node.pieces, before.pieces)
+                  ? [{ decision, alternative, index, node }]
+                  : [];
+              })
+            : []
+        );
+        if (matches.length !== 1) continue;
+        const { decision, alternative, index, node } = matches[0]!;
+        // Visible edits already use the ordinary three-way path.
+        if (index === decision.selected && !decision.context) continue;
+        node.pieces = clone(after.pieces);
+        alternative.object = await this.project(merged, node.id);
+        alternative.state = this.authoredResult!.state;
+        alternative.contributions.push(
+          ...request.incoming.operations.map((op) => ({
+            change: request.incoming.change,
+            operation: op.key,
+          }))
+        );
+        continuedNodes.add(id);
+      }
+      if (branchContinuation) affected.length = 0;
       const contentDecisions: IntentState["decisions"] = [];
       let branchStates:
         | {
@@ -1776,6 +1879,7 @@ class Engine {
         ...Object.keys(base.nodes),
         ...Object.keys(authored.nodes),
       ])) {
+        if (continuedNodes.has(id)) continue;
         const b = base.nodes[id],
           incoming = authored.nodes[id],
           remote = merged.nodes[id];
@@ -1807,7 +1911,7 @@ class Engine {
             remote.deletions = [
               ...new Set([
                 ...(remote.deletions ?? []).filter(
-                  (d) => !prior.has(d) || desired.has(d),
+                  (d) => !prior.has(d) || desired.has(d)
                 ),
                 ...[...desired].filter((d) => !prior.has(d)),
               ]),
@@ -1825,14 +1929,14 @@ class Engine {
               const localEdits = this.edits(
                   b.pieces,
                   incoming.pieces,
-                  authored,
+                  authored
                 ),
                 remoteEdits = this.edits(b.pieces, remote.pieces, current);
               if (
                 !localEdits.some((a) => remoteEdits.some((c) => overlap(a, c)))
               ) {
                 const proposal = normalize(
-                  applyPieceEdits(b.pieces, [...localEdits, ...remoteEdits]),
+                  applyPieceEdits(b.pieces, [...localEdits, ...remoteEdits])
                 );
                 const path = this.path(base, id);
                 const evidence = await evaluateFormat(
@@ -1843,7 +1947,7 @@ class Engine {
                   await this.bytes(proposal),
                   localEdits,
                   remoteEdits,
-                  this.request.rules.config?.formats?.[path],
+                  this.request.rules.config?.formats?.[path]
                 );
                 this.formatEvidence.push(evidence);
                 if (evidence.outcome === "resolved") {
@@ -1865,10 +1969,10 @@ class Engine {
               const left: Array<PieceEdit & { side: number }> = this.edits(
                 b.pieces,
                 remote.pieces,
-                current,
+                current
               ).map((e) => ({ ...e, side: 0 }));
               const right = this.edits(b.pieces, incoming.pieces, authored).map(
-                (e) => ({ ...e, side: 1 }),
+                (e) => ({ ...e, side: 1 })
               );
               const edits: Array<PieceEdit & { side: number }> = [
                 ...left,
@@ -1883,7 +1987,7 @@ class Engine {
               // A policy refusal couples this file even if byte edits are disjoint.
               const hasOverlap = groups.some(
                 (g) =>
-                  g.some((e) => e.side === 0) && g.some((e) => e.side === 1),
+                  g.some((e) => e.side === 0) && g.some((e) => e.side === 1)
               );
               let coupledByFormat = !hasOverlap;
               if (hasOverlap) {
@@ -1900,7 +2004,7 @@ class Engine {
                   await this.bytes(tentative),
                   left,
                   right,
-                  request.rules.config?.formats?.[path],
+                  request.rules.config?.formats?.[path]
                 );
                 this.formatEvidence.push(policy);
                 coupledByFormat = policy.outcome !== "resolved";
@@ -1918,9 +2022,9 @@ class Engine {
                       bytes,
                       group[0]!.range[0],
                       await Promise.all(group.map((e) => this.bytes(e.pieces))),
-                      request.rules.config?.formats?.[path],
-                    ),
-                  ),
+                      request.rules.config?.formats?.[path]
+                    )
+                  )
                 );
                 this.formatEvidence.push(...policies);
                 if (policies.every((p) => p.outcome === "resolved"))
@@ -1928,7 +2032,7 @@ class Engine {
               }
               if (coupledByFormat) groups.splice(0, groups.length, edits);
               const existingChoice = current.decisions.some(
-                (d) => d.placement?.node === id && !d.context,
+                (d) => d.placement?.node === id && !d.context
               );
               if (existingChoice) groups.splice(0, groups.length, edits);
               const selected = [];
@@ -1947,11 +2051,11 @@ class Engine {
                       .map((e) => ({
                         range: [e.range[0] - start, e.range[1] - start] as [
                           number,
-                          number,
+                          number
                         ],
                         pieces: e.pieces,
-                      })),
-                  ),
+                      }))
+                  )
                 );
                 if (
                   group.some((e) => e.side === 0) &&
@@ -1964,7 +2068,7 @@ class Engine {
                     const origins = { ...current.origins, ...authored.origins };
                     const contribution = (
                       origin: string,
-                      seen = new Set<string>(),
+                      seen = new Set<string>()
                     ): string => {
                       if (seen.has(origin) || seen.size > 256) return origin;
                       const parents = origins[origin];
@@ -1974,8 +2078,8 @@ class Engine {
                       ) {
                         const keys = new Set(
                           parents.map((p) =>
-                            contribution(p.origin, new Set(seen).add(origin)),
-                          ),
+                            contribution(p.origin, new Set(seen).add(origin))
+                          )
                         );
                         if (keys.size === 1) return [...keys][0]!;
                       }
@@ -2000,7 +2104,7 @@ class Engine {
                       await this.bytes(b.pieces),
                       start,
                       await Promise.all(versions.map((p) => this.bytes(p))),
-                      formatConfig,
+                      formatConfig
                     );
                     this.formatEvidence.push(policy);
                     if (
@@ -2054,13 +2158,13 @@ class Engine {
                           node,
                           contributions:
                             side === 0
-                              ? []
+                              ? await this.contributions(current, base, id)
                               : request.incoming.operations.map((op) => ({
                                   change: request.incoming.change,
                                   operation: op.key,
                                 })),
                         };
-                      }),
+                      })
                     ),
                     dependencies: current.decisions
                       .filter((d) => d.affected.includes(id))
@@ -2082,7 +2186,7 @@ class Engine {
             continue;
           }
           (remote as unknown as Record<string, unknown>)[field] = clone(
-            incoming[field],
+            incoming[field]
           );
         }
       }
@@ -2132,7 +2236,7 @@ class Engine {
           current.decisions.map((d) => [
             d.key,
             { ...clone(d), context: d.context ?? old.state },
-          ]),
+          ])
         );
         for (const authoredDecision of authored.decisions)
           if (!retained.has(authoredDecision.key))
@@ -2144,6 +2248,109 @@ class Engine {
         resultState = merged;
       }
       if (transported) resultState = transported;
+    }
+    // Presentation granularity and selected projection are policy, not a second
+    // executor. Canopy initially requests whole-file choices for installed clients.
+    if (request.rules.config?.contentChoices === "file") {
+      const fresh = resultState.decisions.filter(
+        (d) =>
+          d.kind === "content" &&
+          !current.decisions.some((old) => old.key === d.key)
+      );
+      const groups = new Map<string, IntentDecision[]>();
+      for (const decision of fresh) {
+        const node = decision.placement!.node;
+        const group = groups.get(node) ?? [];
+        group.push(decision);
+        groups.set(node, group);
+      }
+      for (const [node, group] of groups) {
+        const values = [current.nodes[node], authored.nodes[node]];
+        if (values.some((n) => !n?.pieces)) continue;
+        const decision = group[0]!,
+          keys = new Set(group.map((d) => d.key));
+        decision.selected =
+          request.rules.config?.conflictProjection === "current" ? 0 : 1;
+        decision.alternatives = await Promise.all(
+          values.map(async (value, index) => {
+            const occurrence = clone(value!);
+            occurrence.id = `file-choice:${decision.key}:${index}`;
+            occurrence.parent = null;
+            resultState.nodes[occurrence.id] = occurrence;
+            const object = await this.project(resultState, occurrence.id);
+            const context = await this.record(index === 0 ? current : authored);
+            return {
+              ...context,
+              object,
+              node: occurrence.id,
+              contributions: [
+                ...new Map(
+                  group
+                    .flatMap((d) => d.alternatives[index]!.contributions)
+                    .map((c) => [stableJSONString(c), c])
+                ).values(),
+              ],
+            };
+          })
+        );
+        const chosen = values[decision.selected]!;
+        resultState.nodes[node]!.pieces = clone(chosen.pieces!);
+        decision.placement = { node, pieces: clone(chosen.pieces!), anchor: 0 };
+        decision.subject = {
+          material: {
+            kind: "basis",
+            path: this.path(base, node),
+            object: await this.project(base, node),
+          },
+        };
+        resultState.decisions = resultState.decisions.filter(
+          (d) => !keys.has(d.key) || d === decision
+        );
+        for (const d of resultState.decisions)
+          d.dependencies = [
+            ...new Set(
+              d.dependencies.map((key) => (keys.has(key) ? decision.key : key))
+            ),
+          ].filter((key) => key !== d.key);
+      }
+    }
+    if (request.rules.config?.conflictProjection === "current") {
+      const rootChoice = resultState.decisions.find(
+        (d) =>
+          d.kind === "directory" &&
+          d.key === `change:${request.incoming.change}`
+      );
+      if (rootChoice) {
+        resultState.nodes = clone(current.nodes);
+        resultState.root = current.root;
+        rootChoice.selected = 0;
+        for (const map of [
+          "outputs",
+          "effects",
+          "origins",
+          "changes",
+          "alternatives",
+        ] as const)
+          resultState[map] = {
+            ...clone(current[map]),
+            ...resultState[map],
+          } as never;
+        for (const old of current.decisions) {
+          const index = resultState.decisions.findIndex(
+            (d) => d.key === old.key
+          );
+          if (index >= 0) resultState.decisions[index] = clone(old);
+        }
+        for (const decision of resultState.decisions)
+          for (const alternative of decision.alternatives)
+            if (
+              alternative.node &&
+              (!resultState.nodes[alternative.node]?.active ||
+                (await this.project(resultState, alternative.node)) !==
+                  alternative.object)
+            )
+              delete alternative.node;
+      }
     }
     let continuedContext: { object: string; state: string } | undefined;
     for (const decision of resultState.decisions) {
@@ -2206,7 +2413,7 @@ class Engine {
         }
         if (matches.length !== 1)
           return fail(
-            "Resolution would discard an unguarded dependent decision",
+            "Resolution would discard an unguarded dependent decision"
           );
         const match = matches[0]!;
         child.placement = {
@@ -2219,22 +2426,23 @@ class Engine {
       }
     }
     resultState.decisions = resultState.decisions.filter(
-      (d) => !resolved.has(d.key),
+      (d) => !resolved.has(d.key)
     );
     for (const decision of resultState.decisions)
       decision.dependencies = decision.dependencies.filter(
-        (key) => !resolved.has(key),
+        (key) => !resolved.has(key)
       );
     const result = await this.record(resultState);
     return this.response(result, resultState);
   }
   response(
     result: { object: string; state: string },
-    state: IntentState,
+    state: IntentState
   ): IntentResponse {
     return {
       outcome: "evaluated",
       result,
+      authored: this.authoredResult ?? result,
       objects: [...this.generated.keys()],
       decisions: state.decisions,
       evidence: {
@@ -2258,13 +2466,13 @@ class Engine {
 
 export async function mergeIntent(
   raw: IntentRequest,
-  objects: MergeObjects,
+  objects: MergeObjects
 ): Promise<IntentResponse> {
   try {
     const engine = new Engine(parseIntentRequest(raw), objects),
       result = await engine.run();
     await objects.store(
-      [...engine.generated].map(([hash, bytes]) => ({ hash, bytes })),
+      [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
     );
     return result;
   } catch (error) {
@@ -2276,4 +2484,316 @@ export async function mergeIntent(
         error instanceof Error ? error.message : "Invalid intent request",
     };
   }
+}
+
+/** Rebind an accepted snapshot without asserting a move, copy or source lineage.
+ * Unchanged occurrences retain origins; changed bytes are an opaque barrier.
+ * Existing decisions whose projection disappears are enclosed, never erased. */
+export async function checkpointIntent(
+  request: import("./checkpoint.ts").CheckpointRequest,
+  objects: MergeObjects
+): Promise<import("./checkpoint.ts").CheckpointResponse> {
+  const engine = new Engine(
+    {
+      kind: "tree",
+      tree: request.tree,
+      base: request.current,
+      current: request.current,
+      incoming: {
+        change: request.change,
+        object: request.projection,
+        operations: [],
+      },
+      rules: { id: "tree-default", revision: 1 },
+    },
+    objects
+  );
+  const previous = await engine.load(request.current),
+    state = clone(previous);
+  const previousRecord = await engine.record(previous);
+  const resolved = new Set(request.resolves ?? []);
+  for (const key of resolved) {
+    const decision = state.decisions.find((d) => d.key === key);
+    if (!decision) throw new Error("Resolution decision is unavailable");
+    if (
+      request.projection !== request.current.object &&
+      decision.dependencies.some((d) => !resolved.has(d))
+    )
+      throw new Error("Snapshot resolution must guard dependent decisions");
+  }
+  state.decisions = state.decisions.filter((d) => !resolved.has(d.key));
+  for (const decision of state.decisions)
+    decision.dependencies = decision.dependencies.filter(
+      (d) => !resolved.has(d)
+    );
+  const fresh = await engine.initial(request.projection);
+  const oldObjects = new Map<string, string>();
+  for (const node of Object.values(previous.nodes))
+    if (node.active && node.kind === "file")
+      oldObjects.set(node.id, await engine.project(previous, node.id));
+  const rebind = (
+    id: string,
+    parent: string | null,
+    oldID?: string
+  ): string => {
+    const value = fresh.nodes[id]!,
+      old = oldID ? previous.nodes[oldID] : undefined;
+    const next =
+      old?.kind === value.kind ? old.id : `snapshot:${request.change}:${id}`;
+    state.nodes[next] = {
+      ...clone(value),
+      id: next,
+      parent,
+      ...(old?.kind === "file" && oldObjects.get(old.id) === value.object
+        ? { pieces: clone(old.pieces) }
+        : {}),
+    };
+    if (
+      value.kind === "file" &&
+      state.nodes[next]!.pieces &&
+      (!old || oldObjects.get(old.id) !== value.object)
+    )
+      state.nodes[next]!.pieces = state.nodes[next]!.pieces!.map((p) => ({
+        ...p,
+        origin: `snapshot:${request.change}:${p.origin}`,
+      }));
+    for (const child of engine.children(fresh, id)) {
+      const prior = old
+        ? engine.children(previous, old.id).find((n) => n.name === child.name)
+        : undefined;
+      rebind(child.id, next, prior?.id);
+    }
+    return next;
+  };
+  for (const node of Object.values(state.nodes))
+    if (engine.realm(previous, node.id) === previous.root) node.active = false;
+  state.root = rebind(fresh.root, null, previous.root);
+  const changedNodes = Object.values(state.nodes)
+    .filter(
+      (node) =>
+        node.active &&
+        engine.realm(state, node.id) === state.root &&
+        (node.kind === "file"
+          ? oldObjects.get(node.id) !== node.object
+          : !previous.nodes[node.id]?.active)
+    )
+    .map((node) => node.id);
+  if (request.current.state && request.projection !== request.current.object) {
+    state.changes[request.change] = engine.put(
+      encoder.encode(
+        stableJSONString({
+          base: request.current,
+          incoming: {
+            change: request.change,
+            object: request.projection,
+            operations: null,
+          },
+          checkpoint: { affected: changedNodes },
+        })
+      )
+    );
+  }
+  const wrapped: string[] = [];
+  for (const decision of state.decisions) {
+    if (decision.context) continue;
+    if (decision.placement) {
+      const node = state.nodes[decision.placement.node];
+      if (node?.active && node.pieces) {
+        try {
+          engine.locate(node.pieces, decision.placement.pieces, [
+            0,
+            length(decision.placement.pieces),
+          ]);
+          continue;
+        } catch {}
+        // A current-basis snapshot edits the selected whole-file alternative. It
+        // does not resolve the sibling, nor claim lineage for its replacement bytes.
+        const old = previous.nodes[decision.placement.node];
+        if (
+          request.continueSelected !== false &&
+          !request.decisions.length &&
+          old?.pieces &&
+          decision.placement.anchor === 0 &&
+          length(decision.placement.pieces) === length(old.pieces)
+        ) {
+          const selected = decision.alternatives[decision.selected]!;
+          const material = clone(node);
+          material.id = `snapshot-alternative:${request.change}:${decision.key}`;
+          material.parent = null;
+          state.nodes[material.id] = material;
+          selected.node = material.id;
+          selected.object = node.object;
+          selected.contributions.push({
+            change: request.change,
+            operation: null,
+          });
+          decision.placement = {
+            node: node.id,
+            pieces: clone(node.pieces),
+            anchor: 0,
+          };
+          selected.state = (await engine.record(state)).state;
+          continue;
+        }
+      }
+    } else if (request.current.object === request.projection) continue;
+    decision.context = previousRecord.state;
+    wrapped.push(decision.key);
+  }
+  for (const input of request.decisions) {
+    if (state.decisions.some((d) => d.key === input.key)) continue;
+    if (input.path) {
+      const locate = (view: View) => {
+        let node = view.nodes[view.root]!;
+        for (const name of input.path!)
+          node =
+            engine.children(view, node.id).find((n) => n.name === name) ??
+            fail("Legacy alternative path absent");
+        return node;
+      };
+      const selected = locate(state);
+      if (!selected.pieces)
+        throw new Error("Legacy file decision has no file placement");
+      const alternatives = [];
+      for (const [index, a] of input.alternatives.entries()) {
+        const context = await engine.initial(a.object),
+          material = clone(locate(context));
+        if (!material.pieces)
+          throw new Error("Legacy file alternative is not a file");
+        material.id = `legacy:${input.key}:${index}`;
+        material.parent = null;
+        if (index === input.selected) material.pieces = clone(selected.pieces);
+        state.nodes[material.id] = material;
+        alternatives.push({
+          ...(await engine.record(context)),
+          object: await engine.project(state, material.id),
+          node: material.id,
+          contributions: a.contributions,
+        });
+      }
+      state.decisions.push({
+        key: input.key,
+        kind: "content",
+        affected: [selected.id],
+        selected: input.selected,
+        alternatives,
+        dependencies: input.dependencies ?? [],
+        reason: "Retained whole-file ambiguity",
+        subject: {
+          material: {
+            kind: "basis",
+            path: "/" + input.path.join("/"),
+            object: await engine.project(state, selected.id),
+          },
+        },
+        placement: {
+          node: selected.id,
+          pieces: clone(selected.pieces),
+          anchor: 0,
+        },
+      });
+      continue;
+    }
+    const alternatives = [];
+    for (const a of input.alternatives) {
+      const context = await engine.initial(a.object);
+      const recorded = await engine.record(context);
+      alternatives.push({
+        ...recorded,
+        ...(a.object === request.projection ? { node: state.root } : {}),
+        contributions: a.contributions,
+      });
+    }
+    state.decisions.push({
+      key: input.key,
+      kind: "directory",
+      affected: [state.root],
+      selected: input.selected,
+      alternatives,
+      dependencies: [...new Set([...wrapped, ...(input.dependencies ?? [])])],
+      reason: "Retained snapshot ambiguity",
+    });
+  }
+  if (
+    wrapped.length &&
+    !request.decisions.length &&
+    request.current.object !== request.projection
+  ) {
+    const projected = await engine.record(state);
+    const incoming = {
+      ...projected,
+      contributions: [{ change: request.change, operation: null }],
+    };
+    if (request.conflictProjection === "current") {
+      state.nodes = clone(previous.nodes);
+      state.root = previous.root;
+      for (const decision of state.decisions) {
+        const prior = previous.decisions.find((d) => d.key === decision.key);
+        if (prior) {
+          if (prior.context) decision.context = prior.context;
+          else delete decision.context;
+        }
+      }
+    }
+    const extra =
+      request.candidate &&
+      request.candidate !== projected.object &&
+      request.candidate !== previousRecord.object
+        ? [
+            {
+              ...(await engine.record(await engine.initial(request.candidate))),
+              contributions: [{ change: request.change, operation: null }],
+            },
+          ]
+        : [];
+    state.decisions.push({
+      key: `snapshot:${request.change}`,
+      kind: "directory",
+      affected: [state.root],
+      selected: request.conflictProjection === "current" ? 0 : 1,
+      alternatives: [
+        {
+          ...previousRecord,
+          ...(request.conflictProjection === "current"
+            ? { node: state.root }
+            : {}),
+          contributions: [],
+        },
+        {
+          ...incoming,
+          ...(request.conflictProjection === "current"
+            ? {}
+            : { node: state.root }),
+        },
+        ...extra,
+      ],
+      dependencies: wrapped,
+      reason: "Snapshot changes unresolved material",
+    });
+  }
+  const result = await engine.record(state);
+  await objects.store(
+    [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
+  );
+  return { kind: "checkpoint", result, objects: [...engine.generated.keys()] };
+}
+
+/** Validate a worker-owned graph at the authority boundary without running edits. */
+export async function validateIntentState(
+  ref: { object: string; state: string },
+  tree: string,
+  objects: MergeObjects
+): Promise<IntentState> {
+  const engine = new Engine(
+    {
+      kind: "tree",
+      tree,
+      base: ref,
+      current: ref,
+      incoming: { change: "validate", object: ref.object, operations: [] },
+      rules: { id: "tree-default", revision: 1 },
+    },
+    objects
+  );
+  return engine.load(ref);
 }

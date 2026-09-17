@@ -15,6 +15,8 @@ label.*
 
 This page reports what the reference implementation does today. The [specification](spec.md) is intentionally broader: it defines the portable system Arbor is building toward. Active work belongs in [plans](plans/README.md), and completed evidence belongs in [plans/_done](plans/_done/README.md).
 
+- **Merge authority integration (worktree only, not deployed).** Canopy forwards all eight specified operations to the merge process and atomically owns accepted/authored semantic states, inspection identities and complete immutable dependencies in additive schema 12. Existing source editors and snapshot clients keep their Wire contract. Whole-file choices remain the initial presentation policy; structural ambiguity uses enclosing decisions. See the [integration checkpoint](docs/merge-authority-integration.md) and [migration rehearsal](migrations/010-merge-state/README.md).
+
 ## Implemented and tested
 
 - **Native working-tree editors.** The Mac app and iOS edit placed Arbor trees directly as working trees (`ArborWorkingTree` over `ArborObjectStore`): Markdown remains canonical, the document admission machine makes each edit durable in the working tree, and the update coordinator publishes durable heads to Canopy. The daemon has no editor path; it is the folder's client plus loopback bootstrap, credential, and object services.

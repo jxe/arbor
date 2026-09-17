@@ -2,8 +2,10 @@
 
 The reference implementation has a TypeScript merge package, `@arbor/merge`, and
 an `arbor-merge` executable script run by Bun. This checkpoint is implemented on
-`codex/merge-tool`; it is not deployed. There is no Canopy SQLite migration,
-object-layout change, public Wire change, or client cutover.
+`codex/merge-tool`; it is not deployed. The authority integration adds schema 12 ownership records; it does not change
+object layout, public Wire, or require a client cutover. See the
+[integration checkpoint](merge-authority-integration.md) and
+[offline migration](../migrations/010-merge-state/README.md).
 
 Canopy invokes one process per evaluation by default. The same executable has a
 sequential persistent mode for future sidecar integration. Canopy still owns
@@ -57,7 +59,8 @@ that proposal with a resolved/unresolved/inapplicable decision and reason. Exist
 plain-text and Markdown-prose rules validate it conservatively; they do not infer
 operations from snapshots. Authored execution and unresolved alternatives now use
 the operation-bearing tree request described in [operation evaluation](merge-operation-evaluation.md).
-Canopy forwarding/activation remains Reliability 009.
+Canopy now forwards authoritative operations through that request. The proposal-only
+source rule remains a diagnostic API; it is not Canopy's source acceptance path.
 
 The rule revision identifies algorithm semantics; it is not a versioned client API.
 Unrecognized rules, invalid responses or missing material fail evaluation. There
@@ -89,8 +92,11 @@ the job manifest alone is not a completed GC lease protocol.
 Canopy defaults to four concurrent workers, at most 64 queued evaluations, a
 30-second worker timeout with forced termination, and an 8 MiB stdout/stderr buffer
 limit. Runtime options can change concurrency and timeout. Worker launch, timeout,
-validation or execution failure conservatively preserves ordinary content as
-accepted ambiguity; it does not recreate a client conflict hold. Governed account
+validation or execution failure preserves ordinary snapshot content as accepted
+ambiguity where the existing snapshot path can do so safely. Authoritative operation
+execution and semantic checkpoint failures cannot become unchecked snapshot writes:
+no acceptance is recorded, and the client retains its durable request for retry.
+An exact accepted retry uses its receipt without requiring the worker. Governed account
 configuration retains its authorization/rejection policy. The client keeps its
 usual durable retry behavior for unrelated storage or transaction failures.
 

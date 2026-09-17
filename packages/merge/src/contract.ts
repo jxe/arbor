@@ -1,87 +1,269 @@
-import { isIntentRequest, parseIntentResponse, parseIntentRequest, type IntentRequest, type IntentResponse } from "./intent-model.ts";
+import {
+  checkpointSchema,
+  checkpointResponseSchema,
+  type CheckpointRequest,
+  type CheckpointResponse,
+} from "./checkpoint.ts";
+import {
+  isIntentRequest,
+  parseIntentResponse,
+  parseIntentRequest,
+  type IntentRequest,
+  type IntentResponse,
+} from "./intent-model.ts";
 import { z } from "zod";
 import { decodeAuthoredCandidateIntent } from "../../wire/src/updates/authored-contract.ts";
 import type { SourceOperation } from "@arbor/wire";
 import type { MergeSummary } from "./summary.ts";
 
 const hash = z.string().regex(/^sha256:[a-f0-9]{64}$/);
-const path = z.string().refine(value => value === "/" || (value.startsWith("/") && value.slice(1).split("/").every(part => part && part !== "." && part !== ".." && !/[\\\0]/.test(part))));
+const path = z.string().refine(
+  (value) =>
+    value === "/" ||
+    (value.startsWith("/") &&
+      value
+        .slice(1)
+        .split("/")
+        .every(
+          (part) =>
+            part && part !== "." && part !== ".." && !/[\\\0]/.test(part)
+        ))
+);
 const material = z.object({ object: hash }).strict();
-const rule = z.object({ id: z.string().min(1), revision: z.literal(1) }).strict();
-const contribution = z.object({ change: z.string().min(1), operation: z.string().min(1) }).strict();
+const rule = z
+  .object({ id: z.string().min(1), revision: z.literal(1) })
+  .strict();
+const contribution = z
+  .object({ change: z.string().min(1), operation: z.string().min(1) })
+  .strict();
 const common = { base: material, current: material, rules: rule };
-const treeRequest = z.object({ ...common, kind: z.literal("tree"), incoming: material }).strict();
-const sourceRequest = z.object({ ...common, kind: z.literal("source"), tree: z.string().min(1), path,
-  incoming: z.object({ object: hash, contributions: z.array(contribution),
-    changes: z.array(z.object({ change: z.string().min(1), operations: z.array(z.unknown()) }).strict()),
-  }).strict(), proposal: material,
-}).strict();
+const treeRequest = z
+  .object({ ...common, kind: z.literal("tree"), incoming: material })
+  .strict();
+const sourceRequest = z
+  .object({
+    ...common,
+    kind: z.literal("source"),
+    tree: z.string().min(1),
+    path,
+    incoming: z
+      .object({
+        object: hash,
+        contributions: z.array(contribution),
+        changes: z.array(
+          z
+            .object({
+              change: z.string().min(1),
+              operations: z.array(z.unknown()),
+            })
+            .strict()
+        ),
+      })
+      .strict(),
+    proposal: material,
+  })
+  .strict();
 
 export type ProjectionRequest =
   | z.infer<typeof treeRequest>
-  | (Omit<z.infer<typeof sourceRequest>, "incoming"> & { incoming: {
-      object: string; contributions: Array<{ change: string; operation: string }>;
-      changes: Array<{ change: string; operations: SourceOperation[] }>;
-    } });
+  | (Omit<z.infer<typeof sourceRequest>, "incoming"> & {
+      incoming: {
+        object: string;
+        contributions: Array<{ change: string; operation: string }>;
+        changes: Array<{ change: string; operations: SourceOperation[] }>;
+      };
+    });
 
-export type MergeRequest = ProjectionRequest | IntentRequest;
+export type MergeRequest =
+  | ProjectionRequest
+  | IntentRequest
+  | CheckpointRequest;
 export function parseRequest(raw: unknown): MergeRequest {
-  if(isIntentRequest(raw)) return parseIntentRequest(raw);
-  const request = z.discriminatedUnion("kind", [treeRequest, sourceRequest]).parse(raw);
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "kind" in raw &&
+    raw.kind === "checkpoint"
+  )
+    return checkpointSchema.parse(raw);
+  if (isIntentRequest(raw)) return parseIntentRequest(raw);
+  const request = z
+    .discriminatedUnion("kind", [treeRequest, sourceRequest])
+    .parse(raw);
   if (request.kind === "source") {
     const changes = new Set<string>();
     const contributions: Array<{ change: string; operation: string }> = [];
     for (const change of request.incoming.changes) {
-      if (changes.has(change.change)) throw new Error("Duplicate authored change");
+      if (changes.has(change.change))
+        throw new Error("Duplicate authored change");
       changes.add(change.change);
-      const decoded = decodeAuthoredCandidateIntent({ ...change, candidate: request.incoming.object, resolves: [] });
-      contributions.push(...decoded.operations!.map(operation => ({ change: change.change, operation: operation.key })));
+      const decoded = decodeAuthoredCandidateIntent({
+        ...change,
+        candidate: request.incoming.object,
+        resolves: [],
+      });
+      contributions.push(
+        ...decoded.operations!.map((operation) => ({
+          change: change.change,
+          operation: operation.key,
+        }))
+      );
     }
-    if (JSON.stringify(contributions) !== JSON.stringify(request.incoming.contributions)) throw new Error("Incomplete authored contributions");
+    if (
+      JSON.stringify(contributions) !==
+      JSON.stringify(request.incoming.contributions)
+    )
+      throw new Error("Incomplete authored contributions");
   }
   return request as MergeRequest;
 }
 
-const reason = z.enum(["node-conflict", "binary-conflict", "path-kind-conflict", "nested-boundary-conflict", "account-configuration", "page-id-move-conflict", "collection-file-row-conflict", "collection-file-schema-conflict", "collection-file-constraint-conflict", "frontmatter-conflict", "invalid-markdown-fence"]);
-const decision = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("conflict"), path, reason, scope: z.enum(["entry", "directory"]) }).strict(),
-  z.object({ kind: z.literal("source"), path, outcome: z.enum(["resolved", "unresolved", "inapplicable"]), reason: z.string() }).strict(),
+const reason = z.enum([
+  "node-conflict",
+  "binary-conflict",
+  "path-kind-conflict",
+  "nested-boundary-conflict",
+  "account-configuration",
+  "page-id-move-conflict",
+  "collection-file-row-conflict",
+  "collection-file-schema-conflict",
+  "collection-file-constraint-conflict",
+  "frontmatter-conflict",
+  "invalid-markdown-fence",
 ]);
-const response = z.object({ result: material, decisions: z.array(decision), objects: z.array(hash),
-  evidence: z.object({ rule, summary: z.unknown().optional() }).strict(),
-}).strict();
+const decision = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("conflict"),
+      path,
+      reason,
+      scope: z.enum(["entry", "directory"]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("source"),
+      path,
+      outcome: z.enum(["resolved", "unresolved", "inapplicable"]),
+      reason: z.string(),
+    })
+    .strict(),
+]);
+const response = z
+  .object({
+    result: material,
+    decisions: z.array(decision),
+    objects: z.array(hash),
+    evidence: z.object({ rule, summary: z.unknown().optional() }).strict(),
+  })
+  .strict();
 export type ProjectionResponse = Omit<z.infer<typeof response>, "evidence"> & {
   evidence: { rule: { id: string; revision: 1 }; summary?: MergeSummary };
 };
 
 /** The transport carries references only. Generated bytes live in the job store. */
-export type MergeResponse = ProjectionResponse | IntentResponse;
-export function parseResponse(raw:unknown,request:ProjectionRequest):ProjectionResponse;
-export function parseResponse(raw:unknown,request:IntentRequest):Extract<IntentResponse,{outcome:"evaluated"}>;
-export function parseResponse(raw:unknown,request:MergeRequest):ProjectionResponse|Extract<IntentResponse,{outcome:"evaluated"}>;
-export function parseResponse(raw: unknown, request: MergeRequest): ProjectionResponse|Extract<IntentResponse,{outcome:"evaluated"}> {
-  if(isIntentRequest(request)) return parseIntentResponse(raw,request);
+export type MergeResponse =
+  | ProjectionResponse
+  | IntentResponse
+  | CheckpointResponse;
+export function parseResponse(
+  raw: unknown,
+  request: CheckpointRequest
+): CheckpointResponse;
+export function parseResponse(
+  raw: unknown,
+  request: ProjectionRequest
+): ProjectionResponse;
+export function parseResponse(
+  raw: unknown,
+  request: IntentRequest
+): Extract<IntentResponse, { outcome: "evaluated" }>;
+export function parseResponse(
+  raw: unknown,
+  request: MergeRequest
+):
+  | ProjectionResponse
+  | Extract<IntentResponse, { outcome: "evaluated" }>
+  | CheckpointResponse;
+export function parseResponse(
+  raw: unknown,
+  request: MergeRequest
+):
+  | ProjectionResponse
+  | Extract<IntentResponse, { outcome: "evaluated" }>
+  | CheckpointResponse {
+  if (request.kind === "checkpoint") {
+    const value = checkpointResponseSchema.parse(raw);
+    if (
+      value.result.object !== request.projection &&
+      !(
+        request.conflictProjection === "current" &&
+        value.result.object === request.current.object
+      )
+    )
+      throw new Error("Checkpoint projection mismatch");
+    return value;
+  }
+  if (isIntentRequest(request)) return parseIntentResponse(raw, request);
   const value = response.parse(raw);
-  if (value.evidence.rule.id !== request.rules.id || value.evidence.rule.revision !== request.rules.revision ||
-      new Set(value.objects).size !== value.objects.length) throw new Error("Merge response does not match request");
+  if (
+    value.evidence.rule.id !== request.rules.id ||
+    value.evidence.rule.revision !== request.rules.revision ||
+    new Set(value.objects).size !== value.objects.length
+  )
+    throw new Error("Merge response does not match request");
   if (request.kind === "source") {
-    if (value.result.object !== request.proposal.object || value.objects.length || value.decisions.length !== 1 ||
-        value.decisions[0]?.kind !== "source" || value.decisions[0].path !== request.path || value.evidence.summary !== undefined) {
+    if (
+      value.result.object !== request.proposal.object ||
+      value.objects.length ||
+      value.decisions.length !== 1 ||
+      value.decisions[0]?.kind !== "source" ||
+      value.decisions[0].path !== request.path ||
+      value.evidence.summary !== undefined
+    ) {
       throw new Error("Invalid source rule response");
     }
-  } else if (value.decisions.some(d => d.kind !== "conflict")) throw new Error("Invalid tree merge decisions");
+  } else if (value.decisions.some((d) => d.kind !== "conflict"))
+    throw new Error("Invalid tree merge decisions");
   // Summaries are persisted as evidence; do not accept arbitrary executable output.
   if (value.evidence.summary !== undefined) {
-    const summary = z.discriminatedUnion("version", [
-      z.object({ version: z.literal("markdown-additive-v1"), approximatePlacements: z.number().int().nonnegative() }).strict(),
-      z.object({ version: z.literal("collection-file-rows-v1"), mergedRows: z.number().int().nonnegative() }).strict(),
-      z.object({ version: z.literal("account-config-v1"), mergedFields: z.number().int().nonnegative() }).strict(),
-      z.object({ version: z.literal("account-config-v2"), mergedFields: z.number().int().nonnegative() }).strict(),
-    ]).parse(value.evidence.summary);
-    if ((request.rules.id.startsWith("account-config") && summary.version !== request.rules.id) ||
-        (request.rules.id === "tree-default" && summary.version.startsWith("account-config"))) throw new Error("Unexpected merge evidence");
+    const summary = z
+      .discriminatedUnion("version", [
+        z
+          .object({
+            version: z.literal("markdown-additive-v1"),
+            approximatePlacements: z.number().int().nonnegative(),
+          })
+          .strict(),
+        z
+          .object({
+            version: z.literal("collection-file-rows-v1"),
+            mergedRows: z.number().int().nonnegative(),
+          })
+          .strict(),
+        z
+          .object({
+            version: z.literal("account-config-v1"),
+            mergedFields: z.number().int().nonnegative(),
+          })
+          .strict(),
+        z
+          .object({
+            version: z.literal("account-config-v2"),
+            mergedFields: z.number().int().nonnegative(),
+          })
+          .strict(),
+      ])
+      .parse(value.evidence.summary);
+    if (
+      (request.rules.id.startsWith("account-config") &&
+        summary.version !== request.rules.id) ||
+      (request.rules.id === "tree-default" &&
+        summary.version.startsWith("account-config"))
+    )
+      throw new Error("Unexpected merge evidence");
   }
   return value as ProjectionResponse;
 }
 
-export {isIntentRequest} from "./intent-model.ts";
+export { isIntentRequest } from "./intent-model.ts";

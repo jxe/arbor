@@ -21,8 +21,8 @@ test("operation evaluation is identical through library, fresh worker, persisten
           text: "ONE",
         },
       ],
-      "first",
-    ),
+      "first"
+    )
   );
   const request = f.request(
     base,
@@ -36,14 +36,14 @@ test("operation evaluation is identical through library, fresh worker, persisten
       },
     ],
     "second",
-    first.result,
+    first.result
   );
   const expected = await f.run(request),
     directory = await mkdtemp(join(tmpdir(), "arbor-operation-worker-"));
   try {
     const shared = join(directory, "objects");
     await new ObjectStore(shared).store(
-      [...f.objects].map(([hash, bytes]) => ({ hash, bytes })),
+      [...f.objects].map(([hash, bytes]) => ({ hash, bytes }))
     );
     const tool = new MergeTool(directory),
       actual = await tool.evaluate(request, f.objects);
@@ -59,12 +59,12 @@ test("operation evaluation is identical through library, fresh worker, persisten
           "--staging",
           join(directory, mode),
         ],
-        { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+        { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" }
       );
       child.stdin.write(
         JSON.stringify(request) +
           "\n" +
-          (mode === "serve" ? JSON.stringify(request) + "\n" : ""),
+          (mode === "serve" ? JSON.stringify(request) + "\n" : "")
       );
       child.stdin.end();
       const lines = (await new Response(child.stdout).text())
@@ -73,7 +73,7 @@ test("operation evaluation is identical through library, fresh worker, persisten
         .map((line) => JSON.parse(line));
       expect(await child.exited).toBe(0);
       expect(lines).toEqual(
-        mode === "serve" ? [expected, expected] : [expected],
+        mode === "serve" ? [expected, expected] : [expected]
       );
     }
   } finally {
@@ -114,7 +114,7 @@ test("typed evaluation refusals match library and executable modes", async () =>
   try {
     const shared = join(directory, "objects");
     await new ObjectStore(shared).store(
-      [...f.objects].map(([hash, bytes]) => ({ hash, bytes })),
+      [...f.objects].map(([hash, bytes]) => ({ hash, bytes }))
     );
     for (const mode of ["evaluate", "serve"]) {
       for (const batch of mode === "serve"
@@ -130,10 +130,10 @@ test("typed evaluation refusals match library and executable modes", async () =>
             "--staging",
             join(directory, mode),
           ],
-          { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+          { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" }
         );
         child.stdin.write(
-          batch.map((r) => JSON.stringify(r)).join("\n") + "\n",
+          batch.map((r) => JSON.stringify(r)).join("\n") + "\n"
         );
         child.stdin.end();
         const lines = (await new Response(child.stdout).text())
@@ -144,6 +144,51 @@ test("typed evaluation refusals match library and executable modes", async () =>
         expect(lines).toEqual(batch.map((r) => expected[requests.indexOf(r)]));
       }
     }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("authority rejects missing inverse material and a forged result projection", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const request = f.request(base, f.tree({ "a.txt": "new" }), [
+    {
+      key: "edit",
+      kind: "editSource",
+      source: f.ref("/a.txt", "old"),
+      text: "new",
+    },
+  ]);
+  const response = await f.run(request);
+  const directory = await mkdtemp(join(tmpdir(), "arbor-worker-validation-"));
+  try {
+    const script = join(directory, "worker.ts");
+    const reply = { ...response, objects: [] };
+    await new ObjectStore(join(directory, "objects")).store(
+      [...f.objects].map(([hash, bytes]) => ({ hash, bytes }))
+    );
+    // All hashes exist, but the claimed root is not the projection of its state.
+    await Bun.write(
+      script,
+      `console.log(${JSON.stringify(
+        JSON.stringify({ ...reply, result: { ...reply.result, object: base } })
+      )});`
+    );
+    const tool = new MergeTool(directory, {
+      command: [process.execPath, script],
+    });
+    await expect(tool.evaluate(request, new Map())).rejects.toThrow(
+      "State does not project"
+    );
+    // New visible bytes are intact; deleting the old bytes breaks retained undo.
+    const old = f.put("old").slice(7);
+    await rm(join(directory, "objects", old.slice(0, 2), old.slice(2)));
+    await Bun.write(
+      script,
+      `console.log(${JSON.stringify(JSON.stringify(reply))});`
+    );
+    await expect(tool.evaluate(request, new Map())).rejects.toThrow();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

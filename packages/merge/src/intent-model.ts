@@ -28,6 +28,8 @@ const schema = z
         revision: z.literal(1),
         config: z
           .object({
+            contentChoices: z.enum(["source", "file"]).optional(),
+            conflictProjection: z.enum(["current", "incoming"]).optional(),
             maxMillis: z.number().int().positive().max(30_000).optional(),
             maxBytes: z
               .number()
@@ -65,7 +67,7 @@ const schema = z
                       .enum(["review", "preserve-both"])
                       .optional(),
                   })
-                  .strict(),
+                  .strict()
               )
               .optional(),
             maxNodes: z.number().int().positive().max(100_000).optional(),
@@ -85,7 +87,7 @@ const schema = z
               .object({ object: hash, kind: z.enum(["file", "directory"]) })
               .strict(),
           })
-          .strict(),
+          .strict()
       )
       .max(1024)
       .optional(),
@@ -145,7 +147,7 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
     const ref = decodeMaterialRef(alternative.ref);
     if (ref.material.kind !== "alternative" || ref.within || ref.range)
       throw new Error(
-        "Alternative bindings require a complete alternative reference",
+        "Alternative bindings require a complete alternative reference"
       );
   }
   return value as IntentRequest;
@@ -153,7 +155,7 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
 export class IntentError extends Error {
   constructor(
     readonly code: "invalid" | "missing-context" | "unsupported" | "limit",
-    message: string,
+    message: string
   ) {
     super(message);
   }
@@ -216,7 +218,7 @@ export interface IntentDecision {
     state: string;
     object: string;
     node?: string;
-    contributions: Array<{ change: string; operation: string }>;
+    contributions: Array<{ change: string; operation: string | null }>;
   }>;
   dependencies: string[];
   reason: string;
@@ -228,6 +230,7 @@ export type IntentResponse =
   | {
       outcome: "evaluated";
       result: { object: string; state: string };
+      authored: { object: string; state: string };
       objects: string[];
       decisions: IntentDecision[];
       evidence: {
@@ -286,10 +289,10 @@ const decisionSchema = z
             object: hash,
             node: z.string().optional(),
             contributions: z.array(
-              z.object({ change: token, operation: token }).strict(),
+              z.object({ change: token, operation: token.nullable() }).strict()
             ),
           })
-          .strict(),
+          .strict()
       )
       .min(2),
     dependencies: z.array(z.string()),
@@ -327,7 +330,7 @@ const stateSchema = z
             .optional(),
           view: viewSchema.optional(),
         })
-        .strict(),
+        .strict()
     ),
     alternatives: z.record(z.string(), z.string()),
     origins: z.record(z.string(), z.array(pieceSchema)),
@@ -345,7 +348,7 @@ const stateSchema = z
           after: nodesSchema,
           undone: z.boolean(),
         })
-        .strict(),
+        .strict()
     ),
     changes: z.record(z.string(), hash),
     decisions: z.array(decisionSchema),
@@ -387,6 +390,7 @@ const intentResponseSchema = z
   .object({
     outcome: z.literal("evaluated"),
     result: z.object({ object: hash, state: hash }).strict(),
+    authored: z.object({ object: hash, state: hash }).strict(),
     objects: z.array(hash),
     decisions: z.array(decisionSchema),
     evidence: z
@@ -407,7 +411,7 @@ const intentResponseSchema = z
               reason: z.string(),
               config: z.record(z.string(), z.unknown()),
             })
-            .strict(),
+            .strict()
         ),
       })
       .strict(),
@@ -415,10 +419,25 @@ const intentResponseSchema = z
   .strict();
 export function parseIntentResponse(
   raw: unknown,
-  request: IntentRequest,
+  request: IntentRequest
 ): Extract<IntentResponse, { outcome: "evaluated" }> {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "outcome" in raw &&
+    ["invalid", "missing-context", "unsupported", "limit"].includes(
+      String(raw.outcome)
+    ) &&
+    "message" in raw &&
+    typeof raw.message === "string"
+  )
+    throw new IntentError(
+      raw.outcome as "invalid" | "missing-context" | "unsupported" | "limit",
+      raw.message
+    );
   const value = intentResponseSchema.parse(raw);
   if (
+    value.authored.object !== request.incoming.object ||
     value.evidence.change !== request.incoming.change ||
     JSON.stringify(value.evidence.operations) !==
       JSON.stringify(request.incoming.operations.map((op) => op.key)) ||
