@@ -19,6 +19,7 @@ import {
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
+/** Historical recovery artifact only; these policy fields are never emitted on current Wire. */
 export interface StoredCandidate {
   base: string | null;
   candidate: ObjectHash;
@@ -313,7 +314,7 @@ export async function mergeRecoveryVariant(input: {
     const bytes = available.get(hash);
     if (!bytes) throw new Error(`Merge object unavailable: ${hash}`);
     return bytes;
-  }, "merge");
+  });
   const snapshot = reachableSnapshot(merge.root, new Map([...available, ...merge.objects]));
   const source = input.sourcePath ? await textAtWirePath(input.local, input.sourcePath) : null;
   return {

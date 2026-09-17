@@ -165,7 +165,7 @@ export { CANOPY_SCHEMA_VERSION, assertCanopySchemaVersion, assertCurrentCanopySc
  */
 interface UpdatePolicy {
   subject: string;
-  conflict: { kind: "server-update" | "account-configuration"; message: string };
+  rejection?: { kind: "account-configuration"; message: string };
   merge?: MergeStrategy;
   /** Validate the complete candidate graph once, before reconciliation. */
   validateCandidate(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void>;
@@ -406,8 +406,8 @@ export class CanopyDaemon implements AsyncDisposable {
     return { tree, state, root: update.root, conflicted: update.conflicted,
       decisions: selected.map(d => {
         const parent = parentFor(d.parent);
-        return { id: d.id, kind: "entry", affected: [parent], selected: d.selected,
-          alternatives: d.alternatives.map(a => ({ ...a, ...("absent" in a.value ? {} : { placement: { parent, name: d.name } }) })),
+        return { id: d.id, kind: d.root ? "directory" : "entry", affected: [parent], selected: d.selected,
+          alternatives: d.alternatives.map(a => ({ ...a, ...(d.root || "absent" in a.value ? {} : { placement: { parent, name: d.name } }) })),
           dependencies: decisionDependencies(d, decisions), actions: ["resolveConflict"] };
       }),
       next: conflict === undefined && offset + selected.length < decisions.length
@@ -1202,11 +1202,12 @@ export class CanopyDaemon implements AsyncDisposable {
         request.candidate,
         remoteTree.ref,
         (hash) => this.objects.load(hash, proposed),
-        { ifMatch: "modelHash", onConflict: "merge", merge: policy.merge },
+        { merge: policy.merge },
       );
       const conflictStore = new ConflictStore(this.db);
       const currentConflicts = conflictStore.get(remoteUpdate.id);
       let conflictState: ConflictState | undefined;
+      let resolutionGuardFailed = false;
       let origins: Map<string, Array<{ change: string; operation: string | null }>> | undefined;
       const contributions = new Map<string, Array<{ change: string; operation: string | null }>>();
       for (const e of sourceIntent?.evidence ?? []) {
@@ -1218,15 +1219,19 @@ export class CanopyDaemon implements AsyncDisposable {
       // accepted projection. The validated/replayed prefix proves that relationship.
       // Retain differences introduced by acceptance as concurrent input; never
       // reinterpret their absence from the author's candidate as a deletion.
-      if (sourceIntent && reconciled.outcome === "rejected" && !preconditionFailed) {
-        const acceptedBasis = this.update(basisUpdate!);
+      const ordinary = !tree.policy.startsWith("account-config-");
+      const acceptedBasis = this.update(basisUpdate!);
+      const authoredProjectionDiffers = acceptedBasis?.root !== baseRoot;
+      const unresolved = reconciled.outcome === "rejected" ||
+        (reconciled.outcome === "merged" && reconciled.conflicts.length > 0);
+      if (ordinary && !preconditionFailed && (unresolved || authoredProjectionDiffers)) {
         const retained = history ?? this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id, Infinity);
         const bridge = acceptedBasis?.root !== baseRoot && authoredChainBase
           ? this.acceptedStore.ancestry(authoredChainBase, basisUpdate!, Infinity) : null;
         if (retained && acceptedBasis && (acceptedBasis.root === baseRoot || bridge)) {
           origins = new Map();
           const recordOrigins = async (updates: AcceptedUpdate[], only?: string[]) => {
-            const related = (a: string, b: string) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+            const related = (a: string, b: string) => a === "/" || b === "/" || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
             for (const update of updates) {
               const intent = intentStore.forAccepted(update.id);
               const change = this.acceptedStore.changeForAccepted(update.id);
@@ -1250,18 +1255,26 @@ export class CanopyDaemon implements AsyncDisposable {
             await recordOrigins(bridge, differences);
           }
           await recordOrigins(retained);
+        } else {
+          throw new UpdateProtocolError("base-not-retained", "Authored snapshot ancestry is unavailable");
         }
       }
-      if (!preconditionFailed && !tree.policy.startsWith("account-config-") &&
+      if (!preconditionFailed && ordinary &&
           (origins || currentConflicts?.decisions.length || baseConflicts?.decisions.length || request.resolves.length)) {
         const ambiguity = await reconcileEntryAmbiguity({ base: baseRoot, current: remoteTree.ref, currentID: remoteUpdate.id,
           request, baseState: baseConflicts, currentState: currentConflicts, origins,
           contributions, explicitPaths: sourceIntent ? new Set(sourceIntent.evidence.map(e => e.path)) : undefined,
-        }, hash => this.objects.load(hash, proposed));
+          merged: !sourceIntent && !authoredProjectionDiffers && reconciled.outcome === "merged"
+            ? { root: reconciled.root, conflicts: reconciled.conflicts.map(c => c.path), directories: reconciled.unresolvedDirectories } : undefined,
+        }, async hash => reconciled.outcome !== "current" && reconciled.generated.get(hash) || this.objects.load(hash, proposed));
         if (ambiguity) {
           conflictState = ambiguity.state;
-          reconciled = { outcome: "accepted", root: ambiguity.root, generated: ambiguity.generated };
-        } else reconciled = { outcome: "rejected", root: request.candidate, generated: new Map(), conflicts: [{ path: "/", reason: "node-conflict" }] };
+          reconciled = { outcome: "accepted", root: ambiguity.root,
+            generated: new Map([...(reconciled.outcome === "current" ? [] : reconciled.generated), ...ambiguity.generated]) };
+        } else {
+          resolutionGuardFailed = true;
+          reconciled = { outcome: "rejected", root: request.candidate, generated: new Map(), conflicts: [{ path: "/", reason: "node-conflict" }] };
+        }
       }
       if (reconciled.outcome === "current") {
         return {
@@ -1279,6 +1292,9 @@ export class CanopyDaemon implements AsyncDisposable {
       const merge = reconciled.outcome === "merged" ? reconciled.merge : undefined;
       const objects = new Map([...proposed, ...reconciled.generated]);
       if (reconciled.outcome === "rejected" || (reconciled.outcome === "merged" && reconciled.conflicts.length)) {
+        // Ordinary merge ambiguity must have become accepted decisions above.
+        // Only explicit guards and account policy can reject a valid candidate.
+        if (ordinary && !preconditionFailed && !resolutionGuardFailed) throw new Error("Ordinary ambiguity was not reified");
         const draft = {
           root: reconciled.root,
           ...(await buildAcceptedTransitionPayload(request.candidate, reconciled.root, (hash) => this.objects.load(hash, objects))),
@@ -1287,11 +1303,11 @@ export class CanopyDaemon implements AsyncDisposable {
           status: 409,
           result: {
             error: "conflict",
-            message: preconditionFailed ? "Accepted state no longer matches ifCurrent" : sourceIntent ? "Authored source contributions could not be reconciled safely" : policy.conflict.message,
+            message: preconditionFailed ? "Accepted state no longer matches ifCurrent" : ordinary ? "Resolution guards no longer match the accepted decisions" : policy.rejection!.message,
             retryable: false,
             tree: treeID,
             details: {
-              kind: policy.conflict.kind,
+              kind: policy.rejection?.kind ?? "server-update",
               completed: [],
               failedIndex: 0,
               current: remoteUpdate,
@@ -1386,7 +1402,6 @@ export class CanopyDaemon implements AsyncDisposable {
   ): UpdatePolicy {
     return {
       subject: credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public"),
-      conflict: { kind: "server-update", message: "The candidate could not be merged safely" },
       validateCandidate: async (root, objects) => {
         await this.validateReservedBoundaries(tree, root, objects);
         const requiredType = this.requiredProfileType(tree.id, tree.canonicalPath);
@@ -1449,7 +1464,7 @@ export class CanopyDaemon implements AsyncDisposable {
     };
     return {
       subject: credentialSubject,
-      conflict: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
+      rejection: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
       validateCandidate: async (root, objects) => {
         candidateGraph = await graphAt(root, objects);
         if (v2) this.validateCurrentCanopyAccountPaths(account.handle, candidateGraph as AccountConfigGraphV2, account);
@@ -1458,7 +1473,7 @@ export class CanopyDaemon implements AsyncDisposable {
         if (!current) throw new Error("Account configuration has no accepted update");
         authorize(await graphAt(current.root), candidateGraph, baseGraph);
       },
-      merge: async (_base, _candidate, current, _load, _onConflict) => {
+      merge: async (_base, _candidate, current, _load) => {
         const remoteGraph = await graphAt(current);
         const merged = v2
           ? mergeAccountConfigGraphsV2(
@@ -1581,7 +1596,7 @@ export class CanopyDaemon implements AsyncDisposable {
           parent = decodeWireDirectory(await this.objects.load(directory));
         }
         const selected = decision.alternatives.find(a => a.id === decision.selected);
-        if (!selected || JSON.stringify(selected.value) !== JSON.stringify(entryValue(parent.entries.find(e => e.name === decision.name)))) throw new Error("Invalid conflict projection");
+        if (!selected || JSON.stringify(selected.value) !== JSON.stringify(decision.root ? { directory: owner.root } : entryValue(parent.entries.find(e => e.name === decision.name)))) throw new Error("Invalid conflict projection");
       }
     }
   }

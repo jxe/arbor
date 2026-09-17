@@ -19,10 +19,6 @@ import type { ObjectHash, UpdateConflict } from "@arbor/wire";
 import { decideUpdate } from "./decision.ts";
 import { mergeWireTrees, type MergeResult } from "./merge.ts";
 
-/** Internal snapshot-engine policy; these are not fields in the Wire request. */
-export type IfMatch = "bytesHash" | "modelHash";
-export type OnConflict = "reject" | "merge";
-
 export type ReconciledUpdate =
   | { outcome: "current" }
   | { outcome: "accepted"; root: ObjectHash; generated: Map<ObjectHash, Uint8Array> }
@@ -32,6 +28,7 @@ export type ReconciledUpdate =
       generated: Map<ObjectHash, Uint8Array>;
       merge?: MergeSummary;
       conflicts: UpdateConflict[];
+      unresolvedDirectories?: string[];
     }
   | { outcome: "rejected"; root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; conflicts: UpdateConflict[] };
 
@@ -41,12 +38,9 @@ export type MergeStrategy = (
   candidate: ObjectHash,
   current: ObjectHash,
   load: (hash: ObjectHash) => Promise<Uint8Array>,
-  onConflict: OnConflict,
 ) => Promise<MergeResult>;
 
 export interface ReconcileOptions {
-  ifMatch: IfMatch;
-  onConflict: OnConflict;
   merge?: MergeStrategy;
 }
 
@@ -55,15 +49,12 @@ export async function reconcileUpdate(
   candidate: ObjectHash,
   current: ObjectHash,
   load: (hash: ObjectHash) => Promise<Uint8Array>,
-  options: ReconcileOptions,
+  options: ReconcileOptions = {},
 ): Promise<ReconciledUpdate> {
-  const decision = decideUpdate(base, candidate, current, options.ifMatch);
+  const decision = decideUpdate(base, candidate, current);
   if (decision === "current") return { outcome: "current" };
   if (decision === "accept") return { outcome: "accepted", root: candidate, generated: new Map() };
-  if (decision === "reject") {
-    return { outcome: "rejected", root: candidate, generated: new Map(), conflicts: [{ path: "/", reason: "node-conflict" }] };
-  }
-  const merged = await (options.merge ?? mergeWireTrees)(base, candidate, current, load, options.onConflict);
+  const merged = await (options.merge ?? mergeWireTrees)(base, candidate, current, load);
   // A clean merge that lands exactly on the current root changed nothing.
   if (!merged.conflicts.length && merged.root === current) return { outcome: "current" };
   return {
@@ -72,5 +63,6 @@ export async function reconcileUpdate(
     generated: merged.objects,
     ...(merged.summary ? { merge: merged.summary } : {}),
     conflicts: merged.conflicts,
+    ...(merged.unresolvedDirectories ? { unresolvedDirectories: merged.unresolvedDirectories } : {}),
   };
 }

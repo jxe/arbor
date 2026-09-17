@@ -2,6 +2,66 @@
   "description": "Target read grammar and identity-chain vectors. Synthetic hashes are not execution evidence. repeatDecisions expands the sole decision with unique id suffixes to exercise absence of a fixed count cap.",
   "cases": [
     {
+      "name": "root directory choice uses a basis reference without fabricated placement",
+      "kind": "inspection",
+      "valid": true,
+      "value": {
+        "tree": "tr_test",
+        "state": "state-root",
+        "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "conflicted": true,
+        "decisions": [
+          {
+            "id": "root-choice",
+            "kind": "directory",
+            "affected": [
+              {
+                "material": {
+                  "kind": "basis",
+                  "path": "/",
+                  "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            ],
+            "selected": "a",
+            "alternatives": [
+              {
+                "id": "a",
+                "revision": "r1",
+                "value": {
+                  "directory": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "contributions": [
+                  {
+                    "change": "c1",
+                    "operation": null
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "revision": "r2",
+                "value": {
+                  "directory": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                },
+                "contributions": [
+                  {
+                    "change": "c2",
+                    "operation": null
+                  }
+                ]
+              }
+            ],
+            "dependencies": [],
+            "actions": [
+              "resolveConflict"
+            ]
+          }
+        ],
+        "next": null
+      }
+    },
+    {
       "name": "activation state has no predecessor",
       "kind": "state",
       "value": {

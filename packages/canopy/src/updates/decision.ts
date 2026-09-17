@@ -1,15 +1,10 @@
 import type { ObjectHash } from "@arbor/wire";
-import type { IfMatch } from "./reconcile.ts";
 
-export type UpdateDecision = "current" | "accept" | "reject" | "reconcile";
+export type UpdateDecision = "current" | "accept" | "reconcile";
 
-/**
- * The identity-only part of the updates-v1 state machine. `reject` is a
- * `bytesHash` match that no longer holds; `reconcile` is a `modelHash` match
- * that the node-level merge must evaluate.
- */
-export function decideUpdate(base: ObjectHash, candidate: ObjectHash, current: ObjectHash, ifMatch: IfMatch = "modelHash"): UpdateDecision {
+/** Identity-only snapshot fast paths; concurrent work always reconciles. */
+export function decideUpdate(base: ObjectHash, candidate: ObjectHash, current: ObjectHash): UpdateDecision {
   if (candidate === current || candidate === base) return "current";
   if (current === base) return "accept";
-  return ifMatch === "bytesHash" ? "reject" : "reconcile";
+  return "reconcile";
 }

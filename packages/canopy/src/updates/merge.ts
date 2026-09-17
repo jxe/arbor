@@ -1,5 +1,4 @@
 import type { MergeSummary } from "./reconcile.ts";
-import type { OnConflict } from "./reconcile.ts";
 import {
   decodeWireDirectory,
   encodeWireDirectory,
@@ -16,6 +15,8 @@ export interface MergeResult {
   root: ObjectHash;
   objects: Map<ObjectHash, Uint8Array>;
   conflicts: UpdateConflict[];
+  /** Coupled rule failures that require a whole-directory alternative. */
+  unresolvedDirectories?: string[];
   /** Present only when a merge rule ran. */
   summary?: MergeSummary;
 }
@@ -55,8 +56,8 @@ function childPath(path: string, name: string): string {
  * Merge a candidate onto current, node by node. A node the candidate did not
  * touch keeps current's version; a node current did not touch takes the
  * candidate's. A node both changed conflicts unless current only changed its
- * bytes and not its model, in which case the candidate's bytes win. Under
- * `onConflict: "merge"`, a conflicting node whose representation has a merge
+ * bytes and not its model, in which case the candidate's bytes win. A
+ * conflicting node whose representation has a merge
  * rule is resolved by that rule; every other conflict is reported and the
  * draft keeps the candidate's version.
  */
@@ -65,10 +66,10 @@ export async function mergeWireTrees(
   candidate: ObjectHash,
   current: ObjectHash,
   load: Load,
-  onConflict: OnConflict = "merge",
 ): Promise<MergeResult> {
   const generated = new Map<ObjectHash, Uint8Array>();
   const conflicts: UpdateConflict[] = [];
+  const unresolvedDirectories = new Set<string>();
   const loadAny = async (hash: ObjectHash) => generated.get(hash) ?? await load(hash);
   const context: RuleContext = {
     store(bytes) {
@@ -147,7 +148,7 @@ export async function mergeWireTrees(
     }
     const [baseModel, currentModel] = await Promise.all([hashes.entry(before), hashes.entry(accepted)]);
     if (baseModel === currentModel) return local ?? null;
-    if (onConflict === "merge" && local && accepted) {
+    if (local && accepted) {
       const resolved = await applyRule(path, before, local, accepted);
       if (resolved) return resolved;
     }
@@ -182,12 +183,13 @@ export async function mergeWireTrees(
     const currentCollection = collectionInput(currentDirectory);
     let selectedCollection: CollectionFileMergeInput | null = null;
     if (baseDirectory.childrenSource || candidateDirectory.childrenSource || currentDirectory.childrenSource) {
+      const priorConflicts = conflicts.length;
       const baseState = descriptorState(baseDirectory);
       const candidateState = descriptorState(candidateDirectory);
       const currentState = descriptorState(currentDirectory);
       if (candidateState === baseState) selectedCollection = currentCollection;
       else if (currentState === baseState || candidateState === currentState) selectedCollection = candidateCollection;
-      else if (onConflict === "merge" && baseCollection && candidateCollection && currentCollection) {
+      else if (baseCollection && candidateCollection && currentCollection) {
         const merged = await collectionFileRowsV1(parentPath, baseCollection, candidateCollection, currentCollection, context);
         selectedCollection = merged;
         sawCollectionFileRule = true;
@@ -196,6 +198,7 @@ export async function mergeWireTrees(
         conflicts.push({ path: parentPath, reason: "collection-file-schema-conflict" });
         selectedCollection = candidateCollection;
       }
+      if (conflicts.length > priorConflicts) unresolvedDirectories.add(parentPath);
       for (const directory of [baseDirectory, candidateDirectory, currentDirectory]) {
         if (directory.childrenSource) {
           handled.add(directory.childrenSource.source);
@@ -216,11 +219,13 @@ export async function mergeWireTrees(
       const local = candidatePages.get(id);
       const accepted = currentPages.get(id);
       if (!local || !accepted || (local.name === before.name && accepted.name === before.name)) continue;
+      const priorConflicts = conflicts.length;
       const names = [before.name, local.name, accepted.name];
       const localMoved = local.name !== before.name;
       const acceptedMoved = accepted.name !== before.name;
       if (localMoved && acceptedMoved && local.name !== accepted.name) {
         conflicts.push({ path: childPath(parentPath, before.name), reason: "page-id-move-conflict" });
+        unresolvedDirectories.add(parentPath);
         entries.push(local);
         for (const name of names) handled.add(name);
         continue;
@@ -237,6 +242,7 @@ export async function mergeWireTrees(
         const resolved = entryEqual(moved, kept) ? moved : await resolveNode(parentPath, target, { ...before, name: target }, moved, kept);
         if (resolved) entries.push(resolved);
       }
+      if (conflicts.length > priorConflicts) unresolvedDirectories.add(parentPath);
       for (const name of names) handled.add(name);
     }
     for (const name of new Set([...baseEntries.keys(), ...candidateEntries.keys(), ...currentEntries.keys()])) {
@@ -266,5 +272,5 @@ export async function mergeWireTrees(
   const summary: MergeSummary | undefined = sawCollectionFileRule
     ? { version: "collection-file-rows-v1", mergedRows }
     : sawMarkdownRule ? { version: "markdown-additive-v1", approximatePlacements } : undefined;
-  return { root, objects: generated, conflicts, ...(summary ? { summary } : {}) };
+  return { root, objects: generated, conflicts, ...(unresolvedDirectories.size ? { unresolvedDirectories: [...unresolvedDirectories] } : {}), ...(summary ? { summary } : {}) };
 }

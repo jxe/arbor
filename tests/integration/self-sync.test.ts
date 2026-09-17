@@ -300,7 +300,7 @@ describe("private self-sync", () => {
     await converging.close();
   });
 
-  test("keeps binary conflicts only on the client and resolves them as a new update", async () => {
+  test("accepts binary alternatives, keeps filesystem publication live, and resolves through Canopy", async () => {
     const preparing = await launch(stateA, treeA);
     await writeFile(join(treeA, "sample.bin"), "common-binary");
     const beforeCommon = host.canopy.currentUpdate(tree)!.id;
@@ -331,38 +331,54 @@ describe("private self-sync", () => {
     await winner.close();
 
     const conflicted = await launch(stateB, treeB);
-    await waitFor(async () => {
-      const descriptor = (await conflicted.client.trees()).snapshot.find((candidate) => candidate.id === tree);
-      return descriptor?.sync === "conflict";
-    });
-    expect(await readFile(join(treeB, "sample.bin"), "utf8")).toBe("binary-from-b");
-    expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
-    await conflicted.close();
+    try {
+      await waitFor(async () => {
+        const descriptor = (await conflicted.client.trees()).snapshot.find(candidate => candidate.id === tree);
+        return descriptor?.sync === "idle" && descriptor.conflicted === true;
+      });
+      expect(await readFile(join(treeB, "sample.bin"), "utf8")).toBe("binary-from-a");
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
+      expect(await pendingTreeUpdate(tree)).toBeUndefined();
+      expect(await treeConflict(tree)).toBeUndefined();
+    } finally { await conflicted.close(); }
 
     const restarted = await launch(stateB, treeB);
-    await waitFor(async () => {
-      const descriptor = (await restarted.client.trees()).snapshot.find((candidate) => candidate.id === tree);
-      return descriptor?.sync === "conflict";
-    });
-    const review = await restarted.client.conflict(tree);
-    expect(review.tree).toBe(tree);
-    expect(review.items).toEqual([expect.objectContaining({
-      path: "/sample.bin",
-      reasons: ["binary-conflict"],
-      offersBoth: false,
-    })]);
-    expect(review.items[0]?.mine.kind).toBe("text");
-    await restarted.client.resolveConflict(tree, review.identity, {
-      "/sample.bin": { choice: "mine" },
-    });
-    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2);
-    await restarted.close();
+    try {
+      await waitFor(async () => (await restarted.client.trees()).snapshot
+        .some(candidate => candidate.id === tree && candidate.sync === "idle" && candidate.conflicted));
+      await writeFile(join(treeB, "during-review.txt"), "Editing continues\n");
+      await restarted.running.service.synchronizeNow();
+      await waitFor(async () => {
+        const current = await new WireClient(host.url, token).descriptor(tree);
+        const snapshot = await new WireClient(host.url, token).snapshot(tree, current.tree.root);
+        return decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries.some(e => e.name === "during-review.txt");
+      });
+      const owner = new WireClient(host.url, token), current = await readAccepted(owner, tree);
+      const page = await owner.conflicts(tree, current.descriptor.tree.update, current.snapshot.root);
+      expect(page.decisions).toHaveLength(1);
+      const decision = page.decisions[0]!;
+      expect(decision.alternatives.map(a => a.value)).toContainEqual({ file: hashObject(new TextEncoder().encode("binary-from-b")) });
+      const bytes = new TextEncoder().encode("binary-from-b"), file = hashObject(bytes);
+      const directory = decodeWireDirectory(current.snapshot.objects.get(current.snapshot.root)!);
+      directory.entries = directory.entries.map(e => e.name === "sample.bin" ? { name: e.name, file } : e);
+      const encoded = encodeWireDirectory(directory), root = hashObject(encoded);
+      current.snapshot.objects.set(file, bytes); current.snapshot.objects.set(root, encoded);
+      await owner.submitUpdates(tree, { base: current.descriptor.tree.update, updates: [{
+        change: crypto.randomUUID(), candidate: root, operations: null, deltas: [],
+        resolves: [{ state: page.state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }],
+        objects: [...current.snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+      }] });
+      await waitFor(async () => (await readFile(join(treeB, "sample.bin"), "utf8")) === "binary-from-b");
+      expect(host.canopy.currentUpdate(tree)!.conflicted).toBe(false);
+    } finally { await restarted.close(); }
 
     const follower = await launch(stateA, treeA);
-    await waitFor(async () => (await readFile(join(treeA, "sample.bin"), "utf8")) === "binary-from-b");
-    expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
-    await follower.close();
-  });
+    try {
+      await waitFor(async () => (await readFile(join(treeA, "sample.bin"), "utf8")) === "binary-from-b");
+      expect(await readFile(join(treeA, "during-review.txt"), "utf8")).toBe("Editing continues\n");
+      expect(host.canopy.currentUpdate(tree)!.conflicted).toBe(false);
+    } finally { await follower.close(); }
+  }, 15_000);
 
   test("a live watch materializes a remote accepted update without polling", async () => {
     const reader = await launch(stateB, treeB);
@@ -529,10 +545,19 @@ describe("private self-sync", () => {
     const store = new AcceptedUpdateStore(db);
     try {
       await daemon.synchronizeNow();
-      const prior = store.current(tree)!;
-      const metadata = store.commit({ tree, root: prior.root, previousRoot: prior.root,
-        expectedRoot: prior.root, expectedUpdate: prior.id, kind: "accepted", acceptedAt: Date.now(),
-        conflicted: true, transition: { objects: [], deltas: [] } })!;
+      const owner = new WireClient(host.url, token), initial = await readAccepted(owner, tree);
+      const candidate = (text: string) => {
+        const directory = decodeWireDirectory(initial.snapshot.objects.get(initial.snapshot.root)!);
+        const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
+        directory.entries = directory.entries.filter(e => e.name !== "metadata.bin");
+        directory.entries.push({ name: "metadata.bin", file }); directory.entries.sort((a,b) => compareWireNames(a.name,b.name));
+        const encoded = encodeWireDirectory(directory), root = hashObject(encoded);
+        return { root, objects: new Map([...initial.snapshot.objects, [file, bytes], [root, encoded]]) };
+      };
+      await owner.submitUpdate(tree, initial.descriptor.tree.update, candidate("left"));
+      await daemon.synchronizeNow();
+      const metadata = (await owner.submitUpdate(tree, initial.descriptor.tree.update, candidate("right"))).update;
+      expect(metadata.conflicted).toBe(true);
       db.run("UPDATE observations SET cursor = 'fixture-metadata-cursor' WHERE update_id = ?", [metadata.id]);
       await daemon.synchronizeNow();
       expect(daemon.trees.placementFor(tree)?.cursor).toBe("fixture-metadata-cursor");

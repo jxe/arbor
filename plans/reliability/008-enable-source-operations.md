@@ -104,14 +104,11 @@ boundary; a transport-only Wire client does not own editor admission.
   machinery. Preserve the existing backups. Verify normal opening, continued
   publication and restart after installation. Evidence is in the
   [queue checkpoint](../../docs/source-admission-queue.md#rejected-update-retirement-september-17).
-- Close the ordinary snapshot acceptance gap before removing Canopy's old
-  rejection fallback: a snapshot-only overlap without existing decisions can still
-  return `409`. Cover structural/binary changes and authored snapshot successors,
-  retaining accepted alternatives and exact attribution. Keep `ifCurrent`, stale
-  `resolves`, authorization and account-configuration validation failures explicit;
-  they are not obsolete merge conflicts. Remove unused internal `ifMatch`/`onConflict`
-  policy choices only after auditing callers and their focused tests. The current
-  HTTP update/watch endpoints already use only the consolidated contract.
+- Verify deployment of the [snapshot acceptance checkpoint](../../docs/accepted-entry-conflicts.md#snapshot-acceptance-checkpoint).
+  It removes the ordinary rejection fallback and obsolete engine policy switches;
+  exact-state and resolution guards and account policy remain valid rejections.
+  Preserve root-choice support in any subsequent server rollback.
+
 
 
 Acceptance fixture: editor reads R1, watch installs R2, R1 edit is durably admitted,

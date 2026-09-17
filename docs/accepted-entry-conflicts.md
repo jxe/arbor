@@ -1,15 +1,16 @@
 # Accepted whole-entry conflicts
 
-Source-built Canopy retains competing file edits, including nested files, as accepted choices.
-The server checkpoint is deployed with schema 11. Installed Native now emits
+Canopy retains competing source and snapshot edits, including nested files, as accepted choices.
+The source/ancestor checkpoint is deployed with schema 11; snapshot acceptance is described in the checkpoint below. Installed Native now emits
 source operations after its [verified cutover](native-source-cutover.md); filesystem
 clients continue to emit snapshots. It uses the existing unversioned Wire
 contract; clients need no identity map, review cache or coordinated upgrade.
 
 ## Implemented slice
 
-Creation accepts source candidates based on a retained accepted state, including
-nested files, partial ranges and multiple operations per file.
+Creation accepts source candidates and plain snapshots based on a retained accepted state, including
+nested files, partial source ranges and multiple operations per file. Snapshots do not
+need an existing conflict before Canopy can retain alternatives.
 When exact reconciliation cannot combine them, Canopy retains each authored value,
 selects the previously accepted value for the ordinary projection, and acknowledges
 an accepted update with `conflicted: true`. Separate files have separate decisions.
@@ -70,8 +71,8 @@ the selected directory spine. The deletion or replacement remains a hidden
 alternative; later selected-child edits update the enclosing selected directory,
 while attributable hidden-ancestor edits continue their own alternative. A snapshot
 move conservatively retains the old location and adds the destination; it does not
-invent relocation intent. Directory backing metadata changes remain outside this
-reconciliation subset. Authority
+invent relocation intent. Collection backing metadata and coupled rename choices can retain the whole
+directory, including the root, rather than fabricate independent entry choices. Authority
 write paths that bypass attribution refuse to change an unresolved projection rather
 than publish stale decision correspondence. Ordinary filesystem and Wire submissions
 use the attribution path and do not pause on accepted conflicts.
@@ -86,7 +87,10 @@ no limit of 32 on accepted decisions. Unknown, unavailable or unauthorized state
 values and revisions when current advances.
 
 These decisions use typed entry alternatives. A nested placement uses the existing
-root material reference plus `within` parent segments; no Wire field was added.
+root material reference plus `within` parent segments. A root choice uses
+`kind: "directory"`, the root basis reference and directory-valued alternatives
+without `placement`; it has no containing entry or synthetic filename. No Wire
+field was added. The shared TS/Swift inspection fixture covers this shape.
 File and directory bytes are read through the alternative-scoped object route in
 [tree operations](../spec/01-tree-operations.md#123-reading-conflicts). Every request
 checks current tree read authorization and exact state/decision/alternative reachability.
@@ -201,3 +205,40 @@ full cross-language protocol gate passed. HTTP tests cover source and snapshot
 predecessors, same-file alternatives, original source-basis retention, intervening
 snapshot edits, hidden continuation, restart and exact prefix replay. The Swift
 live scenario now publishes both continued branches after uncertain acceptance.
+
+## Snapshot acceptance checkpoint
+
+Ordinary snapshot conflicts now become accepted alternatives rather than the old
+rejected-update response. Binary replacement, deletion versus editing, entry-kind
+changes and nested conflicts preserve exact candidate bytes. A submitted suffix
+keeps its authored predecessor, including hidden alternatives and differences
+between that predecessor and its accepted projection. Replay and restart retain
+those identities and all unrelated accepted additions.
+
+The snapshot merge still runs format rules first. Successful rule output outside
+coupled choices is retained, including generated objects. Rules that detect a
+coupled rename or collection conflict mark its directory scope; that scope stays
+a whole-directory choice rather than silently duplicating a renamed page or
+separating collection backing from its descriptor. Root decisions use an explicit
+`root: true` location in the existing JSON conflict state. Child dependencies and
+guarded resolution work across root and nested choices, and alternative object
+reads retain their existing authorization boundary.
+
+No SQLite schema or Wire grammar migration is needed. Both client languages already
+accept this inspection shape. A server rollback must preserve support for root
+choices once they have been accepted; do not run a prior server over that state.
+
+The internal `ifMatch` and `onConflict` switches are removed. Ordinary ambiguity
+must pass through accepted decision storage. Explicit `ifCurrent`, stale or
+incomplete resolution guards, authorization, invalid candidates and governed
+account-configuration policy still reject requests. Missing retained ancestry is
+an explicit availability error, not a guessed merge or client-owned conflict.
+Historical recovery artifacts still decode their old policy fields; new recovery
+submissions use `ifCurrent`.
+
+Coverage includes HTTP inspection/watch delivery, snapshot suffixes, restart and
+exact replay, root and nested divergent renames, collection metadata, coupled
+child resolution, format-rule output alongside binary ambiguity, and real
+filesystem publication while a choice remains unresolved. The shared inspection
+fixture also runs through Swift. Full product, typecheck, build and protocol gates
+pass. Deployment evidence will be recorded after the live verification.

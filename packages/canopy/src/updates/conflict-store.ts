@@ -3,15 +3,16 @@ import type { ResolutionDeclaration, InspectedAlternative } from "@arbor/wire";
 
 export type EntryValue = Exclude<InspectedAlternative["value"], { text: string }>;
 export interface EntryAlternative { id: string; revision: string; value: EntryValue; contributions: InspectedAlternative["contributions"] }
-export interface EntryDecision { id: string; name: string; parent?: string[]; selected: string; alternatives: EntryAlternative[] }
+export type EntryDecision = { id: string; selected: string; alternatives: EntryAlternative[] } &
+  ({ root: true; name?: never; parent?: never } | { root?: never; name: string; parent?: string[] });
 /** Missing parent is the historical root-entry encoding. */
-export function decisionPath(decision: EntryDecision): string { return `/${[...(decision.parent ?? []), decision.name].join("/")}`; }
+export function decisionPath(decision: EntryDecision): string { return decision.root ? "/" : `/${[...(decision.parent ?? []), decision.name].join("/")}`; }
 /** Coupling is derivable from existing physical locations; no stored graph edge
  * or schema change is needed. Related decisions must be inspected together. */
 export function decisionDependencies(decision: EntryDecision, decisions: EntryDecision[]): string[] {
   const path = decisionPath(decision);
   return decisions.filter(other => other.id !== decision.id &&
-    (decisionPath(other).startsWith(`${path}/`) || path.startsWith(`${decisionPath(other)}/`)))
+    (path === "/" || decisionPath(other) === "/" || decisionPath(other).startsWith(`${path}/`) || path.startsWith(`${decisionPath(other)}/`)))
     .map(other => other.id).sort();
 }
 export interface ConflictState { decisions: EntryDecision[]; resolutions: ResolutionDeclaration[] }

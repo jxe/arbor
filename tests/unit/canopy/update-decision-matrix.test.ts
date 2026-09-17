@@ -20,7 +20,7 @@ const dir = (entries: WireDirectoryEntry[]) => stored({
   entries: entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
 });
 
-describe("modelHash merge: node by node", () => {
+describe("snapshot merge: node by node", () => {
   test("disjoint nodes merge with no rule and no summary", async () => {
     const base = dir([{ name: "a.md", file: file("A\n") }, { name: "b.md", file: file("B\n") }]);
     const candidate = dir([{ name: "a.md", file: file("A2\n") }, { name: "b.md", file: file("B\n") }]);
@@ -41,17 +41,13 @@ describe("modelHash merge: node by node", () => {
     expect(result.root).toBe(candidate);
   });
 
-  test("two edits to one Markdown node run the merge rule, or conflict under reject", async () => {
+  test("two edits to one Markdown node run the merge rule", async () => {
     const base = dir([{ name: "note.md", file: file("Base\n") }]);
     const candidate = dir([{ name: "note.md", file: file("Base\nCandidate\n") }]);
     const current = dir([{ name: "note.md", file: file("Base\nCurrent\n") }]);
-    const merged = await mergeWireTrees(base, candidate, current, load, "merge");
+    const merged = await mergeWireTrees(base, candidate, current, load);
     expect(merged.conflicts).toEqual([]);
     expect(merged.summary?.version).toBe("markdown-additive-v1");
-    const rejected = await mergeWireTrees(base, candidate, current, load, "reject");
-    expect(rejected.conflicts).toEqual([{ path: "/note.md", reason: "node-conflict" }]);
-    expect(rejected.summary).toBeUndefined();
-    expect(rejected.root).toBe(candidate);
   });
 
   test("a node without a merge rule conflicts by shape", async () => {
@@ -63,23 +59,12 @@ describe("modelHash merge: node by node", () => {
   });
 });
 
-describe("reconcile under ifMatch", () => {
-  test("bytesHash rejects any concurrent change and keeps the candidate as the draft", async () => {
-    const base = dir([{ name: "a.md", file: file("A\n") }]);
-    const candidate = dir([{ name: "a.md", file: file("A2\n") }]);
-    const current = dir([{ name: "b.md", file: file("B\n") }]);
-    const result = await reconcileUpdate(base, candidate, current, load, { ifMatch: "bytesHash", onConflict: "reject" });
-    expect(result.outcome).toBe("rejected");
-    if (result.outcome !== "rejected") throw new Error("expected rejection");
-    expect(result.root).toBe(candidate);
-    expect(result.conflicts).toEqual([{ path: "/", reason: "node-conflict" }]);
-  });
-
-  test("modelHash merges the same concurrent change", async () => {
+describe("snapshot reconciliation", () => {
+  test("reconciles concurrent changes", async () => {
     const base = dir([{ name: "a.md", file: file("A\n") }]);
     const candidate = dir([{ name: "a.md", file: file("A2\n") }]);
     const current = dir([{ name: "a.md", file: file("A\n") }, { name: "b.md", file: file("B\n") }]);
-    const result = await reconcileUpdate(base, candidate, current, load, { ifMatch: "modelHash", onConflict: "merge" });
+    const result = await reconcileUpdate(base, candidate, current, load);
     expect(result.outcome).toBe("merged");
     if (result.outcome !== "merged") throw new Error("expected merge");
     expect(result.conflicts).toEqual([]);
@@ -87,10 +72,8 @@ describe("reconcile under ifMatch", () => {
     expect(result.root).toBe(dir([{ name: "a.md", file: file("A2\n") }, { name: "b.md", file: file("B\n") }]));
   });
 
-  test("a candidate equal to current or base is current, whatever the match", async () => {
+  test("an unchanged candidate needs no merge", async () => {
     const root = dir([{ name: "a.md", file: file("A\n") }]);
-    for (const ifMatch of ["bytesHash", "modelHash"] as const) {
-      expect((await reconcileUpdate(root, root, root, load, { ifMatch, onConflict: "merge" })).outcome).toBe("current");
-    }
+    expect((await reconcileUpdate(root, root, root, load)).outcome).toBe("current");
   });
 });

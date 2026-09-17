@@ -59,7 +59,7 @@ function usage(): never {
   bun tools/recover-arborsync-tree.ts submit --manifest FILE --candidate NAME --expect-current-update UPDATE --expect-current-root ROOT --expect-candidate-root ROOT
 
 prepare is read-only with respect to Arbor, ArborSync, and Canopy. It creates a private evidence bundle.
-submit requires an unchanged Canopy update/root, a conflict-free prepared candidate, and posts with onConflict=reject.`);
+submit requires an unchanged Canopy update/root, a conflict-free prepared candidate, and posts with an exact ifCurrent guard.`);
   process.exit(2);
 }
 
@@ -330,8 +330,7 @@ async function submit(values: Map<string, string[]>): Promise<void> {
   const before = await wire.client.descriptor(manifest.tree);
   assertUnchangedCanopy(manifest.current, before.tree);
   const result = await wire.client.submitUpdate(manifest.tree, before.tree.update, snapshot, {
-    ifMatch: "modelHash",
-    onConflict: "reject",
+    ifCurrent: before.tree.update,
   });
   if (result.update.root !== snapshot.root) throw new Error(`Canopy accepted an unexpected root ${result.update.root}`);
   const after = await wire.client.descriptor(manifest.tree);
