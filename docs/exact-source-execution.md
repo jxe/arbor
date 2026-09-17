@@ -26,7 +26,7 @@ use the existing accepted-request receipt. The public acceptance path now suppli
 
 Schema 9 adds this table through [migration 007](../migrations/007-authored-changes/README.md).
 It preserves existing history without inferring operations. This server-only migration
-has disposable-database tests but has not been rehearsed or deployed against live data.
+has disposable-database tests and a passing [fresh schema 8 → 11 live-copy rehearsal](../migrations/009-nested-conflict-locations/rehearsal.md), but has not been deployed against live data.
 Owning accepted records are protected by a foreign key; basis and candidate roots
 are explicit retention dependencies included in integrity checking. Future compaction
 must retain those graphs and the operation records together.

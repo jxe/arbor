@@ -1,7 +1,8 @@
 # 009: Nested conflict locations
 
 Offline schema 8, 9 or 10 → 11 migration. This is a server storage change, not a
-Wire or client migration. It has not been rehearsed or deployed against live data.
+Wire or client migration. The [fresh live-copy rehearsal](rehearsal.md) passed;
+it has not been deployed or run against the live database.
 Follow the [migration procedure](../README.md): back up the database and objects,
 stop writers, rehearse on a copy, and compare history and object inventories.
 
