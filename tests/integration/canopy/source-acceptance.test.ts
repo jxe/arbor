@@ -242,18 +242,28 @@ test("same-basis independent source edits merge across restart and retain replay
   expect(records()).toHaveLength(3);
   await running.canopy.verifyIntegrity();
 });
-test("a batch suffix cannot mistake a merged predecessor candidate for the accepted projection", async () => {
-  await client.submitUpdates(tree, { base, updates: [await edit("A", root, [0,1])] });
+test("a merged predecessor's same-file successor retains alternatives without rebasing authored intent", async () => {
+  const peer = await edit("A", root, [0,1]);
+  await client.submitUpdates(tree, { base, updates: [peer] });
   const first = await edit("C", root, [2,3]), second = await edit("x", first.candidate, [1,2]);
-  try { await client.submitUpdates(tree, { base, updates: [first, second] }); throw new Error("Expected conflict"); }
-  catch (error) {
-    expect(error).toBeInstanceOf(WireUpdateConflict);
-    const result = (error as WireUpdateConflict).result;
-    expect(result.details.completed).toHaveLength(1);
-    expect(result.details.failedIndex).toBe(1);
-    expect(result.details.current.root).toBe((await edit("AbC")).candidate);
-  }
-  expect(records()).toHaveLength(2);
+  const request = { base, updates: [first, second] };
+  const response = await client.submitUpdates(tree, request), accepted = response.results[1]!.update;
+  expect(response.results[0]!.update.root).toBe((await edit("AbC")).candidate);
+  expect(accepted.root).toBe(response.results[0]!.update.root);
+  expect(accepted.conflicted).toBe(true);
+  const page = await client.conflicts(tree, accepted.id, accepted.root), decision = page.decisions[0]!;
+  expect(decision.alternatives.map(a => a.value)).toEqual(expect.arrayContaining([
+    { file: hashObject(Buffer.from("AbC\r\n")) }, { file: hashObject(Buffer.from("axC\r\n")) },
+  ]));
+  expect(decision.alternatives.find(a => a.id === decision.selected)!.contributions).toEqual(expect.arrayContaining([
+    { change: peer.change, operation: "edit" }, { change: first.change, operation: "edit" },
+  ]));
+  const retained = records() as Array<{ change_id: string; basis_root: string; candidate_root: string }>;
+  expect(retained.find(r => r.change_id === second.change)).toMatchObject({ basis_root: first.candidate, candidate_root: second.candidate });
+  await stop(); await start();
+  expect((await client.submitUpdates(tree, request)).results.map(r => r.update.id)).toEqual(response.results.map(r => r.update.id));
+  expect(await client.conflicts(tree, accepted.id, accepted.root)).toEqual(page);
+  await running.canopy.verifyIntegrity();
 });
 
 async function wholeConflict() {
@@ -706,5 +716,58 @@ test("an ancestor choice can remain open while one child is explicitly resolved"
   expect(remaining.decisions).toHaveLength(1); expect(remaining.decisions[0]!.id).not.toBe(child.id);
   expect(remaining.decisions[0]!.dependencies).toEqual([]);
   expect(resolved.root).toBe(added.root);
+  await running.canopy.verifyIntegrity();
+});
+
+
+test.each([false, true])("a source successor preserves an independently created entry through merged-prefix replay and restart (snapshot predecessor: %s)", async (snapshotPredecessor) => {
+  const bytes = Buffer.from("Created A\n"), file = hashObject(bytes); objects.set(file, bytes);
+  const create = rootSnapshot(root, d => { d.entries.push({ name: "a.md", file }); });
+  create.objects.push({ hash: file, bytes });
+  await client.submitUpdates(tree, { base, updates: [create] });
+  const first = await edit("B1"), second = await edit("B2", first.candidate, [0,2]);
+  if (snapshotPredecessor) first.operations = null;
+  const prefix = await client.submitUpdates(tree, { base, updates: [first] });
+  expect(prefix.results[0]!.update.root).not.toBe(first.candidate);
+  await stop(); await start();
+  const request = { base, updates: [first, second] };
+  const response = await client.submitUpdates(tree, request), accepted = response.results[1]!.update;
+  expect(response.results[0]!.update.id).toBe(prefix.results[0]!.update.id);
+  expect(accepted.conflicted).toBe(false);
+  const snapshot = await client.snapshot(tree, accepted.root);
+  expect(decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries).toEqual(expect.arrayContaining([
+    { name: "a.md", file }, { name: "note.md", file: hashObject(Buffer.from("B2\r\n")) },
+  ]));
+  await stop(); await start();
+  expect((await client.submitUpdates(tree, request)).results.map(r => r.update.id)).toEqual(response.results.map(r => r.update.id));
+  const retained = records() as Array<{ change_id: string; basis_root: string }>;
+  expect(retained.find(r => r.change_id === second.change)!.basis_root).toBe(first.candidate);
+  await running.canopy.verifyIntegrity();
+});
+
+test("a continuation after a merged prefix retains an intervening same-file snapshot and hidden successors", async () => {
+  const bytes = Buffer.from("A"), file = hashObject(bytes); objects.set(file, bytes);
+  const create = rootSnapshot(root, d => { d.entries.push({ name: "a.md", file }); });
+  create.objects.push({ hash: file, bytes });
+  await client.submitUpdates(tree, { base, updates: [create] });
+  const first = await edit("B1"), second = await edit("B2", first.candidate, [0,2]);
+  const prefix = (await client.submitUpdates(tree, { base, updates: [first] })).results[0]!.update;
+  for (const [hash, bytes] of (await client.snapshot(tree, prefix.root)).objects) objects.set(hash, bytes);
+  const peer = await edit("PEER", prefix.root, [0,2]);
+  await client.submitUpdates(tree, { base: prefix.id, updates: [{ ...peer, operations: null }] });
+  const third = await edit("B3", second.candidate, [0,2]);
+  const request = { base, updates: [first, second, third] };
+  const response = await client.submitUpdates(tree, request), current = response.results[2]!.update;
+  expect(current.conflicted).toBe(true);
+  const page = await client.conflicts(tree, current.id, current.root), decision = page.decisions[0]!;
+  expect(decision.alternatives).toHaveLength(2);
+  expect(decision.alternatives.map(a => a.value)).toEqual(expect.arrayContaining([
+    { file: hashObject(Buffer.from("PEER\r\n")) }, { file: hashObject(Buffer.from("B3\r\n")) },
+  ]));
+  expect(decision.alternatives.find(a => a.id !== decision.selected)!.contributions.map(c => c.change)).toEqual([second.change, third.change]);
+  const projection = await client.snapshot(tree, current.root);
+  expect(decodeWireDirectory(projection.objects.get(current.root)!).entries).toContainEqual({ name: "a.md", file });
+  await stop(); await start();
+  expect((await client.submitUpdates(tree, request)).results.map(r => r.update.id)).toEqual(response.results.map(r => r.update.id));
   await running.canopy.verifyIntegrity();
 });

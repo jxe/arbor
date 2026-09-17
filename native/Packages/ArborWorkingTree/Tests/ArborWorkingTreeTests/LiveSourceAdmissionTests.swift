@@ -215,7 +215,8 @@ extension LiveSourceAdmissionTests {
         let parent = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/")
         let old = try await provider.openDocument(.init(tree: parent.tree, path: "/page")), r1 = try await old.snapshot()
         let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "branch-" + UUID().uuidString, source: "Created locally\n")))
-        _ = try await old.admit(intent: intent("Old editor branch\n", from: r1))
+        let first = try await old.admit(intent: intent("Old editor branch\n", from: r1))
+        _ = try await old.admit(intent: intent("Old editor continued\n", from: first))
         let added = try await provider.openDocument(created.reference), a1 = try await added.snapshot()
         let addedSource = a1.source + "Continued locally\n"
         _ = try await added.admit(intent: intent(addedSource, from: a1))
@@ -224,9 +225,10 @@ extension LiveSourceAdmissionTests {
             try await provider.perform(.rename(reference: created.reference, name: "blocked"))
         }
         let queue = try SourceAdmissionQueue(tree: treeID, stateRoot: root), records = try await queue.retained()
-        #expect(records.count == 3)
+        #expect(records.count == 4)
         #expect(records[1].basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
-        #expect(records[2].basis == .authored(change: records[0].change))
+        #expect(records[2].basis == .authored(change: records[1].change))
+        #expect(records[3].basis == .authored(change: records[0].change))
         await old.close(); await added.close(); await coordinator.close(); await tree.close()
 
         let recoveredTree = try await place(client.descriptor(tree: treeID), client: client)
@@ -245,12 +247,12 @@ extension LiveSourceAdmissionTests {
         _ = try await reopened.syncOnce()
         #expect(try await reopened.conflict() == nil)
         #expect(try await resumed.openDocument(created.reference).snapshot().source == addedSource)
-        #expect(try await resumed.openDocument(.init(tree: parent.tree, path: "/page")).snapshot().source == "Old editor branch\n")
+        #expect(try await resumed.openDocument(.init(tree: parent.tree, path: "/page")).snapshot().source == "Old editor continued\n")
         #expect(await resumed.capabilities().structuralActions == true)
         let renamed = try #require(try await resumed.perform(.rename(reference: created.reference, name: "resumed-" + UUID().uuidString)))
         _ = try await reopened.syncOnce()
         #expect(try await resumed.resolve(renamed.reference).reference.path == renamed.reference.path)
-        #expect(try await queue.retained().prefix(3).elementsEqual(records))
+        #expect(try await queue.retained().prefix(4).elementsEqual(records))
         await reopened.close(); await recoveredTree.close()
     }
 

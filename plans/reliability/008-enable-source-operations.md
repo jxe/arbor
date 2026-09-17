@@ -95,11 +95,15 @@ boundary; a transport-only Wire client does not own editor admission.
   editor-only draft recovery through Canopy; interactive Native UI/release checks remain.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.
 - Broaden 009's conservative acceptance to the actual snapshot and source forms
-  clients emit, including existing structural writes and general merged-predecessor
-  suffixes. Nested documents, coupled ancestor changes and longer source/snapshot
+  clients emit, including existing structural writes. Source successors of merged
+  predecessors now have conservative acceptance. Nested documents, coupled ancestor changes and longer source/snapshot
   histories now have conservative accepted-entry coverage. Verify deployed coverage
   before client activation. Better automatic merging is not a prerequisite.
-- Complete publication of a successor authored on a predecessor that Canopy merged into a different projection. The new branch test exposed this existing server rejection with create-A, stale-edit-B, edit-B-again. Unit tests retain all four generations (including a continuation of A) across restart. Native now limits structural actions while branches await Canopy instead of merging locally; this is not an editor admission failure. Keep activation off until the server suffix case and release checks pass.
+- Verify deployed merged-predecessor continuation before enabling clients. The live
+  create-A, stale-edit-B, edit-B-again, continue-A scenario now passes through
+  restart and uncertain acceptance. Native preserves each authored basis and
+  temporarily gates structural actions while pending branches await Canopy.
+  Complete real-app release and compatibility checks before activation.
 - Verify deployment coverage before enabling emission. Retain legacy 409 recovery
   until exact requests/drafts/suffixes have been settled or transferred. Only then
   delete the rejected-update workspace and resolution machine; ordinary errors and

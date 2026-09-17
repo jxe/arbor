@@ -45,8 +45,12 @@ is not treated as evidence of agreement.
 Physical directories are traversed recursively, so files in different directories
 have independent decisions even when their names and object hashes match. Nested
 TreeID mounts are boundaries. A retained authored predecessor that differs from its
-accepted projection still needs verified correspondence: existing hidden-alternative
-continuations work, while general suffixes after an automatic merge remain guarded.
+accepted projection uses the validated or exactly replayed request prefix as its
+correspondence evidence. Source successors preserve unrelated accepted additions
+and deletions. Differences between the authored predecessor and its accepted
+projection enter conservative reconciliation alongside subsequent accepted changes;
+same-file differences retain alternatives rather than guessing range translation.
+The original source basis and operations remain unchanged in retained history.
 
 Once decisions exist, ordinary snapshot saves continue their attributable selected
 revision. A stale save competing with a newer revision adds an alternative. Deleting
@@ -189,3 +193,9 @@ Validation: typecheck, all 779 product tests, the cross-language protocol gate a
 CLI build passed. The documented intermittent CLI reconnect failure occurred on
 the first full run; its file-level rerun and the next full run passed. Repository
 relative-link checks introduced no new failures (24 existing unresolved links).
+
+Merged-predecessor verification: 782 product tests, typecheck, CLI build and the
+full cross-language protocol gate passed. HTTP tests cover source and snapshot
+predecessors, same-file alternatives, original source-basis retention, intervening
+snapshot edits, hidden continuation, restart and exact prefix replay. The Swift
+live scenario now publishes both continued branches after uncertain acceptance.

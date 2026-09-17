@@ -1118,6 +1118,7 @@ export class CanopyDaemon implements AsyncDisposable {
         basisUpdate!,
         intents.get(index),
         submittedConflicts,
+        index > 0 ? request.base ?? completed[0]!.update.id : undefined,
       );
       if ("error" in result.result) {
         result.result.details.completed = completed;
@@ -1150,6 +1151,7 @@ export class CanopyDaemon implements AsyncDisposable {
     basisUpdate?: string,
     sourceIntent?: SourceIntent,
     submittedConflicts?: ConflictState | null,
+    authoredChainBase?: string,
   ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult; authoredConflicts?: ConflictState }> {
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
@@ -1212,27 +1214,42 @@ export class CanopyDaemon implements AsyncDisposable {
         values.push({ change: sourceIntent!.change, operation: e.operation });
         contributions.set(e.path, values);
       }
-      // Automatic range correspondence has a bounded history. Conservative entry
-      // choices can still retain the exact candidate after that bound or a snapshot
-      // transition, provided its accepted basis has a complete retained ancestry.
-      if (sourceIntent && reconciled.outcome === "rejected" && !preconditionFailed &&
-          this.update(basisUpdate!)?.root === baseRoot) {
+      // A batch suffix is based on the preceding submitted candidate, not its
+      // accepted projection. The validated/replayed prefix proves that relationship.
+      // Retain differences introduced by acceptance as concurrent input; never
+      // reinterpret their absence from the author's candidate as a deletion.
+      if (sourceIntent && reconciled.outcome === "rejected" && !preconditionFailed) {
+        const acceptedBasis = this.update(basisUpdate!);
         const retained = history ?? this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id, Infinity);
-        if (retained) {
+        const bridge = acceptedBasis?.root !== baseRoot && authoredChainBase
+          ? this.acceptedStore.ancestry(authoredChainBase, basisUpdate!, Infinity) : null;
+        if (retained && acceptedBasis && (acceptedBasis.root === baseRoot || bridge)) {
           origins = new Map();
-          for (const update of retained) {
-            const intent = intentStore.forAccepted(update.id);
-            const change = this.acceptedStore.changeForAccepted(update.id);
-            const paths = update.previous ? await changedEntryPaths(update.previous.root, update.root,
-              hash => this.objects.load(hash, proposed)) : [];
-            // Same-byte authored operations remain evidence even without a diff.
-            for (const path of new Set([...paths, ...(intent?.evidence.map(e => e.path) ?? [])])) {
-              const values = origins.get(path) ?? [];
-              if (intent) for (const e of intent.evidence.filter(e => e.path === path)) values.push({ change: intent.change, operation: e.operation });
-              else if (change) values.push({ change, operation: null });
-              origins.set(path, values);
+          const recordOrigins = async (updates: AcceptedUpdate[], only?: string[]) => {
+            const related = (a: string, b: string) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+            for (const update of updates) {
+              const intent = intentStore.forAccepted(update.id);
+              const change = this.acceptedStore.changeForAccepted(update.id);
+              const paths = update.previous ? await changedEntryPaths(update.previous.root, update.root,
+                hash => this.objects.load(hash, proposed)) : [];
+              // Same-byte operations still contribute; snapshots never acquire
+              // fabricated operation identities.
+              for (const path of new Set([...paths, ...(intent?.evidence.map(e => e.path) ?? [])])) {
+                if (only && !only.some(at => related(at, path))) continue;
+                const values = origins!.get(path) ?? [];
+                if (intent) for (const e of intent.evidence.filter(e => e.path === path)) values.push({ change: intent.change, operation: e.operation });
+                else if (change) values.push({ change, operation: null });
+                origins!.set(path, values);
+              }
             }
+          };
+          if (bridge) {
+            const differences = await changedEntryPaths(baseRoot, acceptedBasis.root, hash => this.objects.load(hash, proposed));
+            // Even a historical snapshot without provenance remains a difference.
+            for (const path of differences) origins.set(path, []);
+            await recordOrigins(bridge, differences);
           }
+          await recordOrigins(retained);
         }
       }
       if (!preconditionFailed && !tree.policy.startsWith("account-config-") &&

@@ -180,7 +180,7 @@ or server was upgraded.
 Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
 - Connect the TS session/publication APIs to a maintained editor host when that host is built; enforce exclusive state-directory ownership there.
-- Verify deployed ancestor acceptance and cover general merged-predecessor suffixes before installed-client activation.
+- Verify deployment of ancestor and merged-predecessor acceptance before installed-client activation.
 - Add safe coalescing and bounded reclamation of settled ancestry and captured views.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.
@@ -237,3 +237,15 @@ gate (73 working-tree tests, including the new live branch scenario), and the
 local-workspace macOS build passed. Relative-link checks introduced no new
 failures; 24 existing unresolved links remain. No installed app or server was
 changed by this client checkpoint.
+
+## Merged predecessor continuation
+
+Canopy now admits source successors whose original predecessor candidate differs
+from its accepted projection. The validated/replayed prefix supplies correspondence;
+accepted history supplies concurrent contributions. Unrelated accepted entries
+survive, and same-file uncertainty becomes accepted alternatives. Source basis and
+operation evidence remain authored values. No Wire or schema change is required.
+The stronger live branch scenario now includes B's second edit and A's continuation,
+then verifies retry after uncertain acceptance, accepted publication, and resumed
+structural actions. This closes the server rejection recorded above; deployment
+verification and Native release/compatibility checks remain before activation.
