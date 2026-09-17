@@ -264,3 +264,13 @@ removing legacy code and UI.
 Activation preparation validation: all 74 working-tree tests, the full protocol
 gate, and signed Debug builds for macOS and iOS passed. Relative-link checks added
 no unresolved links. The installed app transition has not yet run.
+
+## Installed-client cutover complete
+
+The [Mac/iPhone cutover](native-source-cutover.md) is complete. Both installed apps
+activated source mode, each published three accepted `editSource` changes on the
+temporary test page, received the other device's edits, and preserved their receipts
+through restart. Cleanup restored the original content root. Both devices report
+current state with identical accepted/local roots and no pending or legacy work.
+The installed-client gate for removing legacy recovery machinery and UI is passed;
+that code cleanup remains in 008. Historical backups remain intact.

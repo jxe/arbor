@@ -36,8 +36,9 @@ contain no legacy conflict, hold, head, uncertain attempt or next base. This is 
 point-in-time inventory, not a substitute for flushing and backing up before an
 app upgrade. Historical format-recovery copies are preserved.
 
-Native's next build selects source admission for settled coordinators. Retained
-legacy work continues through the compatibility path until settled; source-mode
-journals cannot downgrade. Installed app upgrades and restart validation remain a
-separate gate. Remove legacy recovery code and UI after that gate, as recorded in
+Native selects source admission for settled coordinators. Retained legacy work
+continues through the compatibility path until settled; source-mode journals
+cannot downgrade. The subsequent [installed-client cutover](native-source-cutover.md)
+passed source publication and restart checks on both devices. Remove legacy
+recovery code and UI after that gate, as recorded in
 [008](../plans/reliability/008-enable-source-operations.md).

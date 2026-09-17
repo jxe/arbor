@@ -70,7 +70,7 @@ chains in Swift and TS, with shared exact-request vectors and restart/failure te
 Swift now has an opt-in session/publication runner: retained candidate views,
 immutable predecessor requests, receipt settlement, restart retries and policy-aware
 editor draft recovery. Native now selects source emission for settled coordinator records; retained
-legacy work stays in compatibility mode. Installed-app upgrade and restart checks remain. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
+legacy work stays in compatibility mode. The [installed Mac/iPhone cutover](../../docs/native-source-cutover.md) passed source publication and restart checks. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
 with disposable-server coverage; host integration and broader source/editor release gates remain. A production Swift session now
 passes root and nested stale range admission after multiple peer updates, restart,
 hidden-candidate continuation and second-client resolution through disposable Canopy. Legacy providers retain their
@@ -91,24 +91,22 @@ boundary; a transport-only Wire client does not own editor admission.
   root-equal transitions, and selection of a hidden alternative. TS and Swift clients
   must enforce these invariants; never silently rebuild an old edit against current.
 - Carry the tested TS consumer policy into its eventual editor host.
-  The Swift protocol harness now covers real Quagmire admission and divergent
-  editor-only draft recovery through Canopy; interactive Native UI/release checks remain.
+  The Swift protocol harness covers real Quagmire admission and divergent
+  editor-only draft recovery through Canopy; installed source publication and
+  restart checks now also pass.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.
 - Broaden 009's conservative acceptance to the actual snapshot and source forms
   clients emit, including existing structural writes. Source successors of merged
   predecessors now have conservative acceptance. Nested documents, coupled ancestor changes and longer source/snapshot
   histories now have conservative accepted-entry coverage. Verify deployed coverage
   before client activation. Better automatic merging is not a prerequisite.
-- Complete installed Native upgrade and restart verification against the deployed
-  [merged-predecessor server](../../docs/merged-successor-deployment.md). The live
-  create-A, stale-edit-B, edit-B-again, continue-A scenario now passes through
-  restart and uncertain acceptance. Native preserves each authored basis and
-  temporarily gates structural actions while pending branches await Canopy.
-  Recheck exact durable state at the app-upgrade boundary.
-- Retain legacy 409 recovery
-  until exact requests/drafts/suffixes have been settled or transferred. Only then
-  delete the rejected-update workspace and resolution machine; ordinary errors and
-  stale explicit-resolution guards still preserve work.
+- Remove Native's legacy rejected-update workspace, hold/resolution machine and
+  review UI. The installed [Mac/iPhone cutover](../../docs/native-source-cutover.md)
+  passed against the deployed server: source operations, cross-device propagation,
+  restart, exact accepted/local root equality and no retained legacy work. Preserve
+  historical recovery backups and fail safely on unexpected old records; do not
+  discard a durable request merely to simplify the new path. Ordinary errors and
+  stale explicit-resolution guards must still preserve work.
 
 Acceptance fixture: editor reads R1, watch installs R2, R1 edit is durably admitted,
 process exits, original intent is submitted, Canopy accepts overlap, another edit
