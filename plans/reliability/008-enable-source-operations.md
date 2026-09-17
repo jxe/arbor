@@ -22,7 +22,7 @@ in disposable tests; live rehearsal remains. Public
 acceptance now executes the exact-basis subset and atomically stores evidence,
 including equal-byte edits. Disjoint concurrent edits from one accepted basis now merge using retained
 contributions and explicit rule evidence. Cross-basis correspondence, snapshot
-attribution beyond the implemented [whole-entry choices](../../docs/accepted-entry-conflicts.md), fine-grained range decisions, and validation of the emitted subset remain before client emission.
+attribution for the actual emitted subset beyond the implemented [whole-entry choices](../../docs/accepted-entry-conflicts.md), and validation of that subset remain before client emission. Fine-grained range decisions are deferred and are not an emission prerequisite.
 
 - Implement exact basis resolution for accepted updates and preceding submitted candidates. Check object reachability, file hashes, UTF-8 boundaries, TreeID scope, authorization, and immutable origin bindings. Resolve output references in causal order; reject forward references, cycles, retired origins, and contradictory reused change identities.
 - Persist admitted operation records, origin bindings, derivation, and any unresolved state atomically with accepted update/ref/observation. Include provenance-only transitions even when the projected root is unchanged. Supply a bounded retention and resynchronization policy before exposing retained outputs.
@@ -55,6 +55,12 @@ The explicit-alternative slice depends on 009's accepted-conflict storage and in
 
 ### Next milestone: durable stale-basis admission and complete client acceptance
 
+Joe's two client goals take priority over finer-grained Canopy storage: remove
+stale-revision editor conflicts, then retire the client-owned rejected-update
+machine/UI after preserving existing retained work. Use whole-entry accepted
+conflicts for this milestone. [Canopy storage 002](../canopy-storage/002-composable-conflict-fragments.md)
+owns the deferred fragment graph, migration and finer-grained lifecycle.
+
 The reducers capture exact base source/revision in admission effects. Native passes
 a validated `WorkspaceDocumentIntent` and independently retains its guarded patch;
 legacy recovery records remain readable. This is source-level recovery evidence,
@@ -84,8 +90,9 @@ boundary; a transport-only Wire client does not own editor admission.
   dependencies through coalescing, other-page edits, in-flight requests, restart,
   root-equal transitions, and selection of a hidden alternative. TS and Swift clients
   must enforce these invariants; never silently rebuild an old edit against current.
-- Extend the live Swift session scenario to the editor bridge and divergent draft
-  recovery, and carry that policy into TS.
+- Carry the live editor/session acceptance and recovery policy into the TS consumer.
+  The Swift protocol harness now covers real Quagmire admission and divergent
+  editor-only draft recovery through Canopy; interactive Native UI/release checks remain.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.
 - Broaden 009's conservative acceptance to the actual snapshot and source forms
   clients emit, including coupled ancestor changes and

@@ -37,7 +37,8 @@ struct DocumentAdmissionMachineTests {
             let steps = try #require(scenario["steps"] as? [[String: Any]])
             for (index, step) in steps.enumerated() {
                 let event = try Self.event(from: try #require(step["event"] as? [String: Any]))
-                let (nextState, effects) = DocumentAdmissionMachine.reduce(state, event)
+                let policy: WorkspaceAdmissionPolicy = scenario["admissionPolicy"] as? String == "retained-basis" ? .retainedBasis : .compareAndSwap
+                let (nextState, effects) = DocumentAdmissionMachine.reduce(state, event, admissionPolicy: policy)
                 state = nextState
                 let label = "\(name) / step \(index + 1)"
                 #expect(state.kind == step["state"] as? String, Comment(rawValue: label))

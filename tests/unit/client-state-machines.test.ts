@@ -19,6 +19,7 @@ interface Step {
 
 interface Scenario {
   name: string;
+  admissionPolicy?: "compare-and-swap" | "retained-basis";
   initial: Record<string, unknown>;
   steps: Step[];
 }
@@ -105,7 +106,7 @@ describe("client state machine fixtures", () => {
       runScenario<AdmissionState<string>, AdmissionEvent<string>>(
         scenario,
         initialAdmissionState(initial.accepted),
-        (state, event) => reduceAdmission(state, event, options),
+        (state, event) => reduceAdmission(state, event, { ...options, admissionPolicy: scenario.admissionPolicy }),
       );
     }
   });

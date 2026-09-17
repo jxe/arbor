@@ -8,6 +8,8 @@ let package = Package(
     dependencies: [
         .package(path: "../ArborSyncClient"),
         .package(path: "../ArborKit"),
+        .package(path: "../ArborWorkingTree"),
+        .package(path: "../ArborWire"),
         .package(url: "https://github.com/jxe/quagmire.git", exact: "0.7.1")
     ],
     targets: [
@@ -26,6 +28,8 @@ let package = Package(
                 "ArborQuagmire",
                 "ArborSyncClient",
                 "ArborKit",
+                "ArborWorkingTree",
+                "ArborWire",
                 .product(name: "Quagmire", package: "quagmire"),
                 .product(name: "QuagmireExtras", package: "quagmire")
             ]

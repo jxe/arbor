@@ -83,6 +83,15 @@ Effects the host runs: `schedule(delay)`, `cancelTimer`, `admit(generation,
 source, baseRevision, baseSource)`, `acknowledge(result)`, `apply(source, revision)`,
 `mergeLocally(current?, submitted, base)`, `surfaceFailure(error)`, `stop`.
 
+Both reducers accept an admission policy. The legacy/default compare-and-swap
+policy retains the conflict transition below. A `retained-basis` session instead
+turns an unexpected `admissionConflicted` into `failed` plus `surfaceFailure`,
+retaining its exact accepted basis, pending generation and successor. It never
+emits `mergeLocally` or treats equal peer bytes as proof of durable admission.
+The Native bridge captures this policy from the session at open, including draft
+recovery. The shared fixture covers both languages; the live protocol test drives
+Quagmire through the real session/coordinator and disposable Canopy.
+
 ```text
 clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting ──admitted──▶ clean (acknowledge)
   ▲               │                                 │  ▲
@@ -124,7 +133,8 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 7. **Legacy compatibility: a rejected admission emits `mergeLocally`.** The working tree rejected
    the write at its base revision; the host may run its explicit merge
    helper or surface the retained conflict for review (native Arbor surfaces
-   it). Canopy-side conflicts belong to the update machine, not to admission.
+   it). Accepted Canopy conflicts are accepted-state data, not an admission failure
+   or a publication hold. The old rejected-update path remains only for compatibility.
 8. **Failures keep the exact pending source.** `retry` or `flush` resubmits
    the newest retained source; the UI shows failure until then.
 9. **Lifecycle.** `flush` cancels the timer, starts the latest admission,

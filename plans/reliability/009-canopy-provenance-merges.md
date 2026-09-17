@@ -45,6 +45,13 @@ Acceptance: adversarial duplicate-content tests, exact UTF-8/source round trips,
 
 ## 3. Persist composable unresolved state
 
+**Deferred behind the two client goals.** Remaining fragment storage adoption,
+migration and range/ancestor lifecycle work now belongs to
+[Canopy storage 002](../canopy-storage/002-composable-conflict-fragments.md).
+The requirements below inform that plan; they are not prerequisites for retiring
+Native's stale-admission and rejected-update conflict paths. Continue only server
+acceptance fixes needed by the actual client-emitted subset during that transition.
+
 Coordinate the production storage design with [Canopy storage 001](../canopy-storage/001-pack-object-storage.md)
 and [line provenance 006](../smaller-projects/006-line-provenance.md). Origin bindings
 and unresolved alternatives add retention dependencies beyond ordinary roots;

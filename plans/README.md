@@ -6,6 +6,12 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 
 ## Source intent milestones
 
+**Current priority:** finish the two client goals in Reliability 008: retain and
+submit exact stale-basis editor intent without local review, then retire Native's
+rejected-update conflict machine after safely settling legacy work. Whole-entry
+accepted conflicts are sufficient for this transition. The finer-grained storage
+upgrade is deferred in [Canopy storage 002](canopy-storage/002-composable-conflict-fragments.md).
+
 The [Protocol-ready milestone](../docs/protocol-ready.md) defines and transports intent while preserving snapshot-only behavior. Semantic execution remains explicitly unsupported. Follow these remaining plans:
 
 The [consolidated target contract](../docs/update-wire-contract.md) and its paired

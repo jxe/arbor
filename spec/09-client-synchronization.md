@@ -218,6 +218,12 @@ publication machines remain separate. The reference reducers are described in
   does not turn recovery into a request for local merge review. Unknown submission
   outcomes require exact retry; equality with projected bytes is not proof that
   semantic work was accepted.
+- An intent-retaining document session MUST NOT turn a stale-revision response
+  into local merge review or acknowledgement based on equal projected bytes. If
+  its provider unexpectedly requires compare-and-swap resolution, retain the
+  original basis and pending edits and report an admission failure. Legacy or
+  disk-only sessions may retain their separate compare-and-swap policy during
+  compatibility; that policy MUST NOT leak into Canopy intent admission.
 
 ### Accepted-state review and compatibility
 

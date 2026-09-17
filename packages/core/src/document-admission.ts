@@ -97,6 +97,8 @@ export type AdmissionEffect<S> =
 export interface AdmissionOptions<S> {
   equal(left: S, right: S): boolean;
   debounceMs?: number;
+  /** Legacy/disk providers retain CAS; Canopy sessions retain authored bases. */
+  admissionPolicy?: "compare-and-swap" | "retained-basis";
 }
 
 export interface AdmissionTransition<S> {
@@ -219,6 +221,11 @@ export function reduceAdmission<S>(
       if (state.kind !== "submitting" && state.kind !== "submitting-dirty") return { state, effects: [] };
       if (event.generation !== state.submitted.generation) return { state, effects: [] };
       const latest = state.kind === "submitting-dirty" ? state.latest : undefined;
+      if (options.admissionPolicy === "retained-basis") {
+        const error = { message: "Retained-basis admission cannot require local conflict resolution", retryable: false };
+        return { state: { ...base(state), kind: "failed", pending: state.submitted, error, ...(latest ? { latest } : {}) },
+          effects: [{ type: "surfaceFailure", error }] };
+      }
       const conflict: AdmissionState<S> = {
         ...base(state),
         kind: "conflict",

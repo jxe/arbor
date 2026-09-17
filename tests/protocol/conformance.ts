@@ -157,6 +157,10 @@ try {
       ...fixtures, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
     });
+    await run(["tools/test-arbor-quagmire-local.sh", "--filter", "LiveEditorAdmissionTests"], {
+      ...fixtures, ARBOR_SOURCE_TEST_URL: canopy.url,
+      ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
+    });
   } finally {
     canopy.server.stop(true);
     await canopy.canopy[Symbol.asyncDispose]();

@@ -108,12 +108,19 @@ a successor admitted during publication, a conflict-bearing peer projection,
 immutable replay after all eight publication failure points, concurrent admission
 retries, and refusing to silently downgrade source state. Bridge tests cover
 retained-basis draft recovery without local review alongside legacy recovery.
+The shared Swift/TS admission reducers now enforce the session policy: an
+unexpected stale/CAS response from a retained-basis provider is a retained failure,
+never local conflict review or acknowledgement inferred from equal bytes.
 The protocol harness also runs the production Swift session/coordinator through
 real disposable Canopy with root and nested range edits: R1 capture, several peer
 updates, stale admission,
 restart, accepted ambiguity, a hidden-candidate successor, historical inspection,
 stale-resolution rejection and resolution from a second client. The test verifies
 both retained file hashes and adoption of an equal-root resolution identity.
+The harness now also drives real Quagmire editing through the production session
+and coordinator. It verifies both direct R1 admission after R2 and recovery from
+an editor-only draft with an empty publication queue, followed by client restart,
+accepted conflict, another ordinary editor save and Canopy-owned resolution.
 Native UI execution and the broader emitted source/structural forms remain release
 gates; this does not enable installed-client emission.
 
@@ -128,7 +135,7 @@ Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
 - Build the TS working-tree session/publication consumer with the same policies.
 - Integrate structural writes and other source forms; extend the live scenario to
-  the editor bridge, coupled structural changes and general merged-predecessor suffixes.
+  coupled structural changes and general merged-predecessor suffixes.
 - Add safe coalescing and bounded reclamation of settled ancestry and captured views.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.

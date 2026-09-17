@@ -173,7 +173,8 @@ public enum DocumentAdmissionMachine {
         }
     }
 
-    public static func reduce(_ state: State, _ event: Event, debounce: Duration = debounce) -> (State, [Effect]) {
+    public static func reduce(_ state: State, _ event: Event, debounce: Duration = debounce,
+                              admissionPolicy: WorkspaceAdmissionPolicy = .compareAndSwap) -> (State, [Effect]) {
         var next = state
         if case .closed = state.phase { return (state, []) }
 
@@ -241,6 +242,11 @@ public enum DocumentAdmissionMachine {
             default: return (state, [])
             }
             guard generation == submitted.generation else { return (state, []) }
+            if admissionPolicy == .retainedBasis {
+                let error = Failure(message: "Retained-basis admission cannot require local conflict resolution", retryable: false)
+                next.phase = .failed(pending: submitted, error: error, latest: latest)
+                return (next, [.surfaceFailure(error)])
+            }
             next.phase = .conflict(submitted: submitted, current: current, latest: latest)
             return (next, [.mergeLocally(current: current, submitted: submitted.source, base: state.accepted.source)])
 

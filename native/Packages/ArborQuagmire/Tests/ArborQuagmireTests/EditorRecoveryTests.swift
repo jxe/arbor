@@ -62,6 +62,28 @@ struct EditorRecoveryTests {
         await reopened.close()
     }
 
+    @Test("A retained-basis provider cannot request local review or acknowledge by byte equality", arguments: [false, true])
+    func retainedBasisRejectsLegacyConflict(stalePatch: Bool) async throws {
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let session = RecoverySession()
+        await session.enableIntentRetention()
+        await session.rejectRetainedAdmission(stalePatch: stalePatch)
+        let binding = try await ArborDocumentBinding.open(reference: session.reference, session: session,
+            debounce: .seconds(3600), recoveryRoot: root)
+        edit(binding, "Mine")
+        await session.replace("Mine\n\n")
+        await binding.flush()
+        #expect(binding.conflict == nil)
+        #expect(binding.admissionState.kind == "failed")
+        #expect(binding.admissionState.accepted.revision == "initial")
+        #expect(binding.lastError != nil)
+        let store = try EditorRecoveryStore(root: root, reference: session.reference)
+        let retained = try #require(try store.revisions().first)
+        #expect(!store.isSaved(retained))
+        #expect(try store.intent(retained)?.basis.source == "Before\n")
+        await binding.close()
+    }
+
     @Test("Recovery retains exact guarded edits and legacy records remain readable")
     func retainedIntentValidation() throws {
         let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
@@ -216,12 +238,18 @@ private actor RecoverySession: WorkspaceDocumentSession {
     var current: WorkspaceDocumentSnapshot
     init() { current = .init(reference: reference, source: "Before\n", contentRevision: "initial") }
     private var acceptsIntent = false
+    private var rejectRetained: Bool?
+    func rejectRetainedAdmission(stalePatch: Bool) { rejectRetained = stalePatch }
     var retainedIntent: WorkspaceDocumentIntent?
     var admissionPolicy: WorkspaceAdmissionPolicy { acceptsIntent ? .retainedBasis : .compareAndSwap }
     func enableIntentRetention() { acceptsIntent = true }
     func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
         try intent.validate()
         if !acceptsIntent { return try await admit(patch: intent.patch) }
+        if let rejectRetained {
+            if rejectRetained { throw WorkspacePatchError.staleRevision(expected: intent.basis.contentRevision, actual: current.contentRevision) }
+            throw WorkspaceDocumentConflict(base: intent.basis, current: current, submittedSource: intent.source)
+        }
         retainedIntent = intent
         attempts += 1
         replace(intent.source)

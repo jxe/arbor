@@ -37,6 +37,7 @@ public final class ArborDocumentBinding {
     private var pendingConflict: WorkspaceDocumentConflict?
     private var pendingFailure: Error?
     private let debounce: Duration
+    private let admissionPolicy: WorkspaceAdmissionPolicy
     private var directoryProjection: (reference: WorkspaceReference, children: [WorkspaceNode])?
 
     public var generation: Int { machine.generation }
@@ -52,12 +53,13 @@ public final class ArborDocumentBinding {
         recoveryRoot: URL? = nil
     ) async throws -> ArborDocumentBinding {
         let snapshot = try await session.snapshot()
-        let binding = ArborDocumentBinding(reference: reference, session: session, snapshot: snapshot, debounce: debounce)
+        let policy = await session.admissionPolicy
+        let binding = ArborDocumentBinding(reference: reference, session: session, snapshot: snapshot, debounce: debounce, admissionPolicy: policy)
         if let recoveryRoot {
             // Fail opening rather than offer an editor whose safety journal cannot be read.
             let store = try EditorRecoveryStore(root: recoveryRoot, reference: snapshot.reference)
             binding.recoveryStore = store
-            try binding.restoreDraft(from: store, retainsBasis: await session.admissionPolicy == .retainedBasis)
+            try binding.restoreDraft(from: store, retainsBasis: policy == .retainedBasis)
         }
         await binding.observeAuthoritativeUpdates()
         return binding
@@ -67,12 +69,14 @@ public final class ArborDocumentBinding {
         reference: WorkspaceReference,
         session: any WorkspaceDocumentSession,
         snapshot: WorkspaceDocumentSnapshot,
-        debounce: Duration
+        debounce: Duration,
+        admissionPolicy: WorkspaceAdmissionPolicy
     ) {
         self.reference = snapshot.reference
         self.session = session
         self.accepted = snapshot
         self.debounce = debounce
+        self.admissionPolicy = admissionPolicy
         let opened = ArborMarkdownCodec.open(
             source: snapshot.source,
             revision: snapshot.contentRevision,
@@ -161,7 +165,7 @@ public final class ArborDocumentBinding {
     // MARK: Machine
 
     private func dispatch(_ event: DocumentAdmissionMachine.Event) {
-        let (next, effects) = DocumentAdmissionMachine.reduce(machine, event, debounce: debounce)
+        let (next, effects) = DocumentAdmissionMachine.reduce(machine, event, debounce: debounce, admissionPolicy: admissionPolicy)
         let priorPhase = machine.kind
         machine = next
         if machine.kind != priorPhase {
@@ -462,6 +466,13 @@ public final class ArborDocumentBinding {
             snapshots[confirmed.contentRevision] = confirmed
             finishAdmission(generation: generation, snapshot: confirmed)
         } catch let value as WorkspaceDocumentConflict {
+            if admissionPolicy == .retainedBasis {
+                // A provider violating the retained-basis contract must neither
+                // open legacy review nor infer durable admission from equal bytes.
+                pendingFailure = value
+                dispatch(.admissionConflicted(generation: generation, current: Self.observation(value.current)))
+                return
+            }
             if value.current.source == source {
                 do { try await session.flush() } catch {
                     pendingFailure = error
@@ -481,6 +492,11 @@ public final class ArborDocumentBinding {
             guard case .staleRevision = value else {
                 pendingFailure = value
                 dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: value), retryable: false)))
+                return
+            }
+            if admissionPolicy == .retainedBasis {
+                pendingFailure = value
+                dispatch(.admissionConflicted(generation: generation, current: nil))
                 return
             }
             do {
