@@ -1,5 +1,11 @@
 # Reliability 004: Resolve Canopy conflicts at their authored locations
 
+> **Superseded execution guidance, 2026-09-17:** remaining contextual review and
+> crash-safety work is now owned by [Reliability 010](010-client-conflict-review.md),
+> with basic accepted-conflict review first and inline editor integration later.
+> Use that plan for execution. The rejected-update workflow described below has
+> been retired; preserve its relevant safety scenarios without rebuilding it.
+
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and

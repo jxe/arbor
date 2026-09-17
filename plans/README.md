@@ -8,7 +8,9 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 
 **Current priority:** install the tested Native rejected-update cleanup in Reliability
 008; retained-basis source admission is already installed and verified. Canopy snapshot acceptance is deployed and verified. Build Canopy-backed
-review in Reliability 010. Whole-entry accepted conflicts are sufficient; the
+review in [Reliability 010](reliability/010-client-conflict-review.md): first complete
+panel/sheet review with durable drafts, then contextual editor review later.
+Whole-entry accepted conflicts are sufficient; the
 finer-grained storage upgrade remains deferred in
 [Canopy storage 002](canopy-storage/002-composable-conflict-fragments.md).
 
@@ -23,7 +25,7 @@ conveniences are deferred. Experimental execution remains on its separate branch
 
 1. [Reliability 008 — Client operation capture and submission](reliability/008-enable-source-operations.md), on main: retain exact intent and emit new forms once Canopy can safely record them, without waiting for semantic merge support.
 2. [Reliability 009 — Canopy intent retention and forwarding](reliability/009-canopy-provenance-merges.md), on main: specify the recorded-versus-validated contract, retain and authorize material, forward to the tool, and own acceptance and deployment.
-3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
+3. [Reliability 010 — Native accepted-conflict review](reliability/010-client-conflict-review.md), with a usable first release and later contextual editor integration.
 
 Reliability 013, `plans/reliability/013-merge-operations-and-formats.md` on
 `codex/merge-tool`, owns full operation interpretation and format/language support.
@@ -41,7 +43,7 @@ The near-term direction is intentionally broad. Refine these into smaller execut
 - Make sure Canopy storage is not unreasonably big.
 - Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
 
-An isolated [conflict terms experiment](../docs/conflict-terms-experiment.md) tests Jujutsu-style composition and preservation beyond algebra. The [intent comparison](../docs/conflict-intent-comparison.md) now exercises source targets, authored revisions, moves/copies, selective deletion undo, and alternative edits. Range lineage through paragraph splits/combinations and safe provenance compaction remain the discriminating backend questions. The Protocol-ready update grammar now carries that intent while operation execution remains explicitly unsupported. [Reliability 004](reliability/004-contextual-canopy-conflict-resolution.md) continues to own rejected-update and local-divergence review.
+An isolated [conflict terms experiment](../docs/conflict-terms-experiment.md) tests Jujutsu-style composition and preservation beyond algebra. The [intent comparison](../docs/conflict-intent-comparison.md) now exercises source targets, authored revisions, moves/copies, selective deletion undo, and alternative edits. Range lineage through paragraph splits/combinations and safe provenance compaction remain the discriminating backend questions. The Protocol-ready update grammar now carries that intent while operation execution remains explicitly unsupported. [Reliability 010](reliability/010-client-conflict-review.md) owns accepted-conflict review and the remaining contextual work from Reliability 004; do not revive the retired rejected-update UI.
 
 ## Arbor Sync
 
