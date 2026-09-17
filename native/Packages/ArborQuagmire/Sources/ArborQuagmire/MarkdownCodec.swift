@@ -408,7 +408,12 @@ public enum ArborMarkdownCodec {
         if leadingTrimmed == "\u{00A0}" {
             return .paragraph(text: AttributedString(), id: id)
         }
-        if let match = trimmed.range(of: #"^#{1,6}\s+"#, options: .regularExpression) {
+        // CommonMark permits an ATX heading marker to end the line. This is
+        // also the exact source emitted for a newly autoexpanded, still-empty
+        // heading (`# ` becomes `#` after the trim above). Treating it as a
+        // paragraph makes an accepted save visibly turn the heading back into
+        // a literal marker when the authoritative snapshot is observed.
+        if let match = trimmed.range(of: #"^#{1,6}(?:\s+|$)"#, options: .regularExpression) {
             let level = trimmed[..<match.upperBound].filter { $0 == "#" }.count
             return .heading(level: level, text: parseInline(String(trimmed[match.upperBound...])), id: id)
         }

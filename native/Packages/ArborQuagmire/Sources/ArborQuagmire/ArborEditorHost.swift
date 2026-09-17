@@ -112,6 +112,7 @@ public final class ArborEditorHost: EditorHost {
     private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
+    private var deferredPersistTask: Task<Void, Never>?
     private var cachedMoveDocuments: [ArborMoveDocument] = []
     private var cachedStructuralDestinations: [WorkspaceIdentity: [ArborStructuralDestination]] = [:]
 
@@ -729,11 +730,33 @@ public final class ArborEditorHost: EditorHost {
 
     public func persistCommit(changes _: [DocumentChange], in document: Document) {
         guard document === binding.document else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = nil
         binding.admitCurrentGeneration()
+    }
+
+    public func persistCommit(changes _: [DocumentChange], in document: Document, after delay: Duration) {
+        guard document === binding.document else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = Task { @MainActor [weak self, weak document] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, let document, document === self.binding.document,
+                  !Task.isCancelled else { return }
+            self.deferredPersistTask = nil
+            self.binding.admitCurrentGeneration()
+        }
+    }
+
+    public func noteEditingActivity(in document: Document) {
+        guard document === binding.document, deferredPersistTask != nil else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = nil
     }
 
     public func flush(_ document: Document) async {
         guard document === binding.document else { return }
+        deferredPersistTask?.cancel()
+        deferredPersistTask = nil
         await binding.flush()
     }
 
