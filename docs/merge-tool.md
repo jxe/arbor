@@ -110,7 +110,7 @@ caller's working directory or execute authored schemas in the host runtime.
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint
 checks; plain-text and Markdown source-proposal validation; account configuration
-v1/v2 merging. This extraction does not claim broader language or operation support.
+v1/v2 merging. The subsequent [operation evaluation checkpoint](merge-operation-evaluation.md) adds exact authored-operation execution and conservative format rules; its remaining completion gates are tracked in 013.
 
 ## Verification
 

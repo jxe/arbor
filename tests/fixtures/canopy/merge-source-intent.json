@@ -1,0 +1,562 @@
+{
+  "description": "Experimental decision corpus, not an enabled-operation conformance claim. Offsets are exact UTF-8 bytes in /note.md at base 0. Both arrival permutations are tested.",
+  "cases": [
+    {
+      "name": "disjoint words on one line",
+      "base": "red blue\n",
+      "left": {
+        "start": 0,
+        "end": 3,
+        "text": "green"
+      },
+      "right": {
+        "start": 4,
+        "end": 8,
+        "text": "gold"
+      },
+      "expected": "green gold\n"
+    },
+    {
+      "name": "identical paragraphs have distinct source positions",
+      "base": "same\n\nsame\n",
+      "left": {
+        "start": 0,
+        "end": 4,
+        "text": "first"
+      },
+      "right": {
+        "start": 6,
+        "end": 10,
+        "text": "second"
+      },
+      "expected": "first\n\nsecond\n"
+    },
+    {
+      "name": "emoji and decomposed accents retain byte coordinates",
+      "base": "😀 é!\n",
+      "left": {
+        "start": 0,
+        "end": 4,
+        "text": "🙂"
+      },
+      "right": {
+        "start": 5,
+        "end": 8,
+        "text": "é"
+      },
+      "expected": "🙂 é!\n"
+    },
+    {
+      "name": "overlapping edits retain the losing request for review",
+      "base": "Monday\n",
+      "left": {
+        "start": 0,
+        "end": 6,
+        "text": "Tuesday"
+      },
+      "right": {
+        "start": 0,
+        "end": 6,
+        "text": "Wednesday"
+      },
+      "conflict": true
+    },
+    {
+      "name": "concurrent insertion at one anchor is ambiguous",
+      "base": "ab",
+      "left": {
+        "start": 1,
+        "end": 1,
+        "text": "x"
+      },
+      "right": {
+        "start": 1,
+        "end": 1,
+        "text": "y"
+      },
+      "conflict": true
+    },
+    {
+      "name": "independent insertions preserve authored order",
+      "base": "abc",
+      "left": {
+        "start": 0,
+        "end": 0,
+        "text": "x"
+      },
+      "right": {
+        "start": 3,
+        "end": 3,
+        "text": "y"
+      },
+      "expected": "xabcy"
+    },
+    {
+      "name": "deletion does not swallow an unseen insertion",
+      "base": "abcd",
+      "left": {
+        "start": 1,
+        "end": 3,
+        "text": ""
+      },
+      "right": {
+        "start": 2,
+        "end": 2,
+        "text": "x"
+      },
+      "conflict": true
+    },
+    {
+      "name": "frontmatter and fenced source stay byte-exact",
+      "base": "---\r\ntitle: A\r\n---\r\n\r\n```js\r\nx\r\n```\r\n",
+      "left": {
+        "start": 12,
+        "end": 13,
+        "text": "B"
+      },
+      "right": {
+        "start": 29,
+        "end": 30,
+        "text": "y"
+      },
+      "expected": "---\r\ntitle: B\r\n---\r\n\r\n```js\r\ny\r\n```\r\n"
+    }
+  ],
+  "laterSlices": [
+    {
+      "name": "cross-entry move plus edit",
+      "operations": [
+        "moveSource",
+        "editSource"
+      ],
+      "requires": "Transport fragments and output coordinates across entry locations; same-entry move plus edit now runs in sourceTransferCases."
+    },
+    {
+      "name": "cross-entry copy plus independent edits",
+      "operations": [
+        "copySource",
+        "editSource"
+      ],
+      "requires": "Extend the independently derived copy origin to a different entry; same-entry copies now run in sourceTransferCases."
+    },
+    {
+      "name": "delete plus new child",
+      "operations": [
+        "removeEntry"
+      ],
+      "requires": "Preserve unseen child creation as conflict evidence."
+    },
+    {
+      "name": "undo moves and copies, and redo",
+      "operations": [
+        "undoOperation",
+        "editSource"
+      ],
+      "requires": "Invert structural contributions and undo operations without erasing dependent peer edits; text-edit inverses and independent identical deletion contributions now execute in the experiment."
+    }
+  ],
+  "lineageCases": [
+    {
+      "name": "wrapper and interior replacement",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 1,
+        "end": 2,
+        "text": "LONG"
+      },
+      "expected": "[aLONGc]"
+    },
+    {
+      "name": "wrapper and interior deletion",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 1,
+        "end": 2,
+        "text": ""
+      },
+      "expected": "[ac]"
+    },
+    {
+      "name": "wrapper and interior insertion",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 1,
+        "end": 1,
+        "text": "new"
+      },
+      "expected": "[anewbc]"
+    },
+    {
+      "name": "separate preserved ranges surround a changed gap",
+      "base": "ab--cd",
+      "text": "<ab>/<cd>",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 2,
+          "start": 1,
+          "end": 3
+        },
+        {
+          "sourceStart": 4,
+          "sourceEnd": 6,
+          "start": 6,
+          "end": 8
+        }
+      ],
+      "peer": {
+        "start": 1,
+        "end": 2,
+        "text": "B"
+      },
+      "expected": "<aB>/<cd>"
+    },
+    {
+      "name": "peer modification inside a changed gap conflicts",
+      "base": "ab--cd",
+      "text": "<ab>/<cd>",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 2,
+          "start": 1,
+          "end": 3
+        },
+        {
+          "sourceStart": 4,
+          "sourceEnd": 6,
+          "start": 6,
+          "end": 8
+        }
+      ],
+      "peer": {
+        "start": 2,
+        "end": 4,
+        "text": "peer"
+      },
+      "conflict": true
+    },
+    {
+      "name": "a competing insertion at the wrapper edge conflicts",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 3,
+        "end": 3,
+        "text": "peer"
+      },
+      "conflict": true
+    },
+    {
+      "name": "duplicate spans retain position rather than text identity",
+      "base": "same same",
+      "text": "[same same]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 9,
+          "start": 1,
+          "end": 10
+        }
+      ],
+      "peer": {
+        "start": 5,
+        "end": 8,
+        "text": "NEW"
+      },
+      "expected": "[same NEWe]"
+    },
+    {
+      "name": "unicode replacement can change retained byte length",
+      "base": "a😀c",
+      "text": "[a😀c]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 6,
+          "start": 1,
+          "end": 7
+        }
+      ],
+      "peer": {
+        "start": 1,
+        "end": 5,
+        "text": "é"
+      },
+      "expected": "[aéc]"
+    },
+    {
+      "name": "wrapper follows first-character replacement",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 0,
+        "end": 1,
+        "text": "LONG"
+      },
+      "expected": "[LONGbc]"
+    },
+    {
+      "name": "wrapper follows last-character replacement",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 2,
+        "end": 3,
+        "text": "LONG"
+      },
+      "expected": "[abLONG]"
+    },
+    {
+      "name": "wrapper follows whole-range replacement",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 0,
+        "end": 3,
+        "text": "NEW"
+      },
+      "expected": "[NEW]"
+    },
+    {
+      "name": "wrapper follows equal-byte retyping without reviving origin",
+      "base": "abc",
+      "text": "[abc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 3,
+          "start": 1,
+          "end": 4
+        }
+      ],
+      "peer": {
+        "start": 0,
+        "end": 3,
+        "text": "abc"
+      },
+      "expected": "[abc]"
+    },
+    {
+      "name": "wrapper follows Unicode boundary replacement",
+      "base": "😀bc",
+      "text": "[😀bc]",
+      "lineage": [
+        {
+          "sourceStart": 0,
+          "sourceEnd": 6,
+          "start": 1,
+          "end": 7
+        }
+      ],
+      "peer": {
+        "start": 0,
+        "end": 4,
+        "text": "é"
+      },
+      "expected": "[ébc]"
+    }
+  ],
+  "moveCases": [
+    {
+      "name": "file rename plus Unicode source edit",
+      "source": "/note.md",
+      "destination": "/moved.md",
+      "file": "/note.md",
+      "movedFile": "/moved.md"
+    },
+    {
+      "name": "directory move plus descendant source edit",
+      "source": "/folder",
+      "destination": "/moved",
+      "file": "/folder/note.md",
+      "movedFile": "/moved/note.md"
+    }
+  ],
+  "sourceTransferCases": [
+    {
+      "name": "duplicate paragraph replacement",
+      "base": "same\nsame\nend\n",
+      "start": 0,
+      "end": 5,
+      "at": 14,
+      "side": "after",
+      "peer": {
+        "start": 0,
+        "end": 4,
+        "text": "FIRST"
+      },
+      "move": "same\nend\nFIRST\n",
+      "copy": "FIRST\nsame\nend\nsame\n"
+    },
+    {
+      "name": "interior insertion travels with moved paragraph",
+      "base": "abc\nend\n",
+      "start": 0,
+      "end": 4,
+      "at": 8,
+      "side": "after",
+      "peer": {
+        "start": 1,
+        "end": 1,
+        "text": "!"
+      },
+      "move": "end\na!bc\n",
+      "copy": "a!bc\nend\nabc\n"
+    },
+    {
+      "name": "interior deletion travels with moved paragraph",
+      "base": "abc\nend\n",
+      "start": 0,
+      "end": 4,
+      "at": 8,
+      "side": "after",
+      "peer": {
+        "start": 1,
+        "end": 2,
+        "text": ""
+      },
+      "move": "end\nac\n",
+      "copy": "ac\nend\nabc\n"
+    },
+    {
+      "name": "whole moved range replacement carries new origins",
+      "base": "abc\nend\n",
+      "start": 0,
+      "end": 4,
+      "at": 8,
+      "side": "after",
+      "peer": {
+        "start": 0,
+        "end": 4,
+        "text": "NEW\n"
+      },
+      "move": "end\nNEW\n",
+      "copy": "NEW\nend\nabc\n"
+    },
+    {
+      "name": "Unicode and CRLF survive backward transfer",
+      "base": "end\r\na😀c\r\n",
+      "start": 5,
+      "end": 13,
+      "at": 0,
+      "side": "before",
+      "peer": {
+        "start": 6,
+        "end": 10,
+        "text": "é"
+      },
+      "move": "aéc\r\nend\r\n",
+      "copy": "a😀c\r\nend\r\naéc\r\n"
+    }
+  ],
+  "undoCases": [
+    {
+      "name": "undo insertion preserves disjoint peer edit",
+      "base": "ac",
+      "edit": {
+        "start": 1,
+        "end": 1,
+        "text": "b"
+      },
+      "after": "abc",
+      "peer": {
+        "start": 2,
+        "end": 3,
+        "text": "C"
+      },
+      "expected": "aC"
+    },
+    {
+      "name": "undo Unicode replacement preserves CRLF and peer edit",
+      "base": "a😀c\r\n",
+      "edit": {
+        "start": 1,
+        "end": 5,
+        "text": "🙂"
+      },
+      "after": "a🙂c\r\n",
+      "peer": {
+        "start": 5,
+        "end": 6,
+        "text": "C"
+      },
+      "expected": "a😀C\r\n"
+    },
+    {
+      "name": "undo deletion preserves disjoint peer edit",
+      "base": "abcd",
+      "edit": {
+        "start": 1,
+        "end": 2,
+        "text": ""
+      },
+      "after": "acd",
+      "peer": {
+        "start": 2,
+        "end": 3,
+        "text": "D"
+      },
+      "expected": "abcD"
+    }
+  ]
+}

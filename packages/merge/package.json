@@ -4,10 +4,13 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@arbor/wire": "workspace:*",
     "@arbor/core": "workspace:*",
-    "@arbor/stores": "workspace:*",
     "@arbor/object-store": "workspace:*",
+    "@arbor/stores": "workspace:*",
+    "@arbor/wire": "workspace:*",
+    "saxes": "6.0.0",
+    "tree-sitter-wasms": "0.1.13",
+    "web-tree-sitter": "0.20.8",
     "yaml": "2.8.2",
     "zod": "4.3.6"
   },

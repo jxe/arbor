@@ -1,0 +1,1871 @@
+import { stableJSONString } from "@arbor/core";
+import {
+  decodeWireDirectory,
+  encodeWireDirectory,
+  hashObject,
+  type MaterialRef,
+  type SourceOperation,
+  type WireDirectory,
+} from "@arbor/wire";
+import type { MergeObjects } from "./index.ts";
+import {
+  IntentError,
+  alternativeKey,
+  keyOf,
+  parseIntentRequest,
+  parseIntentState,
+  type Effect,
+  type IntentRequest,
+  type IntentResponse,
+  type IntentState,
+  type Material,
+  type Node,
+  type Piece,
+  type View,
+} from "./intent-model.ts";
+
+import { evaluateFormat, type FormatEvidence } from "./format-rules.ts";
+import {
+  pieceEdits,
+  applyPieceEdits,
+  overlap,
+  type PieceEdit,
+} from "./pieces.ts";
+
+const encoder = new TextEncoder(),
+  decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+const clone = <T>(value: T): T => structuredClone(value);
+const same = (a: unknown, b: unknown) =>
+  stableJSONString(a) === stableJSONString(b);
+const fail = (message: string): never => {
+  throw new IntentError("invalid", message);
+};
+const missing = (message: string): never => {
+  throw new IntentError("missing-context", message);
+};
+const components = (path: string): string[] => {
+  if (
+    !path.startsWith("/") ||
+    (path !== "/" &&
+      path
+        .slice(1)
+        .split("/")
+        .some((p) => !p || p === "." || p === ".." || /[\\\0]/.test(p)))
+  )
+    return fail("Invalid material path");
+  return path === "/" ? [] : path.slice(1).split("/");
+};
+const length = (pieces: Piece[]) => pieces.reduce((n, p) => n + p.length, 0);
+function slice(pieces: Piece[], start: number, end: number): Piece[] {
+  const output: Piece[] = [];
+  let offset = 0;
+  for (const piece of pieces) {
+    const from = Math.max(start - offset, 0),
+      to = Math.min(end - offset, piece.length);
+    if (to > from)
+      output.push({
+        ...piece,
+        start: piece.start + from,
+        offset: piece.offset + from,
+        length: to - from,
+      });
+    offset += piece.length;
+  }
+  return output;
+}
+function normalize(pieces: Piece[]): Piece[] {
+  const out: Piece[] = [];
+  for (const p of pieces) {
+    if (!p.length) continue;
+    const prior = out.at(-1);
+    if (
+      prior &&
+      prior.origin === p.origin &&
+      prior.start + prior.length === p.start &&
+      prior.object === p.object &&
+      prior.offset + prior.length === p.offset
+    )
+      prior.length += p.length;
+    else out.push({ ...p });
+  }
+  return out;
+}
+
+/** An evaluation-local material graph. State is immutable object data, not a database. */
+class Engine {
+  readonly formatEvidence: FormatEvidence[] = [];
+  readonly generated = new Map<string, Uint8Array>();
+  private readonly cache = new Map<string, Uint8Array>();
+  private readBytes = 0;
+  private writtenBytes = 0;
+  private started = performance.now();
+  checkBudget() {
+    if (
+      performance.now() - this.started >
+      (this.request.rules.config?.maxMillis ?? 5000)
+    )
+      throw new IntentError("limit", "Evaluation time budget exceeded");
+  }
+  constructor(
+    readonly request: IntentRequest,
+    readonly store: MergeObjects,
+  ) {}
+  async read(hash: string): Promise<Uint8Array> {
+    this.checkBudget();
+    const known = this.generated.get(hash) ?? this.cache.get(hash);
+    if (known) return known;
+    let bytes: Uint8Array;
+    try {
+      bytes = await this.store.read(hash);
+    } catch {
+      return missing(`Missing object ${hash}`);
+    }
+    if (hashObject(bytes) !== hash) return fail("Object hash mismatch");
+    this.readBytes += bytes.length;
+    if (
+      this.readBytes > (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
+    )
+      throw new IntentError("limit", "Evaluation object byte budget exceeded");
+    this.cache.set(hash, bytes);
+    return bytes;
+  }
+  put(bytes: Uint8Array): string {
+    const hash = hashObject(bytes);
+    if (!this.generated.has(hash)) {
+      this.writtenBytes += bytes.length;
+      if (
+        this.writtenBytes >
+        (this.request.rules.config?.maxBytes ?? 32 * 1024 * 1024)
+      )
+        throw new IntentError("limit", "Generated object byte budget exceeded");
+    }
+    this.generated.set(hash, bytes);
+    return hash;
+  }
+  async bytes(pieces: Piece[]): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = [];
+    for (const p of pieces) {
+      const b = await this.read(p.object);
+      if (
+        !Number.isSafeInteger(p.offset) ||
+        !Number.isSafeInteger(p.length) ||
+        p.offset < 0 ||
+        p.length < 0 ||
+        p.offset + p.length > b.length
+      )
+        return fail("Invalid retained piece");
+      chunks.push(b.subarray(p.offset, p.offset + p.length));
+    }
+    return new Uint8Array(Buffer.concat(chunks));
+  }
+  async text(node: Node): Promise<Piece[]> {
+    if (node.kind !== "file") return fail("Source target is not a file");
+    if (!node.pieces) {
+      const b = await this.read(node.object);
+      try {
+        decoder.decode(b);
+      } catch {
+        return fail("Source target is not UTF-8 text");
+      }
+      node.pieces = b.length
+        ? [
+            {
+              origin: node.id,
+              start: 0,
+              object: node.object,
+              offset: 0,
+              length: b.length,
+            },
+          ]
+        : [];
+    }
+    return node.pieces;
+  }
+  async importNode(
+    view: View,
+    object: string,
+    kind: Node["kind"],
+    id: string,
+    parent: string | null,
+    name: string,
+  ): Promise<string> {
+    if (id.length > 16_384)
+      throw new IntentError("limit", "Material nesting budget exceeded");
+    if (
+      Object.keys(view.nodes).length >=
+      (this.request.rules.config?.maxNodes ?? 20_000)
+    )
+      throw new IntentError("limit", "Evaluation node budget exceeded");
+    if (view.nodes[id]) return fail("Duplicate material identity");
+    const node: Node = { id, parent, name, kind, object, active: true };
+    view.nodes[id] = node;
+    if (kind === "file") {
+      const bytes = await this.read(object);
+      node.pieces = bytes.length
+        ? [{ origin: id, start: 0, object, offset: 0, length: bytes.length }]
+        : [];
+    }
+    if (kind === "directory") {
+      const directory = decodeWireDirectory(await this.read(object));
+      node.directory = { ...directory, entries: [] };
+      for (const entry of directory.entries) {
+        await this.importNode(
+          view,
+          (entry.file ?? entry.directory ?? entry.tree)!,
+          entry.file ? "file" : entry.directory ? "directory" : "tree",
+          `${id}/${encodeURIComponent(entry.name)}`,
+          id,
+          entry.name,
+        );
+      }
+    }
+    return id;
+  }
+  async initial(root: string): Promise<IntentState> {
+    const state: IntentState = {
+      format: "arbor-merge-intent-state",
+      tree: this.request.tree,
+      root: `basis:${this.request.tree}:${root}`,
+      nodes: {},
+      outputs: {},
+      alternatives: {},
+      origins: {},
+      effects: {},
+      changes: {},
+      decisions: [],
+    };
+    await this.importNode(state, root, "directory", state.root, null, "");
+    return state;
+  }
+  async load(ref: { object: string; state?: string }): Promise<IntentState> {
+    if (!ref.state) return this.initial(ref.object);
+    let state: IntentState;
+    try {
+      state = parseIntentState(
+        JSON.parse(decoder.decode(await this.read(ref.state))),
+      );
+    } catch (error) {
+      if (error instanceof IntentError) throw error;
+      return fail("Invalid material state");
+    }
+    if (
+      state.format !== "arbor-merge-intent-state" ||
+      state.tree !== this.request.tree ||
+      !state.nodes ||
+      !state.outputs ||
+      !state.effects ||
+      !state.origins ||
+      !state.alternatives ||
+      !state.changes ||
+      !Array.isArray(state.decisions)
+    )
+      return fail("Invalid material state envelope");
+    const nodes = Object.entries(state.nodes);
+    if (nodes.length > (this.request.rules.config?.maxNodes ?? 20_000))
+      throw new IntentError("limit", "Evaluation node budget exceeded");
+    for (const [id, node] of nodes) {
+      if (
+        id !== node.id ||
+        !["file", "directory", "tree"].includes(node.kind) ||
+        typeof node.active !== "boolean" ||
+        typeof node.name !== "string" ||
+        (node.parent !== null && !state.nodes[node.parent])
+      )
+        return fail("Invalid material state node");
+      if (node.parent !== null && components("/" + node.name).length !== 1)
+        return fail("Invalid entry name");
+    }
+    if ((await this.project(state)) !== ref.object)
+      return fail("State does not project to supplied root");
+    const decisions = new Map(state.decisions.map((d) => [d.key, d]));
+    const visiting = new Set<string>(),
+      visited = new Set<string>();
+    const checkDecision = (key: string): void => {
+      if (visited.has(key)) return;
+      if (visiting.has(key)) return fail("Decision dependency cycle");
+      const decision =
+        decisions.get(key) ?? fail("Missing decision dependency");
+      visiting.add(key);
+      for (const dependency of decision.dependencies) checkDecision(dependency);
+      visiting.delete(key);
+      visited.add(key);
+    };
+    for (const decision of state.decisions) {
+      checkDecision(decision.key);
+      for (const alternative of decision.alternatives)
+        if (
+          alternative.node &&
+          (await this.project(state, alternative.node)) !== alternative.object
+        )
+          return fail("Alternative does not match retained material");
+      if (decision.placement && !decision.context) {
+        const node = state.nodes[decision.placement.node];
+        if (!node?.active || !node.pieces)
+          return fail("Decision placement is unavailable");
+        if (decision.placement.pieces.length)
+          this.locate(node.pieces, decision.placement.pieces, [
+            0,
+            length(decision.placement.pieces),
+          ]);
+        else if (decision.placement.anchor > length(node.pieces))
+          return fail("Decision anchor is outside its material");
+      }
+    }
+
+    return state;
+  }
+  children(view: View, id: string): Node[] {
+    return Object.values(view.nodes).filter((n) => n.active && n.parent === id);
+  }
+  async project(
+    view: View,
+    root = view.root,
+    visiting = new Set<string>(),
+  ): Promise<string> {
+    this.checkBudget();
+    const node = view.nodes[root];
+    if (!node?.active) return fail("Projection root is absent");
+    if (visiting.has(root)) return fail("Directory cycle");
+    if (visiting.size > 256)
+      throw new IntentError("limit", "Directory depth budget exceeded");
+    visiting.add(root);
+    try {
+      if (node.kind === "file")
+        return node.pieces
+          ? this.put(await this.bytes(node.pieces))
+          : (await this.read(node.object), node.object);
+      if (node.kind === "tree") return node.object;
+      const entries = [];
+      const names = new Set<string>();
+      for (const child of this.children(view, root).sort((a, b) =>
+        Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)),
+      )) {
+        if (names.has(child.name)) return fail("Duplicate directory placement");
+        names.add(child.name);
+        const object = await this.project(view, child.id, visiting);
+        entries.push(
+          child.kind === "file"
+            ? { name: child.name, file: object }
+            : child.kind === "directory"
+              ? { name: child.name, directory: object }
+              : { name: child.name, tree: object },
+        );
+      }
+      return this.put(
+        encodeWireDirectory({
+          ...node.directory,
+          type: "directory",
+          entries,
+        } as WireDirectory),
+      );
+    } finally {
+      visiting.delete(root);
+    }
+  }
+  async binding(
+    ref: MaterialRef,
+    basis: View,
+    state: IntentState,
+  ): Promise<Material> {
+    let material: Material;
+    if (ref.material.kind === "basis") {
+      let node = basis.nodes[basis.root]!;
+      for (const part of components(ref.material.path)) {
+        if (node.kind !== "directory")
+          return fail("Reference crosses a file or tree boundary");
+        node =
+          this.children(basis, node.id).find((n) => n.name === part) ??
+          fail("Basis path is absent");
+      }
+      if ((await this.project(basis, node.id)) !== ref.material.object)
+        return fail("Basis object does not match path");
+      material = { node: node.id, view: basis };
+    } else if (ref.material.kind === "operation") {
+      material =
+        state.outputs[keyOf(ref.material.change, ref.material.operation)] ??
+        missing("Operation result is unavailable");
+    } else {
+      const node =
+        state.alternatives[alternativeKey(ref)] ??
+        missing("Alternative material is unavailable");
+      material = { node, view: state };
+    }
+    material = { ...material };
+    for (const part of ref.within ?? []) {
+      if (material.pieces) return fail("Cannot descend through a text result");
+      const view = material.view ?? state,
+        node = view.nodes[material.node]!;
+      if (node.kind !== "directory")
+        return fail("Selector crosses a file or tree boundary");
+      material.node =
+        this.children(view, node.id).find((n) => n.name === part)?.id ??
+        fail("Selected child is absent");
+    }
+    return material;
+  }
+  async selection(
+    ref: MaterialRef,
+    basis: View,
+    state: IntentState,
+  ): Promise<{
+    node: string;
+    observed: Piece[];
+    selected: Piece[];
+    range: [number, number];
+  }> {
+    const binding = await this.binding(ref, basis, state);
+    const observed =
+      binding.anchor?.observed ??
+      binding.pieces ??
+      (await this.text((binding.view ?? state).nodes[binding.node]!));
+    const bytes = await this.bytes(observed),
+      range: [number, number] = binding.anchor
+        ? [binding.anchor.offset, binding.anchor.offset]
+        : (ref.range ?? [0, bytes.length]);
+    if (
+      binding.anchor &&
+      ref.range &&
+      (ref.range[0] !== 0 || ref.range[1] !== 0)
+    )
+      return fail("Empty result has only the zero range");
+    if (
+      !range.every(Number.isSafeInteger) ||
+      range[0] < 0 ||
+      range[1] < range[0] ||
+      range[1] > bytes.length
+    )
+      return fail("Selection outside material");
+    try {
+      decoder.decode(bytes);
+    } catch {
+      return fail("Source material is not text");
+    }
+    if (range.some((n) => n < bytes.length && (bytes[n]! & 0xc0) === 0x80))
+      return fail("Selection splits a UTF-8 scalar");
+    return {
+      node: binding.node,
+      observed,
+      selected: slice(observed, ...range),
+      range,
+    };
+  }
+  /** Locate immutable origin coordinates, never equal-text matches. */
+  locate(
+    current: Piece[],
+    observed: Piece[],
+    range: [number, number],
+  ): [number, number] {
+    if (current.length * observed.length > 2_000_000)
+      throw new IntentError("limit", "Source lookup work budget exceeded");
+    const selected = slice(observed, ...range);
+    if (!observed.length && current.length)
+      return fail("Empty source anchor has concurrent content");
+    const positions: Array<[number, number]> = [];
+    let offset = 0,
+      covered = 0;
+    for (const p of current) {
+      for (const q of selected)
+        if (p.origin === q.origin) {
+          const start = Math.max(p.start, q.start),
+            end = Math.min(p.start + p.length, q.start + q.length);
+          if (end > start) {
+            positions.push([offset + start - p.start, offset + end - p.start]);
+            covered += end - start;
+          }
+        }
+      offset += p.length;
+    }
+    if (range[0] !== range[1]) {
+      positions.sort((a, b) => a[0] - b[0]);
+      if (
+        covered !== length(selected) ||
+        !positions.length ||
+        positions.at(-1)![1] - positions[0]![0] !== covered
+      )
+        return fail("Selected material was changed or duplicated");
+      return [positions[0]![0], positions.at(-1)![1]];
+    }
+    const left = slice(observed, Math.max(0, range[0] - 1), range[0])[0];
+    const right = slice(
+      observed,
+      range[0],
+      Math.min(length(observed), range[0] + 1),
+    )[0];
+    let l: number | undefined = left ? undefined : 0,
+      r: number | undefined = right ? undefined : length(current);
+    offset = 0;
+    for (const p of current) {
+      if (
+        left &&
+        p.origin === left.origin &&
+        left.start >= p.start &&
+        left.start < p.start + p.length
+      )
+        l = offset + left.start - p.start + 1;
+      if (
+        right &&
+        p.origin === right.origin &&
+        right.start >= p.start &&
+        right.start < p.start + p.length
+      )
+        r = offset + right.start - p.start;
+      offset += p.length;
+    }
+    if (!right && left) r = l;
+    if (!left && right) l = r;
+    if (l === undefined || r === undefined || l > r)
+      return fail("Insertion anchor is unavailable");
+    return [r, r];
+  }
+  evolved(
+    state: IntentState,
+    current: Piece[],
+    selected: Piece[],
+  ): [number, number] {
+    if (current.length * selected.length > 2_000_000)
+      throw new IntentError("limit", "Source transport work budget exceeded");
+    const contained = (p: Piece) =>
+      selected.some(
+        (q) =>
+          q.origin === p.origin &&
+          q.start <= p.start &&
+          q.start + q.length >= p.start + p.length,
+      );
+    const derives = (p: Piece, seen = new Set<string>()): boolean => {
+      if (contained(p)) return true;
+      if (seen.has(p.origin) || seen.size > 256) return false;
+      const ancestors = state.origins[p.origin];
+      if (!ancestors?.length) return false;
+      const next = new Set(seen).add(p.origin);
+      return ancestors.every((q) => derives(q, next));
+    };
+    const positions: Array<[number, number]> = [];
+    let offset = 0;
+    for (const p of current) {
+      if (derives(p)) positions.push([offset, offset + p.length]);
+      else
+        for (const q of selected)
+          if (q.origin === p.origin) {
+            const start = Math.max(q.start, p.start),
+              end = Math.min(q.start + q.length, p.start + p.length);
+            if (end > start)
+              positions.push([
+                offset + start - p.start,
+                offset + end - p.start,
+              ]);
+          }
+      offset += p.length;
+    }
+    positions.sort((a, b) => a[0] - b[0]);
+    if (!positions.length) return fail("Moved source is no longer present");
+    let end = positions[0]![0];
+    for (const p of positions) {
+      if (p[0] !== end)
+        return fail("Moved source has ambiguous correspondence");
+      end = p[1];
+    }
+    return [positions[0]![0], end];
+  }
+  path(view: View, id: string): string {
+    const parts: string[] = [],
+      seen = new Set<string>();
+    let node = view.nodes[id];
+    while (node?.parent !== null) {
+      if (!node || seen.has(node.id)) return fail("Invalid parent chain");
+      seen.add(node.id);
+      parts.push(node.name);
+      node = view.nodes[node.parent!];
+    }
+    return "/" + parts.reverse().join("/");
+  }
+  placement(state: IntentState, id: string, parent: string, name: string) {
+    const destination = state.nodes[parent];
+    if (!destination?.active || destination.kind !== "directory")
+      return fail("Destination is not a live directory");
+    let cursor: Node | undefined = destination;
+    const seen = new Set<string>();
+    while (cursor) {
+      if (seen.has(cursor.id)) return fail("Parent cycle");
+      seen.add(cursor.id);
+      if (cursor.id === id) return fail("Move creates a cycle");
+      cursor = cursor.parent ? state.nodes[cursor.parent] : undefined;
+    }
+    if (
+      this.children(state, parent).some((n) => n.id !== id && n.name === name)
+    )
+      return fail("Destination already exists");
+    const node = state.nodes[id]!;
+    node.parent = parent;
+    node.name = name;
+  }
+  remove(state: IntentState, id: string, contribution?: string) {
+    for (const child of this.children(state, id))
+      this.remove(state, child.id, contribution);
+    if (contribution)
+      state.nodes[id]!.deletions = [
+        ...new Set([...(state.nodes[id]!.deletions ?? []), contribution]),
+      ];
+    state.nodes[id]!.active = false;
+  }
+  copy(
+    state: IntentState,
+    view: View,
+    id: string,
+    prefix: string,
+    parent: string | null,
+    name: string,
+  ): string {
+    const before = view.nodes[id]!;
+    const newID = `${prefix}/${encodeURIComponent(id)}`;
+    const node = clone(before);
+    node.id = newID;
+    node.parent = parent;
+    node.name = name;
+    node.active = true;
+    delete node.deletions;
+    if (node.pieces)
+      node.pieces = node.pieces.map((p, index) => ({
+        ...p,
+        origin: `${newID}:${index}`,
+        start: 0,
+      }));
+    state.nodes[newID] = node;
+    for (const child of this.children(view, id))
+      this.copy(state, view, child.id, prefix, newID, child.name);
+    return newID;
+  }
+  copyDecisions(
+    state: IntentState,
+    sourceID: string,
+    destinationID: string,
+    source: Piece[],
+    destination: Piece[],
+    key: string,
+    sourceRange: [number, number] = [0, length(source)],
+    destinationOffset = 0,
+  ) {
+    const originals = state.decisions.filter(
+      (d) => d.placement?.node === sourceID,
+    );
+    for (const original of originals) {
+      const placement = original.placement!;
+      const at = placement.pieces.length
+        ? this.locate(source, placement.pieces, [0, length(placement.pieces)])
+        : [placement.anchor, placement.anchor];
+      if (at[1]! <= sourceRange[0] || at[0]! >= sourceRange[1]) continue;
+      if (at[0]! < sourceRange[0] || at[1]! > sourceRange[1])
+        throw new IntentError(
+          "missing-context",
+          "Partial copy of a choice requires alternative slice correspondence",
+        );
+      const decision = clone(original);
+      decision.key = `${key}:${original.key}`;
+      decision.affected = [destinationID];
+      const start = destinationOffset + at[0]! - sourceRange[0],
+        end = destinationOffset + at[1]! - sourceRange[0];
+      decision.placement = {
+        node: destinationID,
+        pieces: clone(slice(destination, start, end)),
+        anchor: start,
+      };
+      decision.dependencies = original.dependencies.map((d) => `${key}:${d}`);
+      decision.alternatives = decision.alternatives.map(
+        (alternative, index) => {
+          if (!alternative.node)
+            throw new IntentError(
+              "missing-context",
+              "Copied choice material is unavailable",
+            );
+          const node = clone(state.nodes[alternative.node]!);
+          node.id = `${key}:${alternative.node}`;
+          node.parent = null;
+          node.pieces =
+            index === decision.selected
+              ? clone(decision.placement!.pieces)
+              : (node.pieces ?? []).map((p, i) => ({
+                  ...p,
+                  origin: `${node.id}:${i}`,
+                  start: 0,
+                }));
+          state.nodes[node.id] = node;
+          return { ...alternative, node: node.id };
+        },
+      );
+      state.decisions.push(decision);
+    }
+  }
+  async apply(
+    state: IntentState,
+    basis: View,
+    operation: SourceOperation,
+    change: string,
+  ): Promise<void> {
+    this.checkBudget();
+    const key = keyOf(change, operation.key),
+      before = clone(state.nodes);
+    if (Object.hasOwn(state.effects, key))
+      return fail("Operation identity reused");
+    let result: Material | undefined;
+    if (operation.kind === "undoOperation") {
+      const effect =
+        state.effects[
+          keyOf(operation.target.change, operation.target.operation)
+        ] ?? missing("Undo target and inverse material are unavailable");
+      if (effect.undone) return fail("Operation is already undone");
+      for (const id of new Set([
+        ...Object.keys(effect.before),
+        ...Object.keys(effect.after),
+      ])) {
+        const old = effect.before[id],
+          after = effect.after[id],
+          current = state.nodes[id];
+        if (!old) {
+          if (current && !same(current, after))
+            return fail("Undo would discard later work");
+          if (current) this.remove(state, id);
+          continue;
+        }
+        if (!after || !current) return fail("Undo material is unavailable");
+        for (const field of new Set([
+          ...Object.keys(old),
+          ...Object.keys(after),
+        ]) as Set<keyof Node>) {
+          if (same(old[field], after[field])) continue;
+          if (field === "deletions") {
+            const oldSet = new Set(old.deletions ?? []),
+              afterSet = new Set(after.deletions ?? []);
+            current.deletions = [
+              ...new Set([
+                ...(current.deletions ?? []).filter(
+                  (d) => !afterSet.has(d) || oldSet.has(d),
+                ),
+                ...[...oldSet].filter((d) => !afterSet.has(d)),
+              ]),
+            ];
+            continue;
+          }
+          if (
+            field === "pieces" &&
+            old.pieces &&
+            after.pieces &&
+            current.pieces
+          ) {
+            let pieces = current.pieces;
+            for (const edit of pieceEdits(after.pieces, old.pieces).reverse()) {
+              const range = this.locate(pieces, after.pieces, edit.range);
+              pieces = normalize([
+                ...slice(pieces, 0, range[0]),
+                ...edit.pieces,
+                ...slice(pieces, range[1], length(pieces)),
+              ]);
+            }
+            current.pieces = pieces;
+            continue;
+          }
+          if (!same(current[field], after[field]))
+            return fail("Undo overlaps later work");
+          (current as unknown as Record<string, unknown>)[field] = clone(
+            old[field],
+          );
+        }
+      }
+      for (const node of Object.values(state.nodes))
+        if (node.deletions?.length) node.active = false;
+      if (effect.target && state.effects[effect.target])
+        state.effects[effect.target]!.undone = false;
+      effect.undone = true;
+    } else if (
+      operation.kind === "editSource" ||
+      operation.kind === "moveSource" ||
+      operation.kind === "copySource"
+    ) {
+      const source = await this.selection(operation.source, basis, state);
+      let node = state.nodes[source.node];
+      if (source.selected.length && node?.parent !== null) {
+        const matches = Object.values(state.nodes).filter(
+          (n) =>
+            n.active &&
+            (n.parent !== null || n.id === source.node) &&
+            n.kind === "file" &&
+            n.pieces?.some((p) =>
+              source.selected.some(
+                (q) =>
+                  p.origin === q.origin &&
+                  p.start < q.start + q.length &&
+                  q.start < p.start + p.length,
+              ),
+            ),
+        );
+        if (matches.length === 1) node = matches[0];
+        else if (matches.length > 1)
+          return fail("Selection spans multiple current entries");
+      }
+      if (!node || (!node.active && operation.kind !== "copySource"))
+        return fail("Source entry was removed");
+      const current = await this.text(node),
+        range =
+          operation.kind === "copySource"
+            ? source.range
+            : operation.kind === "moveSource" && source.selected.length
+              ? this.evolved(state, current, source.selected)
+              : this.locate(current, source.observed, source.range);
+      let pieces: Piece[];
+      if (operation.kind === "editSource") {
+        const bytes = encoder.encode(operation.text);
+        if (decoder.decode(bytes) !== operation.text)
+          return fail("Replacement is not scalar text");
+        const object = this.put(bytes);
+        pieces = bytes.length
+          ? [{ origin: key, start: 0, object, offset: 0, length: bytes.length }]
+          : [];
+        state.origins[key] = clone(
+          source.selected.length
+            ? source.selected
+            : [
+                ...slice(
+                  source.observed,
+                  Math.max(0, source.range[0] - 1),
+                  source.range[0],
+                ),
+                ...slice(source.observed, source.range[0], source.range[0] + 1),
+              ],
+        );
+        let cursor = 0;
+        const mapped: Piece[] = [],
+          preserved: Piece[] = [];
+        for (const lineage of operation.lineage ?? []) {
+          const selected = await this.selection(lineage.source, basis, state),
+            [start, end] = lineage.range;
+          if (
+            start < cursor ||
+            end > bytes.length ||
+            end < start ||
+            selected.node !== source.node ||
+            selected.range[0] < source.range[0] ||
+            selected.range[1] > source.range[1]
+          )
+            return fail("Invalid preservation lineage");
+          if (
+            selected.selected.some((p) =>
+              preserved.some(
+                (q) =>
+                  p.origin === q.origin &&
+                  p.start < q.start + q.length &&
+                  q.start < p.start + p.length,
+              ),
+            )
+          )
+            return fail(
+              "Preservation lineage duplicates material; use copySource",
+            );
+          preserved.push(...selected.selected);
+          if (
+            !Buffer.from(await this.bytes(selected.selected)).equals(
+              Buffer.from(bytes.subarray(start, end)),
+            )
+          )
+            return fail("False source lineage");
+          mapped.push(...slice(pieces, cursor, start), ...selected.selected);
+          cursor = end;
+        }
+        if (operation.lineage?.length)
+          pieces = [...mapped, ...slice(pieces, cursor, bytes.length)];
+        node.pieces = normalize([
+          ...slice(current, 0, range[0]),
+          ...pieces,
+          ...slice(current, range[1], length(current)),
+        ]);
+        result = {
+          node: node.id,
+          pieces: clone(pieces),
+          ...(pieces.length
+            ? {}
+            : { anchor: { observed: clone(node.pieces), offset: range[0] } }),
+        };
+      } else {
+        const target = await this.selection(operation.at, basis, state),
+          destination = state.nodes[target.node];
+        if (!destination?.active) return fail("Destination entry was removed");
+        let targetPieces = await this.text(destination);
+        const atRange = this.locate(
+          targetPieces,
+          target.observed,
+          target.range,
+        );
+        let at = operation.side === "before" ? atRange[0] : atRange[1];
+        pieces = clone(
+          operation.kind === "moveSource"
+            ? slice(current, ...range)
+            : source.selected,
+        );
+        if (operation.kind === "copySource")
+          pieces = pieces.map((p, i) => ({
+            ...p,
+            origin: `${key}:${i}`,
+            start: 0,
+          }));
+        else {
+          if (node.id === destination.id && at > range[0] && at < range[1])
+            return fail("Move destination is inside source");
+          node.pieces = normalize([
+            ...slice(current, 0, range[0]),
+            ...slice(current, range[1], length(current)),
+          ]);
+          if (node.id === destination.id) {
+            if (at >= range[1]) at -= range[1] - range[0];
+            targetPieces = node.pieces;
+          }
+        }
+        destination.pieces = normalize([
+          ...slice(targetPieces, 0, at),
+          ...pieces,
+          ...slice(targetPieces, at, length(targetPieces)),
+        ]);
+        if (operation.kind === "moveSource") {
+          for (const decision of state.decisions) {
+            if (decision.placement?.node !== node.id) continue;
+            try {
+              const observed = this.locate(current, decision.placement.pieces, [
+                0,
+                length(decision.placement.pieces),
+              ]);
+              if (observed[0] < range[0] || observed[1] > range[1]) continue;
+              const moved = this.evolved(
+                state,
+                destination.pieces,
+                decision.placement.pieces,
+              );
+              decision.placement = {
+                node: destination.id,
+                pieces: clone(slice(destination.pieces, ...moved)),
+                anchor: moved[0],
+              };
+              decision.affected = [destination.id];
+            } catch {
+              /* A partial choice is enclosed by the lifecycle pass. */
+            }
+          }
+        }
+        if (operation.kind === "copySource")
+          this.copyDecisions(
+            state,
+            source.node,
+            destination.id,
+            source.observed,
+            destination.pieces,
+            key,
+            source.range,
+            at,
+          );
+        result = { node: destination.id, pieces: clone(pieces) };
+      }
+    } else {
+      const material = await this.binding(operation.source, basis, state),
+        node = state.nodes[material.node];
+      if (
+        !node?.active ||
+        node.id === state.root ||
+        operation.source.range ||
+        material.pieces
+      )
+        return fail("Invalid entry target");
+      if (operation.kind === "removeEntry") this.remove(state, node.id, key);
+      else if (
+        operation.kind === "moveEntry" ||
+        operation.kind === "copyEntry"
+      ) {
+        const target = await this.binding(
+          operation.destination.parent,
+          basis,
+          state,
+        );
+        if (operation.destination.parent.range || target.pieces)
+          return fail("Invalid entry destination");
+        const id =
+          operation.kind === "moveEntry"
+            ? node.id
+            : this.copy(
+                state,
+                material.view ?? basis,
+                node.id,
+                key,
+                null,
+                node.name,
+              );
+        this.placement(state, id, target.node, operation.destination.name);
+        if (operation.kind === "copyEntry") {
+          for (const old of Object.values((material.view ?? basis).nodes)) {
+            const copied = state.nodes[`${key}/${encodeURIComponent(old.id)}`];
+            if (copied?.pieces && old.pieces)
+              this.copyDecisions(
+                state,
+                old.id,
+                copied.id,
+                old.pieces,
+                copied.pieces,
+                key,
+              );
+          }
+        }
+        result = {
+          node: id,
+          view: { root: state.root, nodes: clone(state.nodes) },
+        };
+      } else if (operation.kind === "replaceEntry") {
+        const value = operation.value;
+        if ("material" in value) {
+          const replacement = await this.binding(value, basis, state),
+            other = state.nodes[replacement.node];
+          if (!other?.active || replacement.pieces || value.range)
+            return fail("Invalid replacement material");
+          if (other.id !== node.id && other.parent !== null)
+            return fail("Replacement would alias placed identity; use copy");
+          if (other.id !== node.id)
+            for (const child of this.children(state, node.id))
+              this.remove(state, child.id);
+          node.kind = other.kind;
+          node.object = other.object;
+          node.pieces = other.pieces ? clone(other.pieces) : undefined;
+          node.directory = other.directory ? clone(other.directory) : undefined;
+          for (const child of this.children(state, other.id))
+            child.parent = node.id;
+        } else {
+          for (const child of this.children(state, node.id))
+            this.remove(state, child.id);
+          const object = "file" in value ? value.file : value.directory;
+          node.kind = "file" in value ? "file" : "directory";
+          node.object = object;
+          delete node.pieces;
+          delete node.directory;
+          const replacementBytes = await this.read(object);
+          if (node.kind === "file")
+            node.pieces = replacementBytes.length
+              ? [
+                  {
+                    origin: key,
+                    start: 0,
+                    object,
+                    offset: 0,
+                    length: replacementBytes.length,
+                  },
+                ]
+              : [];
+          if (node.kind === "directory") {
+            const temporary: View = { root: key, nodes: {} };
+            await this.importNode(
+              temporary,
+              object,
+              "directory",
+              key,
+              null,
+              node.name,
+            );
+            node.directory = temporary.nodes[key]!.directory;
+            for (const child of this.children(temporary, key))
+              this.copy(state, temporary, child.id, key, node.id, child.name);
+          }
+        }
+        result = {
+          node: node.id,
+          view: { root: state.root, nodes: clone(state.nodes) },
+        };
+      }
+    }
+    const effect: Effect = {
+      change,
+      operation: operation.key,
+      kind: operation.kind,
+      ...(operation.kind === "editSource" && operation.lineage?.length
+        ? { preserves: true }
+        : {}),
+      ...(operation.kind === "undoOperation"
+        ? { target: keyOf(operation.target.change, operation.target.operation) }
+        : {}),
+      before: {},
+      after: {},
+      undone: false,
+    };
+    for (const id of new Set([
+      ...Object.keys(before),
+      ...Object.keys(state.nodes),
+    ]))
+      if (!same(before[id], state.nodes[id])) {
+        if (before[id]) effect.before[id] = before[id]!;
+        if (state.nodes[id]) effect.after[id] = clone(state.nodes[id]!);
+      }
+    state.effects[key] = effect;
+    if (result) state.outputs[key] = result;
+  }
+  edits(base: Piece[], changed: Piece[], state: IntentState): PieceEdit[] {
+    return pieceEdits(base, changed).map((edit) => ({
+      ...edit,
+      attachment:
+        edit.range[0] === edit.range[1] &&
+        edit.pieces.length > 0 &&
+        edit.pieces.every((p) => state.effects[p.origin]?.preserves === true),
+    }));
+  }
+  enforceDeletions(state: IntentState) {
+    for (const effect of Object.values(state.effects)) {
+      if (effect.undone || effect.kind !== "editSource") continue;
+      for (const [id, before] of Object.entries(effect.before)) {
+        const after = effect.after[id];
+        if (!before.pieces || !after?.pieces) continue;
+        for (const edit of pieceEdits(before.pieces, after.pieces)) {
+          if (edit.pieces.length || edit.range[0] === edit.range[1]) continue;
+          const removed = slice(before.pieces, ...edit.range);
+          for (const node of Object.values(state.nodes))
+            if (
+              node.active &&
+              node.pieces &&
+              (node.parent !== null || node.id === id)
+            ) {
+              const out: Piece[] = [];
+              for (const p of node.pieces) {
+                let parts = [p];
+                for (const q of removed)
+                  if (p.origin === q.origin) {
+                    parts = parts.flatMap((part) => {
+                      const start = Math.max(part.start, q.start),
+                        end = Math.min(
+                          part.start + part.length,
+                          q.start + q.length,
+                        );
+                      if (end <= start) return [part];
+                      return [
+                        ...slice([part], 0, start - part.start),
+                        ...slice([part], end - part.start, part.length),
+                      ];
+                    });
+                  }
+                out.push(...parts);
+              }
+              node.pieces = normalize(out);
+            }
+        }
+      }
+    }
+  }
+  async record(state: IntentState): Promise<{ object: string; state: string }> {
+    const object = await this.project(state),
+      stored = this.put(encoder.encode(stableJSONString(state)));
+    return { object, state: stored };
+  }
+  async run(): Promise<IntentResponse> {
+    const request = this.request,
+      base = await this.load(request.base),
+      current = await this.load(request.current);
+    const signature = hashObject(
+      encoder.encode(
+        stableJSONString({
+          base: request.base,
+          incoming: request.incoming,
+          alternatives: request.alternatives,
+        }),
+      ),
+    );
+    const prior = Object.hasOwn(current.changes, request.incoming.change)
+      ? current.changes[request.incoming.change]
+      : undefined;
+    if (prior && prior !== signature)
+      return fail("Change identity reused with different intent");
+    if (prior) {
+      const result = await this.record(current);
+      return this.response(result, current);
+    }
+    for (const binding of request.alternatives ?? []) {
+      const decision = base.decisions.find((d) => d.key === binding.decision),
+        alternative = decision?.alternatives[binding.alternative];
+      if (
+        !alternative ||
+        !alternative.node ||
+        alternative.object !== binding.value.object
+      )
+        return fail(
+          "Alternative binding does not match retained decision material",
+        );
+      const node = base.nodes[alternative.node];
+      if (!node || node.kind !== binding.value.kind)
+        return fail("Alternative kind does not match retained material");
+      base.alternatives[alternativeKey(binding.ref)] = alternative.node;
+    }
+    const resolved = new Set(request.incoming.resolves ?? []);
+    if (resolved.size !== (request.incoming.resolves?.length ?? 0))
+      return fail("Duplicate resolution declaration");
+    for (const key of resolved) {
+      const decision = base.decisions.find((d) => d.key === key),
+        now = current.decisions.find((d) => d.key === key);
+      if (!decision || !same(decision, now))
+        return fail("Resolution decision is absent or stale");
+      if (decision.dependencies.some((key) => !resolved.has(key)))
+        return fail("Coupled decisions require one guarded resolution");
+    }
+    const authored = clone(base),
+      basis = clone(base);
+    for (const operation of request.incoming.operations)
+      await this.apply(authored, basis, operation, request.incoming.change);
+    const wrapped = new Set<string>();
+    for (const decision of authored.decisions) {
+      for (const [index, alternative] of decision.alternatives.entries()) {
+        if (!alternative.node) continue;
+        const old = base.nodes[alternative.node],
+          node = authored.nodes[alternative.node];
+        if (!old || !node) continue;
+        const placement = decision.placement,
+          visibleBefore = placement ? base.nodes[placement.node] : undefined,
+          visibleAfter = placement ? authored.nodes[placement.node] : undefined;
+        if (
+          index === decision.selected &&
+          !decision.context &&
+          placement &&
+          same(old, node) &&
+          !same(visibleBefore, visibleAfter)
+        ) {
+          if (
+            !visibleAfter?.active ||
+            visibleAfter.kind !== "file" ||
+            !visibleAfter.pieces
+          ) {
+            wrapped.add(decision.key);
+            continue;
+          }
+          try {
+            const at = this.evolved(
+              authored,
+              visibleAfter.pieces,
+              placement.pieces,
+            );
+            node.pieces = clone(slice(visibleAfter.pieces, ...at));
+            placement.pieces = clone(node.pieces);
+            placement.anchor = at[0];
+          } catch {
+            wrapped.add(decision.key);
+            continue;
+          }
+        }
+        if (same(old, node)) continue;
+        alternative.object = await this.project(authored, node.id);
+        alternative.contributions.push(
+          ...request.incoming.operations.map((op) => ({
+            change: request.incoming.change,
+            operation: op.key,
+          })),
+        );
+        if (
+          index === decision.selected &&
+          decision.placement &&
+          !decision.context
+        ) {
+          const target = authored.nodes[decision.placement.node];
+          if (!target?.pieces)
+            return fail("Selected alternative placement is unavailable");
+          const located = decision.placement.pieces.length
+            ? this.locate(target.pieces, decision.placement.pieces, [
+                0,
+                length(decision.placement.pieces),
+              ])
+            : [decision.placement.anchor, decision.placement.anchor];
+          target.pieces = normalize([
+            ...slice(target.pieces, 0, located[0]!),
+            ...(node.pieces ?? []),
+            ...slice(target.pieces, located[1]!, length(target.pieces)),
+          ]);
+          decision.placement.pieces = clone(node.pieces ?? []);
+          decision.placement.anchor = located[0]!;
+        }
+      }
+    }
+    for (const decision of authored.decisions) {
+      if (
+        !decision.context ||
+        same(
+          decision,
+          base.decisions.find((d) => d.key === decision.key),
+        )
+      )
+        continue;
+      const parent = authored.decisions.find(
+        (d) =>
+          d.dependencies.includes(decision.key) &&
+          d.alternatives.some((a) => a.state === decision.context),
+      );
+      const branch = parent?.alternatives.find(
+        (a) => a.state === decision.context,
+      );
+      if (!branch)
+        throw new IntentError(
+          "missing-context",
+          "Hidden ancestor context is unavailable",
+        );
+      const context = await this.load({
+        object: branch.object,
+        state: branch.state,
+      });
+      const retained = context.decisions.find((d) => d.key === decision.key);
+      if (!retained?.placement)
+        throw new IntentError(
+          "missing-context",
+          "Hidden source decision has no placement",
+        );
+      const target = context.nodes[retained.placement.node];
+      if (!target?.pieces)
+        throw new IntentError(
+          "missing-context",
+          "Hidden source material is unavailable",
+        );
+      const selected = decision.alternatives[decision.selected]!,
+        material = selected.node ? authored.nodes[selected.node] : undefined;
+      if (!material?.pieces)
+        throw new IntentError(
+          "missing-context",
+          "Hidden selected alternative is unavailable",
+        );
+      const at = this.locate(target.pieces, retained.placement.pieces, [
+        0,
+        length(retained.placement.pieces),
+      ]);
+      target.pieces = normalize([
+        ...slice(target.pieces, 0, at[0]),
+        ...material.pieces,
+        ...slice(target.pieces, at[1], length(target.pieces)),
+      ]);
+      for (const alternative of decision.alternatives)
+        if (alternative.node)
+          context.nodes[alternative.node] = clone(
+            authored.nodes[alternative.node]!,
+          );
+      const updated = clone(decision);
+      delete updated.context;
+      updated.placement = {
+        node: retained.placement.node,
+        pieces: clone(material.pieces),
+        anchor: at[0],
+      };
+      context.decisions[context.decisions.indexOf(retained)] = updated;
+      const oldState = branch.state,
+        result = await this.record(context);
+      branch.state = result.state;
+      branch.object = result.object;
+      for (const child of authored.decisions)
+        if (child.context === oldState) child.context = result.state;
+    }
+    this.enforceDeletions(authored);
+    const authoredRoot = await this.project(authored);
+    if (authoredRoot !== request.incoming.object)
+      return fail("Operations do not reproduce the complete candidate");
+    authored.changes[request.incoming.change] = signature;
+    if (wrapped.size) {
+      const old = await this.record(base),
+        candidate = await this.record(authored);
+      for (const decision of authored.decisions)
+        if (wrapped.has(decision.key)) decision.context = old.state;
+      authored.decisions.push({
+        key: `enclosure:${request.incoming.change}`,
+        kind: "directory",
+        affected: [base.root],
+        selected: 1,
+        alternatives: [
+          { ...old, contributions: [] },
+          {
+            ...candidate,
+            contributions: request.incoming.operations.map((op) => ({
+              change: request.incoming.change,
+              operation: op.key,
+            })),
+          },
+        ],
+        dependencies: [...wrapped],
+        reason: "Opaque transformation encloses existing decisions",
+      });
+    }
+    let resultState = authored;
+    if (
+      request.current.object !== request.base.object ||
+      request.current.state !== request.base.state
+    ) {
+      // First enforce the complete causal context. Snapshot equality never invents
+      // correspondence; branches without retained identity remain explicit choices.
+      const structuralTransfer =
+        request.incoming.operations.some((op) =>
+          ["moveSource", "copySource"].includes(op.kind),
+        ) ||
+        Object.entries(current.effects).some(
+          ([key, e]) =>
+            !Object.hasOwn(base.effects, key) &&
+            ["moveSource", "copySource"].includes(e.kind),
+        );
+      let transported: IntentState | undefined;
+      if (structuralTransfer && current.root === base.root) {
+        const attempt = clone(current);
+        try {
+          for (const operation of request.incoming.operations) {
+            if (
+              !["editSource", "moveSource", "copySource"].includes(
+                operation.kind,
+              )
+            )
+              throw new Error(
+                "Mixed structural transfer needs a coupled decision",
+              );
+            if (operation.kind === "moveSource") {
+              const selected = await this.selection(
+                operation.source,
+                basis,
+                authored,
+              );
+              for (const [key, effect] of Object.entries(current.effects))
+                if (
+                  !Object.hasOwn(base.effects, key) &&
+                  effect.kind === "moveSource" &&
+                  Object.values(effect.before).some((n) =>
+                    n.pieces?.some((p) =>
+                      selected.selected.some(
+                        (q) =>
+                          p.origin === q.origin &&
+                          p.start < q.start + q.length &&
+                          q.start < p.start + p.length,
+                      ),
+                    ),
+                  )
+                )
+                  throw new Error("Competing source moves");
+            }
+            await this.apply(
+              attempt,
+              basis,
+              operation,
+              request.incoming.change,
+            );
+          }
+          // Transfer policy is deliberately restricted to ordinary prose/text;
+          // code/data need structural and binding evidence, not mere byte success.
+          for (const id of Object.keys(base.nodes)) {
+            const b = base.nodes[id]!,
+              next = attempt.nodes[id];
+            if (
+              b.kind !== "file" ||
+              !next?.active ||
+              same(b.pieces, next.pieces)
+            )
+              continue;
+            const path = this.path(base, id),
+              config = request.rules.config?.formats?.[path];
+            const bytes = await this.bytes(next.pieces ?? []);
+            const evidence = await evaluateFormat(
+              path,
+              await this.bytes(b.pieces ?? []),
+              bytes,
+              bytes,
+              bytes,
+              [],
+              [],
+              config,
+            );
+            this.formatEvidence.push(evidence);
+            if (
+              evidence.outcome !== "resolved" ||
+              !evidence.id.match(/^(text|markdown)-/)
+            )
+              throw new Error("Transfer requires format review");
+          }
+          for (const operation of request.incoming.operations) {
+            const key = keyOf(request.incoming.change, operation.key);
+            if (authored.outputs[key])
+              attempt.outputs[key] = clone(authored.outputs[key]!);
+          }
+          attempt.changes[request.incoming.change] = signature;
+          await this.project(attempt);
+          transported = attempt;
+        } catch (error) {
+          if (
+            error instanceof IntentError &&
+            ["limit", "missing-context"].includes(error.code)
+          )
+            throw error;
+        }
+      }
+      const merged = clone(current),
+        affected: string[] =
+          structuralTransfer && !transported ? [base.root] : [];
+      for (const decision of authored.decisions) {
+        const before = base.decisions.find((d) => d.key === decision.key),
+          index = merged.decisions.findIndex((d) => d.key === decision.key);
+        if (!same(before, decision)) {
+          if (index < 0 || !same(merged.decisions[index], before))
+            affected.push(...decision.affected);
+          else merged.decisions[index] = clone(decision);
+        }
+      }
+      const contentDecisions: IntentState["decisions"] = [];
+      let branchStates:
+        | {
+            old: { object: string; state: string };
+            candidate: { object: string; state: string };
+          }
+        | undefined;
+      for (const id of new Set([
+        ...Object.keys(base.nodes),
+        ...Object.keys(authored.nodes),
+      ])) {
+        const b = base.nodes[id],
+          incoming = authored.nodes[id],
+          remote = merged.nodes[id];
+        if (same(b, incoming)) continue;
+        if (!b) {
+          if (remote && !same(remote, incoming)) affected.push(id);
+          else if (incoming) merged.nodes[id] = clone(incoming);
+          continue;
+        }
+        if (!incoming || !remote) {
+          affected.push(id);
+          continue;
+        }
+        if (
+          b.active &&
+          incoming.active !== remote.active &&
+          !same(incoming, remote) &&
+          !same(incoming, b) &&
+          !same(remote, b)
+        ) {
+          affected.push(id);
+          continue;
+        }
+        for (const field of Object.keys(incoming) as Array<keyof Node>) {
+          if (same(b[field], incoming[field])) continue;
+          if (field === "deletions") {
+            const prior = new Set(b.deletions ?? []),
+              desired = new Set(incoming.deletions ?? []);
+            remote.deletions = [
+              ...new Set([
+                ...(remote.deletions ?? []).filter(
+                  (d) => !prior.has(d) || desired.has(d),
+                ),
+                ...[...desired].filter((d) => !prior.has(d)),
+              ]),
+            ].sort();
+            continue;
+          }
+          if (!same(remote[field], b[field])) {
+            if (same(remote[field], incoming[field])) continue;
+            if (
+              field === "pieces" &&
+              b.pieces &&
+              incoming.pieces &&
+              remote.pieces
+            ) {
+              const localEdits = this.edits(
+                  b.pieces,
+                  incoming.pieces,
+                  authored,
+                ),
+                remoteEdits = this.edits(b.pieces, remote.pieces, current);
+              if (
+                !localEdits.some((a) => remoteEdits.some((c) => overlap(a, c)))
+              ) {
+                const proposal = normalize(
+                  applyPieceEdits(b.pieces, [...localEdits, ...remoteEdits]),
+                );
+                const path = this.path(base, id);
+                const evidence = await evaluateFormat(
+                  path,
+                  await this.bytes(b.pieces),
+                  await this.bytes(remote.pieces),
+                  await this.bytes(incoming.pieces),
+                  await this.bytes(proposal),
+                  localEdits,
+                  remoteEdits,
+                  this.request.rules.config?.formats?.[path],
+                );
+                this.formatEvidence.push(evidence);
+                if (evidence.outcome === "resolved") {
+                  remote.pieces = proposal;
+                  continue;
+                }
+              }
+            }
+            if (
+              field === "pieces" &&
+              b.pieces &&
+              incoming.pieces &&
+              remote.pieces
+            ) {
+              branchStates ??= {
+                old: await this.record(current),
+                candidate: await this.record(authored),
+              };
+              const left: Array<PieceEdit & { side: number }> = this.edits(
+                b.pieces,
+                remote.pieces,
+                current,
+              ).map((e) => ({ ...e, side: 0 }));
+              const right = this.edits(b.pieces, incoming.pieces, authored).map(
+                (e) => ({ ...e, side: 1 }),
+              );
+              const edits: Array<PieceEdit & { side: number }> = [
+                ...left,
+                ...right,
+              ].sort((a, c) => a.range[0] - c.range[0]);
+              const groups: Array<Array<PieceEdit & { side: number }>> = [];
+              for (const edit of edits) {
+                const last = groups.at(-1);
+                if (last?.some((e) => overlap(e, edit))) last.push(edit);
+                else groups.push([edit]);
+              }
+              // A policy refusal couples this file even if byte edits are disjoint.
+              const hasOverlap = groups.some(
+                (g) =>
+                  g.some((e) => e.side === 0) && g.some((e) => e.side === 1),
+              );
+              let coupledByFormat = !hasOverlap;
+              if (hasOverlap) {
+                const path = this.path(base, id);
+                const tentative = applyPieceEdits(b.pieces, [
+                  ...right,
+                  ...left.filter((a) => !right.some((b) => overlap(a, b))),
+                ]);
+                const policy = await evaluateFormat(
+                  path,
+                  await this.bytes(b.pieces),
+                  await this.bytes(remote.pieces),
+                  await this.bytes(incoming.pieces),
+                  await this.bytes(tentative),
+                  left,
+                  right,
+                  request.rules.config?.formats?.[path],
+                );
+                this.formatEvidence.push(policy);
+                coupledByFormat = policy.outcome !== "resolved";
+              }
+              if (coupledByFormat) groups.splice(0, groups.length, edits);
+              const selected = [];
+              for (const group of groups) {
+                const start = Math.min(...group.map((e) => e.range[0])),
+                  end = Math.max(...group.map((e) => e.range[1]));
+                const versions = [0, 1].map((side) =>
+                  applyPieceEdits(
+                    slice(b.pieces!, start, end),
+                    group
+                      .filter((e) => e.side === side)
+                      .map((e) => ({
+                        range: [e.range[0] - start, e.range[1] - start] as [
+                          number,
+                          number,
+                        ],
+                        pieces: e.pieces,
+                      })),
+                  ),
+                );
+                if (
+                  group.some((e) => e.side === 0) &&
+                  group.some((e) => e.side === 1)
+                ) {
+                  const formatConfig =
+                    request.rules.config?.formats?.[this.path(base, id)];
+                  if (
+                    start === end &&
+                    formatConfig?.proseInsertions === "preserve-both"
+                  ) {
+                    const combined = [...versions]
+                      .sort((a, b) =>
+                        (a[0]?.origin ?? "") < (b[0]?.origin ?? "") ? -1 : 1,
+                      )
+                      .flat();
+                    const proposal = applyPieceEdits(b.pieces, [
+                      { range: [start, end], pieces: combined },
+                    ]);
+                    const policy = await evaluateFormat(
+                      this.path(base, id),
+                      await this.bytes(b.pieces),
+                      await this.bytes(remote.pieces),
+                      await this.bytes(incoming.pieces),
+                      await this.bytes(proposal),
+                      pieceEdits(b.pieces, incoming.pieces),
+                      pieceEdits(b.pieces, remote.pieces),
+                      formatConfig,
+                    );
+                    this.formatEvidence.push(policy);
+                    if (
+                      policy.outcome === "resolved" &&
+                      /^(markdown|text)-/.test(policy.id)
+                    ) {
+                      selected.push({
+                        range: [start, end] as [number, number],
+                        pieces: combined,
+                      });
+                      continue;
+                    }
+                  }
+                  const path = this.path(base, id),
+                    object = await this.project(base, id);
+                  contentDecisions.push({
+                    key: `${request.incoming.change}:${id}:${start}:${end}`,
+                    kind: "content",
+                    affected: [id],
+                    selected: 1,
+                    subject: {
+                      material: { kind: "basis", path, object },
+                      range: [start, end],
+                    },
+                    placement: {
+                      node: id,
+                      pieces: clone(versions[1]!),
+                      anchor: start,
+                    },
+                    alternatives: await Promise.all(
+                      versions.map(async (pieces, side) => {
+                        const object = this.put(await this.bytes(pieces)),
+                          node = `choice:${request.incoming.change}:${id}:${start}:${end}:${side}`;
+                        // Alternative material has its own occurrence; binding it is
+                        // explicit and cannot accidentally target equal visible text.
+                        merged.nodes[node] = {
+                          id: node,
+                          parent: null,
+                          name: "",
+                          kind: "file",
+                          object,
+                          pieces: clone(pieces),
+                          active: true,
+                        };
+                        return {
+                          state:
+                            side === 0
+                              ? branchStates!.old.state
+                              : branchStates!.candidate.state,
+                          object,
+                          node,
+                          contributions:
+                            side === 0
+                              ? []
+                              : request.incoming.operations.map((op) => ({
+                                  change: request.incoming.change,
+                                  operation: op.key,
+                                })),
+                        };
+                      }),
+                    ),
+                    dependencies: current.decisions
+                      .filter((d) => d.affected.includes(id))
+                      .map((d) => d.key),
+                    reason: coupledByFormat
+                      ? "Format policy requires a coupled source choice"
+                      : "Overlapping source contributions",
+                  });
+                  selected.push({
+                    range: [start, end] as [number, number],
+                    pieces: versions[1]!,
+                  });
+                } else selected.push(...group);
+              }
+              remote.pieces = normalize(applyPieceEdits(b.pieces, selected));
+              continue;
+            }
+            affected.push(id);
+            continue;
+          }
+          (remote as unknown as Record<string, unknown>)[field] = clone(
+            incoming[field],
+          );
+        }
+      }
+      for (const map of [
+        "outputs",
+        "effects",
+        "origins",
+        "alternatives",
+      ] as const) {
+        for (const [key, value] of Object.entries(authored[map]))
+          if (!same(base[map][key], value))
+            (merged[map] as Record<string, unknown>)[key] = clone(value);
+      }
+      merged.changes[request.incoming.change] = signature;
+      for (const node of Object.values(merged.nodes))
+        if (node.deletions?.length) node.active = false;
+      this.enforceDeletions(merged);
+      try {
+        if (!affected.length) await this.project(merged);
+      } catch {
+        affected.push(merged.root);
+      }
+      if (affected.length) {
+        const old = await this.record(current),
+          candidate = await this.record(authored);
+        const decision = {
+          key: `change:${request.incoming.change}`,
+          kind: "directory" as const,
+          affected: [...new Set(affected)].sort(),
+          selected: 1,
+          alternatives: [
+            { ...old, contributions: [] },
+            {
+              ...candidate,
+              contributions: request.incoming.operations.map((op) => ({
+                change: request.incoming.change,
+                operation: op.key,
+              })),
+            },
+          ],
+          dependencies: current.decisions.map((d) => d.key),
+          reason: "Concurrent material changes require a choice",
+        };
+        resultState.decisions = [...current.decisions, decision];
+      } else {
+        merged.decisions.push(...contentDecisions);
+        resultState = merged;
+      }
+      if (transported) resultState = transported;
+    }
+    resultState.decisions = resultState.decisions.filter(
+      (d) => !resolved.has(d.key),
+    );
+    const result = await this.record(resultState);
+    return this.response(result, resultState);
+  }
+  response(
+    result: { object: string; state: string },
+    state: IntentState,
+  ): IntentResponse {
+    return {
+      outcome: "evaluated",
+      result,
+      objects: [...this.generated.keys()],
+      decisions: state.decisions,
+      evidence: {
+        rule: { id: "tree-default", revision: 1 },
+        inputs: [
+          ...new Set([
+            ...this.cache.keys(),
+            this.request.base.object,
+            this.request.current.object,
+            this.request.incoming.object,
+          ]),
+        ].sort(),
+        change: this.request.incoming.change,
+        operations: this.request.incoming.operations.map((op) => op.key),
+        validation: "verified",
+        formats: this.formatEvidence,
+      },
+    };
+  }
+}
+
+export async function mergeIntent(
+  raw: IntentRequest,
+  objects: MergeObjects,
+): Promise<IntentResponse> {
+  try {
+    const engine = new Engine(parseIntentRequest(raw), objects),
+      result = await engine.run();
+    await objects.store(
+      [...engine.generated].map(([hash, bytes]) => ({ hash, bytes })),
+    );
+    return result;
+  } catch (error) {
+    if (error instanceof IntentError)
+      return { outcome: error.code, message: error.message };
+    return {
+      outcome: "invalid",
+      message:
+        error instanceof Error ? error.message : "Invalid intent request",
+    };
+  }
+}

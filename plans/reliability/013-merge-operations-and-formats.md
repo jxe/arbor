@@ -1,12 +1,28 @@
 # Reliability 013: Complete merge-tool operation and language support
 
-Status: READY for independent tool development on `codex/merge-tool`. Priority: P1.
+Status: IN PROGRESS on `codex/merge-tool`. Priority: P1.
 This is the tool-only track of three plans: [008](008-enable-source-operations.md)
 owns client capture/submission on main; [009](009-canopy-provenance-merges.md) owns
 Canopy retention, forwarding, authority and deployment on main. This plan owns
 `@arbor/merge`: operation interpretation, source correspondence, format/language
 policy and proposed results. The [process checkpoint](../../docs/merge-tool.md) is
 implemented; its deployment is 009's task, not a prerequisite for this development.
+
+## Current checkpoint and remaining gates
+
+The [operation evaluation checkpoint](../../docs/merge-operation-evaluation.md)
+implements all operation kinds, immutable interval correspondence, source choices,
+selected/hidden continuation, enclosing deletion, selective undo, pinned parsers and
+conservative automatic subsets for every format row below. The original source-intent
+lineage/transfer corpus runs in both arrival orders. Library, fresh/persistent process
+and Canopy staging parity are tested. This plan remains open: an implemented syntax
+row is not by itself proof of the full lifecycle contract.
+
+Remaining completion gates include partial choice copying, structural-alternative
+material addressing, arbitrary nested continuation/resolution, operation inverses
+across those choices, broader generated adversarial cases, and final verification.
+Record explicit refusals separately from successful merges; do not silently count
+missing semantic context as completed operation support.
 
 ## Outcome and meaning of full support
 

@@ -3,11 +3,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ObjectStore } from "@arbor/object-store";
-import { parseResponse, type MergeRequest, type MergeResponse } from "@arbor/merge";
+import { parseResponse, type MergeRequest, type ProjectionRequest, type ProjectionResponse, type IntentRequest, type IntentResponse } from "@arbor/merge";
 import { hashObject, type ObjectHash } from "@arbor/wire";
 import { defaultSourceMergeRule, type SourceMergeRuleSelector } from "./updates/merge-rules.ts";
 import type { MergeResult } from "./updates/merge.ts";
 
+type EvaluatedResponse = ProjectionResponse | Extract<IntentResponse,{outcome:"evaluated"}>;
 export interface MergeToolOptions {
   /** Executable and fixed arguments. No shell interpretation. */
   command?: string[];
@@ -25,7 +26,10 @@ export class MergeTool {
     this.shared = new ObjectStore(join(dataRoot, "objects"));
   }
 
-  async evaluate(request: MergeRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{ response: MergeResponse; objects: Map<ObjectHash, Uint8Array> }> {
+  evaluate(request:IntentRequest,inputs:ReadonlyMap<ObjectHash,Uint8Array>):Promise<{response:Extract<IntentResponse,{outcome:"evaluated"}>;objects:Map<ObjectHash,Uint8Array>}>;
+  evaluate(request:ProjectionRequest,inputs:ReadonlyMap<ObjectHash,Uint8Array>):Promise<{response:ProjectionResponse;objects:Map<ObjectHash,Uint8Array>}>;
+  evaluate(request:MergeRequest,inputs:ReadonlyMap<ObjectHash,Uint8Array>):Promise<{response:EvaluatedResponse;objects:Map<ObjectHash,Uint8Array>}>;
+  async evaluate(request: MergeRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{ response: EvaluatedResponse; objects: Map<ObjectHash, Uint8Array> }> {
     if (this.waiting.length >= 64) throw new Error("Merge worker queue is full");
     if (this.active >= (this.options.maxConcurrent ?? 4)) await new Promise<void>(resolve => this.waiting.push(resolve));
     else this.active++;
@@ -36,7 +40,7 @@ export class MergeTool {
     }
   }
 
-  private async evaluateJob(request: MergeRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{ response: MergeResponse; objects: Map<ObjectHash, Uint8Array> }> {
+  private async evaluateJob(request: MergeRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{ response: EvaluatedResponse; objects: Map<ObjectHash, Uint8Array> }> {
     const jobs = join(this.dataRoot, "merge-jobs");
     await mkdir(jobs, { recursive: true });
     const job = await mkdtemp(join(jobs, "job-"));
@@ -68,8 +72,17 @@ export class MergeTool {
       // Validate the referenced closure before releasing staging. Canopy still
       // applies its graph/schema/boundary checks and owns publication/acceptance.
       const available = new Map([...inputs, ...objects]);
-      if (request.kind === "tree") await this.shared.verifyReachable([response.result.object], available);
+      if (request.kind !== "source") await this.shared.verifyReachable([response.result.object], available);
       else await this.shared.load(response.result.object, available);
+      if("state" in response.result && typeof response.result.state === "string"){
+        const state=await this.shared.load(response.result.state,available);
+        const {parseIntentState}=await import("../../merge/src/intent-model.ts");
+        const retained=parseIntentState(JSON.parse(new TextDecoder().decode(state)));
+        // Check every referenced immutable object, including hidden alternatives,
+        // inverse material and historical decision contexts, before releasing staging.
+        const {intentDependencies}=await import("../../merge/src/intent-model.ts");
+        for(const hash of intentDependencies(retained))await this.shared.load(hash,available);
+      }
       return { response, objects };
     } finally {
       await rm(job, { recursive: true, force: true });

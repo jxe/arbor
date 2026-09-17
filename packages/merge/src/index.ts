@@ -1,11 +1,14 @@
 import { decodeWireDirectory, wireEntryObject, type ObjectHash, type TreeSnapshot } from "@arbor/wire";
 import type { ObjectStore } from "@arbor/object-store";
-import { parseRequest, parseResponse, type MergeRequest, type MergeResponse } from "./contract.ts";
+import { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeWireTrees, type MergeResult } from "./merge.ts";
 import { markdownProseSourceRule, plainTextSourceRule } from "./merge-rules.ts";
 import { readAccountConfigGraph, mergeAccountConfigGraphs, snapshotAccountConfig } from "./account.ts";
 import { readAccountConfigGraphV2, mergeAccountConfigGraphsV2, snapshotAccountConfigV2 } from "./account-v2.ts";
-export { parseRequest, parseResponse, type MergeRequest, type MergeResponse } from "./contract.ts";
+export { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
+import { mergeIntent } from "./intent-engine.ts";
+import type { IntentRequest, IntentResponse } from "./intent-model.ts";
+export type { IntentRequest, IntentResponse } from "./intent-model.ts";
 export type { MergeSummary } from "./summary.ts";
 
 export interface MergeObjects {
@@ -28,8 +31,13 @@ async function snapshot(root: string, objects: MergeObjects): Promise<TreeSnapsh
 }
 
 /** Pure rule evaluation plus immutable object IO. No accepted-state or database access. */
+export function merge(raw:IntentRequest,objects:MergeObjects):Promise<IntentResponse>;
+export function merge(raw:ProjectionRequest,objects:MergeObjects):Promise<ProjectionResponse>;
+export function merge(raw:MergeRequest,objects:MergeObjects):Promise<MergeResponse>;
 export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<MergeResponse> {
+  if(isIntentRequest(raw))return mergeIntent(raw,objects);
   const request = parseRequest(raw);
+  if(isIntentRequest(request))throw new Error("Unexpected intent request");
   const evidence = { rule: request.rules };
   if (request.kind === "source") {
     const rule = [plainTextSourceRule, markdownProseSourceRule].find(rule => rule.id === request.rules.id);

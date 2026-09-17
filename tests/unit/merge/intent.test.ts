@@ -1,0 +1,1189 @@
+import { expect, test } from "bun:test";
+import type { MaterialRef, SourceOperation } from "@arbor/wire";
+import { Fixture } from "./fixture.ts";
+
+test("exact source edits retain CRLF, Unicode and operation-result coordinates", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "α beta\r\n" }),
+    candidate = f.tree({ "a.md": "α Beta!\r\n" });
+  const r = await f.run(
+    f.request(base, candidate, [
+      {
+        key: "first",
+        kind: "editSource",
+        source: f.ref("/a.md", "α beta\r\n", [3, 7]),
+        text: "Beta",
+      },
+      {
+        key: "second",
+        kind: "editSource",
+        source: f.op("edit", "first", [4, 4]),
+        text: "!",
+      },
+    ]),
+  );
+  expect(r.result.object).toBe(candidate);
+  expect(r.decisions).toEqual([]);
+});
+test.each(["moveEntry", "copyEntry"] as const)(
+  "%s preserves exact source",
+  async (kind) => {
+    const f = new Fixture(),
+      base = f.tree({ "a.md": "hello" }),
+      candidate = f.tree(
+        kind === "moveEntry"
+          ? { "b.md": "hello" }
+          : { "a.md": "hello", "b.md": "hello" },
+      );
+    expect(
+      (
+        await f.run(
+          f.request(base, candidate, [
+            {
+              key: "op",
+              kind,
+              source: f.ref("/a.md", "hello"),
+              destination: { parent: f.root(base), name: "b.md" },
+            },
+          ]),
+        )
+      ).result.object,
+    ).toBe(candidate);
+  },
+);
+test.each(["moveSource", "copySource"] as const)(
+  "%s binds the new source result",
+  async (kind) => {
+    const f = new Fixture(),
+      base = f.tree({ "a.txt": "one two" }),
+      candidate = f.tree({
+        "a.txt": kind === "moveSource" ? " twoONE" : "one twoONE",
+      });
+    await f.run(
+      f.request(base, candidate, [
+        {
+          key: "first",
+          kind,
+          source: f.ref("/a.txt", "one two", [0, 3]),
+          at: f.ref("/a.txt", "one two", [7, 7]),
+          side: "after",
+        },
+        {
+          key: "second",
+          kind: "editSource",
+          source: f.op("edit", "first"),
+          text: "ONE",
+        },
+      ]),
+    );
+  },
+);
+test("remove, replace and undo retain exact material across evaluations", async () => {
+  const f = new Fixture(),
+    base = f.tree({ a: "old", b: "stay" });
+  const replaced = await f.run(
+    f.request(
+      base,
+      f.tree({ a: "new", b: "stay" }),
+      [
+        {
+          key: "replace",
+          kind: "replaceEntry",
+          source: f.ref("/a", "old"),
+          value: { file: f.put("new") },
+        },
+      ],
+      "replace",
+    ),
+  );
+  const removed = await f.run(
+    f.request(
+      replaced.result,
+      f.tree({ a: "new" }),
+      [{ key: "remove", kind: "removeEntry", source: f.ref("/b", "stay") }],
+      "remove",
+    ),
+  );
+  const undone = await f.run(
+    f.request(
+      removed.result,
+      f.tree({ a: "old" }),
+      [
+        {
+          key: "undo",
+          kind: "undoOperation",
+          target: { change: "replace", operation: "replace" },
+        },
+      ],
+      "undo",
+    ),
+  );
+  expect(undone.result.object).toBe(f.tree({ a: "old" }));
+});
+test("invalid boundaries, false lineage, wrong candidate and absent undo context are distinct", async () => {
+  const f = new Fixture(),
+    base = f.tree({ a: "αbeta" });
+  const edit: SourceOperation = {
+    key: "op",
+    kind: "editSource",
+    source: f.ref("/a", "αbeta", [0, 2]),
+    text: "x",
+  };
+  expect(
+    (
+      await f.evaluate(
+        f.request(base, base, [
+          { ...edit, source: f.ref("/a", "αbeta", [0, 1]) },
+        ]),
+      )
+    ).outcome,
+  ).toBe("invalid");
+  expect((await f.evaluate(f.request(base, base, [edit]))).outcome).toBe(
+    "invalid",
+  );
+  expect(
+    (
+      await f.evaluate(
+        f.request(base, base, [
+          {
+            ...edit,
+            lineage: [{ source: f.ref("/a", "αbeta", [2, 3]), range: [0, 1] }],
+          },
+        ]),
+      )
+    ).outcome,
+  ).toBe("invalid");
+  expect(
+    (
+      await f.evaluate(
+        f.request(base, base, [
+          {
+            key: "op",
+            kind: "undoOperation",
+            target: { change: "missing", operation: "op" },
+          },
+        ]),
+      )
+    ).outcome,
+  ).toBe("missing-context");
+});
+
+test("concurrent disjoint edits preserve both contributions in either arrival order", async () => {
+  for (const reverse of [false, true]) {
+    const f = new Fixture(),
+      base = f.tree({ "a.txt": "one two" });
+    const first = {
+      key: "op",
+      kind: "editSource" as const,
+      source: f.ref("/a.txt", "one two", reverse ? [4, 7] : [0, 3]),
+      text: reverse ? "TWO" : "ONE",
+    };
+    const second = {
+      key: "op",
+      kind: "editSource" as const,
+      source: f.ref("/a.txt", "one two", reverse ? [0, 3] : [4, 7]),
+      text: reverse ? "ONE" : "TWO",
+    };
+    const current = await f.run(
+      f.request(
+        base,
+        f.tree({ "a.txt": reverse ? "one TWO" : "ONE two" }),
+        [first],
+        "first",
+      ),
+    );
+    const merged = await f.run(
+      f.request(
+        base,
+        f.tree({ "a.txt": reverse ? "ONE two" : "one TWO" }),
+        [second],
+        "second",
+        current.result,
+      ),
+    );
+    expect(merged.result.object).toBe(f.tree({ "a.txt": "ONE TWO" }));
+    expect(merged.decisions).toEqual([]);
+  }
+});
+test("entry move carries a concurrent descendant edit", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" }),
+    current = await f.run(
+      f.request(
+        base,
+        f.tree({ "a.txt": "new" }),
+        [
+          {
+            key: "edit",
+            kind: "editSource",
+            source: f.ref("/a.txt", "old"),
+            text: "new",
+          },
+        ],
+        "remote",
+      ),
+    );
+  const r = await f.run(
+    f.request(
+      base,
+      f.tree({ "b.txt": "old" }),
+      [
+        {
+          key: "move",
+          kind: "moveEntry",
+          source: f.ref("/a.txt", "old"),
+          destination: { parent: f.root(base), name: "b.txt" },
+        },
+      ],
+      "local",
+      current.result,
+    ),
+  );
+  expect(r.result.object).toBe(f.tree({ "b.txt": "new" }));
+  expect(r.decisions).toEqual([]);
+});
+test("delete versus edit retains alternatives", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" }),
+    current = await f.run(
+      f.request(
+        base,
+        f.tree({ "a.txt": "new" }),
+        [
+          {
+            key: "edit",
+            kind: "editSource",
+            source: f.ref("/a.txt", "old"),
+            text: "new",
+          },
+        ],
+        "remote",
+      ),
+    );
+  const r = await f.run(
+    f.request(
+      base,
+      f.tree({}),
+      [{ key: "delete", kind: "removeEntry", source: f.ref("/a.txt", "old") }],
+      "local",
+      current.result,
+    ),
+  );
+  expect(r.decisions).toHaveLength(1);
+  expect(r.decisions[0]!.alternatives.map((a) => a.object)).toContain(
+    current.result.object,
+  );
+});
+test("selective source undo keeps a later independent edit", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "one two" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "ONE two" }),
+      [
+        {
+          key: "op",
+          kind: "editSource",
+          source: f.ref("/a.txt", "one two", [0, 3]),
+          text: "ONE",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      a.result,
+      f.tree({ "a.txt": "ONE TWO" }),
+      [
+        {
+          key: "op",
+          kind: "editSource",
+          source: f.ref("/a.txt", "ONE two", [4, 7]),
+          text: "TWO",
+        },
+      ],
+      "b",
+    ),
+  );
+  const r = await f.run(
+    f.request(
+      b.result,
+      f.tree({ "a.txt": "one TWO" }),
+      [
+        {
+          key: "op",
+          kind: "undoOperation",
+          target: { change: "a", operation: "op" },
+        },
+      ],
+      "undo",
+    ),
+  );
+  expect(r.result.object).toBe(f.tree({ "a.txt": "one TWO" }));
+});
+test("basis references follow source moved into another file within a batch", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "one two", "b.txt": "three" });
+  await f.run(
+    f.request(base, f.tree({ "a.txt": " two", "b.txt": "threeONE" }), [
+      {
+        key: "move",
+        kind: "moveSource",
+        source: f.ref("/a.txt", "one two", [0, 3]),
+        at: f.ref("/b.txt", "three", [5, 5]),
+        side: "after",
+      },
+      {
+        key: "edit",
+        kind: "editSource",
+        source: f.ref("/a.txt", "one two", [0, 3]),
+        text: "ONE",
+      },
+    ]),
+  );
+});
+test("the exploratory model's independent deletions survive selective undo", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "keep" }),
+    empty = f.tree({});
+  const deletion: SourceOperation = {
+    key: "delete",
+    kind: "removeEntry",
+    source: f.ref("/a.txt", "keep"),
+  };
+  const alice = await f.run(f.request(base, empty, [deletion], "alice"));
+  const both = await f.run(
+    f.request(base, empty, [deletion], "bob", alice.result),
+  );
+  expect(both.decisions).toEqual([]);
+  const undo = await f.run(
+    f.request(
+      alice.result,
+      base,
+      [
+        {
+          key: "undo",
+          kind: "undoOperation",
+          target: { change: "alice", operation: "delete" },
+        },
+      ],
+      "undo",
+      both.result,
+    ),
+  );
+  expect(undo.result.object).toBe(empty);
+  expect(undo.decisions).toEqual([]);
+});
+test("two separated overlaps become independent source decisions", async () => {
+  const f = new Fixture(),
+    text = "one two three",
+    base = f.tree({ "a.txt": text });
+  const ops = (a: string, b: string): SourceOperation[] => [
+    {
+      key: "a",
+      kind: "editSource",
+      source: f.ref("/a.txt", text, [0, 3]),
+      text: a,
+    },
+    {
+      key: "b",
+      kind: "editSource",
+      source: f.ref("/a.txt", text, [8, 13]),
+      text: b,
+    },
+  ];
+  const current = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "ONE two THREE" }),
+      ops("ONE", "THREE"),
+      "a",
+    ),
+  );
+  const r = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "1 two 3" }),
+      ops("1", "3"),
+      "b",
+      current.result,
+    ),
+  );
+  expect(r.decisions).toHaveLength(2);
+  expect(r.decisions.map((d) => d.subject?.range)).toEqual([
+    [0, 3],
+    [8, 13],
+  ]);
+});
+test.each([false, true])(
+  "source move carries an edit to one repeated occurrence (move first %s)",
+  async (moveFirst) => {
+    const f = new Fixture(),
+      source = "same same",
+      base = f.tree({ "a.txt": source, "b.txt": "end" });
+    const move: SourceOperation = {
+      key: "move",
+      kind: "moveSource",
+      source: f.ref("/a.txt", source, [5, 9]),
+      at: f.ref("/b.txt", "end", [3, 3]),
+      side: "after",
+    };
+    const edit: SourceOperation = {
+      key: "edit",
+      kind: "editSource",
+      source: f.ref("/a.txt", source, [5, 9]),
+      text: "SECOND",
+    };
+    const m = f.request(
+        base,
+        f.tree({ "a.txt": "same ", "b.txt": "endsame" }),
+        [move],
+        "move",
+      ),
+      e = f.request(
+        base,
+        f.tree({ "a.txt": "same SECOND", "b.txt": "end" }),
+        [edit],
+        "edit",
+      );
+    const first = await f.run(moveFirst ? m : e),
+      second = moveFirst ? e : m;
+    second.current = first.result;
+    const r = await f.run(second);
+    expect(r.decisions).toEqual([]);
+    expect(r.result.object).toBe(
+      f.tree({ "a.txt": "same ", "b.txt": "endSECOND" }),
+    );
+  },
+);
+test("empty operation results keep their insertion anchor", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "one two" });
+  await f.run(
+    f.request(base, f.tree({ "a.txt": "ONE two" }), [
+      {
+        key: "delete",
+        kind: "editSource",
+        source: f.ref("/a.txt", "one two", [0, 3]),
+        text: "",
+      },
+      {
+        key: "insert",
+        kind: "editSource",
+        source: f.op("edit", "delete", [0, 0]),
+        text: "ONE",
+      },
+    ]),
+  );
+});
+test("independent source deletions and redo retain causal contributions", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "one two" }),
+    deleted = f.tree({ "a.txt": " two" });
+  const op: SourceOperation = {
+    key: "delete",
+    kind: "editSource",
+    source: f.ref("/a.txt", "one two", [0, 3]),
+    text: "",
+  };
+  const alice = await f.run(f.request(base, deleted, [op], "alice"));
+  const bob = await f.run(f.request(base, deleted, [op], "bob", alice.result));
+  const undone = await f.run(
+    f.request(
+      alice.result,
+      base,
+      [
+        {
+          key: "undo",
+          kind: "undoOperation",
+          target: { change: "alice", operation: "delete" },
+        },
+      ],
+      "undo",
+      bob.result,
+    ),
+  );
+  expect(undone.result.object).toBe(deleted);
+  expect(undone.decisions).toEqual([]);
+  const restored = await f.run(
+    f.request(
+      undone.result,
+      base,
+      [
+        {
+          key: "undo",
+          kind: "undoOperation",
+          target: { change: "bob", operation: "delete" },
+        },
+      ],
+      "restore",
+    ),
+  );
+  const redo = await f.run(
+    f.request(
+      restored.result,
+      deleted,
+      [
+        {
+          key: "redo",
+          kind: "undoOperation",
+          target: { change: "restore", operation: "undo" },
+        },
+      ],
+      "redo",
+    ),
+  );
+  expect(redo.result.object).toBe(deleted);
+});
+test("hidden alternative edits change retained state without resolving or changing projection", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "Monday" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "Tuesday" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "Monday"),
+          text: "Tuesday",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "Wednesday" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "Monday"),
+          text: "Wednesday",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const ref: MaterialRef = {
+    material: {
+      kind: "alternative",
+      state: "accepted",
+      conflict: "day",
+      alternative: "tuesday",
+    },
+  };
+  const request = f.request(
+    b.result,
+    b.result.object,
+    [{ key: "edit", kind: "editSource", source: ref, text: "Monday" }],
+    "hidden",
+  );
+  request.alternatives = [
+    {
+      ref,
+      decision: b.decisions[0]!.key,
+      alternative: 0,
+      value: { object: f.put("Tuesday"), kind: "file" },
+    },
+  ];
+  const r = await f.run(request);
+  expect(r.result.object).toBe(b.result.object);
+  expect(r.result.state).not.toBe(b.result.state);
+  expect(r.decisions).toHaveLength(1);
+  expect(r.decisions[0]!.alternatives[0]!.object).toBe(f.put("Monday"));
+  const resolve = f.request(r.result, r.result.object, [], "resolve");
+  resolve.incoming.resolves = [r.decisions[0]!.key];
+  expect((await f.run(resolve)).decisions).toEqual([]);
+});
+
+test("the earlier source-edit corpus retains its safe and ambiguous outcomes", async () => {
+  const corpus = await Bun.file(
+    "tests/fixtures/canopy/merge-source-intent.json",
+  ).json();
+  for (const example of corpus.cases)
+    for (const reverse of [false, true]) {
+      const f = new Fixture(),
+        base = f.tree({ "note.md": example.base });
+      const execute = (e: { start: number; end: number; text: string }) =>
+        Buffer.concat([
+          Buffer.from(example.base).subarray(0, e.start),
+          Buffer.from(e.text),
+          Buffer.from(example.base).subarray(e.end),
+        ]).toString();
+      const operation = (e: {
+        start: number;
+        end: number;
+        text: string;
+      }): SourceOperation => ({
+        key: "edit",
+        kind: "editSource",
+        source: f.ref("/note.md", example.base, [e.start, e.end]),
+        text: e.text,
+      });
+      const first = reverse ? example.right : example.left,
+        second = reverse ? example.left : example.right;
+      const current = await f.run(
+        f.request(
+          base,
+          f.tree({ "note.md": execute(first) }),
+          [operation(first)],
+          "first",
+        ),
+      );
+      const result = await f.run(
+        f.request(
+          base,
+          f.tree({ "note.md": execute(second) }),
+          [operation(second)],
+          "second",
+          current.result,
+        ),
+      );
+      if (example.conflict)
+        expect(result.decisions.length, example.name).toBeGreaterThan(0);
+      else {
+        expect(result.decisions, example.name).toEqual([]);
+        expect(f.content(result.result.object, "note.md"), example.name).toBe(
+          example.expected,
+        );
+      }
+    }
+});
+test("copying a conflicted file gives the copy independent alternatives", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const copy = await f.run(
+    f.request(
+      b.result,
+      f.tree({ "a.txt": "two", "b.txt": "two" }),
+      [
+        {
+          key: "copy",
+          kind: "copyEntry",
+          source: f.ref("/a.txt", "two"),
+          destination: { parent: f.root(b.result.object), name: "b.txt" },
+        },
+      ],
+      "copy",
+    ),
+  );
+  expect(copy.decisions).toHaveLength(2);
+  expect(copy.decisions[0]!.key).not.toBe(copy.decisions[1]!.key);
+  expect(copy.decisions[1]!.alternatives.map((a) => a.object)).toEqual([
+    f.put("one"),
+    f.put("two"),
+  ]);
+});
+test("ordinary selected-alternative edits revise it without retiring its sibling", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const r = await f.run(
+    f.request(
+      b.result,
+      f.tree({ "a.txt": "old" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "two"),
+          text: "old",
+        },
+      ],
+      "back",
+    ),
+  );
+  expect(r.decisions).toHaveLength(1);
+  expect(r.decisions[0]!.alternatives.map((a) => a.object)).toEqual([
+    f.put("one"),
+    f.put("old"),
+  ]);
+});
+test("opaque deletion encloses a source choice and hidden edits update its ancestor alternative", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const removed = await f.run(
+    f.request(
+      b.result,
+      f.tree({}),
+      [{ key: "remove", kind: "removeEntry", source: f.ref("/a.txt", "two") }],
+      "remove",
+    ),
+  );
+  expect(removed.decisions).toHaveLength(2);
+  expect(removed.decisions[1]!.dependencies).toEqual([b.decisions[0]!.key]);
+  const ref: MaterialRef = {
+    material: {
+      kind: "alternative",
+      state: "state",
+      conflict: "day",
+      alternative: "selected",
+    },
+  };
+  const request = f.request(
+    removed.result,
+    removed.result.object,
+    [{ key: "edit", kind: "editSource", source: ref, text: "THREE" }],
+    "hidden",
+  );
+  request.alternatives = [
+    {
+      ref,
+      decision: b.decisions[0]!.key,
+      alternative: 1,
+      value: { object: f.put("two"), kind: "file" },
+    },
+  ];
+  const r = await f.run(request);
+  expect(r.result.object).toBe(removed.result.object);
+  expect(r.decisions[1]!.alternatives[0]!.object).toBe(
+    f.tree({ "a.txt": "THREE" }),
+  );
+});
+test("explicit selected alternative references update the visible placement", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const ref: MaterialRef = {
+    material: {
+      kind: "alternative",
+      state: "state",
+      conflict: "day",
+      alternative: "two",
+    },
+  };
+  const request = f.request(
+    b.result,
+    f.tree({ "a.txt": "THREE" }),
+    [{ key: "edit", kind: "editSource", source: ref, text: "THREE" }],
+    "explicit",
+  );
+  request.alternatives = [
+    {
+      ref,
+      decision: b.decisions[0]!.key,
+      alternative: 1,
+      value: { object: f.put("two"), kind: "file" },
+    },
+  ];
+  const r = await f.run(request);
+  expect(r.decisions[0]!.alternatives.map((a) => a.object)).toEqual([
+    f.put("one"),
+    f.put("THREE"),
+  ]);
+});
+
+test("prose insertion policy is explicit and arrival-order deterministic", async () => {
+  for (const reverse of [false, true]) {
+    const f = new Fixture(),
+      base = f.tree({ "note.md": "hello" });
+    const op = (text: string): SourceOperation => ({
+      key: "insert",
+      kind: "editSource",
+      source: f.ref("/note.md", "hello", [5, 5]),
+      text,
+    });
+    const a = f.request(
+      base,
+      f.tree({ "note.md": "hello A" }),
+      [op(" A")],
+      "a",
+    );
+    const b = f.request(
+      base,
+      f.tree({ "note.md": "hello B" }),
+      [op(" B")],
+      "b",
+    );
+    const first = await f.run(reverse ? b : a),
+      second = reverse ? a : b;
+    second.current = first.result;
+    second.rules.config = {
+      formats: { "/note.md": { proseInsertions: "preserve-both" } },
+    };
+    const result = await f.run(second);
+    expect(result.decisions).toEqual([]);
+    expect(f.content(result.result.object, "note.md")).toBe("hello A B");
+  }
+});
+
+test("malformed intent, unavailable objects, unsupported operations and resource budgets remain distinct", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old" });
+  const request = f.request(base, f.tree({ "a.txt": "new" }), [
+    {
+      key: "edit",
+      kind: "editSource",
+      source: f.ref("/a.txt", "old"),
+      text: "new",
+    },
+  ]);
+  const bad = structuredClone(request);
+  (bad.incoming.operations[0] as { kind: string }).kind = "unknown";
+  expect((await f.evaluate(bad)).outcome).toBe("unsupported");
+  const limited = structuredClone(request);
+  limited.rules.config = { maxBytes: 1 };
+  expect((await f.evaluate(limited)).outcome).toBe("limit");
+  f.objects.delete(base);
+  expect((await f.evaluate(request)).outcome).toBe("missing-context");
+});
+
+test("nested TreeIDs stay opaque through directory copies and retained state reload", async () => {
+  const f = new Fixture(),
+    boundary = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    nested = f.dir([
+      { name: "mount", tree: boundary },
+      { name: "a.txt", file: f.put("old") },
+    ]),
+    base = f.dir([{ name: "folder", directory: nested }]);
+  const source: MaterialRef = {
+    material: { kind: "basis", path: "/folder", object: nested },
+  };
+  const copy = f.dir([
+    { name: "copy", directory: nested },
+    { name: "folder", directory: nested },
+  ]);
+  const result = await f.run(
+    f.request(
+      base,
+      copy,
+      [
+        {
+          key: "copy",
+          kind: "copyEntry",
+          source,
+          destination: { parent: f.root(base), name: "copy" },
+        },
+      ],
+      "copy",
+    ),
+  );
+  const renamed = f.dir([
+    { name: "copy", directory: nested },
+    { name: "renamed", directory: nested },
+  ]);
+  await f.run(
+    f.request(
+      result.result,
+      renamed,
+      [
+        {
+          key: "rename",
+          kind: "moveEntry",
+          source,
+          destination: { parent: f.root(copy), name: "renamed" },
+        },
+      ],
+      "rename",
+    ),
+  );
+  const invalid = f.request(
+    result.result,
+    copy,
+    [
+      {
+        key: "edit",
+        kind: "editSource",
+        source: {
+          material: {
+            kind: "basis",
+            path: "/folder/mount/file",
+            object: f.put("old"),
+          },
+        },
+        text: "new",
+      },
+    ],
+    "invalid",
+  );
+  expect((await f.evaluate(invalid)).outcome).toBe("invalid");
+});
+test("a moved source choice remains inspectable and editable after state reload", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old", "b.txt": "end" });
+  const a = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "one", "b.txt": "end" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "one",
+        },
+      ],
+      "a",
+    ),
+  );
+  const b = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "two", "b.txt": "end" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "old"),
+          text: "two",
+        },
+      ],
+      "b",
+      a.result,
+    ),
+  );
+  const moved = await f.run(
+    f.request(
+      b.result,
+      f.tree({ "a.txt": "", "b.txt": "endtwo" }),
+      [
+        {
+          key: "move",
+          kind: "moveSource",
+          source: f.ref("/a.txt", "two"),
+          at: f.ref("/b.txt", "end", [3, 3]),
+          side: "after",
+        },
+      ],
+      "move",
+    ),
+  );
+  const next = await f.run(
+    f.request(
+      moved.result,
+      f.tree({ "a.txt": "", "b.txt": "endTHREE" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/b.txt", "endtwo", [3, 6]),
+          text: "THREE",
+        },
+      ],
+      "next",
+    ),
+  );
+  expect(next.decisions).toHaveLength(1);
+  expect(next.decisions[0]!.alternatives.map((a) => a.object)).toEqual([
+    f.put("one"),
+    f.put("THREE"),
+  ]);
+});
+test("opaque equal-byte replacement creates fresh origins rather than reviving the basis", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "same" });
+  const replaced = await f.run(
+    f.request(
+      base,
+      base,
+      [
+        {
+          key: "replace",
+          kind: "replaceEntry",
+          source: f.ref("/a.txt", "same"),
+          value: { file: f.put("same") },
+        },
+      ],
+      "replace",
+    ),
+  );
+  expect(replaced.result.state).toBeTruthy();
+  const current = await f.run(
+    f.request(
+      replaced.result,
+      f.tree({ "a.txt": "NEW" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "same"),
+          text: "NEW",
+        },
+      ],
+      "edit",
+    ),
+  );
+  const late = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "OLD" }),
+      [
+        {
+          key: "edit",
+          kind: "editSource",
+          source: f.ref("/a.txt", "same"),
+          text: "OLD",
+        },
+      ],
+      "late",
+      current.result,
+    ),
+  );
+  expect(late.decisions.length).toBeGreaterThan(0);
+});
+test("an old source move cannot claim lineage through equal-byte opaque replacement", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "same", "b.txt": "" });
+  const replaced = await f.run(
+    f.request(
+      base,
+      base,
+      [
+        {
+          key: "replace",
+          kind: "replaceEntry",
+          source: f.ref("/a.txt", "same"),
+          value: { file: f.put("same") },
+        },
+      ],
+      "replace",
+    ),
+  );
+  const late = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.txt": "", "b.txt": "same" }),
+      [
+        {
+          key: "move",
+          kind: "moveSource",
+          source: f.ref("/a.txt", "same"),
+          at: f.ref("/b.txt", "", [0, 0]),
+          side: "after",
+        },
+      ],
+      "move",
+      replaced.result,
+    ),
+  );
+  expect(late.decisions.length).toBeGreaterThan(0);
+});
