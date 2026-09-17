@@ -53,3 +53,54 @@ export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, 
   visit(root,true);
   return {candidate:{root,objects:new Map([...objects].filter(([hash])=>reachable.has(hash)))},operations};
 }
+
+/** Independent physical effects of one atomic editor action, all authored
+ * against the same graph. Dependent transforms require operation-result references. */
+export interface EntryActions { transfers: EntryTransfer[]; removals: string[] }
+export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, context: {change: string; candidate?: TreeSnapshot}): {candidate: TreeSnapshot; operations: SourceOperation[]} {
+  verifyTreeSnapshotGraph(graph,"sparse-files");
+  if(!actions.transfers.length && !actions.removals.length)throw Error("Empty entry action");
+  const sources=[...actions.transfers.map(t=>t.source),...actions.removals];
+  const destinations=actions.transfers.map(t=>(t.parent==="/"?"":t.parent)+"/"+t.name);
+  const overlaps=(a:string,b:string)=>a===b||a.startsWith(b+"/")||b.startsWith(a+"/");
+  for(const [i,path] of sources.entries())if(sources.slice(i+1).some(p=>overlaps(path,p))||destinations.some(p=>overlaps(path,p)))throw Error("Dependent entry actions require result references");
+  for(const [i,path] of destinations.entries())if(destinations.slice(i+1).some(p=>overlaps(path,p)))throw Error("Overlapping destinations");
+  let current=graph;const operations:SourceOperation[]=[];
+  for(const [i,transfer] of actions.transfers.entries()) {
+    const original=prepareEntryTransfer(graph,transfer,context);
+    current=prepareEntryTransfer(current,transfer,context).candidate;
+    for(const op of original.operations) {
+      const renamed=JSON.parse(JSON.stringify(op,(_key,value)=>{
+        if(value?.kind==="operation"&&value.change===context.change)return {...value,operation:`entry-${i}-${value.operation}`};
+        return value;
+      })) as SourceOperation;
+      renamed.key=`entry-${i}-${op.key}`;operations.push(renamed);
+    }
+  }
+  const objects=new Map(current.objects);let root=current.root;
+  function remove(hash:string,parts:string[]):string {
+    const bytes=objects.get(hash);if(!bytes)throw Error("Missing directory");
+    const d=decodeWireDirectory(bytes),index=d.entries.findIndex(e=>e.name===parts[0]);
+    if(index<0)throw Error("Missing removal source");
+    if(parts.length===1)d.entries.splice(index,1);
+    else {const e=d.entries[index]!;if(!e.directory)throw Error("Removal crosses boundary");e.directory=remove(e.directory,parts.slice(1));}
+    const encoded=encodeWireDirectory(d),result=hashObject(encoded);objects.set(result,encoded);return result;
+  }
+  for(const [index,path] of actions.removals.entries()) {
+    const parts=path.slice(1).split("/");
+    if(!path.startsWith("/")||parts.some(p=>!p||p==="."||p===".."||/[\\\0]/.test(p)||p.normalize("NFC")!==p))throw Error("Invalid removal path");
+    let hash=graph.root;
+    for(const [i,part] of parts.entries()) {
+      const bytes=graph.objects.get(hash);if(!bytes)throw Error("Missing basis directory");
+      const entry=decodeWireDirectory(bytes).entries.find(e=>e.name===part);
+      if(!entry || !(entry.file??entry.directory) || (i<parts.length-1&&!entry.directory))throw Error("Invalid removal source");
+      hash=(entry.file??entry.directory)!;
+    }
+    operations.push({key:`remove-${index}`,kind:"removeEntry",source:{material:{kind:"basis",path,object:hash}}});
+    root=remove(root,parts);
+  }
+  const reachable=new Set<string>();
+  function visit(hash:string,dir:boolean){if(reachable.has(hash))return;reachable.add(hash);if(dir)for(const e of decodeWireDirectory(objects.get(hash)!).entries){if(e.file)visit(e.file,false);else if(e.directory)visit(e.directory,true);}}
+  visit(root,true);
+  return {candidate:{root,objects:new Map([...objects].filter(([hash])=>reachable.has(hash)))},operations};
+}

@@ -331,10 +331,21 @@ client emission.
   the existing queue. A Native copy's fresh page IDs become subsequent `editSource`
   operations against the copy's operation-result reference. TypeScript exposes the
   corresponding durable `prepareEntryAdmission` path.
-- Directory shapes with a sibling Markdown body and tree-boundary entries retain
-  their existing snapshot path pending compound structural capture. Creation,
-  imports and trash/restore also retain their snapshot path. Filesystem observations
-  remain snapshots; matching bytes do not manufacture a move or copy claim.
+- `EntryActions` / `prepareEntryActions` retain one compound action against one
+  original graph. Native moves, renames and copies both the directory and its
+  sibling Markdown body, including a shadowed sibling beside `_index.md`. Each
+  operation has a distinct key; copy metadata edits reference the corresponding
+  copy result. Intermediate directory hashes never become basis references.
+  Construction rejects overlapping/dependent entries and verifies the complete
+  candidate. Swift and TypeScript replay the same shared entry-action fixtures.
+- Trash remains private local storage, absent from Wire. Trashing emits one
+  `removeEntry` per physical entry, atomically retained with local Trash bytes and
+  metadata. Restore recreates those entries through an ordinary snapshot, retaining
+  the private data through restart until restoration is durably admitted. It does
+  not claim a move from a nonexistent server-side `/Trash` or invent a causal undo.
+- Tree-boundary entries, creation and imports retain their existing snapshot path.
+  Filesystem observations remain snapshots; matching bytes do not manufacture a
+  move or copy claim.
 
 Source block-copy capture and causal undo/redo bindings still need explicit editor
 transaction evidence; current edits must not claim those operations by guessing
@@ -342,6 +353,8 @@ from snapshots. Remaining work stays in [Reliability 008](../plans/reliability/0
 Native review UI remains [Reliability 010](../plans/reliability/010-client-conflict-review.md).
 
 Verification includes shared preservation fixtures, equal-byte editor admission,
-queue restart, copy-result editing, actual Swift/TypeScript protocol execution
+queue restart, compound sibling-body move/copy/removal, shadowed source fidelity,
+private Trash restoration, concurrent child edits transported by a move,
+copy-result editing, actual Swift/TypeScript protocol execution
 against disposable Canopy, and macOS/iOS Simulator application builds. This
 checkpoint is implementation evidence, not an installed-client deployment record.

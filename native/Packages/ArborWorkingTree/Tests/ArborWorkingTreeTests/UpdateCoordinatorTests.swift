@@ -2135,3 +2135,48 @@ extension SourceSessionPublicationTests {
         }
     }
 }
+
+extension SourceSessionPublicationTests {
+    @Test("Sibling-body actions retain compound intent and private trash across restart", arguments: [false, true])
+    func compoundStructuralAdmissions(shadowed: Bool) async throws {
+        try await withTemporaryRoot { root in
+            let source = "---\nid: pg_pair\n---\n\n# Café\r\n"
+            let initial = try directoryBodySnapshot(stem:"pair",siblingSource:shadowed ? "Shadowed exact bytes\r\n" : source,indexSource:shadowed ? source : nil)
+            let tree = try await makeTree(initial,update:"up_initial")
+            let transport = SourceModeTransport(initial:initial,peer:initial)
+            let coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
+                sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+            let provider = WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator)
+            let parent = WorkspaceReference(tree:treeID,path:"/")
+            let renamed = try #require(try await provider.perform(.rename(reference:.init(tree:treeID,path:"/pair"),name:"renamed")))
+            let group = try #require(try await provider.perform(.createDirectory(parent:parent,name:"group")))
+            let moved = try #require(try await provider.perform(.move(reference:renamed.reference,destination:group.reference)))
+            let copied = try #require(try await provider.perform(.copy(reference:moved.reference,destination:parent)))
+            let copiedSource = try await provider.openDocument(copied.reference).snapshot().source
+            #expect(copiedSource != source) // Fresh PageID, with copy provenance.
+            #expect(copiedSource.hasSuffix("# Café\r\n"))
+            let trashed = try #require(try await provider.perform(.trash(reference:moved.reference)))
+            let queue = try await SourceAdmissionQueue(tree:treeID.rawValue,stateRoot:root)
+            let before = try await queue.retained()
+            #expect(before[0].update.operations?.map(\.kind) == ["moveEntry","moveEntry"])
+            #expect(before[2].update.operations?.map(\.kind) == ["moveEntry","moveEntry"])
+            #expect(before[3].update.operations?.filter { $0.kind == "copyEntry" }.count == 2)
+            #expect(before[3].update.operations?.contains { $0.kind == "editSource" } == true)
+            #expect(before[4].update.operations?.map(\.kind) == ["removeEntry","removeEntry"])
+            await coordinator.close(); await tree.close()
+            let reopenedTree = try await makeTree(initial,update:"up_initial")
+            let reopened = try UpdateCoordinator(workingTree:reopenedTree,transport:transport,stateRoot:root,
+                sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+            let recovered = WorkingTreeProvider(workingTree:reopenedTree,sourceCoordinator:reopened)
+            #expect(before.last?.localTrash?.nodes.contains { $0.path == trashed.reference.path && $0.source == source } == true)
+            let restored = try #require(try await recovered.perform(.restore(reference:trashed.reference)))
+            #expect(restored.reference.path == moved.reference.path)
+            #expect(try await recovered.openDocument(restored.reference).snapshot().source == source)
+            let after = try await SourceAdmissionQueue(tree:treeID.rawValue,stateRoot:root).retained()
+            #expect(Array(after.prefix(before.count)) == before)
+            #expect(after.last?.candidate.root == before[3].candidate.root)
+            #expect(after.last?.update.operations == nil) // Creation from private Trash.
+            await reopened.close(); await reopenedTree.close()
+        }
+    }
+}

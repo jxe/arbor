@@ -214,3 +214,46 @@ test("copy metadata edits bind to operation output and survive recovery", async 
   const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
   expect(evaluated.response.result.object).toBe(candidate.root);
 }));
+
+test("compound entry fixtures retain one basis and execute atomically after restart",async()=>{
+  const fixtures=await Bun.file(new URL("../../conformance/entry-actions.json",import.meta.url)).json();
+  const {prepareEntryAdmission}=await import("@arbor/canopy-client");
+  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+  for(const value of fixtures.cases)await withQueue(async(queue,root)=>{
+    const graph=decodeTreeSnapshotJSON(fixtures.graph);
+    const record=prepareEntryAdmission({change:fixtures.change,tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,entryActions:value.actions});
+    expect(record.candidate).toEqual(value.candidate);
+    expect(decodeCandidateUpdateJSON(record.update).operations).toEqual(value.operations);
+    await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
+    const candidate=decodeTreeSnapshotJSON(record.candidate);
+    const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations:value.operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    expect(evaluated.response.result.object).toBe(candidate.root);
+    expect(()=>prepareEntryAdmission({tree:fixture.tree,basis:record.basis,graph,entryActions:{transfers:[],removals:["/pair","/pair/child.md"]}})).toThrow();
+  });
+});
+
+test("compound move transports a concurrent child edit without changing the sibling body",async()=>withQueue(async(_queue,root)=>{
+  const fixtures=await Bun.file(new URL("../../conformance/entry-actions.json",import.meta.url)).json();
+  const {prepareEntryAdmission}=await import("@arbor/canopy-client");
+  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+  const {decodeWireDirectory}=await import("@arbor/wire");
+  const graph=decodeTreeSnapshotJSON(fixtures.graph),basis={kind:"accepted" as const,root:graph.root,update:"basis"};
+  const source="child é\r\n",text="Peer child é\r\n";
+  const peer=prepareSourceAdmission({tree:fixture.tree,basis,graph,sourcePath:"/pair/child.md",intent:{basis:{tree:fixture.tree,path:"/pair/child",revision:"r",source},edits:[{offset:0,length:0,replacement:"Peer "}],source:text}});
+  const move=prepareEntryAdmission({tree:fixture.tree,basis,graph,entryActions:fixtures.cases[0].actions});
+  const current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(move.candidate);
+  const objects=new Map([...graph.objects,...current.objects,...incoming.objects]);
+  const tool=new MergeTool(root);
+  const accepted=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,operations:decodeCandidateUpdateJSON(peer.update).operations!},rules:{id:"tree-default",revision:1}},objects);
+  for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
+  const result=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,object:incoming.root,operations:decodeCandidateUpdateJSON(move.update).operations!},rules:{id:"tree-default",revision:1}},objects);
+  for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
+  let hash=result.response.result.object;
+  for(const part of ["archive","moved","child.md"]){const entry=decodeWireDirectory(objects.get(hash)!).entries.find(e=>e.name===part)!;hash=(entry.file??entry.directory)!;}
+  expect(Buffer.from(objects.get(hash)!).toString()).toBe(text);
+  const rootEntries=decodeWireDirectory(objects.get(result.response.result.object)!).entries;
+  const archive=rootEntries.find(e=>e.name==="archive")!.directory!;
+  const body=decodeWireDirectory(objects.get(archive)!).entries.find(e=>e.name==="moved.md")!.file;
+  const originalBody=decodeWireDirectory(graph.objects.get(graph.root)!).entries.find(e=>e.name==="pair.md")!.file;
+  expect(body).toBe(originalBody);
+}));

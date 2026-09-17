@@ -1,0 +1,255 @@
+{
+  "change": "compound",
+  "graph": {
+    "root": "sha256:61d671ace86541c11cb46ed16433cd98f5d4c0d6374b6c2b38df28139a7d44ee",
+    "objects": [
+      {
+        "hash": "sha256:5ba918b422bb6131662a54e1b9639b5c91fa4f90fe7416fafdc3798c54bbef57",
+        "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OmY5NTkzMGY1OGVhYzA4MTllYzkyNDU4N2E5MDZmNDA0NmI4NjdiZjc2OWNmZTAwMmRhMDI2OGUyYjY3NGZiNzRkbmFtZWhjaGlsZC5tZA=="
+      },
+      {
+        "hash": "sha256:61d671ace86541c11cb46ed16433cd98f5d4c0d6374b6c2b38df28139a7d44ee",
+        "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzg6JkbmFtZWdhcmNoaXZlaWRpcmVjdG9yeXhHc2hhMjU2OmM2Mzk0NTQxZjY4MDEyY2YwNTA5ZmU0ZmIwMjlmZGI3MDI4MWYwYWI5NzY0YjlmMTUyNTIxNDBiMTA5MGRjOWaiZG5hbWVkcGFpcmlkaXJlY3Rvcnl4R3NoYTI1Njo1YmE5MThiNDIyYmI2MTMxNjYyYTU0ZTFiOTYzOWI1YzkxZmE0ZjkwZmU3NDE2ZmFmZGMzNzk4YzU0YmJlZjU3omRmaWxleEdzaGEyNTY6ZGQyMTdkMzg4YTJhMzM1NDM0N2E1MmIzNzVhZGExNTgwMGVlZDFjMjQ3NjI1YmY0MTBkMmIyOTI2NzY4NGZhZGRuYW1lZ3BhaXIubWQ="
+      },
+      {
+        "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+        "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+      },
+      {
+        "hash": "sha256:dd217d388a2a3354347a52b375ada15800eed1c247625bf410d2b29267684fad",
+        "bytes": "LS0tCmlkOiBwZ19wYWlyCi0tLQoKIyBDYWbDqQ0K"
+      },
+      {
+        "hash": "sha256:f95930f58eac0819ec924587a906f4046b867bf769cfe002da0268e2b674fb74",
+        "bytes": "Y2hpbGQgZcyBDQo="
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "compound move",
+      "actions": {
+        "transfers": [
+          {
+            "kind": "moveEntry",
+            "source": "/pair",
+            "parent": "/archive",
+            "name": "moved"
+          },
+          {
+            "kind": "moveEntry",
+            "source": "/pair.md",
+            "parent": "/archive",
+            "name": "moved.md"
+          }
+        ],
+        "removals": []
+      },
+      "candidate": {
+        "root": "sha256:b2189c1757c1b7b957b2e87cbf99340e9fba6bccfd6f149e968f845675288e2f",
+        "objects": [
+          {
+            "hash": "sha256:3a13408c1b9660ec940a00ba49392e1e530c550568f085140996702506b1c907",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkbmFtZWVtb3ZlZGlkaXJlY3Rvcnl4R3NoYTI1Njo1YmE5MThiNDIyYmI2MTMxNjYyYTU0ZTFiOTYzOWI1YzkxZmE0ZjkwZmU3NDE2ZmFmZGMzNzk4YzU0YmJlZjU3omRmaWxleEdzaGEyNTY6ZGQyMTdkMzg4YTJhMzM1NDM0N2E1MmIzNzVhZGExNTgwMGVlZDFjMjQ3NjI1YmY0MTBkMmIyOTI2NzY4NGZhZGRuYW1laG1vdmVkLm1k"
+          },
+          {
+            "hash": "sha256:5ba918b422bb6131662a54e1b9639b5c91fa4f90fe7416fafdc3798c54bbef57",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OmY5NTkzMGY1OGVhYzA4MTllYzkyNDU4N2E5MDZmNDA0NmI4NjdiZjc2OWNmZTAwMmRhMDI2OGUyYjY3NGZiNzRkbmFtZWhjaGlsZC5tZA=="
+          },
+          {
+            "hash": "sha256:b2189c1757c1b7b957b2e87cbf99340e9fba6bccfd6f149e968f845675288e2f",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWdhcmNoaXZlaWRpcmVjdG9yeXhHc2hhMjU2OjNhMTM0MDhjMWI5NjYwZWM5NDBhMDBiYTQ5MzkyZTFlNTMwYzU1MDU2OGYwODUxNDA5OTY3MDI1MDZiMWM5MDc="
+          },
+          {
+            "hash": "sha256:dd217d388a2a3354347a52b375ada15800eed1c247625bf410d2b29267684fad",
+            "bytes": "LS0tCmlkOiBwZ19wYWlyCi0tLQoKIyBDYWbDqQ0K"
+          },
+          {
+            "hash": "sha256:f95930f58eac0819ec924587a906f4046b867bf769cfe002da0268e2b674fb74",
+            "bytes": "Y2hpbGQgZcyBDQo="
+          }
+        ]
+      },
+      "operations": [
+        {
+          "key": "entry-0-entry-transfer",
+          "kind": "moveEntry",
+          "source": {
+            "material": {
+              "kind": "basis",
+              "path": "/pair",
+              "object": "sha256:5ba918b422bb6131662a54e1b9639b5c91fa4f90fe7416fafdc3798c54bbef57"
+            }
+          },
+          "destination": {
+            "parent": {
+              "material": {
+                "kind": "basis",
+                "path": "/archive",
+                "object": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f"
+              }
+            },
+            "name": "moved"
+          }
+        },
+        {
+          "key": "entry-1-entry-transfer",
+          "kind": "moveEntry",
+          "source": {
+            "material": {
+              "kind": "basis",
+              "path": "/pair.md",
+              "object": "sha256:dd217d388a2a3354347a52b375ada15800eed1c247625bf410d2b29267684fad"
+            }
+          },
+          "destination": {
+            "parent": {
+              "material": {
+                "kind": "basis",
+                "path": "/archive",
+                "object": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f"
+              }
+            },
+            "name": "moved.md"
+          }
+        }
+      ]
+    },
+    {
+      "name": "compound copy",
+      "actions": {
+        "transfers": [
+          {
+            "kind": "copyEntry",
+            "source": "/pair",
+            "parent": "/archive",
+            "name": "moved"
+          },
+          {
+            "kind": "copyEntry",
+            "source": "/pair.md",
+            "parent": "/archive",
+            "name": "moved.md"
+          }
+        ],
+        "removals": []
+      },
+      "candidate": {
+        "root": "sha256:b242facca6323ab19db8fc115be437478e1f40acec8c1ac0795824b5e4a74087",
+        "objects": [
+          {
+            "hash": "sha256:3a13408c1b9660ec940a00ba49392e1e530c550568f085140996702506b1c907",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkbmFtZWVtb3ZlZGlkaXJlY3Rvcnl4R3NoYTI1Njo1YmE5MThiNDIyYmI2MTMxNjYyYTU0ZTFiOTYzOWI1YzkxZmE0ZjkwZmU3NDE2ZmFmZGMzNzk4YzU0YmJlZjU3omRmaWxleEdzaGEyNTY6ZGQyMTdkMzg4YTJhMzM1NDM0N2E1MmIzNzVhZGExNTgwMGVlZDFjMjQ3NjI1YmY0MTBkMmIyOTI2NzY4NGZhZGRuYW1laG1vdmVkLm1k"
+          },
+          {
+            "hash": "sha256:5ba918b422bb6131662a54e1b9639b5c91fa4f90fe7416fafdc3798c54bbef57",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OmY5NTkzMGY1OGVhYzA4MTllYzkyNDU4N2E5MDZmNDA0NmI4NjdiZjc2OWNmZTAwMmRhMDI2OGUyYjY3NGZiNzRkbmFtZWhjaGlsZC5tZA=="
+          },
+          {
+            "hash": "sha256:b242facca6323ab19db8fc115be437478e1f40acec8c1ac0795824b5e4a74087",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzg6JkbmFtZWdhcmNoaXZlaWRpcmVjdG9yeXhHc2hhMjU2OjNhMTM0MDhjMWI5NjYwZWM5NDBhMDBiYTQ5MzkyZTFlNTMwYzU1MDU2OGYwODUxNDA5OTY3MDI1MDZiMWM5MDeiZG5hbWVkcGFpcmlkaXJlY3Rvcnl4R3NoYTI1Njo1YmE5MThiNDIyYmI2MTMxNjYyYTU0ZTFiOTYzOWI1YzkxZmE0ZjkwZmU3NDE2ZmFmZGMzNzk4YzU0YmJlZjU3omRmaWxleEdzaGEyNTY6ZGQyMTdkMzg4YTJhMzM1NDM0N2E1MmIzNzVhZGExNTgwMGVlZDFjMjQ3NjI1YmY0MTBkMmIyOTI2NzY4NGZhZGRuYW1lZ3BhaXIubWQ="
+          },
+          {
+            "hash": "sha256:dd217d388a2a3354347a52b375ada15800eed1c247625bf410d2b29267684fad",
+            "bytes": "LS0tCmlkOiBwZ19wYWlyCi0tLQoKIyBDYWbDqQ0K"
+          },
+          {
+            "hash": "sha256:f95930f58eac0819ec924587a906f4046b867bf769cfe002da0268e2b674fb74",
+            "bytes": "Y2hpbGQgZcyBDQo="
+          }
+        ]
+      },
+      "operations": [
+        {
+          "key": "entry-0-entry-transfer",
+          "kind": "copyEntry",
+          "source": {
+            "material": {
+              "kind": "basis",
+              "path": "/pair",
+              "object": "sha256:5ba918b422bb6131662a54e1b9639b5c91fa4f90fe7416fafdc3798c54bbef57"
+            }
+          },
+          "destination": {
+            "parent": {
+              "material": {
+                "kind": "basis",
+                "path": "/archive",
+                "object": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f"
+              }
+            },
+            "name": "moved"
+          }
+        },
+        {
+          "key": "entry-1-entry-transfer",
+          "kind": "copyEntry",
+          "source": {
+            "material": {
+              "kind": "basis",
+              "path": "/pair.md",
+              "object": "sha256:dd217d388a2a3354347a52b375ada15800eed1c247625bf410d2b29267684fad"
+            }
+          },
+          "destination": {
+            "parent": {
+              "material": {
+                "kind": "basis",
+                "path": "/archive",
+                "object": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f"
+              }
+            },
+            "name": "moved.md"
+          }
+        }
+      ]
+    },
+    {
+      "name": "private trash",
+      "actions": {
+        "transfers": [],
+        "removals": [
+          "/pair",
+          "/pair.md"
+        ]
+      },
+      "candidate": {
+        "root": "sha256:360d8e823410981e921336f3de52f244da56be8c3bbaacbcd44e34371b9caa8d",
+        "objects": [
+          {
+            "hash": "sha256:360d8e823410981e921336f3de52f244da56be8c3bbaacbcd44e34371b9caa8d",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWdhcmNoaXZlaWRpcmVjdG9yeXhHc2hhMjU2OmM2Mzk0NTQxZjY4MDEyY2YwNTA5ZmU0ZmIwMjlmZGI3MDI4MWYwYWI5NzY0YjlmMTUyNTIxNDBiMTA5MGRjOWY="
+          },
+          {
+            "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+            "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+          }
+        ]
+      },
+      "operations": [
+        {
+          "key": "remove-0",
+          "kind": "removeEntry",
+          "source": {
+            "material": {
+              "kind": "basis",
+              "path": "/pair",
+              "object": "sha256:5ba918b422bb6131662a54e1b9639b5c91fa4f90fe7416fafdc3798c54bbef57"
+            }
+          }
+        },
+        {
+          "key": "remove-1",
+          "kind": "removeEntry",
+          "source": {
+            "material": {
+              "kind": "basis",
+              "path": "/pair.md",
+              "object": "sha256:dd217d388a2a3354347a52b375ada15800eed1c247625bf410d2b29267684fad"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

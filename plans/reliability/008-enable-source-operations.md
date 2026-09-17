@@ -1,7 +1,7 @@
 # Reliability 008: Capture and submit client operations
 
-Status: PARTIAL. Source lineage, equal-byte admission, and ordinary entry move/copy
-capture are implemented; see the [capture checkpoint](../../docs/source-admission-queue.md#supported-operation-capture-checkpoint--september-17). Emit the eight authoritative operation kinds supported by the
+Status: PARTIAL. Source lineage, equal-byte admission, ordinary entry move/copy
+and compound entry actions are implemented; see the [capture checkpoint](../../docs/source-admission-queue.md#supported-operation-capture-checkpoint--september-17). Emit the eight authoritative operation kinds supported by the
 deployed merge tool. Priority: P1. Execute
 this plan on main. It owns editor capture, shared client durability and submission,
 not operation interpretation or merge policy. Native review stays in
@@ -34,9 +34,12 @@ field, local conflict hold, or coordinated per-operation cutover is required.
   authored basis, ordering, operation identity and exact resulting candidate.
 - Broaden `editSource` capture across multiple selections, insert/delete/replace,
   equal-byte edits, CRLF, combining marks and retained source spans.
-- Extend entry capture to compound sibling-body directories, tree-boundary entries,
-  creation/import and trash/restore. Ordinary rename/move/copy and post-copy page-ID
-  edits are implemented. Preserve TreeID boundaries and destination scope.
+- Extend entry capture to tree-boundary entries and creation/import where supported
+  operation forms can faithfully express the action. Compound sibling-body
+  move/copy/rename, copy page-ID edits and private-trash removals are implemented.
+  Restore intentionally remains snapshot creation from private retained material;
+  do not invent server-side Trash identity or causal undo. Preserve TreeID boundaries
+  and destination scope.
 - Extend source capture with explicit block-copy and transaction evidence for
   source move/copy and split/join. Stable-block reorders already retain verified
   lineage, including equal-byte reorders. Do not infer copies from matching text.

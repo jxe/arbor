@@ -9,6 +9,6 @@ export * from "./source-admission-queue.ts";
 
 export * from "./source-admission-publisher.ts";
 export * from "./source-document-session.ts";
-export { prepareEntryTransfer } from "./entry-transfer.ts";
+export { prepareEntryTransfer, prepareEntryActions, type EntryTransfer, type EntryActions } from "./entry-transfer.ts";
 
 export { prepareEntryAdmission } from "./source-admission-queue.ts";

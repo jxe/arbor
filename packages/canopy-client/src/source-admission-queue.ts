@@ -1,4 +1,4 @@
-import {prepareEntryTransfer, type EntryTransfer} from "./entry-transfer.ts";
+import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { applySourceEdits, type SourceEdit } from "@arbor/core";
@@ -14,7 +14,7 @@ export interface SourceAdmissionIntent {
 }
 export interface SourceAdmissionRecord {
   change: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshotJSON;
-  sourcePath: string | null; intent: SourceAdmissionIntent | null; entryTransfer?: EntryTransfer; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
+  sourcePath: string | null; intent: SourceAdmissionIntent | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
 }
 interface StoredSourceSnapshot { root: string; objects: string[] }
 type StoredSourceAdmissionRecord = Omit<SourceAdmissionRecord, "graph" | "candidate" | "update"> & {
@@ -103,20 +103,22 @@ export function prepareSourceAdmission(input: {
 }
 
 export function prepareEntryAdmission(input: {
-  change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; entryTransfer: EntryTransfer; candidate?: TreeSnapshot;
+  change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate?: TreeSnapshot;
 }): SourceAdmissionRecord {
   const change=input.change ?? crypto.randomUUID();
-  const {candidate,operations}=prepareEntryTransfer(input.graph,input.entryTransfer,{change,candidate:input.candidate});
+  if(!!input.entryTransfer === !!input.entryActions)throw Error("Specify one entry intent representation");
+  const context={change,candidate:input.candidate};
+  const {candidate,operations}=input.entryActions ? prepareEntryActions(input.graph,input.entryActions,context) : prepareEntryTransfer(input.graph,input.entryTransfer!,context);
   if(input.candidate && input.candidate.root!==candidate.root)throw Error("Entry intent does not reproduce candidate");
   const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,operations,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   decodeCandidateUpdateJSON(update);
-  return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,intent:null,entryTransfer:structuredClone(input.entryTransfer),candidate:snapshotJSON(candidate),update};
+  return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,intent:null,...(input.entryActions ? {entryActions:structuredClone(input.entryActions)} : {entryTransfer:structuredClone(input.entryTransfer)}),candidate:snapshotJSON(candidate),update};
 }
 
 function rebuildAdmission(record: SourceAdmissionRecord): SourceAdmissionRecord {
   const graph=decodeTreeSnapshotJSON(record.graph);
-  if(record.intent && record.sourcePath && !record.entryTransfer) return prepareSourceAdmission({...record,graph,intent:record.intent,sourcePath:record.sourcePath});
-  if(record.intent===null && record.sourcePath===null && record.entryTransfer) return prepareEntryAdmission({...record,graph,candidate:decodeTreeSnapshotJSON(record.candidate),entryTransfer:record.entryTransfer});
+  if(record.intent && record.sourcePath && !record.entryTransfer && !record.entryActions) return prepareSourceAdmission({...record,graph,intent:record.intent,sourcePath:record.sourcePath});
+  if(record.intent===null && record.sourcePath===null && (record.entryTransfer || record.entryActions)) return prepareEntryAdmission({...record,graph,candidate:decodeTreeSnapshotJSON(record.candidate),entryTransfer:record.entryTransfer});
   throw Error("Incomplete captured intent");
 }
 

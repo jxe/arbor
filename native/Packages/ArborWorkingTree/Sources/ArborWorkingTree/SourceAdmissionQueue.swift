@@ -21,6 +21,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     public let candidate: WireSnapshot
     public let update: WireCandidateUpdate
     public var entryTransfer: EntryTransfer?
+    public var entryActions: EntryActions?
     var localTrash: WorkingTreeLocalTrash?
 
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
@@ -107,10 +108,10 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         self.sourcePath = sourcePath; self.intent = intent; self.candidate = candidate; self.update = update
     }
 
-    /// Structural actions retain an ordinary snapshot in the same dependency queue.
-    /// No move/copy provenance is invented from its resulting bytes.
+    /// Structural actions retain captured operations when available, otherwise
+    /// genuine snapshot semantics. Never infer provenance from resulting bytes.
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
-                graph: WireSnapshot, candidate: WireSnapshot, entryTransfer: EntryTransfer? = nil) throws {
+                graph: WireSnapshot, candidate: WireSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil) throws {
         _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
@@ -119,8 +120,9 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
         self.candidate = WireSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
         self.sourcePath = nil; self.intent = nil
-        self.entryTransfer = entryTransfer
-        let prepared = try entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change)
+        guard entryTransfer == nil || entryActions == nil else { throw Self.invalid("Multiple entry intent representations") }
+        self.entryTransfer = entryTransfer; self.entryActions = entryActions
+        let prepared = try entryActions?.prepare(graph:graph, candidate:candidate, changeID:change) ?? entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change)
         if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
         self.update = WireCandidateUpdate(candidate: candidate.root, change: change, operations: prepared?.operations,
@@ -134,7 +136,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, sourcePath: sourcePath, intent: intent)
         } else {
             guard intent == nil, sourcePath == nil else { throw Self.invalid("Incomplete source intent") }
-            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, candidate: candidate, entryTransfer: entryTransfer)
+            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, candidate: candidate, entryTransfer: entryTransfer, entryActions: entryActions)
         }
         try localTrash?.validate()
         rebuilt.localTrash = localTrash
@@ -168,6 +170,7 @@ private struct StoredSourceAdmission: Codable {
     var updateObjects: [String]
     var localTrash: StoredSourceTrash?
     var entryTransfer: EntryTransfer?
+    var entryActions: EntryActions?
 }
 
 private struct SourceAdmissionJournal: Codable {
@@ -413,7 +416,7 @@ public actor SourceAdmissionQueue {
             update: update,
             updateObjects: updateObjects,
             localTrash: record.localTrash.map { .init(nodes: $0.nodes, objects: $0.objects.map(\.hash).sorted()) },
-            entryTransfer: record.entryTransfer
+            entryTransfer: record.entryTransfer, entryActions: record.entryActions
         )
     }
 
@@ -438,7 +441,7 @@ public actor SourceAdmissionQueue {
                 throw ArborWireValidationError.invalidValue("Incomplete stored source admission")
             }
             value = try SourceAdmissionRecord(change: record.change, tree: record.tree, basis: record.basis,
-                graph: snapshot(record.graph), candidate: snapshot(record.candidate), entryTransfer: record.entryTransfer)
+                graph: snapshot(record.graph), candidate: snapshot(record.candidate), entryTransfer: record.entryTransfer, entryActions: record.entryActions)
         }
         if let trash = record.localTrash {
             value.localTrash = WorkingTreeLocalTrash(nodes: trash.nodes, objects: try trash.objects.map { hash in

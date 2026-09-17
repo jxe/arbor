@@ -288,3 +288,55 @@ private struct StructuralPublicationCrash: UpdateFaultInjector {
         if point == .afterServerAcceptance { throw Failure() }
     }
 }
+
+extension LiveSourceAdmissionTests {
+    @Test("Compound sibling-body operations publish through Canopy after restart")
+    func compoundStructuralPublication() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string:address),
+              let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
+        struct Fixture: Decodable { let graph: WireSnapshot }
+        let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../conformance/entry-actions.json")
+        let fixture = try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:path))
+        let root = FileManager.default.temporaryDirectory.appending(path:"compound-live-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at:root) }
+        let client = ArborWireClient(origin:origin,credential:token)
+        let transport = ArborWireReplicaTransport(client:client)
+        let current = try await client.descriptor(tree:treeID)
+        let snapshot = try await client.snapshot(tree:treeID,root:current.tree.root)
+        let objects = Dictionary(uniqueKeysWithValues:snapshot.objects.map { ($0.hash,$0.bytes) })
+        let fixtureObjects = Dictionary(uniqueKeysWithValues:fixture.graph.objects.map { ($0.hash,$0.bytes) })
+        guard case let .directory(existing,descriptor) = try WireObjectCodec.decode(#require(objects[snapshot.root]),kind:.directory),
+              case let .directory(additions,_) = try WireObjectCodec.decode(#require(fixtureObjects[fixture.graph.root]),kind:.directory) else { Issue.record("Expected directories"); return }
+        let bytes = try WireObjectCodec.encode(.directory((existing + additions).sorted { $0.name < $1.name },childrenSource:descriptor))
+        let seed = WireCandidateUpdate(candidate:WireObjectCodec.hash(bytes),change:UUID().uuidString,objects:fixture.graph.objects + [.init(hash:WireObjectCodec.hash(bytes),bytes:bytes)])
+        _ = try await client.submitUpdateResponse(client.prepareUpdates(tree:treeID,base:.init(root:current.tree.root,update:current.tree.update),updates:[seed]))
+        let initial = try await client.descriptor(tree:treeID), tree = try await place(initial,client:client)
+        let coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
+            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        let provider = WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator)
+        let parent = WorkspaceReference(tree:TreeID(rawValue:treeID),path:"/")
+        let moved = try #require(try await provider.perform(.move(reference:.init(tree:parent.tree,path:"/pair"),destination:.init(tree:parent.tree,path:"/archive"))))
+        let copied = try #require(try await provider.perform(.copy(reference:moved.reference,destination:parent)))
+        let renamed = try #require(try await provider.perform(.rename(reference:copied.reference,name:"compound-copy")))
+        let trashed = try #require(try await provider.perform(.trash(reference:moved.reference)))
+        _ = try await provider.perform(.restore(reference:trashed.reference))
+        let records = try await SourceAdmissionQueue(tree:treeID,stateRoot:root).retained()
+        #expect(records.count == 5)
+        #expect(records[0].update.operations?.map(\.kind) == ["moveEntry","moveEntry"])
+        #expect(records[1].update.operations?.filter { $0.kind == "copyEntry" }.count == 2)
+        #expect(records[3].update.operations?.map(\.kind) == ["removeEntry","removeEntry"])
+        #expect(records[4].update.operations == nil)
+        await coordinator.close(); await tree.close()
+        let clean = try await place(initial,client:client)
+        let recovered = try UpdateCoordinator(workingTree:clean,transport:transport,stateRoot:root,
+            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        _ = try await recovered.syncOnce()
+        #expect(try await recovered.presentation().state == .current)
+        #expect(try await client.descriptor(tree:treeID).tree.root == records.last?.candidate.root)
+        let reopened = WorkingTreeProvider(workingTree:clean,sourceCoordinator:recovered)
+        #expect(try await reopened.openDocument(renamed.reference).snapshot().source.hasSuffix("# Café\r\n"))
+        #expect(try await reopened.openDocument(moved.reference).snapshot().source.contains("pg_pair"))
+        await recovered.close(); await clean.close()
+    }
+}
