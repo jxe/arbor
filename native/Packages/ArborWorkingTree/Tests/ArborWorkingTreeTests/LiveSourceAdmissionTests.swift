@@ -61,7 +61,7 @@ struct LiveSourceAdmissionTests {
         let local = try await session.admit(intent: intent("My retained alternative\n", from: r1))
         #expect(try await tree.heads().acceptedRoot == r2.tree.root)
         #expect(try await session.snapshot().source == local.source)
-        let queue = try SourceAdmissionQueue(tree: treeID, stateRoot: root)
+        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
         let original = try #require(try await queue.retained().first)
         #expect(original.basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
         await session.close(); await coordinator.close(); await tree.close()
@@ -224,7 +224,7 @@ extension LiveSourceAdmissionTests {
         await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
             try await provider.perform(.rename(reference: created.reference, name: "blocked"))
         }
-        let queue = try SourceAdmissionQueue(tree: treeID, stateRoot: root), records = try await queue.retained()
+        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root), records = try await queue.retained()
         #expect(records.count == 4)
         #expect(records[1].basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
         #expect(records[2].basis == .authored(change: records[1].change))
@@ -252,7 +252,9 @@ extension LiveSourceAdmissionTests {
         let renamed = try #require(try await resumed.perform(.rename(reference: created.reference, name: "resumed-" + UUID().uuidString)))
         _ = try await reopened.syncOnce()
         #expect(try await resumed.resolve(renamed.reference).reference.path == renamed.reference.path)
-        #expect(try await queue.retained().prefix(4).elementsEqual(records))
+        let compacted = try await queue.retained()
+        #expect(compacted.count == 1)
+        #expect(!records.map(\.change).contains(compacted[0].change))
         await reopened.close(); await recoveredTree.close()
     }
 

@@ -64,7 +64,7 @@ struct LiveEditorAdmissionTests {
         #expect(binding?.conflict == nil)
 
         if recoverDraft {
-            let unadmitted = try SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
+            let unadmitted = try await SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
             #expect(try await unadmitted.retained().isEmpty)
             // Lose the editor before debounce/admission, retaining only its own
             // recovery journal. Rebuild the replica at R2 and recover the R1 draft.
@@ -80,7 +80,7 @@ struct LiveEditorAdmissionTests {
         await binding?.flush()
         #expect(binding?.lastError == nil)
         #expect(binding?.conflict == nil)
-        let queue = try SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
+        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
         let record = try #require(try await queue.retained().first)
         #expect(record.intent?.basis.source == r1.source)
         #expect(record.intent?.basis.contentRevision == r1.contentRevision)

@@ -1,4 +1,5 @@
 import ArborKit
+import ArborObjectStore
 import ArborWorkingTree
 import ArborWire
 import Foundation
@@ -9,13 +10,14 @@ public enum WorkingTreePlacementService {
     public static func place(
         tree: WireTreeDescriptor,
         at replicaRoot: URL,
-        transport: any UpdateTransport
+        transport: any UpdateTransport,
+        platform: any ObjectStore = EmptyObjectStore()
     ) async throws -> WorkingTree {
         let current = try await transport.descriptor(tree: tree.id)
         let snapshot = try await transport.snapshot(tree: tree.id, root: current.tree.root)
         let update = current.tree.update
         guard !update.isEmpty else { throw UpdateError.replicaIsNotPlaced }
-        let workingTree = try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
+        let workingTree = try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id), platform: platform)
         let replacement = try SnapshotBridge.replacement(
             snapshot: snapshot,
             tree: TreeID(rawValue: tree.id),
