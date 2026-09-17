@@ -290,3 +290,19 @@ material in the same structural record, excluded from Wire candidates. Publicati
 and watch still install only Canopy's accepted projection into the accepted tree.
 The app activation switch remains off pending the remaining server acceptance and
 client release checks in [008](../plans/reliability/008-enable-source-operations.md).
+
+For source-enabled Native, structural admission is available only when pending
+records form one predecessor chain whose starting graph matches the installed
+accepted graph. This comparison is a local display/action policy, not a change to
+any authored identity or publication basis. Source and structural retention share
+one serialization tail so a structural capture cannot race an arriving branch.
+
+If the queue branches, navigation retains the pending structural candidate and its
+contiguous successors; if that prefix has settled, navigation uses the installed
+accepted projection. Individual document sessions keep their own retained source
+generations. Structural actions, imports and assets report
+`awaitingCanopyReconciliation` before preparing more work. Provider capabilities
+advertise that restriction; the coordinator enforces it independently of UI state.
+Publication continues and the restriction is recomputed as Canopy accepts work.
+The queue and accepted-change receipts reconstruct this policy after restart;
+there is no separate view cache, local merge engine or client-owned conflict.

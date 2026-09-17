@@ -235,6 +235,15 @@ material or operation provenance. A later source edit may depend on that retaine
 snapshot, and a structural snapshot may depend on a retained source candidate.
 Neither kind of successor may be silently rebound to an incoming projection.
 
+Clients need not implement a local merge engine. When pending authored branches
+cannot be presented as one coherent candidate, a client MAY temporarily make
+structural actions, imports and asset creation unavailable until Canopy reconciles
+them. It MUST report that limitation before acknowledging another such action,
+and MUST continue to retain valid document intent from already-open editors against
+its original basis. This restriction MUST NOT pause publication of retained work.
+The client MUST NOT treat the latest authored candidate as a complete local tree
+when that would hide other acknowledged local work.
+
 Client reads MUST make acknowledged local creations and relocations available
 while their publication is pending. Private recovery material, such as local
 trash omitted from the shared tree, MUST remain recoverable across process loss;

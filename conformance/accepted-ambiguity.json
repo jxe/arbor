@@ -767,11 +767,11 @@
       "when": [
         "Durably create a new entry as a snapshot candidate.",
         "Admit an edit from an editor still holding R1.",
-        "Rename the new entry and retain its publication dependency.",
-        "Restart, publish, lose an acceptance response, and retry exactly."
+        "Attempt to rename the new entry while the authored branches are unresolved; report that structure awaits Canopy, without acknowledging or queuing the rename.",
+        "Restart, publish, lose an acceptance response, and retry exactly. After Canopy reconciles all pending work, rename the new entry and retain its dependency."
       ],
       "expect": {
-        "local": "Acknowledged creations and each retained document generation remain readable.",
+        "local": "Acknowledged creations and each retained document generation remain readable; structural actions are temporarily unavailable while document edits and publication continue.",
         "publication": "Each original source intent and structural candidate remains recoverable with its original dependency.",
         "acceptance": "Install Canopy projection and accepted identity even when conflicted."
       },

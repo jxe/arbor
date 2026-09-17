@@ -3,6 +3,7 @@ import ArborWire
 import Foundation
 
 public enum UpdateError: Error, Equatable, Sendable {
+    case awaitingCanopyReconciliation
     case replicaIsNotPlaced
     case returnedSnapshotMissing
     case returnedSnapshotMismatch
@@ -22,6 +23,7 @@ public enum UpdateError: Error, Equatable, Sendable {
 extension UpdateError: LocalizedError {
     public var errorDescription: String? {
         switch self {
+        case .awaitingCanopyReconciliation: "Editing can continue. Creating, moving and importing items will resume after Canopy reconciles pending changes."
         case .replicaIsNotPlaced: "This replica has no accepted synchronization base."
         case .returnedSnapshotMissing: "Canopy did not return the snapshot needed to finish synchronization."
         case .returnedSnapshotMismatch: "Canopy returned content that does not match its advertised root."

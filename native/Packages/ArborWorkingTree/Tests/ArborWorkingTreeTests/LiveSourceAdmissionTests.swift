@@ -199,6 +199,61 @@ extension LiveSourceAdmissionTests {
         #expect(try await recovered.resolve(renamed.reference).reference.path == renamed.reference.path)
         await reopened.close(); await reopenedTree.close()
     }
+    @Test("Pending structural and stale source branches wait for Canopy, survive uncertain acceptance and resume")
+    func branchedStructuralPublication() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
+              let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "branch-live-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ArborWireClient(origin: origin, credential: token)
+        let transport = ArborWireReplicaTransport(client: client)
+        let initial = try await client.descriptor(tree: treeID), tree = try await place(initial, client: client)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+        let parent = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/")
+        let old = try await provider.openDocument(.init(tree: parent.tree, path: "/page")), r1 = try await old.snapshot()
+        let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "branch-" + UUID().uuidString, source: "Created locally\n")))
+        _ = try await old.admit(intent: intent("Old editor branch\n", from: r1))
+        let added = try await provider.openDocument(created.reference), a1 = try await added.snapshot()
+        let addedSource = a1.source + "Continued locally\n"
+        _ = try await added.admit(intent: intent(addedSource, from: a1))
+        #expect(await provider.capabilities().structuralActions == false)
+        await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+            try await provider.perform(.rename(reference: created.reference, name: "blocked"))
+        }
+        let queue = try SourceAdmissionQueue(tree: treeID, stateRoot: root), records = try await queue.retained()
+        #expect(records.count == 3)
+        #expect(records[1].basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
+        #expect(records[2].basis == .authored(change: records[0].change))
+        await old.close(); await added.close(); await coordinator.close(); await tree.close()
+
+        let recoveredTree = try await place(client.descriptor(tree: treeID), client: client)
+        let interrupted = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root,
+            sourceOperationEmission: true, faultInjector: StructuralPublicationCrash(),
+            publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let waiting = WorkingTreeProvider(workingTree: recoveredTree, sourceCoordinator: interrupted)
+        #expect(try await waiting.resolve(created.reference).reference.path == created.reference.path)
+        #expect(await waiting.capabilities().structuralActions == false)
+        do { _ = try await interrupted.syncOnce(); Issue.record("Expected uncertain acceptance") }
+        catch is StructuralPublicationCrash.Failure { }
+        await interrupted.close()
+        let reopened = try UpdateCoordinator(workingTree: recoveredTree, transport: transport, stateRoot: root,
+            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let resumed = WorkingTreeProvider(workingTree: recoveredTree, sourceCoordinator: reopened)
+        _ = try await reopened.syncOnce()
+        #expect(try await reopened.conflict() == nil)
+        #expect(try await resumed.openDocument(created.reference).snapshot().source == addedSource)
+        #expect(try await resumed.openDocument(.init(tree: parent.tree, path: "/page")).snapshot().source == "Old editor branch\n")
+        #expect(await resumed.capabilities().structuralActions == true)
+        let renamed = try #require(try await resumed.perform(.rename(reference: created.reference, name: "resumed-" + UUID().uuidString)))
+        _ = try await reopened.syncOnce()
+        #expect(try await resumed.resolve(renamed.reference).reference.path == renamed.reference.path)
+        #expect(try await queue.retained().prefix(3).elementsEqual(records))
+        await reopened.close(); await recoveredTree.close()
+    }
+
 }
 
 private struct StructuralPublicationCrash: UpdateFaultInjector {

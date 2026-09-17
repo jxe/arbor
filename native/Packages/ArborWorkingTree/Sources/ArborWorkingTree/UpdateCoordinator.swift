@@ -35,7 +35,7 @@ public actor UpdateCoordinator {
     public nonisolated let sourceOperationEmission: Bool
     private var sourceQueue: SourceAdmissionQueue?
     private var sourceViews: [String: CapturedSourceAdmissionBasis] = [:]
-    private var structuralTail: Task<Void, Never>?
+    private var admissionTail: Task<Void, Never>?
     private var preparedStructures: [Data: (record: SourceAdmissionRecord, node: WorkspaceNode)] = [:]
     private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
 
@@ -244,10 +244,12 @@ public actor UpdateCoordinator {
         if control.conflict != nil { value.state = .conflict }
         else if let hold = control.hold { value.state = .conflict; value.detail = hold.reason }
         else if control.attempt != nil { value.state = .requestPending }
-        else if sourceOperationEmission, let last = try await pendingSourceRecords().last {
+        else if sourceOperationEmission, try await hasSourceWork() {
             value.state = .locallyPending
-            value.localRoot = last.candidate.root
+            let local = try await sourceLocalViewState()
+            value.localRoot = local.navigation?.candidate.root ?? heads.materializedRoot
             value.localAdditions = true
+            if !local.structural { value.detail = UpdateError.awaitingCanopyReconciliation.localizedDescription }
         }
         else if heads.pendingRoot != nil { value.state = .locallyPending }
         return value
@@ -1216,17 +1218,17 @@ public actor UpdateCoordinator {
         case imported(name: String, bytes: Data, mediaType: String?, parent: WorkspaceReference)
     }
 
-    /// Serialize structural captures, but never hold the accepted tree while a
-    /// disk write or server request is in flight. Source edits keep their captures.
+    /// Serialize local admissions so structural captures cannot race a newly
+    /// retained source branch. Publication remains independent.
     func admitStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
-        let previous = structuralTail
+        let previous = admissionTail
         let task = Task {
             await previous?.value
             return try await self.retainStructure(admission)
         }
-        structuralTail = Task { _ = try? await task.value }
+        admissionTail = Task { _ = try? await task.value }
         return try await task.value
     }
 
@@ -1234,6 +1236,7 @@ public actor UpdateCoordinator {
         try requireOpen()
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let key = try encoder.encode(admission)
+        guard try await sourceStructuralActionsAvailable() else { throw UpdateError.awaitingCanopyReconciliation }
         let prepared: (record: SourceAdmissionRecord, node: WorkspaceNode)
         if let previous = preparedStructures[key] { prepared = previous }
         else {
@@ -1296,6 +1299,36 @@ public actor UpdateCoordinator {
         return records.filter { !accepted.contains($0.change) }
     }
 
+    /// Local candidates are authored branches, not merged tree projections. Only
+    /// a single dependency chain based on the installed graph permits structure.
+    /// Comparing roots here checks display coherence; authored identities remain
+    /// unchanged in every retained request.
+    private func sourceLocalViewState() async throws -> (navigation: SourceAdmissionRecord?, structural: Bool) {
+        let records = try await pendingSourceRecords()
+        guard let first = records.first else { return (nil, true) }
+        let accepted = try await workingTree.heads().acceptedRoot
+        let linear = zip(records, records.dropFirst()).allSatisfy { previous, next in
+            next.basis == .authored(change: previous.change)
+        }
+        if linear && first.graph.root == accepted { return (records.last, true) }
+
+        // Keep pending creations/moves visible while Canopy reconciles branches.
+        // Document sessions independently read their own retained source intent.
+        // If the structural prefix has settled, the installed projection owns it.
+        guard let index = records.lastIndex(where: { $0.intent == nil }) else { return (nil, false) }
+        var navigation = records[index]
+        for record in records.dropFirst(index + 1) {
+            guard record.basis == .authored(change: navigation.change) else { break }
+            navigation = record
+        }
+        return (navigation, false)
+    }
+
+    func sourceStructuralActionsAvailable() async throws -> Bool {
+        try requireOpen()
+        return try await sourceLocalViewState().structural
+    }
+
     private func hasSourceWork() async throws -> Bool { !(try await pendingSourceRecords()).isEmpty }
 
     private struct LocalSourceToken: Codable {
@@ -1324,7 +1357,7 @@ public actor UpdateCoordinator {
     /// A disposable view of the retained candidate, never a replacement of the
     /// accepted working tree. Provider reads see locally created/moved entries.
     func sourceReadProvider(readOnly: Bool = false) async throws -> WorkingTreeProvider {
-        if let record = try await pendingSourceRecords().last {
+        if let record = try await sourceLocalViewState().navigation {
             return WorkingTreeProvider(workingTree: try await candidateTree(record.candidate), readOnly: readOnly)
         }
         if try await admissions().retained().last(where: { $0.localTrash != nil })?.localTrash?.nodes.isEmpty == false {
@@ -1410,6 +1443,17 @@ public actor UpdateCoordinator {
     public func admitSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
+        let previous = admissionTail
+        let task = Task {
+            await previous?.value
+            return try await self.retainSourceIntent(intent)
+        }
+        admissionTail = Task { _ = try? await task.value }
+        return try await task.value
+    }
+
+    private func retainSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
+        try requireOpen()
         try intent.validate()
         let queue = try await admissions()
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]

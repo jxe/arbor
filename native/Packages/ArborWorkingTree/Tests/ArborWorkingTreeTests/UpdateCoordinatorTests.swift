@@ -2174,3 +2174,73 @@ extension SourceSessionPublicationTests {
         }
     }
 }
+
+extension SourceSessionPublicationTests {
+    @Test("A stale editor branch keeps pending creations visible and gates structure across restart")
+    func branchedAdmissions() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
+            let transport = SourceModeTransport(initial: initial, peer: initial)
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+            let parent = WorkspaceReference(tree: treeID, path: "/")
+            let old = try await provider.openDocument(.init(tree: treeID, path: "/note"))
+            let r1 = try await old.snapshot()
+            let created = try #require(try await provider.perform(.createMarkdown(parent: parent, name: "created", source: "New\n")))
+            let edited = try await replace("Old editor edit\n", session: old, basis: r1)
+            #expect(try await provider.children(of: parent).contains { $0.reference.path == created.reference.path })
+            #expect(await provider.capabilities().structuralActions == false)
+            #expect(await provider.capabilities().assets == false)
+            await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+                try await provider.perform(.rename(reference: created.reference, name: "renamed"))
+            }
+            await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+                try await provider.importFile(name: "blocked.bin", bytes: Data([1]), in: parent)
+            }
+            await #expect(throws: UpdateError.awaitingCanopyReconciliation) {
+                try await provider.store(asset: .init(name: "blocked.bin", bytes: Data([1])), in: parent)
+            }
+            _ = try await replace("Still editable\n", session: old, basis: edited)
+            let added = try await provider.openDocument(created.reference)
+            let addedBasis = try await added.snapshot()
+            _ = try await replace(addedBasis.source + "More\n", session: added, basis: addedBasis)
+            let queue = try SourceAdmissionQueue(tree: treeID.rawValue, stateRoot: root)
+            let records = try await queue.retained()
+            #expect(records.count == 4)
+            #expect(records[1].basis == .accepted(.init(root: initial.root, update: "up_initial")))
+            #expect(records[2].basis == .authored(change: records[1].change))
+            #expect(records[3].basis == .authored(change: records[0].change))
+            #expect(try await coordinator.presentation().localRoot == records[0].candidate.root)
+            await old.close(); await added.close(); await coordinator.close()
+            let reopened = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let recovered = WorkingTreeProvider(workingTree: tree, sourceCoordinator: reopened)
+            #expect(await recovered.capabilities().structuralActions == false)
+            #expect(try await recovered.resolve(created.reference).reference.path == created.reference.path)
+            #expect(try await recovered.openDocument(created.reference).snapshot().source == addedBasis.source + "More\n")
+            #expect(try await recovered.openDocument(.init(tree: treeID, path: "/note")).snapshot().source == "Still editable\n")
+            #expect(try await queue.retained() == records)
+            await reopened.close(); await tree.close()
+        }
+    }
+
+    @Test("A stale source candidate never replaces a newer accepted navigation graph")
+    func staleSourceNavigation() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n"), tree = try await makeTree(initial, update: "up_initial")
+            let peer = try snapshot(files: ["note.md": "Peer\n", "peer-created.md": "Keep me\n"])
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: SourceModeTransport(initial: initial, peer: peer), stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+            let old = try await provider.openDocument(.init(tree: treeID, path: "/note")), r1 = try await old.snapshot()
+            try await tree.replaceFromSystem(SnapshotBridge.replacement(snapshot: peer, tree: treeID, update: "up_peer"))
+            _ = try await replace("Local\n", session: old, basis: r1)
+            #expect(try await provider.resolve(.init(tree: treeID, path: "/peer-created")).reference.path == "/peer-created")
+            #expect(try await old.snapshot().source == "Local\n")
+            #expect(await provider.capabilities().structuralActions == false)
+            #expect(try await coordinator.presentation().localRoot == peer.root)
+            await old.close(); await coordinator.close(); await tree.close()
+        }
+    }
+}

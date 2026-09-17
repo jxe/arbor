@@ -99,7 +99,7 @@ boundary; a transport-only Wire client does not own editor admission.
   suffixes. Nested documents, coupled ancestor changes and longer source/snapshot
   histories now have conservative accepted-entry coverage. Verify deployed coverage
   before client activation. Better automatic merging is not a prerequisite.
-- Verify interleaved structural and stale-source branches across multiple open documents, including retaining a creation while an older editor admits another file. The completed mixed-queue integration test covers a linear chain; do not infer branch coverage from it.
+- Complete publication of a successor authored on a predecessor that Canopy merged into a different projection. The new branch test exposed this existing server rejection with create-A, stale-edit-B, edit-B-again. Unit tests retain all four generations (including a continuation of A) across restart. Native now limits structural actions while branches await Canopy instead of merging locally; this is not an editor admission failure. Keep activation off until the server suffix case and release checks pass.
 - Verify deployment coverage before enabling emission. Retain legacy 409 recovery
   until exact requests/drafts/suffixes have been settled or transferred. Only then
   delete the rejected-update workspace and resolution machine; ordinary errors and

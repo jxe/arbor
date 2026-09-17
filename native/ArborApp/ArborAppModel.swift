@@ -1360,6 +1360,7 @@ final class ArborWorkspaceState {
 
     private func refreshSyncPresentation(from coordinator: UpdateCoordinator) async {
         guard syncCoordinator === coordinator else { return }
+        capabilities = await provider.capabilities()
         syncPresentation = (try? await coordinator.presentation())
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
         syncConflict = try? await coordinator.conflict()

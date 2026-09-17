@@ -24,8 +24,9 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
 
     public func capabilities() async -> WorkspaceProviderCapabilities {
         if readOnly { return .readOnly }
-        if sourceCoordinator != nil {
-            return .init(structuralActions: true, assets: true, localHistory: false)
+        if let sourceCoordinator {
+            let available = (try? await sourceCoordinator.sourceStructuralActionsAvailable()) ?? false
+            return .init(structuralActions: available, assets: available, localHistory: false)
         }
         return .full
     }

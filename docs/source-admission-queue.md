@@ -209,3 +209,31 @@ gate (including real Quagmire admission), typecheck and the local-workspace macO
 build passed. One full-suite collection-row test failed initially and passed in
 isolation and on the subsequent full run. Relative-link checks introduced no new
 failures; 24 existing unresolved links remain. No deployed binary was changed.
+
+## Bounded local behavior while Canopy reconciles branches
+
+Native now preserves the pending structural view when an older open editor adds a
+source branch. Further structural actions, imports and assets are unavailable
+until the pending graph is coherent again; source admission and publication keep
+running. The queue and accepted receipts determine this state after restart.
+Provider capabilities report it and the coordinator enforces it, including calls
+made through stale UI capabilities. There is no local branch merger.
+
+Focused tests cover creating A, admitting R1-based B, continuing both documents,
+failed structural/import/asset attempts and restart with unchanged durable records.
+A separate test keeps a peer-created entry visible when an old source candidate
+predates the installed accepted graph. The live scenario covers restart, uncertain
+acceptance, reconciliation of A and B, a continuation of A, and structural actions
+resuming after publication.
+
+A stronger live trial with a second B edit reached the existing Canopy guard for a
+successor of a merged predecessor. B's first candidate excludes A, whereas its
+accepted projection includes A; the successor must retain the candidate basis.
+Do not rebase that successor locally to bypass the guard. This remains a server
+acceptance gate in 008, and the Native activation switch remains off.
+
+Validation: typecheck, all 779 TS product tests, the full cross-language protocol
+gate (73 working-tree tests, including the new live branch scenario), and the
+local-workspace macOS build passed. Relative-link checks introduced no new
+failures; 24 existing unresolved links remain. No installed app or server was
+changed by this client checkpoint.
