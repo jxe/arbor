@@ -84,10 +84,10 @@ Remaining work:
 
 - Add explicit Canopy defaults and per-tree rule selection/overrides when configuration
   is introduced. Keep rule identity/revision and evaluated inputs in accepted evidence.
-- Allow rule/merge computation to move to a sidecar if useful. Keep authorization,
-  accepted-state guards and atomic persistence in Canopy; validate returned objects
-  and decisions before committing. Define cancellation, resource limits and worker
-  failure behavior when implementing the process boundary.
+- Measure whether the implemented [merge executable](../../docs/merge-tool.md)
+  benefits from persistent sidecar supervision. Operation/format expansion, richer
+  inputs and worker lifecycle follow [013](013-merge-operations-and-formats.md).
+  Keep authorization, guards and atomic persistence in Canopy.
 - Preserve historical evidence across rule upgrades and configuration changes. A
   new rule must not silently reinterpret an old accepted decision or retry receipt.
 

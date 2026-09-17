@@ -1,3 +1,4 @@
+import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { decisionDependencies, ConflictStore, type ConflictState } from "./updates/conflict-store.ts";
 import { reconcileEntryAmbiguity, entryValue, authoredConflictBasis, changedEntryPaths } from "./updates/entry-ambiguity.ts";
 import type { DecisionPage } from "@arbor/wire";
@@ -45,14 +46,12 @@ import {
 } from "@arbor/wire";
 import {
   authorizeAccountConfigTransition,
-  mergeAccountConfigGraphs,
   readAccountConfigGraph,
   snapshotAccountConfig,
   type AccountConfigGraph,
 } from "./account-policy.ts";
 import {
   authorizeAccountConfigTransitionV2,
-  mergeAccountConfigGraphsV2,
   readAccountConfigGraphV2,
   snapshotAccountConfigV2,
   type AccountConfigGraphV2,
@@ -212,13 +211,15 @@ export class CanopyDaemon implements AsyncDisposable {
   private acceptedStore: AcceptedUpdateStore;
   private readonly observations: ObservationLog;
   private readonly objects: ObjectStore;
+  private readonly mergeTool: MergeTool;
   private readonly access: AccessControl;
   private readonly accounts: AccountDirectory;
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
 
-  private constructor(readonly dataRoot: string, db: Database) {
+  private constructor(readonly dataRoot: string, db: Database, mergeTool?: MergeToolOptions) {
     this.db = db;
+    this.mergeTool = new MergeTool(dataRoot, mergeTool);
     this.acceptedStore = new AcceptedUpdateStore(db);
     this.observations = new ObservationLog(db);
     this.objects = new ObjectStore(join(dataRoot, "objects"));
@@ -233,11 +234,11 @@ export class CanopyDaemon implements AsyncDisposable {
     });
   }
 
-  static async open(dataRoot: string, bootstrap?: CanopyBootstrap): Promise<CanopyDaemon> {
+  static async open(dataRoot: string, bootstrap?: CanopyBootstrap, mergeTool?: MergeToolOptions): Promise<CanopyDaemon> {
     await mkdir(join(dataRoot, "objects"), { recursive: true });
     const databasePath = join(dataRoot, "canopy.sqlite3");
     const db = openCanopyDatabase(databasePath);
-    const canopy = new CanopyDaemon(dataRoot, db);
+    const canopy = new CanopyDaemon(dataRoot, db, mergeTool);
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
       await canopy.bootstrap(bootstrap);
@@ -1157,7 +1158,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
     if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
     const policy = tree.policy.startsWith("account-config-")
-      ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject)
+      ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
     const baseConflicts = submittedConflicts === undefined ? new ConflictStore(this.db).get(basisUpdate!) : submittedConflicts;
@@ -1196,13 +1197,13 @@ export class CanopyDaemon implements AsyncDisposable {
         ? await reconcileSourceEdits({ id: basisUpdate!, root: baseRoot }, request.candidate, sourceIntent,
           remoteUpdate, history?.map(update => ({ update, intent: intentStore.forAccepted(update.id),
             summary: this.acceptedStore.mergeSummary(update.id) })) ?? null,
-          hash => this.objects.load(hash, proposed))
+          hash => this.objects.load(hash, proposed), this.mergeTool.sourceRule)
         : await reconcileUpdate(
         baseRoot,
         request.candidate,
         remoteTree.ref,
         (hash) => this.objects.load(hash, proposed),
-        { merge: policy.merge },
+        { merge: policy.merge ?? ((base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed)) },
       );
       const conflictStore = new ConflictStore(this.db);
       const currentConflicts = conflictStore.get(remoteUpdate.id);
@@ -1431,6 +1432,7 @@ export class CanopyDaemon implements AsyncDisposable {
     baseRoot: ObjectHash,
     account: CanopyAccount | null,
     credentialSubject: string | undefined,
+    proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
   ): UpdatePolicy {
     if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
       throw new Error("An active account device is required for configuration updates");
@@ -1473,29 +1475,8 @@ export class CanopyDaemon implements AsyncDisposable {
         if (!current) throw new Error("Account configuration has no accepted update");
         authorize(await graphAt(current.root), candidateGraph, baseGraph);
       },
-      merge: async (_base, _candidate, current, _load) => {
-        const remoteGraph = await graphAt(current);
-        const merged = v2
-          ? mergeAccountConfigGraphsV2(
-              baseGraph as AccountConfigGraphV2,
-              candidateGraph as AccountConfigGraphV2,
-              remoteGraph as AccountConfigGraphV2,
-            )
-          : mergeAccountConfigGraphs(
-              baseGraph as AccountConfigGraph,
-              candidateGraph as AccountConfigGraph,
-              remoteGraph as AccountConfigGraph,
-            );
-        const snapshot = v2
-          ? snapshotAccountConfigV2(merged.graph as Omit<AccountConfigGraphV2, "sources">)
-          : snapshotAccountConfig(merged.graph as Omit<AccountConfigGraph, "sources">);
-        return {
-          root: snapshot.root,
-          objects: snapshot.objects,
-          summary: { version: v2 ? "account-config-v2" : "account-config-v1", mergedFields: merged.mergedFields },
-          conflicts: merged.conflicts.map((path) => ({ path, reason: "account-configuration" as const })),
-        };
-      },
+      merge: (base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed,
+        v2 ? "account-config-v2" : "account-config-v1"),
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);

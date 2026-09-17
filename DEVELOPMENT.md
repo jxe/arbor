@@ -10,7 +10,7 @@ The TypeScript workspace uses Bun 1.3.14, and the cross-language client tests re
 bun install
 ```
 
-`bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, and `bun run canopyd`. `bun link` additionally exposes the `arbor`, `arborsync`, and `canopyd` binaries in the shell; the README quickstart uses that form.
+`bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, `bun run canopyd`, and `bun run arbor-merge`. The merge executable runs as a separate Bun process; see [its API and object-store boundary](docs/merge-tool.md). `bun link` additionally exposes the `arbor`, `arborsync`, `canopyd`, and `arbor-merge` executables in the shell; the README quickstart uses that form.
 
 ### Developing Arbor with Quagmire
 

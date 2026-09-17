@@ -2,7 +2,13 @@
   "name": "@arbor/stores",
   "version": "0.1.0",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./wire-collection-file": "./src/wire-collection-file.ts",
+    "./account-config": "./src/account-config.ts",
+    "./account-config-v2": "./src/account-config-v2.ts"
+  },
   "dependencies": {
     "@arbor/core": "workspace:*",
     "@arbor/data": "workspace:*",

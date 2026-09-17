@@ -2,7 +2,10 @@
   "name": "@arbor/fs",
   "version": "0.1.0",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./file-ops": "./src/file-ops.ts"
+  },
   "dependencies": {
     "@arbor/core": "workspace:*",
     "@arbor/editor": "workspace:*",

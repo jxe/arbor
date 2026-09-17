@@ -70,6 +70,8 @@
         "@arbor/core": "workspace:*",
         "@arbor/data": "workspace:*",
         "@arbor/editor": "workspace:*",
+        "@arbor/merge": "workspace:*",
+        "@arbor/object-store": "workspace:*",
         "@arbor/stores": "workspace:*",
         "@arbor/wire": "workspace:*",
         "@arbor/wire-projection": "workspace:*",
@@ -132,6 +134,28 @@
         "@arbor/editor": "workspace:*",
         "@arbor/wire": "workspace:*",
         "@parcel/watcher": "2.5.1",
+      },
+    },
+    "packages/merge": {
+      "name": "@arbor/merge",
+      "version": "0.1.0",
+      "bin": {
+        "arbor-merge": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+        "@arbor/object-store": "workspace:*",
+        "@arbor/stores": "workspace:*",
+        "@arbor/wire": "workspace:*",
+        "yaml": "2.8.2",
+        "zod": "4.3.6",
+      },
+    },
+    "packages/object-store": {
+      "name": "@arbor/object-store",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/wire": "workspace:*",
       },
     },
     "packages/render": {
@@ -204,6 +228,10 @@
     "@arbor/editor": ["@arbor/editor@workspace:packages/editor"],
 
     "@arbor/fs": ["@arbor/fs@workspace:packages/fs"],
+
+    "@arbor/merge": ["@arbor/merge@workspace:packages/merge"],
+
+    "@arbor/object-store": ["@arbor/object-store@workspace:packages/object-store"],
 
     "@arbor/render": ["@arbor/render@workspace:packages/render"],
 

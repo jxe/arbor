@@ -13,6 +13,8 @@
     "@arbor/stores": "workspace:*",
     "@arbor/wire": "workspace:*",
     "@arbor/wire-projection": "workspace:*",
-    "yaml": "2.8.2"
+    "yaml": "2.8.2",
+    "@arbor/merge": "workspace:*",
+    "@arbor/object-store": "workspace:*"
   }
 }

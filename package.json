@@ -4,14 +4,17 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.14",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "exports": {
     "./data": "./packages/data/src/index.ts"
   },
   "bin": {
     "arbor": "./packages/cli/src/index.ts",
     "arborsync": "./packages/arborsync/src/cli.ts",
-    "canopyd": "./packages/canopy/src/cli.ts"
+    "canopyd": "./packages/canopy/src/cli.ts",
+    "arbor-merge": "./packages/merge/src/cli.ts"
   },
   "scripts": {
     "arbor": "bun packages/cli/src/index.ts",
@@ -30,7 +33,8 @@
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/object-index.bench.ts",
     "seed:supplies": "bun tools/seed-supplies-fixture.ts",
-    "lab:hcloud": "bun tools/hcloud-sync-lab.ts"
+    "lab:hcloud": "bun tools/hcloud-sync-lab.ts",
+    "arbor-merge": "bun packages/merge/src/cli.ts"
   },
   "dependencies": {
     "@arbor/cli": "workspace:*",

@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AccessRule, Diagnostic, TreeID } from "@arbor/core";
-import { writeAtomic } from "@arbor/fs";
+import { writeAtomic } from "@arbor/fs/file-ops";
 import { isAlias, isMap, isSeq, parseDocument, type Document, type Node } from "yaml";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 

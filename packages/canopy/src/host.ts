@@ -176,6 +176,7 @@ function requireAccount(request: Request, canopy: CanopyDaemon): CanopyAccount {
 }
 
 export async function serveCanopy(options: {
+  mergeTool?: import("./merge-tool.ts").MergeToolOptions;
   dataRoot: string;
   publicOrigin: string;
   community?: {
@@ -198,7 +199,7 @@ export async function serveCanopy(options: {
     accounts: bootstrapAccounts,
     ...(dynamicLoopbackOrigin ? {} : { communityHost: new URL(publicOrigin).host }),
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
-  });
+  }, options.mergeTool);
   if (!dynamicLoopbackOrigin) canopy.setCommunityHost(new URL(publicOrigin).host);
   const pairingClaimAttempts = new Map<string, number[]>();
   const server = Bun.serve({

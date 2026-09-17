@@ -22,7 +22,7 @@ owns remaining compatible adoption after the completed foundational cutover. Rev
 conveniences are deferred. Experimental execution remains on its separate branch.
 
 1. [Reliability 008 — Enable operations and editor emission](reliability/008-enable-source-operations.md), one validated operation family at a time.
-2. [Reliability 009 — Canopy provenance and source-aware merges](reliability/009-canopy-provenance-merges.md), including accepted alternatives, inspection, and bounded history.
+2. [Reliability 009 — Canopy provenance and source-aware merges](reliability/009-canopy-provenance-merges.md), including accepted alternatives, inspection, and bounded history. Operation and format expansion for the separate merge executable is staged in [Reliability 013](reliability/013-merge-operations-and-formats.md).
 3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
 
 ## What to do soon

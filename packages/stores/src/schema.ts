@@ -1,5 +1,6 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { getQuickJS, type QuickJSContext, type QuickJSRuntime } from "quickjs-emscripten";
 import type { Diagnostic } from "@arbor/core";
 import { revisionOf, rowPathSegment, type JSONValue } from "@arbor/core";
@@ -67,7 +68,7 @@ export class SchemaSandbox implements AsyncDisposable {
       .replace(/export\s*\{[^}]*\};?/g, "");
     if (!/\bconst\s+schema\s*=/.test(schemaBody)) throw new Error("schema.ts must export `const schema = z.object(...)`");
     const entry = [
-      `import { z } from "zod";`,
+      `import { z } from ${JSON.stringify(Bun.resolveSync("zod", import.meta.dir))};`,
       schemaBody,
       `globalThis.__ARBOR_SCHEMA = JSON.stringify(z.toJSONSchema(schema));`,
       `globalThis.__ARBOR_PRIMARY_KEY = typeof primaryKey === "undefined" ? "null" : JSON.stringify(primaryKey);`,
@@ -77,13 +78,15 @@ export class SchemaSandbox implements AsyncDisposable {
       `  return JSON.stringify(result.success ? { ok: true, value: result.data } : { ok: false, issues: result.error.issues });`,
       `};`,
     ].join("\n");
-    const cacheRoot = join(process.cwd(), "node_modules", ".cache");
-    await mkdir(cacheRoot, { recursive: true });
-    const temporary = await mkdtemp(join(cacheRoot, "arbor-schema-"));
+    // The worker may run outside the checkout; resolve its own installed Zod
+    // and use private temporary files rather than the caller's node_modules.
+    const temporary = await mkdtemp(join(tmpdir(), "arbor-schema-"));
     const entryPath = join(temporary, "entry.ts");
-    await writeFile(entryPath, entry);
-    const build = await Bun.build({ entrypoints: [entryPath], format: "iife", target: "browser", minify: false });
-    await rm(temporary, { recursive: true, force: true });
+    let build: Awaited<ReturnType<typeof Bun.build>>;
+    try {
+      await writeFile(entryPath, entry);
+      build = await Bun.build({ entrypoints: [entryPath], format: "iife", target: "browser", minify: false });
+    } finally { await rm(temporary, { recursive: true, force: true }); }
     if (!build.success || !build.outputs[0]) throw new Error(build.logs.map(String).join("\n") || "Schema build failed");
     const bundled = await build.outputs[0].text();
     const quickJS = await getQuickJS();

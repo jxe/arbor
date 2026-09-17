@@ -41,11 +41,13 @@ export async function reconcileSourceEdits(
   if (current.conflicted || !history || history.length > 64) return rejected();
   const contributions: SourceReconciliation["contributions"] = [];
   const operations: SourceOperation[] = [];
+  const authoredChanges: Array<{ change: string; operations: SourceOperation[] }> = [];
   const changes = new Set<string>();
   const files = new Map<string, ObjectHash>();
   function append(intent: SourceIntent): boolean {
     if (changes.has(intent.change) || operations.length + intent.operations.length > 4096) return false;
     changes.add(intent.change);
+    authoredChanges.push({ change: intent.change, operations: intent.operations });
     for (const evidence of intent.evidence) files.set(evidence.path, evidence.source.object);
     for (const operation of intent.operations) {
       contributions.push({ change: intent.change, operation: operation.key });
@@ -91,7 +93,7 @@ export async function reconcileSourceEdits(
         if (!accepted || !authored || !proposed) return rejected();
         const identity = { rule: rule.id, revision: rule.revision };
         const decision = await rule.evaluate(structuredClone({ tree: current.tree, path, basis: before,
-          current: accepted, candidate: authored, proposed, contributions }));
+          current: accepted, candidate: authored, proposed, contributions, changes: authoredChanges }));
         if (decision.outcome !== "resolved") return rejected();
         rules.push({ path, ...identity, outcome: "resolved", reason: decision.reason,
           inputs: { basis: object, current: hashObject(accepted), candidate: hashObject(authored), proposed: hashObject(proposed) } });
