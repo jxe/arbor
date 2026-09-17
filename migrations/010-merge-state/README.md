@@ -3,14 +3,16 @@
 This additive offline migration creates `accepted_merge_states`. Existing accepted
 IDs, roots, receipts, observations, source evidence, conflicts and object bytes are
 unchanged. No client state or Wire migration is needed. The server and merge package
-must ship together. This worktree has not been deployed.
+must ship together. The [live cutover](live-cutover.md) deployed this migration on 2026-09-17.
 
 ## Procedure
 
 1. Prepare the server artifact and verify its production dependencies include the
    merge package, parsers and WASM files. Pause writers and take a fresh complete
    volume backup before touching the live database.
-2. With Canopy stopped and no other volume writer, run:
+2. With Canopy stopped and no other volume writer, run (Railway may first start
+   the new image in schema-mismatch maintenance mode, which opens no authority;
+   verify the old deployment is stopped and only that maintenance instance remains):
 
    ```sh
    bun migrations/010-merge-state/run.ts --offline-database /data/canopy.sqlite3

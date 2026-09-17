@@ -1,6 +1,6 @@
 # Merge authority integration checkpoint
 
-Implemented in `codex/merge-tool`; not merged to main or deployed. This is the
+Merged to main and deployed to `arb.nxhx.org` on 2026-09-17. This is the
 server integration of [operation evaluation](merge-operation-evaluation.md), with
 no public Wire, client state-machine or portable specification change.
 
@@ -67,10 +67,10 @@ The cross-language protocol gate runs disposable Canopy/Arbor Sync hosts with Sw
 Wire, working-tree and real editor-admission tests. See the
 [rehearsal record](../migrations/010-merge-state/README.md) for restored production data.
 
-Deployment remains a separate action: quiet writers, take a fresh backup, run the
-offline schema migration, deploy Canopy and its packaged worker together, then check
-installed clients against the upgraded server. Clients need no rebuild for this
-server milestone. Ship server support before enabling new editor operations.
+The server and packaged worker deployed together after quieting writers, verifying
+a fresh backup, and migrating schema 11 to 12. Clients need no rebuild for this
+server milestone. See the [live cutover record](../migrations/010-merge-state/live-cutover.md).
+Ship server support before enabling new editor operations.
 
 September 17 verification: the full product suite passed 957 tests. TypeScript
 checking, the CLI build, migration tests, repository-wide relative-link audit (no
@@ -80,9 +80,8 @@ passed. The restored-backup rehearsal preserved every old accepted row.
 The Dockerfile's package payload was copied to an isolated directory, installed
 with frozen production-only dependencies, and exercised with the pinned Bun 1.3.14
 runtime. The worker ran outside the checkout and passed a TypeScript WASM-parser
-merge through Canopy's response/closure validation. No Docker/Podman runtime is
-available on this Mac, so an actual Linux container image build remains a deployment
-gate; the production package smoke is not evidence of an image build.
+merge through Canopy's response/closure validation. The subsequent Railway deployment built and health-checked the actual Linux image;
+see the live cutover record for its revision and image digest.
 
 The final focused suite also passed all 205 merge/authority tests on Bun 1.3.14,
 including snapshot-conflict identity preservation and the eight-operation lifecycle.

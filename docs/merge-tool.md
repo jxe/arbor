@@ -1,8 +1,8 @@
 # Merge executable and shared objects
 
 The reference implementation has a TypeScript merge package, `@arbor/merge`, and
-an `arbor-merge` executable script run by Bun. This checkpoint is implemented on
-`codex/merge-tool`; it is not deployed. The authority integration adds schema 12 ownership records; it does not change
+an `arbor-merge` executable script run by Bun. It is on main and deployed to
+`arb.nxhx.org`. The authority integration adds schema 12 ownership records; it does not change
 object layout, public Wire, or require a client cutover. See the
 [integration checkpoint](merge-authority-integration.md) and
 [offline migration](../migrations/010-merge-state/README.md).

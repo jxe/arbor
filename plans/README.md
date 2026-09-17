@@ -14,24 +14,23 @@ Whole-entry accepted conflicts are sufficient; the
 finer-grained storage upgrade remains deferred in
 [Canopy storage 002](canopy-storage/002-composable-conflict-fragments.md).
 
-The [Protocol-ready milestone](../docs/protocol-ready.md) defines and transports intent while preserving snapshot-only behavior. Semantic execution remains explicitly unsupported. Follow these remaining plans:
+The historical [Protocol-ready milestone](../docs/protocol-ready.md) established intent transport. Canopy now executes the eight specified operation kinds through its merge process. Follow these remaining plans:
 
 The [consolidated target contract](../docs/update-wire-contract.md) and its paired
 models now live on main. The sequence is spec, Canopy validation/retention, client
 emission, accepted conflicts, client resolution, then incremental operation and
 merge-rule improvements. [Reliability 011](reliability/011-compatible-accepted-ambiguity.md)
 owns remaining compatible adoption after the completed foundational cutover. Review caching and other
-conveniences are deferred. Experimental execution remains on its separate branch.
+conveniences are deferred. The merge process and its authority integration are on main.
 
 1. [Reliability 008 — Client operation capture and submission](reliability/008-enable-source-operations.md), on main: retain exact intent and emit new forms once Canopy can safely record them, without waiting for semantic merge support.
 2. [Reliability 009 — Canopy intent retention and forwarding](reliability/009-canopy-provenance-merges.md), on main: specify the recorded-versus-validated contract, retain and authorize material, forward to the tool, and own acceptance and deployment.
 3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
 
 [Reliability 013 — Merge operations and formats](_done/reliability/013-merge-operations-and-formats.md)
-is complete on `codex/merge-tool`, with a verified tool-only support contract for
-all operation families and the format/language matrix. It is not deployed. The
-client and Canopy plans remain authoritative for emission, retention and installation;
-no old/new evaluator compatibility path is required for that installation.
+is complete and integrated on main, with all operation families and the format/language
+matrix supported by the deployed merge process. The client and Canopy plans own
+broader emission, future retention contracts and configurable policy.
 
 ## What to do soon
 

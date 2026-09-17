@@ -1,24 +1,13 @@
 # Reliability 009: Remaining Canopy provenance and policy work
 
-Status: PARTIAL, with the authority integration implemented in `codex/merge-tool`
-and not deployed. See the [integration checkpoint](../../docs/merge-authority-integration.md)
-and [schema-12 rehearsal](../../migrations/010-merge-state/README.md) for completed
-work and verification. This plan contains only remaining work.
+Status: PARTIAL. The eight-operation authority integration is on main and deployed.
+See the [integration checkpoint](../../docs/merge-authority-integration.md) and
+[live cutover](../../migrations/010-merge-state/live-cutover.md) for completed work.
+This plan contains only remaining work.
 
 [008](008-enable-source-operations.md) owns client capture/submission;
 [010](010-client-conflict-review.md) owns review. The tool's operation/language
 milestone is [013](../_done/reliability/013-merge-operations-and-formats.md).
-
-## Next deployment
-
-- Review and merge the worktree. Package Canopy and the merge executable together;
-  use one operation execution path, with on-demand workers initially.
-- Perform the schema-12 server-only cutover using the migration runbook and a fresh
-  backup. Verify installed source clients and filesystem snapshot clients, accepted
-  conflicts, continued publication, replay and restart. Existing clients do not need
-  a coordinated rebuild or Wire change for this milestone.
-- Record live deployment evidence separately from local rehearsal. Enable new client
-  operations only after the corresponding server support is installed.
 
 ## Future retention contract expansion
 
