@@ -1509,8 +1509,11 @@ class Engine {
       basis = clone(base);
     for (const operation of request.incoming.operations)
       await this.apply(authored, basis, operation, request.incoming.change);
-    const wrapped = new Set<string>(this.pendingEnclosures);
+    const wrapped = new Set<string>([...this.pendingEnclosures].filter(key => !resolved.has(key)));
     for (const decision of authored.decisions) {
+      // Explicitly guarded replacement need not preserve the selected pieces of
+      // the choice it resolves. Unguarded siblings still follow normal tracking.
+      if (resolved.has(decision.key)) continue;
       for (const [index, alternative] of decision.alternatives.entries()) {
         if (!alternative.node) continue;
         const old = base.nodes[alternative.node],
@@ -2118,20 +2121,21 @@ class Engine {
                       continue;
                     }
                   }
+                  const selectedSide = request.rules.config?.conflictProjection === "current" ? 0 : 1;
                   const path = this.path(base, id),
                     object = await this.project(base, id);
                   contentDecisions.push({
                     key: `${request.incoming.change}:${id}:${start}:${end}`,
                     kind: "content",
                     affected: [id],
-                    selected: 1,
+                    selected: selectedSide,
                     subject: {
                       material: { kind: "basis", path, object },
                       range: [start, end],
                     },
                     placement: {
                       node: id,
-                      pieces: clone(versions[1]!),
+                      pieces: clone(versions[selectedSide]!),
                       anchor: start,
                     },
                     alternatives: await Promise.all(
@@ -2175,7 +2179,7 @@ class Engine {
                   });
                   selected.push({
                     range: [start, end] as [number, number],
-                    pieces: versions[1]!,
+                    pieces: versions[selectedSide]!,
                   });
                 } else selected.push(...group);
               }

@@ -90,17 +90,32 @@ struct LiveSourceAdmissionTests {
         #expect(try await reopenedSession.snapshot().source == "Peer at R2\n")
         let current = try await peer.descriptor(tree: treeID)
         let inspection = try await peer.conflicts(tree: treeID, state: current.tree.update, root: current.tree.root)
-        guard case let .array(decisions) = inspection.fields["decisions"], decisions.count == 1,
-              case let .object(decision) = decisions[0], case let .string(conflict) = decision["id"],
-              case let .array(alternatives) = decision["alternatives"] else {
-            Issue.record("Expected one complete accepted decision"); return
+        guard case let .array(decisions) = inspection.fields["decisions"], !decisions.isEmpty else {
+            Issue.record("Expected accepted choices"); return
+        }
+        let expectedHashes = Set(["Peer at R2\n", "My continued alternative\n"].map { WireObjectCodec.hash(Data($0.utf8)) })
+        // A whole-source continuation can enclose an earlier, narrower choice.
+        // Both remain inspectable and are resolved with their complete guards.
+        let complete = decisions.compactMap { value -> [String: WireReadValue]? in
+            guard case let .object(fields) = value, case let .array(choices) = fields["alternatives"] else { return nil }
+            let hashes = choices.compactMap { value -> String? in
+                guard case let .object(a) = value, case let .object(v) = a["value"], case let .string(hash) = v["file"] else { return nil }
+                return hash
+            }
+            return Set(hashes) == expectedHashes ? fields : nil
+        }
+        let decision = try #require(complete.first)
+        guard case let .string(conflict) = decision["id"], case let .array(alternatives) = decision["alternatives"] else {
+            Issue.record("Missing decision identity"); return
         }
         #expect(alternatives.count == 2)
         if path == "/sub/child" {
             guard case let .array(affected) = decision["affected"], case let .object(parent) = affected.first else {
                 Issue.record("Missing nested decision location"); return
             }
-            #expect(parent["within"] == .array([.string("sub")]))
+            guard case let .object(material) = parent["material"] else { Issue.record("Missing source material"); return }
+            #expect(material["path"] == .string("/sub/child.md"))
+            #expect(parent["range"] != nil)
         }
         let hashes = alternatives.compactMap { value -> String? in
             guard case let .object(fields) = value, case let .object(content) = fields["value"],
@@ -115,8 +130,15 @@ struct LiveSourceAdmissionTests {
             }
             return id
         }
-        let resolution = WireCandidateUpdate(candidate: current.tree.root, operations: [],
-            resolves: [.init(state: current.tree.update, conflict: conflict, alternatives: identities)], objects: [])
+        let guards = try decisions.map { value -> WireResolutionDeclaration in
+            guard case let .object(d) = value, case let .string(id) = d["id"], case let .array(values) = d["alternatives"] else { throw ArborWireValidationError.invalidValue("Missing guard") }
+            return .init(state:current.tree.update, conflict:id, alternatives:try values.map { value in
+                guard case let .object(a) = value, case let .string(id) = a["id"] else { throw ArborWireValidationError.invalidValue("Missing alternative") }
+                return id
+            })
+        }
+        #expect(guards.contains { $0.conflict == conflict && Set($0.alternatives) == Set(identities) })
+        let resolution = WireCandidateUpdate(candidate: current.tree.root, operations: [], resolves:guards, objects: [])
         var staleResolution = resolution
         staleResolution.change = UUID().uuidString
         staleResolution.resolves[0].state = firstConflict.tree.update

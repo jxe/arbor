@@ -43,8 +43,11 @@ including when that candidate became a hidden alternative. Matching uses retaine
 origins, never byte equality. Exact retries use immutable receipts even if the
 worker is unavailable. Unvalidated source intent is never downgraded to a snapshot.
 
-The initial Canopy policy requests whole-file content choices with the current
-projection selected. The tool still supports fine source choices. Deleting,
+The original deployment requested whole-file choices. The current implementation
+defaults to independent source choices, with current material selected; an explicit
+`mergeTool.contentChoices: "file"` option retains whole-file presentation. Format
+rules can still require coupled choices. Inspection ranges bind to the actual
+accepted file hash and alternatives expose exact retained fragment objects. Deleting,
 replacing or moving an ancestor may create a whole-root enclosing decision with
 independent child decisions retained. Dependencies form the tool's acyclic constraint
 graph; keeping a parent can leave its children open, while discarding guarded child
@@ -53,9 +56,8 @@ retain their exact candidate alongside current and any merged projection.
 
 The implementation remains conservative at snapshot barriers and unsupported format
 structures. Historical rule results and accepted receipts are not recomputed.
-Native's new review UI, broader editor capture, configurable Canopy/tree policies,
-and a future retain-only opaque-operation envelope remain separate work. Unknown
-operation kinds are still invalid under the existing portable contract.
+Native's new review UI, broader editor capture and configurable Canopy/tree policies
+remain separate work. Unknown operation kinds are still invalid under the existing portable contract.
 
 ## Verification and deployment boundary
 

@@ -10,7 +10,7 @@ let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireC
 let tree: string, base: string, root: ObjectHash, objects: Map<ObjectHash, Uint8Array>;
 const token = "source-test-owner";
 async function start(mergeTool?: import("../../../packages/canopy/src/merge-tool.ts").MergeToolOptions) {
-  running = await serveCanopy({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, mergeTool });
+  running = await serveCanopy({ dataRoot: dir, accounts: [{ handle: "owner", token, communityWriter: true }], publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, mergeTool: {contentChoices: "file", ...mergeTool} });
   client = new WireClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.canopy[Symbol.asyncDispose](); }
@@ -920,5 +920,71 @@ test("large historical batches split without changing their accepted basis", asy
   expect(result.results[0]!.update.root).toBe(update.candidate);
   await stop();await start();
   expect((await client.submitUpdates(tree,request)).results[0]!.update.id).toBe(result.results[0]!.update.id);
+  await running.canopy.verifyIntegrity();
+});
+
+test("independent source conflicts expose ranges and resolve separately across restart", async () => {
+  await stop(); await start({contentChoices:"source"});
+  const file = decodeWireDirectory(objects.get(root)!).entries.find(e => e.name === "note.md")!.file!;
+  async function changes(first: string, last: string): Promise<CandidateUpdate> {
+    const operations = [[0, first], [2, last]].map(([offset, text], index) => ({
+      key: `part-${index}`, kind: "editSource" as const,
+      source: {material: {kind: "basis" as const, path: "/note.md", object: file}, range: [Number(offset), Number(offset)+1] as [number,number]}, text: String(text),
+    }));
+    const executed = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
+    return {change: crypto.randomUUID(), candidate: executed.root, operations, resolves: [], objects: [...executed.generated].map(([hash,bytes])=>({hash,bytes})), deltas: []};
+  }
+  await client.submitUpdates(tree, {base, updates:[await changes("A","C")]});
+  const conflict = (await client.submitUpdates(tree,{base,updates:[await changes("X","Z")]})).results[0]!.update;
+  const page = await client.conflicts(tree,conflict.id,conflict.root);
+  expect(page.decisions).toHaveLength(2);
+  expect(page.decisions.map(d=>d.affected[0]!.range)).toEqual([[0,1],[2,3]]);
+  expect(page.decisions.every(d=>d.kind==="content" && d.alternatives.every(a=>!a.placement))).toBe(true);
+  await stop(); await start({contentChoices:"source"});
+  expect(await client.conflicts(tree,conflict.id,conflict.root)).toEqual(page);
+  const first = page.decisions[0]!;
+  const resolved = (await client.submitUpdates(tree,{base:conflict.id,updates:[{
+    change:crypto.randomUUID(),candidate:conflict.root,operations:[],resolves:[{state:conflict.id,conflict:first.id,alternatives:first.alternatives.map(a=>a.id)}],objects:[],deltas:[],
+  }]})).results[0]!.update;
+  expect(resolved.conflicted).toBe(true);
+  const remaining=await client.conflicts(tree,resolved.id,resolved.root);
+  expect(remaining.decisions).toHaveLength(1);
+  expect(remaining.decisions[0]!.id).toBe(page.decisions[1]!.id);
+  await running.canopy.verifyIntegrity();
+});
+
+test("source choice alternatives replace only their range and preserve an independent choice", async () => {
+  await stop(); await start({contentChoices:"source"});
+  const a=await rangeCandidate([{range:[0,1],text:"AAA"},{range:[2,3],text:"CCC"}]);
+  const b=await rangeCandidate([{range:[0,1],text:"X"},{range:[2,3],text:"Z"}]);
+  await client.submitUpdates(tree,{base,updates:[a]});
+  const accepted=(await client.submitUpdates(tree,{base,updates:[b]})).results[0]!.update;
+  const page=await client.conflicts(tree,accepted.id,accepted.root);
+  expect(page.decisions.map(d=>d.affected[0]!.range)).toEqual([[0,3],[4,7]]);
+  const snap=await client.snapshot(tree,accepted.root);
+  const file=decodeWireDirectory(snap.objects.get(snap.root)!).entries.find(e=>e.name==="note.md")!.file!;
+  expect(page.decisions.every(d=>d.affected[0]!.material.kind==="basis" && d.affected[0]!.material.object===file)).toBe(true);
+  const decision=page.decisions[0]!, hidden=decision.alternatives.find(a=>a.id!==decision.selected)!;
+  if (!("file" in hidden.value)) throw Error("Expected retained source bytes");
+  const response=await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${decision.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${accepted.id}`,{headers:{authorization:`Bearer ${token}`}});
+  expect(await response.text()).toBe("X");
+  const bytes=new TextEncoder().encode("XbCCC\r\n"),hash=hashObject(bytes);
+  const directory=decodeWireDirectory(snap.objects.get(snap.root)!);
+  directory.entries.find(e=>e.name==="note.md")!.file=hash;
+  const encoded=encodeWireDirectory(directory),candidate=hashObject(encoded);
+  const result=(await client.submitUpdates(tree,{base:accepted.id,updates:[{
+    change:crypto.randomUUID(),candidate,
+    operations:[
+      {key:"choose",kind:"copySource",source:{material:{kind:"alternative",state:accepted.id,conflict:decision.id,alternative:hidden.id}},at:decision.affected[0]!,side:"before"},
+      {key:"remove-selected",kind:"editSource",source:decision.affected[0]!,text:""},
+    ],
+    resolves:[{state:accepted.id,conflict:decision.id,alternatives:decision.alternatives.map(a=>a.id)}],
+    objects:[{hash,bytes},{hash:candidate,bytes:encoded}],deltas:[],
+  }]})).results[0]!.update;
+  expect(result.root).toBe(candidate);
+  const remaining=await client.conflicts(tree,result.id,result.root);
+  expect(remaining.decisions).toHaveLength(1);
+  expect(remaining.decisions[0]!.id).toBe(page.decisions[1]!.id);
+  expect(remaining.decisions[0]!.affected[0]!.range).toEqual([2,5]);
   await running.canopy.verifyIntegrity();
 });

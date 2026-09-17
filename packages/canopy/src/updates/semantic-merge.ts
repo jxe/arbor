@@ -254,7 +254,7 @@ export class SemanticMerge {
       rules: {
         id: "tree-default",
         revision: 1,
-        config: { contentChoices: "file", conflictProjection: "current" },
+        config: { contentChoices: this.tool.contentChoices, conflictProjection: "current" },
       },
       ...(alternatives.length ? { alternatives } : {}),
     };
@@ -297,7 +297,17 @@ export class SemanticMerge {
       }
       return "/" + names.join("/");
     };
-    const decisions = state.decisions.map((d) => {
+    const projectedFile = async (path: string) => {
+      let object = result.object;
+      for (const name of path.slice(1).split("/")) {
+        const directory = decodeWireDirectory(await this.read(object, objects));
+        const entry = directory.entries.find(e => e.name === name);
+        if (!entry || !(entry.file ?? entry.directory)) throw new Error("Decision placement is absent");
+        object = (entry.file ?? entry.directory)!;
+      }
+      return object;
+    };
+    const decisions = await Promise.all(state.decisions.map(async (d) => {
       const node = d.placement ? state.nodes[d.placement.node] : undefined;
       const affected: MaterialRef[] =
         node && node.active && !d.context
@@ -306,7 +316,7 @@ export class SemanticMerge {
                 material: {
                   kind: "basis",
                   path: path(node.id),
-                  object: node.object,
+                  object: await projectedFile(path(node.id)),
                 },
                 range: [
                   d.placement!.anchor,
@@ -333,7 +343,7 @@ export class SemanticMerge {
           ).values(),
         ],
       }));
-      const entry = d.kind === "content" && d.placement;
+      const entry = d.kind === "content" && d.placement && !d.subject?.range;
       const logical = entry
         ? d.subject?.material.kind === "basis"
           ? d.subject.material.path
@@ -359,7 +369,7 @@ export class SemanticMerge {
         actions: ["resolveConflict"],
       };
       return { key: d.key, inspection };
-    });
+    }));
     const dependencies = [
       ...(await verifyIntentRetention([result.state, authored.state], (hash) =>
         this.read(hash, objects)

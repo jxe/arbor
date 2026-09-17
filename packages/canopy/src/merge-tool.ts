@@ -31,11 +31,14 @@ export interface MergeToolOptions {
   command?: string[];
   timeoutMs?: number;
   maxConcurrent?: number;
+  /** Presentation policy; source choices remain coupled when the format requires it. */
+  contentChoices?: "source" | "file";
 }
 
 export class CheckpointBatchTooLargeError extends Error {}
 
 export class MergeTool {
+  get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
   private readonly shared: ObjectStore;
   private active = 0;
   private readonly waiting: Array<() => void> = [];
