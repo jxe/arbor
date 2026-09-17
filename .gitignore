@@ -4,6 +4,7 @@ packages/render/dist/
 playwright-report/
 test-results/
 .arbor-lab/
+/.backups/
 .DS_Store
 .env
 native/Packages/*/.build/
