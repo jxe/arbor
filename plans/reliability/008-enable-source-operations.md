@@ -1,124 +1,106 @@
-# Reliability 008: Enable source operations incrementally
+# Reliability 008: Capture and submit client operations
 
-Status: IN PROGRESS after the foundational cutover. Priority: P1. Work on main per Joe. This plan owns operation execution and editor emission; [009](009-canopy-provenance-merges.md) owns merge intelligence, and [010](010-client-conflict-review.md) owns review UX.
+Status: READY for client capture work; broader network emission depends on the
+retention contract in [009](009-canopy-provenance-merges.md). Priority: P1. Execute
+this plan on main. It owns editor capture, shared client durability and submission,
+not operation interpretation or merge policy. Native review stays in
+[010](010-client-conflict-review.md).
 
-Historical experiment evidence remains on `codex/source-intent-experiment`, through
-`b76870b` for the source-edit engine and `e5fd139` for the later contract work.
-Inspect that branch's `docs/source-edit-experiment.md` before promoting engine code.
-The engine, editor harness and experiment-only fixtures are not part of this main
-checkout. Target semantic models here do not implement execution.
+This is one of three coordinated plans: 008 clients, 009 Canopy, and Reliability
+013 (`plans/reliability/013-merge-operations-and-formats.md` on `codex/merge-tool`)
+for full operation semantics and format/language rules. The merge tool can develop
+against fixtures before client changes ship. A client need not wait for semantic
+support when Canopy can safely accept its explicitly recorded, unvalidated intent.
 
-## Outcome and boundaries
+## Starting point and contract gate
 
-Enable each operation in [the source-intent contract](../../spec/10-source-intent.md) only when Canopy can validate, execute, reconcile, and persist it safely and clients can emit it durably. Installed Native emits supported `editSource` operations and explicit structural snapshots; filesystem clients send `operations: null`. Deployed Canopy supports the [source execution foundation](../../docs/exact-source-execution.md) and [accepted ambiguity lifecycle](../../docs/accepted-entry-conflicts.md). Preserve that fail-closed behavior for every operation not yet enabled. No API version fork, silent snapshot fallback, or residual field.
+Inspect git status, current source and tests before trusting plan prose. Read the
+[goal source-intent contract](../../spec/10-source-intent.md), Wire codecs and fixtures,
+Swift/TS working-tree clients, Quagmire source ledger and editor bridge. The
+[source queue](../../docs/source-admission-queue.md),
+[installed source cutover](../../docs/native-source-cutover.md), and
+[accepted conflicts](../../docs/accepted-entry-conflicts.md) record existing evidence.
+Installed Native already emits supported source edits; filesystem clients emit
+snapshots. This plan contains remaining work, not a request to rebuild that foundation.
 
-Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Canopy's update/store path, `packages/canopy-client/src/sync-state.ts`, Swift `WireOperations.swift`, `WireModels.swift`, and `ArborWorkingTree/UpdateCoordinator.swift` before implementing. Recheck Quagmire ownership and the exact-source ledger before editor changes; follow repository local-workspace and release-pin instructions.
+Today supplied operations are authoritative intent. Before sending a broader subset,
+009 must specify and deploy the distinction between recorded intent and verified
+execution. Do not silently ignore an authoritative operation or weaken validation
+of the already supported subset. No versioned API, capability advertisement, residual
+field, local conflict hold, or coordinated per-operation cutover is required.
 
-## 1. Build the smallest execution foundation
+## 1. Capture intent at its source
 
-The [exact-basis executor and candidate validator](../../docs/exact-source-execution.md)
-and atomic evidence storage are implemented and tested. Schema 11 migration 009 preserves history and provenance from schema 8, 9 or 10
-in disposable tests; the [live server cutover](../../migrations/009-nested-conflict-locations/live-cutover.md) is complete. Public
-acceptance now executes the exact-basis subset and atomically stores evidence,
-including equal-byte edits. Disjoint concurrent edits from one accepted basis now merge using retained
-contributions and explicit rule evidence. Cross-basis correspondence, snapshot
-attribution for the actual emitted subset beyond the implemented [whole-entry choices](../../docs/accepted-entry-conflicts.md), and validation of that subset remain before client emission. Fine-grained range decisions are deferred and are not an emission prerequisite.
+- Capture editing transactions before serialization loses move/copy/undo distinctions.
+  Map editor positions to exact UTF-8 material through the source ledger. Retain the
+  authored basis, ordering, operation identity and exact resulting candidate.
+- Broaden `editSource` capture across multiple selections, insert/delete/replace,
+  equal-byte edits, CRLF, combining marks and retained source spans.
+- Capture entry rename/move/copy/remove/replace, including directories and assets;
+  preserve TreeID boundaries and destination scope.
+- Capture source move/copy, paragraph/list reorder and split/join as operations or
+  faithful compositions. Equal final bytes do not make copy and move equivalent.
+- Carry operation-result and alternative references where the authoring action
+  identifies them. Keep edits to hidden alternatives distinct from resolution.
+- Preserve causal targets for undo/redo. Do not represent selective undo as restoring
+  an old tree snapshot; if causal evidence is unavailable, retain the actual edit
+  without inventing an undo claim.
+- Start with Native/Quagmire and the maintained Swift/TS client APIs. Integrate the
+  TS session consumer into its eventual editor host. Do not invent confident editor
+  intent from filesystem observations; genuine snapshots remain first-class.
 
-- Implement exact basis resolution for accepted updates and preceding submitted candidates. Check object reachability, file hashes, UTF-8 boundaries, TreeID scope, authorization, and immutable origin bindings. Resolve output references in causal order; reject forward references, cycles, retired origins, and contradictory reused change identities.
-- Persist admitted operation records, origin bindings, derivation, and any unresolved state atomically with accepted update/ref/observation. Include provenance-only transitions even when the projected root is unchanged. Supply a bounded retention and resynchronization policy before exposing retained outputs.
-- Interpret a complete operation array against its exact basis and compare its resulting graph to `candidate`, byte for byte. Reject unexplained changes and false lineage. Do not use a matching root as proof that the operations are redundant.
-- Keep snapshot-only acceptance working. Snapshot correspondence may be conservative; it must never invent explicit resolution or undo.
-- Preflight the whole batch against the enabled operation set before applying a prefix. Supported-operation conflicts keep the existing sequential completed/failed/suffix contract.
+Local capture and fixtures can precede server deployment. Network emission of new
+forms starts only after 009's envelope, references and retention support is verified.
 
-Acceptance: fixtures for malformed and stale references, cross-tree references, unauthorized historical objects, candidate mismatch, false lineage, duplicate origins, restart/replay, metadata-only CAS, and rollback after injected failures. Old accepted history must remain readable after a rehearsed offline storage migration.
+## 2. Make the shared client own durability and submission
 
-## 2. Enable in useful slices
+- EditorBridge owns exact source mapping, selections and editor transactions. The
+  working-tree client owns basis binding, identities, admission, durable records,
+  retries and acknowledgement. Keep these policies enforced by types/state transitions.
+- Retain candidate bytes and exact captured operations atomically before acknowledging
+  admission. Carry the distinction between recorded and validated evidence through
+  transport, recovery, bootstrap and retained history; acceptance is not proof of
+  semantic validation.
+- Coalesce only unsent work with compositional lineage. Freeze submitted prefixes;
+  retries resend the same digest-covered intent, and later edits retain their own
+  authored predecessors. Do not rewrite an R1 edit against a newly observed R2.
+- Preserve operations and dependencies through in-flight requests, other-page edits,
+  mixed structural/source changes, restart and equal-root accepted transitions.
+- Do not drop intent because today's rule cannot interpret it. Use only the explicit
+  retention contract; if a form is not safely retainable, keep the local work and
+  report that concrete admission problem rather than guessing a fallback meaning.
+- Keep normal publication and remote catch-up running while accepted choices remain
+  unresolved. Do not create a client merge engine over the pending queue.
+- Persist explicit resolution guards with the submitted operations; ordinary editing
+  or byte equality never resolves a choice. Review presentation belongs to 010.
 
-Follow [011](011-compatible-accepted-ambiguity.md)'s single foundational cutover.
-For each row, implement, deploy and verify server acceptance support first, then
-release client emission of the supported input forms. Keep baseline snapshot clients
-working throughout. Record the server prerequisite and verified destinations with
-the release evidence; no runtime support advertisement is needed. Update `status.md`
-with the exact supported subset. No per-operation coordinated release is required.
+## 3. Enable collection independently of merge quality
 
-| Slice | Operations | Required discriminating cases |
-| --- | --- | --- |
-| Exact source edits | `editSource` | insert/delete/replace; emoji and combining marks; untouched Markdown fidelity; verified retained spans; zero-width anchors; edits ending at old base bytes |
-| Entry changes | `moveEntry`, `copyEntry`, `removeEntry`, `replaceEntry` | rename plus concurrent content edit; directory descendants; destination collision; removal versus unseen child; nested tree boundaries |
-| Source relocation | `moveSource`, `copySource` | paragraph/list reorder plus peer edit; duplicate identical paragraphs; copy followed by independent edits to source and copy; cross-file movement |
-| Explicit alternatives | ordinary operations targeting alternative material plus `resolves` declarations | edit hidden alternative; preserve unresolved state at equal bytes; stale state/alternative-set guard; independent conflicts; reviewed result plus unattempted suffix |
-| Causal undo | `undoOperation` | undo move after content edit; undo copy without deleting source; undo deletion with intervening insert; overlapping later edit retained for review |
-
-The explicit-alternative slice depends on 009's accepted-conflict storage and inspection foundation. Whole-entry replacement/removal uses the common operation and resolution contract. Implement the specified non-text inspection and verify format constraints before enabling its review UI.
-
-## 3. Preserve editor intent before sending
-
-### Next milestone: durable stale-basis admission and complete client acceptance
-
-Joe's two client goals take priority over finer-grained Canopy storage: remove
-stale-revision editor conflicts, then retire the client-owned rejected-update
-machine/UI after preserving existing retained work. Use whole-entry accepted
-conflicts for this milestone. [Canopy storage 002](../canopy-storage/002-composable-conflict-fragments.md)
-owns the deferred fragment graph, migration and finer-grained lifecycle.
-
-The reducers capture exact base source/revision in admission effects. Native passes
-a validated `WorkspaceDocumentIntent` and independently retains its guarded patch;
-legacy recovery records remain readable. This is source-level recovery evidence,
-**not by itself** a publication-ready tree basis. The new [source admission queue](../../docs/source-admission-queue.md)
-now captures tree bases atomically and durably retains validated candidate/operation
-chains in Swift and TS, with shared exact-request vectors and restart/failure tests.
-Swift now has an opt-in session/publication runner: retained candidate views,
-immutable predecessor requests, receipt settlement, restart retries and policy-aware
-editor draft recovery. Native now always selects source emission; unexpected legacy work fails safely for recovery. Its rejected-update machine and UI are removed in source. The [installed Mac/iPhone cutover](../../docs/native-source-cutover.md) passed source publication and restart checks. Swift structural snapshots, imports and assets now share the durable source queue, with pending provider reads and private Trash recovery. Mixed publication and uncertain-acceptance restart pass through disposable Canopy. TS now has session/publication library APIs
-with disposable-server coverage; host integration and broader source/editor release gates remain. A production Swift session now
-passes root and nested stale range admission after multiple peer updates, restart,
-hidden-candidate continuation and second-client resolution through disposable Canopy. Legacy providers retain their
-revision checks and recovery behavior.
-
-Ownership: the editor bridge maps editing transactions to exact source edits and
-owns selection, undo and uncommitted editor state. The working-tree client owns
-tree-basis binding, validation, identity allocation, durable admission and publication
-records, restart and acknowledgement. Canopy owns reconciliation and decisions.
-The bridge's independent recovery journal is a backup, never a second publication
-queue. Keep these policies in client types and transitions rather than requiring
-each editor host to implement them. The future TS working-tree client uses the same
-boundary; a transport-only Wire client does not own editor admission.
-
-- Integrate the TS session/publication consumer into its eventual editor host and broaden the Swift integration,
-  carrying the exact capture through equal-source observations and recovery. Preserve these
-  dependencies through coalescing, other-page edits, in-flight requests, restart,
-  root-equal transitions, and selection of a hidden alternative. TS and Swift clients
-  must enforce these invariants; never silently rebuild an old edit against current.
-- Carry the tested TS consumer policy into its eventual editor host.
-  The Swift protocol harness covers real Quagmire admission and divergent
-  editor-only draft recovery through Canopy; installed source publication and
-  restart checks now also pass.
-  Plain disk editor compare-and-swap behavior is outside this Canopy contract.
-- Broaden 009's conservative acceptance to the actual snapshot and source forms
-  clients emit, including existing structural writes. Source successors of merged
-  predecessors now have conservative acceptance. Nested documents, coupled ancestor changes and longer source/snapshot
-  histories now have conservative accepted-entry coverage. Verify deployed coverage
-  before client activation. Better automatic merging is not a prerequisite.
-- Install the tested Native cleanup when the user can quit both apps. Source admission
-  is already installed; this build removes the now-unused rejected-update UI and
-  machinery. Preserve the existing backups. Verify normal opening, continued
-  publication and restart after installation. Evidence is in the
+- Ship the Canopy retention contract first, then enable client emission one operation
+  family at a time. Semantic rule support may arrive later. Record actual destination
+  readiness in release evidence rather than adding a negotiation endpoint.
+- Preserve supported authoritative execution while collecting additional intent under
+  the new explicit semantics. Never rewrite an old pending request into the new form
+  under the same identity; specify recovery/transition behavior with 009.
+- Test coordinated Arbor/Quagmire edits locally, then follow the documented release,
+  exact pin and local-workspace workflow. Use real editor transactions as release gates.
+- Install the previously tested Native rejected-update cleanup when the user can quit
+  both apps, preserving backups and verifying opening, publication and restart. This
+  remaining deployment task is separate from building new operation capture; see the
   [queue checkpoint](../../docs/source-admission-queue.md#rejected-update-retirement-september-17).
-
-
-
-
-Acceptance fixture: editor reads R1, watch installs R2, R1 edit is durably admitted,
-process exits, original intent is submitted, Canopy accepts overlap, another edit
-continues, and a second client resolves through Canopy inspection. Exercise both
-languages plus real Native admission; a fake provider test is not this release gate.
-
-
-- Capture authored transactions before serialization loses move/copy/undo distinctions. Map Quagmire positions to exact UTF-8 source using its ledger; editor-local identities do not cross Wire. Implement the same source contract for any second maintained editor rather than a speculative adapter.
-- Generate change/operation identities while preparing the durable generation. Coalesce unsent edits with compositional lineage, then freeze the submitted prefix. Undo/redo must retain causal references across coalescing; where evidence is incomplete, prepare a separate snapshot element.
-- Carry the full candidate and operations through editor admission, working-tree persistence, bootstrap adoption, retry, longer prefixes, and suffix replay. A transport delta is never an authored operation. Preserve unsupported requests and provide a visible upgrade reason.
-- Enable one editor operation at a time after the corresponding server tests pass. Do not turn plain external-file observations into confident editor intent.
 
 ## Verification and completion
 
-Add paired examples that have identical snapshots but different move/copy/undo intent; assert different origins and the appropriate merge result. Run focused TS/Swift conformance plus editor ledger/coordinator tests during each slice, then the relevant `DEVELOPMENT.md` gates. Exercise crash points before admission, after durable preparation, after acceptance, and before materialization. Test coordinated Arbor/Quagmire changes locally before publishing a release. Archive this plan only after every supported slice is documented and verified; record implementation subsets in status and remaining specification gaps explicitly.
+Maintain paired fixtures with identical snapshots but different move/copy/undo intent.
+Assert original bases, identities and referenced material survive every durable
+boundary, including uncertain acceptance and restart. Test a Canopy that retains but
+does not interpret an operation, then a newer tool validating it for a subsequent
+merge without changing the original receipt. Test invalid envelopes, unavailable
+material, unsupported retention, stale resolution and false lineage distinctly.
+
+Update the client state-machine spec, TypeScript and Swift models, shared conformance
+fixtures and reference docs for contract changes. Run focused client/ledger tests and
+[development gates](../../DEVELOPMENT.md). Real Native admission plus disposable
+Canopy must demonstrate R1 capture, R2 arrival, retained intent, accepted ambiguity,
+continued editing and another client's guarded resolution. Record delivered slices
+in status/docs and remove completed tasks here. Review caching remains deferred.

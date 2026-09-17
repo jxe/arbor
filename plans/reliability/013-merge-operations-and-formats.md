@@ -1,61 +1,63 @@
-# Reliability 013: Expand merge operations and format rules
+# Reliability 013: Complete merge-tool operation and language support
 
-Status: READY for phased work after the [merge-tool checkpoint](../../docs/merge-tool.md)
-is reviewed and landed. Priority: P1. This plan owns the operation/format expansion
-matrix; [008](008-enable-source-operations.md) owns client emission and operation
-admission, [009](009-canopy-provenance-merges.md) owns authoritative reconciliation
-and provenance, and [010](010-client-conflict-review.md) owns Native review. The
-[packfile](../canopy-storage/001-pack-object-storage.md) and
-[fragment storage](../canopy-storage/002-composable-conflict-fragments.md) plans own
-storage evolution. None is a prerequisite merely to add a format rule.
+Status: READY for independent tool development on `codex/merge-tool`. Priority: P1.
+This is the tool-only track of three plans: [008](008-enable-source-operations.md)
+owns client capture/submission on main; [009](009-canopy-provenance-merges.md) owns
+Canopy retention, forwarding, authority and deployment on main. This plan owns
+`@arbor/merge`: operation interpretation, source correspondence, format/language
+policy and proposed results. The [process checkpoint](../../docs/merge-tool.md) is
+implemented; its deployment is 009's task, not a prerequisite for this development.
 
-## Goal and boundaries
+## Outcome and meaning of full support
 
-Preserve exact intent across more edits and formats, automatically resolving only
-when evidence and the selected rule justify it. Canopy retains authority; the merge
-executable reads immutable material and proposes content and decisions. A format
-rule may preserve duplication for prose but reject the same combination for code,
-keyed records or binary formats. Ambiguity is an ordinary accepted state.
+Implement every operation family in the [goal contract](../../spec/10-source-intent.md)
+and the format/language matrix below, with exact execution, reconciliation and
+explicit ambiguity. Full support means valid inputs have defined, source-preserving
+behavior and uncertain cases preserve choices; it does not mean every conflict can
+be automatically resolved or that every programming language is semantically decidable.
+Maintain explicit syntax/subset coverage per language and extend the matrix as real
+usage requires. Invalid execution and missing context are distinct from ambiguity.
 
-Inspect current code/tests before implementing each slice. The portable spec
-specifies the goal state; do not weaken it to match the current executable. Reuse
-material references and authored operations rather than introducing parser-specific
-Wire identities or a second replacement language. Client-visible protocol changes
-require paired TypeScript/Swift models, shared fixtures and reference API docs.
-The internal executable protocol has no Swift consumer or client capability endpoint.
+Build against self-contained fixtures and shared immutable objects without waiting
+for editor capture, Native review or production Canopy changes. Canopy owns accepted
+identity, authorization, guards, durable state and retention. The tool never connects
+to its database or reimplements those authorities. Rule-specific evidence can remain
+open within a common request/result contract.
 
-## 1. Establish an expansion corpus and richer rule inputs
+## 1. Complete the evaluation model and golden corpus
 
-- Record each case's exact base/current/incoming bytes, authored operations and
-  provenance, expected preserved contributions, accepted alternatives, and allowed
-  automatic decisions. Test both arrival orders when semantics permit; explicitly
-  document any projection-order policy instead of confusing it with lost intent.
-- Extend normal rule input objects to expose unresolved alternatives, their material
-  bindings and dependencies when a rule needs them. Keep accepted-state identity
-  distinct from projection bytes. Do not send database rows or the entire history.
-- Preserve each change's authored basis and causal ordering, including operation
-  outputs used by later operations. Make missing context explicit; never fabricate
-  lineage from matching text. A supplied proposal is evidence to validate, not
-  permission to assume it preserves every contribution.
-- Define new/retained/resolved decision proposals without letting the executable
-  mint accepted identities. Existing choices survive omission. Automatic dispositions
-  need explicit evidence and Canopy policy validation; guarded user resolutions
-  remain Canopy-owned. Model coupled decisions without enumerating all combinations.
-- Keep a common result/evidence envelope with open rule-specific details. Capture
-  selected rule identity, revision, configuration and evaluated material so an
-  upgrade does not reinterpret historical accepted results or request receipts.
+- Extend base/current/incoming material to include relevant unresolved alternatives,
+  dependencies, exact authored operations, bases and causal order. Coordinate the
+  common envelope with 009; interpret operation payloads here. Recorded claims are
+  not validated merely because Canopy retained them.
+- Execute known operations against their exact bases and verify declared candidate
+  coverage, output bindings and lineage. Never infer a complete operation list from
+  equal bytes or silently ignore an unrecognized operation. Return a typed inability
+  to evaluate when context or semantics is missing; Canopy owns fallback acceptance.
+- Distinguish execution validation from reconciliation and automatic resolution.
+  Support collection-only/shadow use by returning proposals/evidence without any
+  accepted-state side effects. Do not retroactively reinterpret old receipts.
+- Describe new, retained and resolved decision proposals using material references,
+  selected projections and dependencies. Keep durable identity assignment in Canopy.
+  Existing choices survive omission; source/file/directory decisions may be coupled.
+- Build golden inputs with exact bytes, operations and provenance, expected results,
+  contributions and preserved alternatives. Test relevant arrival orders and exact
+  replay; document projection-order policy separately from commutativity.
+- Maintain library/process parity and bounded evaluation. References identify immutable
+  bytes, while causal context establishes meaning. Do not require full database
+  histories, parser-internal identities or a new replacement language.
 
-Gate: hidden-alternative edits, equal-root/different-state inputs, mixed snapshot
-and operation histories, coupled directory choices, replay and missing context all
-preserve contributions through both the library and process boundary.
+Gate: hidden-alternative edits, equal-root/different-state inputs, snapshot barriers,
+missing context, candidate mismatch, false lineage, dependent operations and coupled
+choices have explicit tested outcomes before broader rule activation.
 
-## 2. Expand operation families in vertical slices
+## 2. Implement every operation family
 
-Each row is a separately reviewable slice: define/fixture semantics, implement exact
-execution and safe reconciliation in Canopy/the tool, then enable client emission.
-Backend support ships first; no operation-advertisement API or coordinated client
-cutover is required. Unsupported or invalid authored operations remain explicit
-admission errors; valid operations whose overlap is uncertain become accepted choices.
+Deliver each row as exact execution plus semantic reconciliation and adversarial
+fixtures. Tests may author operations directly; no client implementation is needed
+to prove tool behavior. 009 handles installation/activation and 008 handles capture.
+The retained operation envelope may ship before these semantics, allowing real intent
+to be collected without incorrectly claiming it has already been validated.
 
 | Operation family | Required behavior and adversarial cases |
 | --- | --- |
@@ -68,16 +70,40 @@ admission errors; valid operations whose overlap is uncertain become accepted ch
 | Selective undo | `undoOperation` targets a causal contribution, not an old snapshot. Retain independent later edits, competing deletions, restoration anchors and undo activity even when bytes are unchanged. Coordinate retention with storage plans before client activation. |
 | Composite transformations | Split/join blocks, list conversion, extraction and symbol rename should first compose existing operations plus exact lineage. Add a new operation only when a concrete case cannot be faithfully expressed; update the goal spec and both clients together. |
 
-Gate per row: exact execution, interleaving, alternative preservation, restart,
-request replay, dependent batch elements, stale resolution guards, and independent
-publication while choices remain open. Maintain unsupported-case fixtures until a
-slice is enabled; never claim syntax parsing alone establishes safe merge semantics.
 
-## 3. Add format and language rules
+For each family test concurrent and sequential combinations, deleted/moved anchors,
+independent contributions after copies, equal-byte intent, UTF-8 boundaries, nested
+TreeID boundaries and explicit alternatives. Undo requires supplied retained inverse
+material; return missing-context rather than inventing it. Operation execution must
+not normalize untouched source.
 
-Start with the first three rows, then choose language priorities from actual Arbor
-usage. Parsing and serialization must preserve unmodified bytes and opaque syntax.
-Rule selection can inspect source structure; an extension alone is not proof.
+## 3. Build source correspondence and composable decisions
+
+- Prefer verified lineage over heuristic correspondence. Use headings, list structure,
+  stable page IDs, record keys and language bindings as evidence with known scope.
+  Repeated text and nonunique names remain ambiguous; similarity is not identity.
+- Translate edits through verified moves and structural transformations; copies get
+  distinct lineage. Align snapshot changes conservatively when explicit operations
+  are unavailable, retaining uncertainty instead of synthesizing authored intent.
+- Propose independent fine-grained choices where justified and coupled decisions where
+  needed, without enumerating every whole-document combination. Handle hidden and
+  selected alternatives, opaque replacement and parent/child dependencies.
+- Explain alignments, rule decisions, evaluated inputs and configuration. Parsing and
+  automatic-resolution policy remain separate: duplication may be valid prose but
+  invalid code or keyed data. Merely editing an alternative is not resolution.
+- Keep parser caches disposable and keyed by content, analyzer revision and relevant
+  context/configuration. A parser cache cannot become authority for material identity.
+
+Tool fixtures can prove finer-grained behavior before 009/storage plans can persist
+it. Keep the deployed conservative representation usable until that integration is
+ready; do not describe prototype range decisions as deployed acceptance support.
+
+## 4. Complete the format and language matrix
+
+Start with Markdown, JSON/JSONL and YAML/TOML, then collections and code languages.
+Choose later language order from actual usage while retaining all rows as planned
+scope. Preserve unmodified bytes, comments and opaque syntax. Explicitly document
+syntax constructs that require conservative alternatives.
 
 | Format | First useful rules | Cases that must remain explicit |
 | --- | --- | --- |
@@ -91,38 +117,38 @@ Rule selection can inspect source structure; an extension alone is not proof.
 | HTML / XML / CSS | Validated element/attribute or selector/declaration identity and source-preserving edits. | Repeated siblings, namespaces, significant order, CSS cascade and duplicate properties. |
 | Binary/media | Opaque replacement choices first; exact identical-result coalescing must preserve provenance. Later add specific container/metadata rules only with validated codecs. | Never concatenate arbitrary bytes. Renames, copies and independent entries can merge without claiming competing binary content can. |
 
-Embedded languages delegate only well-identified regions, preserving their host
-syntax and mapping evidence back to original material. Executable/custom schema
-validation remains sandboxed; project code must not run with Canopy authority.
 
-## 4. Select, measure and deploy rules independently
+Delegate embedded languages only for well-identified regions, preserving host syntax
+and mapping evidence back to source material. Never evaluate project code with host
+IO authority to decide a merge. Keep custom schema execution inside its sandbox.
 
-- Add Canopy defaults and per-tree rule/configuration overrides. Rule revisions and
-  configuration must be retained with decisions. Default conservatively when no rule
-  applies; do not make Native or filesystem clients duplicate format policy.
-- Measure cold-start latency, request/object IO, parser memory and real merge load.
-  Keep on-demand execution unless a measured workload benefits from a supervised
-  persistent worker. If adopting a sidecar, define session/job ownership, cancellation,
-  restart, bounded concurrency and staging cleanup using the same evaluation contract.
-- Before introducing object GC or packfiles, implement leases for active input graphs,
-  staged inputs, generated output awaiting commit and retained alternative/provenance
-  roots. Rehearse crash, orphan-job cleanup, backup and pruning; shared object access
-  alone is not a retention protocol.
-- Roll out one operation/format slice at a time. Preserve old rule evidence and exact
-  retries. New executables may add rules before Canopy selects them; clients emit new
-  operations only after deployed server support is verified. No client cutover for a
-  rule-only improvement.
+## 5. Make rules independently installable and measurable
+
+- Give each rule explicit identity, revision, configuration and evaluated-input evidence.
+  Validate configurations in the tool; 009 owns Canopy defaults and per-tree selection.
+  A rule upgrade does not rewrite historical results or replay semantics.
+- Package additional rules behind the same executable API. Preserve old rule behavior
+  where retained jobs require it, or report unsupported evaluation explicitly. Keep
+  custom details open without weakening the shared result validation contract.
+- Measure cold/warm latency, object IO, parser memory and large-file behavior. Respect
+  resource budgets and cancellation. Improve the persistent evaluation mode if useful;
+  009 owns worker supervision, staging lifetime, credentials and GC leases.
+- Supply captured fixture requests and executable releases to 009 for shadow evaluation
+  before activation. Editors can collect intent through 008 before these rules ship.
+  No client capability-advertisement endpoint or per-rule coordinated cutover.
 
 ## Verification and completion
 
-Extend the golden corpus with both intended resolutions and intentional refusals.
-False automatic resolution is the primary regression; track it separately from merge
-coverage. Include generated/differential cases for duplication, causality, paths,
-source fidelity and language scope. Check exact bytes, contributions and alternative
-sets, not only rendered content or parse success.
+For every operation/language pair record supported syntax, exact execution, expected
+resolutions and intentional refusals. Add generated/differential cases for causality,
+duplicates, ordering, malformed source and binding changes. Successful parsing alone
+never proves semantic equivalence. False automatic resolution is the primary regression;
+measure it separately from merge coverage.
 
-Run library/process parity, worker-failure acceptance, Canopy integration,
-protocol fixtures and applicable [development gates](../../DEVELOPMENT.md). Measure
-large inputs and bound resource use. Record each delivered slice and limitations in
-status/docs; remove its remaining-work entries here. Archive this plan only when its
-chosen scope is complete, without claiming every language is universally mergeable.
+Run the golden corpus through both library and executable, including fresh/persistent
+workers, malformed requests, missing objects, limits and deterministic evidence.
+Use disposable Canopy integration to verify returned proposals can be validated and
+retained; do not require installed clients to complete tool-only slices. Run applicable
+[development gates](../../DEVELOPMENT.md). Record delivered subsets in status/docs,
+remove completed work here, and archive only when every chosen row has an explicit,
+verified support contract rather than an unqualified claim to merge all programs.
