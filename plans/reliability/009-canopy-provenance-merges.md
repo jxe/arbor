@@ -53,9 +53,14 @@ and undo activity even when they project to identical bytes or empty source;
 packing must preserve them. Prototype state serialization is evidence for the
 design, not a production layout or a reason to introduce packfiles prematurely.
 
-Choose the smallest production representation that passes the corpus: composable conflict expressions with provenance may be sufficient; use a richer operation graph where tests demonstrate the need. Compare these choices on nested conflicts, selective undo, move/copy lineage, storage growth, and garbage collection before committing to a graph implementation.
+The [durable fragment storage proof](../../docs/conflict-fragment-storage.md) validates
+independent source choices, hidden and length-changing edits, and ancestor/opaque
+replacement choices across restart. It is isolated from the host and schema. Use
+that evidence when selecting production storage; selective undo, move/copy lineage,
+storage growth and garbage collection remain unvalidated. Do not confuse its
+exact-state mutation API with production stale-basis reconciliation.
 
-- Integrate the tested same-basis region partition/projection into durable decisions, inspection and guarded partial resolution; it is not yet used by acceptance. Extend root and nested entry alternatives to independent source ranges and coupled ancestor changes. Range inputs currently retain whole-file choices. Preserve the existing snapshot/hidden-alternative and equal-root guarantees, including continuation after a selected fragment changes length.
+- Integrate the tested region partition and composable fragment graph into the existing accepted transaction, inspection and guarded partial resolution; neither is yet used by acceptance. Preserve the existing snapshot/hidden-alternative and equal-root guarantees, including continuation after a selected fragment changes length. An ancestor resolution that discards unresolved descendants must guard those decisions in the same atomic update. Retain nested choices rather than enumerating whole-file combinations when an opaque replacement needs a larger decision.
 - Atomically commit accepted state identity, provenance, projection, conflict signal, and watch observation. Use accepted-update CAS. Preserve exact-request replay and authorization of retained material.
 - Extend the implemented accepted-state-scoped conflict inspection beyond entry decisions: locations, complete alternative identities, source/object references, selection, causal evidence, and explanation. Specify and fixture any additional read DTOs in TypeScript and Swift together before the UI consumes them; do not expose private graph internals or download a whole history to edit a file.
 - Implement alternative-target edits and broader resolution forms on top of current whole-entry guarded resolution. Commit independent resolutions separately when appropriate; stale reviews retain the person's draft and all newer evidence.
