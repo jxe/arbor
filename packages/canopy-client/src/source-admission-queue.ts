@@ -100,7 +100,7 @@ export function validateSourceAdmissions(records: SourceAdmissionRecord[], tree:
 const writers = new Map<string, Promise<unknown>>();
 /** One client process owns a state directory, as with the existing sync state.
  * Instances in that process serialize commits to the same canonical path.
- * No publication runner consumes this journal until operation emission is enabled.
+ * SourceAdmissionPublisher consumes the journal only when its host enables emission.
  */
 export class SourceAdmissionQueue {
   readonly path: string;

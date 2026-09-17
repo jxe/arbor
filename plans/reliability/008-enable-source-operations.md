@@ -10,7 +10,7 @@ checkout. Target semantic models here do not implement execution.
 
 ## Outcome and boundaries
 
-Enable each operation in [the source-intent contract](../../spec/10-source-intent.md) only when Canopy can validate, execute, reconcile, and persist it safely and clients can emit it durably. Current clients send `operations: null`; source-built Canopy accepts the [exact-basis subset](../../docs/exact-source-execution.md), while deployed Canopy still rejects operation-bearing batches. Preserve that fail-closed behavior for every operation not yet enabled. No API version fork, silent snapshot fallback, or residual field.
+Enable each operation in [the source-intent contract](../../spec/10-source-intent.md) only when Canopy can validate, execute, reconcile, and persist it safely and clients can emit it durably. Current clients send `operations: null`; deployed Canopy accepts the [exact-basis subset](../../docs/exact-source-execution.md). Preserve that fail-closed behavior for every operation not yet enabled. No API version fork, silent snapshot fallback, or residual field.
 
 Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Canopy's update/store path, `packages/canopy-client/src/sync-state.ts`, Swift `WireOperations.swift`, `WireModels.swift`, and `ArborWorkingTree/UpdateCoordinator.swift` before implementing. Recheck Quagmire ownership and the exact-source ledger before editor changes; follow repository local-workspace and release-pin instructions.
 
@@ -18,7 +18,7 @@ Inspect `git status`, `status.md`, the Wire operations/JSON/intent modules, Cano
 
 The [exact-basis executor and candidate validator](../../docs/exact-source-execution.md)
 and atomic evidence storage are implemented and tested. Schema 11 migration 009 preserves history and provenance from schema 8, 9 or 10
-in disposable tests; live rehearsal remains. Public
+in disposable tests; the [live server cutover](../../migrations/009-nested-conflict-locations/live-cutover.md) is complete. Public
 acceptance now executes the exact-basis subset and atomically stores evidence,
 including equal-byte edits. Disjoint concurrent edits from one accepted basis now merge using retained
 contributions and explicit rule evidence. Cross-basis correspondence, snapshot
@@ -70,8 +70,8 @@ chains in Swift and TS, with shared exact-request vectors and restart/failure te
 Swift now has an opt-in session/publication runner: retained candidate views,
 immutable predecessor requests, receipt settlement, restart retries and policy-aware
 editor draft recovery. Native passes the coordinator through but leaves emission
-disabled. The prototype excludes structural writes; TS session/publication integration
-and broader source/editor release gates remain. A production Swift session now
+disabled. The Swift prototype excludes structural writes. TS now has session/publication library APIs
+with disposable-server coverage; host integration and broader source/editor release gates remain. A production Swift session now
 passes root and nested stale range admission after multiple peer updates, restart,
 hidden-candidate continuation and second-client resolution through disposable Canopy. Legacy providers retain their
 revision checks and recovery behavior.
@@ -85,12 +85,12 @@ queue. Keep these policies in client types and transitions rather than requiring
 each editor host to implement them. The future TS working-tree client uses the same
 boundary; a transport-only Wire client does not own editor admission.
 
-- Complete the TS session/publication consumer and broaden the Swift integration,
+- Integrate the TS session/publication consumer into its eventual editor host and broaden the Swift integration,
   carrying the exact capture through equal-source observations and recovery. Preserve these
   dependencies through coalescing, other-page edits, in-flight requests, restart,
   root-equal transitions, and selection of a hidden alternative. TS and Swift clients
   must enforce these invariants; never silently rebuild an old edit against current.
-- Carry the live editor/session acceptance and recovery policy into the TS consumer.
+- Carry the tested TS consumer policy into its eventual editor host.
   The Swift protocol harness now covers real Quagmire admission and divergent
   editor-only draft recovery through Canopy; interactive Native UI/release checks remain.
   Plain disk editor compare-and-swap behavior is outside this Canopy contract.

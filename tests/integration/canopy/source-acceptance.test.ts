@@ -517,3 +517,45 @@ test("a stale nested source edit survives eighty intervening source and snapshot
   expect(await client.conflicts(tree, accepted.id, accepted.root)).toEqual(page);
   await running.canopy.verifyIntegrity();
 });
+
+test("TS document session admits stale intent, restarts, continues a hidden candidate and resolves through Canopy", async () => {
+  const { SourceAdmissionQueue, SourceAdmissionPublisher, SourceDocumentSession } = await import("@arbor/canopy-client");
+  const stateRoot = `${dir}/ts-client`;
+  let installed: Awaited<ReturnType<WireClient["descriptor"]>> | undefined;
+  function session() {
+    const queue = new SourceAdmissionQueue(tree, stateRoot);
+    const publisher = new SourceAdmissionPublisher(queue, client, async (current, snapshot) => {
+      expect(snapshot.root).toBe(current.tree.root);
+      installed = current;
+    });
+    return { queue, publisher, document: new SourceDocumentSession(queue, publisher, client, "/note", "/note.md") };
+  }
+  const original = session(), r1 = await original.document.snapshot();
+  await client.submitUpdates(tree, { base, updates: [await edit("PEER")] });
+  const intent = { basis: r1, edits: [{ offset: 0, length: 3, expected: "abc", replacement: "MINE" }], source: "MINE\r\n" };
+  // Two sessions can deliver the same acknowledgement retry concurrently.
+  const [local, same] = await Promise.all([original.document.admit(intent), session().document.admit(intent)]);
+  expect(local).toEqual(same);
+  expect(await original.queue.retained()).toHaveLength(1);
+  const restarted = session();
+  expect((await restarted.document.snapshot()).source).toBe("MINE\r\n");
+  await restarted.publisher.publishNext();
+  expect(installed!.tree.conflicted).toBe(true);
+  expect((await restarted.document.snapshot()).source).toBe("PEER\r\n");
+  await restarted.document.admit({ basis: local, edits: [{ offset: 0, length: 4, expected: "MINE", replacement: "LATER" }], source: "LATER\r\n" });
+  await restarted.publisher.publishNext();
+  expect(await restarted.publisher.pending()).toEqual([]);
+  const current = await client.descriptor(tree);
+  const inspection = await client.conflicts(tree, current.tree.update, current.tree.root);
+  expect(inspection.decisions[0]!.alternatives.map(alternative => alternative.value)).toContainEqual({ file: hashObject(Buffer.from("LATER\r\n")) });
+  const beforeResolution = await restarted.document.snapshot();
+  const second = new WireClient(running.url, token), decision = inspection.decisions[0]!;
+  const resolved = await second.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: current.tree.root,
+    operations: [], resolves: [{ state: current.tree.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] });
+  expect(resolved.results[0]!.update.conflicted).toBe(false);
+  expect(resolved.results[0]!.update.root).toBe(current.tree.root);
+  const refreshed = await restarted.document.snapshot();
+  expect(refreshed.revision).not.toBe(beforeResolution.revision);
+  expect(refreshed.source).toBe("PEER\r\n");
+  await running.canopy.verifyIntegrity();
+});

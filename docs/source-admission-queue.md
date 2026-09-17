@@ -6,8 +6,8 @@ This is a client implementation checkpoint for the
 The Swift queue is connected to document acknowledgement, recovery and publication
 behind `UpdateCoordinator.sourceOperationEmission` (default `false`). Native passes
 its coordinator to the provider, which selects this path only when explicitly enabled.
-Installed clients still use the existing head/attempt/rejection path. The TS queue
-currently prepares durable requests; it has no working-tree session/publication runner yet.
+Installed clients still use the existing head/attempt/rejection path. The TS queue now has a `SourceDocumentSession` and `SourceAdmissionPublisher` consumer;
+these are library APIs and are not connected to an installed editor host.
 This checkpoint does not enable emission in installed clients or migrate legacy work.
 
 ## Retained records and enforced policy
@@ -94,6 +94,39 @@ retained-basis session receives the original basis and guarded patch even when i
 current projection differs or has equal resulting bytes. Legacy providers retain
 their existing recovery review. No accepted-conflict decision is owned by the bridge.
 
+## TypeScript session and publication integration
+
+`SourceDocumentSession` captures a document from one accepted descriptor and its
+immutable snapshot. Its opaque revision retains accepted update/root identity,
+logical document path and physical source path. A captured graph remains available
+for offline admission. Pending candidates supply local read-your-writes; after
+settlement, reads return Canopy's projection. A recovered editor intent can recover
+its original accepted graph or retained authored predecessor without rebasing.
+Equal source bytes never substitute for accepted identity.
+
+The session validates exact source intent through the queue before acknowledging.
+A domain-separated hash of the scoped intent gives concurrent identical admission
+retries the same change identity, including across session instances. Distinct
+accepted bases or authored predecessors remain distinct even at equal roots.
+
+`SourceAdmissionPublisher` processes the earliest unsettled record, submitting its
+original dependency chain. The immutable queue is the retained request: admitting
+a successor cannot alter the request already being sent. Failed requests,
+malformed receipts, old rejection responses and failed installation leave that
+record pending. Publication is serialized across instances in one process.
+
+After acceptance it fetches the current descriptor and snapshot, rather than
+installing a historical replay receipt as the latest state. The host installation
+callback must durably install projection and accepted identity and serialize with
+watch installation. Only then does the publisher atomically write and fsync
+`sync/source-settlements.json`. A crash before settlement replays the same request;
+a hidden-candidate successor repeats its original accepted prefix. Conflict-bearing
+acceptance follows this ordinary path without a client conflict workspace.
+
+These APIs still require a host to own its state directory exclusively, schedule
+publication and integrate durable materialization. They do not enable filesystem
+source inference or replace the filesystem synchronizer's snapshot path.
+
 ## Verification and remaining integration
 
 [Shared vectors](../conformance/source-admission-queue.json) run in Swift and TS and
@@ -133,9 +166,17 @@ or server was upgraded.
 
 Remaining work in [008](../plans/reliability/008-enable-source-operations.md):
 
-- Build the TS working-tree session/publication consumer with the same policies.
+- Connect the TS session/publication APIs to a maintained editor host when that host is built; enforce exclusive state-directory ownership there.
 - Integrate structural writes and other source forms; extend the live scenario to
   coupled structural changes and general merged-predecessor suffixes.
 - Add safe coalescing and bounded reclamation of settled ancestry and captured views.
 - Enable emission only after Canopy's deployed acceptance covers the emitted forms;
   preserve legacy conflicts until they have been settled or safely transferred.
+
+The TS consumer now passes a disposable-Canopy scenario covering stale R1 admission
+after R2, concurrent admission retries, client restart, accepted conflict, hidden
+successor publication, inspection, and a second-client equal-root resolution.
+Focused tests cover failed materialization, corrupt settlement, old rejection,
+receipt mismatch and offline admission from a captured graph. Typecheck, the full
+TS unit/integration suite and cross-language protocol gate passed. Installed apps
+and the deployed server were not changed by this consumer implementation.
