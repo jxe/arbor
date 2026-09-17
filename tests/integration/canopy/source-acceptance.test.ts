@@ -857,3 +857,35 @@ test("source admission preserves an existing snapshot conflict's public identiti
  expect(after.map(d=>d.alternatives.map(a=>a.id))).toEqual(before.map(d=>d.alternatives.map(a=>a.id)));
  await running.canopy.verifyIntegrity();
 });
+
+
+test("cold history reads durable checkpoints without restaging its growing prefix", async () => {
+  let current = root, accepted = base;
+  for (let i = 0; i < 12; i++) {
+    const update = await edit(String(i).padStart(3, "0"), current);
+    const result = await client.submitUpdates(tree, {
+      base: accepted, updates: [{ ...update, operations: null }],
+    });
+    current = result.results[0]!.update.root;
+    accepted = result.results[0]!.update.id;
+  }
+  await stop(); await start();
+  const tool = (running.canopy as unknown as {
+    mergeTool: import("../../../packages/canopy/src/merge-tool.ts").MergeTool;
+  }).mergeTool;
+  const original = tool.evaluate.bind(tool);
+  const checkpointInputs: string[][] = [];
+  tool.evaluate = (async (request: any, inputs: ReadonlyMap<string, Uint8Array>) => {
+    if (request.kind === "checkpoint") checkpointInputs.push([...inputs.keys()].sort());
+    return original(request, inputs);
+  }) as typeof tool.evaluate;
+  const update = await edit("new", current);
+  const result = await client.submitUpdates(tree, { base: accepted, updates: [update] });
+  expect(result.results[0]!.update.root).toBe(update.candidate);
+  expect(checkpointInputs.length).toBeGreaterThan(12);
+  for (const inputs of checkpointInputs) expect(inputs).toEqual(checkpointInputs[0]!);
+  await stop(); await start();
+  expect((await client.submitUpdates(tree, { base: accepted, updates: [update] })).results[0]!.update.id)
+    .toBe(result.results[0]!.update.id);
+  await running.canopy.verifyIntegrity();
+});

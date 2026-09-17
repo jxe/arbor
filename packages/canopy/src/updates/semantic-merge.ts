@@ -165,8 +165,12 @@ export class SemanticMerge {
       },
       objects
     );
-    for (const [hash, bytes] of evaluated.objects) objects.set(hash, bytes);
-    await this.persist([...objects].map(([hash, bytes]) => ({ hash, bytes })));
+    // Checkpoint outputs are durable shared objects before later jobs refer to
+    // them. Do not accumulate them in the candidate map: doing so restages every
+    // earlier checkpoint for every later historical update.
+    await this.persist(
+      [...evaluated.objects].map(([hash, bytes]) => ({ hash, bytes }))
+    );
     this.checkpoints.set(update.id, evaluated.response.result);
     if (this.checkpoints.size > 256)
       this.checkpoints.delete(this.checkpoints.keys().next().value!);
