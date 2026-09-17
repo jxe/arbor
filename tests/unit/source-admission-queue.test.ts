@@ -14,11 +14,11 @@ function initial(): TreeSnapshot {
   const root = encodeWireDirectory({ type: "directory", entries: [{ name: "nested", directory }] });
   return { root: hashObject(root), objects: new Map([[hash, file], [directory, nested], [hashObject(root), root]]) };
 }
-function records(): SourceAdmissionRecord[] {
-  const result: SourceAdmissionRecord[] = [];
+function records(): Array<ReturnType<typeof prepareSourceAdmission>> {
+  const result: Array<ReturnType<typeof prepareSourceAdmission>> = [];
   for (const change of fixture.changes) {
     const parent = result.find(r => r.change === change.basis.change), graph = parent ? decodeTreeSnapshotJSON(parent.candidate) : initial();
-    const source = parent?.intent.source ?? fixture.source;
+    const source = parent?.intent?.source ?? fixture.source;
     const bytes = Buffer.from(source), candidate = Buffer.concat([bytes.subarray(0, change.offset), Buffer.from(change.replacement), bytes.subarray(change.offset + change.length)]).toString();
     result.push(prepareSourceAdmission({ change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
       basis: parent ? change.basis : { ...change.basis, root: graph.root },
@@ -127,7 +127,7 @@ test("journal references platform objects and compacts only dependency-free sett
   let graph = initialGraph;
   const all: SourceAdmissionRecord[] = [];
   for (const change of fixture.changes) {
-    const parent = all.find(record => record.change === change.basis.change), source = parent?.intent.source ?? fixture.source;
+    const parent = all.find(record => record.change === change.basis.change), source = parent?.intent?.source ?? fixture.source;
     graph = parent ? decodeTreeSnapshotJSON(parent.candidate) : initialGraph;
     const candidate = Buffer.concat([Buffer.from(source).subarray(0, change.offset), Buffer.from(change.replacement), Buffer.from(source).subarray(change.offset + change.length)]).toString();
     all.push(prepareSourceAdmission({ change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
@@ -164,4 +164,53 @@ test("pending legacy migration remains self-contained when its old platform basi
   const migrated = new SourceAdmissionQueue(fixture.tree, root, unavailable);
   expect(await migrated.retained()).toEqual(all);
   expect(await new SourceAdmissionQueue(fixture.tree, root, unavailable).retained()).toEqual(all);
+}));
+
+test("source preservation fixtures retain verified lineage across queue restart", async () => {
+  const data=JSON.parse(await readFile(new URL("../../conformance/source-preservation.json",import.meta.url),"utf8"));
+  for(const value of data.cases) await withQueue(async (queue,root) => {
+    const bytes=Buffer.from(value.source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file}]});
+    const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
+    const prepare=()=>prepareSourceAdmission({tree:fixture.tree,graph,basis:{kind:"accepted",root:graph.root,update:"basis"},sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"revision",source:value.source},source:value.replacement,edits:[{offset:0,length:bytes.length,replacement:value.replacement,lineage:value.lineage}]}});
+    if(!value.valid){expect(prepare).toThrow();return;}
+    const record=prepare();await queue.retain(record);
+    const reopened=new SourceAdmissionQueue(fixture.tree,root);
+    expect(await reopened.retained()).toEqual([record]);
+    const operation=decodeCandidateUpdateJSON(record.update).operations![0]!;
+    expect(operation.kind).toBe("editSource");
+    if(operation.kind==="editSource")expect(operation.lineage?.map(l=>({source:l.source.range,replacement:l.range}))).toEqual(value.lineage);
+  });
+});
+
+test("explicit entry moves and copies retain different intent through restart", async () => {
+  const {prepareEntryAdmission}=await import("@arbor/canopy-client");
+  const graph=initial();
+  for(const kind of ["moveEntry","copyEntry"] as const) await withQueue(async(queue,root)=>{
+    const record=prepareEntryAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"entry-basis"},graph,entryTransfer:{kind,source:"/nested/note.md",parent:"/",name:"moved.md"}});
+    await queue.retain(record);
+    expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
+    expect(decodeCandidateUpdateJSON(record.update).operations?.[0]?.kind).toBe(kind);
+    const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+    const tool=new MergeTool(root),candidate=decodeTreeSnapshotJSON(record.candidate);
+    const evaluated=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations:decodeCandidateUpdateJSON(record.update).operations!},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    expect(evaluated.response.result.object).toBe(candidate.root);
+    expect(()=>prepareEntryAdmission({tree:fixture.tree,basis:record.basis,graph,entryTransfer:{kind,source:"/nested",parent:"/nested",name:"loop"}})).toThrow();
+  });
+});
+
+test("copy metadata edits bind to operation output and survive recovery", async () => withQueue(async(queue,root)=>{
+  const {prepareEntryAdmission,prepareEntryTransfer}=await import("@arbor/canopy-client");
+  const graph=initial(),entryTransfer={kind:"copyEntry" as const,source:"/nested/note.md",parent:"/",name:"copy.md"};
+  const pure=prepareEntryTransfer(graph,entryTransfer).candidate;
+  const bytes=Buffer.from("New page identity\r\n"),file=hashObject(bytes);
+  const {decodeWireDirectory}=await import("@arbor/wire");
+  const directory=decodeWireDirectory(pure.objects.get(pure.root)!);directory.entries.find(e=>e.name==="copy.md")!.file=file;
+  const encoded=encodeWireDirectory(directory),candidate={root:hashObject(encoded),objects:new Map([...pure.objects,[file,bytes],[hashObject(encoded),encoded]])};
+  const record=prepareEntryAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,candidate,entryTransfer:{...entryTransfer,rewrites:{"":file}}});
+  await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
+  const operations=decodeCandidateUpdateJSON(record.update).operations!;
+  expect(operations.map(op=>op.kind)).toEqual(["copyEntry","editSource"]);
+  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+  const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+  expect(evaluated.response.result.object).toBe(candidate.root);
 }));

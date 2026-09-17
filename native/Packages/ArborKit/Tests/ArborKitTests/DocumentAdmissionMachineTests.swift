@@ -65,7 +65,7 @@ struct DocumentAdmissionMachineTests {
     private static func event(from json: [String: Any]) throws -> DocumentAdmissionMachine.Event {
         switch json["type"] as? String {
         case "edit":
-            return .edit(source: try #require(json["source"] as? String))
+            return .edit(source: try #require(json["source"] as? String), preservesIntent: json["preservesIntent"] as? Bool ?? false)
         case "debounceElapsed":
             return .debounceElapsed
         case "flush":

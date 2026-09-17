@@ -18,6 +18,7 @@ struct SourceRecord: Sendable {
     var raw: String
     var depth: Int
     var indent: Int
+    var range: Range<Int>
 }
 
 struct ArborSourceLedger: Sendable {
@@ -212,13 +213,20 @@ public enum ArborMarkdownCodec {
         let blocks = foldHeadingsInScopes(nestIndentedContainers(parsed))
         let rawByID = Dictionary(uniqueKeysWithValues: parsed.map { ($0.block.id, $0.raw) })
         let indentByID = Dictionary(uniqueKeysWithValues: parsed.map { ($0.block.id, $0.indent) })
+        var offsets: [BlockID: Range<Int>] = [:]
+        var position = envelope.utf8.count
+        for item in parsed {
+            offsets[item.block.id] = position..<(position + item.raw.utf8.count)
+            position += item.raw.utf8.count
+        }
         var records: [BlockID: SourceRecord] = [:]
         walk(blocks) { block, depth in
             records[block.id] = SourceRecord(
                 block: block,
                 raw: rawByID[block.id] ?? "",
                 depth: depth,
-                indent: indentByID[block.id] ?? 0
+                indent: indentByID[block.id] ?? 0,
+                range: offsets[block.id] ?? 0..<0
             )
         }
         return ArborMarkdownOpenedDocument(
@@ -231,6 +239,7 @@ public enum ArborMarkdownCodec {
         var chunks: [String] = [ledger.envelope]
         var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
         var nextRecords: [BlockID: SourceRecord] = [:]
+        var position = ledger.envelope.utf8.count
         var emittedAuthoredBlock = false
         let flattened = flattenedBlocks(blocks)
         var remainingNonemptyBlocks = flattened.reduce(into: 0) { count, block in
@@ -273,8 +282,10 @@ public enum ArborMarkdownCodec {
                 block: block,
                 raw: raw,
                 depth: depth,
-                indent: containerDepth
+                indent: containerDepth,
+                range: position..<(position + raw.utf8.count)
             )
+            position += raw.utf8.count
             emittedAuthoredBlock = true
             let addsContainerDepth: Bool
             switch block.kind {
@@ -291,7 +302,26 @@ public enum ArborMarkdownCodec {
         }
         for block in blocks { append(block, depth: 0, containerDepth: 0) }
         let source = chunks.joined()
-        let edit = minimalEdit(from: ledger.source, to: source)
+        var edit = minimalEdit(from: ledger.source, to: source)
+        if edit == nil, nextRecords.contains(where: { id, next in
+            guard let old = ledger.records[id] else { return false }
+            return old.range != next.range && old.raw.utf8.elementsEqual(next.raw.utf8)
+        }) {
+            edit = WorkspaceSourceEdit(utf8Range:0..<ledger.source.utf8.count,replacement:source,expected:ledger.source)
+        }
+        if var value = edit {
+            let replacementRange = value.utf8Range.lowerBound..<(value.utf8Range.lowerBound + value.replacement.utf8.count)
+            let lineage = nextRecords.compactMap { id, next -> WorkspaceSourceLineage? in
+                guard let old = ledger.records[id], old.raw.utf8.elementsEqual(next.raw.utf8) else { return nil }
+                let start = max(0, value.utf8Range.lowerBound - old.range.lowerBound, replacementRange.lowerBound - next.range.lowerBound)
+                let end = min(old.raw.utf8.count, value.utf8Range.upperBound - old.range.lowerBound, replacementRange.upperBound - next.range.lowerBound)
+                guard start < end else { return nil }
+                return WorkspaceSourceLineage(source: (old.range.lowerBound + start)..<(old.range.lowerBound + end),
+                    replacement: (next.range.lowerBound + start - replacementRange.lowerBound)..<(next.range.lowerBound + end - replacementRange.lowerBound))
+            }.sorted { $0.replacement.lowerBound < $1.replacement.lowerBound }
+            if !lineage.isEmpty { value.lineage = lineage }
+            edit = value
+        }
         let patch = WorkspaceDocumentPatch(
             baseContentRevision: ledger.revision,
             edits: edit.map { [$0] } ?? []
@@ -354,7 +384,8 @@ public enum ArborMarkdownCodec {
                 block: block,
                 raw: record.raw,
                 depth: depth,
-                indent: record.indent
+                indent: record.indent,
+                range: record.range
             )
         }
         result.ledger.records = records

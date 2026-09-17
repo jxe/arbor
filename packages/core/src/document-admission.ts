@@ -23,6 +23,7 @@ export interface AdmissionAccepted<S> {
 }
 
 export interface AdmissionSubmission<S> {
+  preservesIntent?: boolean;
   generation: number;
   source: S;
 }
@@ -69,7 +70,7 @@ export type AdmissionState<S> =
   | (Base<S> & { kind: "closed" });
 
 export type AdmissionEvent<S> =
-  | { type: "edit"; source: S }
+  | { type: "edit"; source: S; preservesIntent?: boolean }
   | { type: "debounceElapsed" }
   /** Explicit Save, navigation, focus loss, backgrounding, or close: admit the latest source now. */
   | { type: "flush" }
@@ -145,7 +146,7 @@ function base<S>(state: AdmissionState<S>): Base<S> {
 
 function submit<S>(state: AdmissionState<S>, latest: AdmissionSubmission<S>, options: AdmissionOptions<S>): AdmissionTransition<S> {
   // Editing back to the accepted bytes is an idempotent local success.
-  if (options.equal(latest.source, state.accepted.source)) {
+  if (options.equal(latest.source, state.accepted.source) && !latest.preservesIntent) {
     return { state: { ...base(state), kind: "clean" }, effects: [] };
   }
   return {
@@ -165,7 +166,7 @@ export function reduceAdmission<S>(
   switch (event.type) {
     case "edit": {
       const generation = state.generation + 1;
-      const latest = { generation, source: event.source };
+      const latest = { generation, source: event.source, ...(event.preservesIntent ? {preservesIntent:true} : {}) };
       switch (state.kind) {
         case "clean":
         case "dirty":

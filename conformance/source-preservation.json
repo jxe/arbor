@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name":"reorder Unicode blocks", "source":"A🪴\r\nB\r\n", "replacement":"B\r\nA🪴\r\n", "lineage":[{"source":[7,10],"replacement":[0,3]},{"source":[0,7],"replacement":[3,10]}], "valid":true},
+    {"name":"false preservation", "source":"abc", "replacement":"axc", "lineage":[{"source":[0,3],"replacement":[0,3]}], "valid":false},
+    {"name":"copy is not preservation", "source":"abc", "replacement":"abcabc", "lineage":[{"source":[0,3],"replacement":[0,3]},{"source":[0,3],"replacement":[3,6]}], "valid":false},
+    {"name":"split scalar", "source":"🪴", "replacement":"🪴", "lineage":[{"source":[1,1],"replacement":[1,1]}], "valid":false}
+  ]
+}

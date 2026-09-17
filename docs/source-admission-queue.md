@@ -311,3 +311,37 @@ the existing filesystem-acknowledgement test; it now waits for the observed stat
 with a bounded deadline. This cleanup has not been installed on either device.
 Canopy-backed Native review remains separate work in
 [Reliability 010](../plans/reliability/010-client-conflict-review.md).
+
+## Supported-operation capture checkpoint — September 17
+
+The current implementation extends the existing queue without introducing an
+unvalidated-intent mode or changing public Wire. Server execution support precedes
+client emission.
+
+- Swift and TypeScript source edits carry optional verified preservation lineage.
+  Both validate byte equality, scalar boundaries, replacement order and distinct
+  source occurrences. Queue recovery reconstructs the same operations.
+- Arbor's Quagmire adapter uses stable block identities and exact retained source
+  ranges to preserve unchanged blocks through reorder and compound edits. It keeps
+  the original revision's ledger through debounce and in-flight admission, retains
+  captured lineage in editor recovery, and does not treat equal-byte reorders as
+  already saved. The shared admission-machine fixture exercises this distinction.
+- `EntryTransfer` / `prepareEntryTransfer` build exact move/copy candidates from an
+  explicit editor action. Native rename, move and copy emit those operations through
+  the existing queue. A Native copy's fresh page IDs become subsequent `editSource`
+  operations against the copy's operation-result reference. TypeScript exposes the
+  corresponding durable `prepareEntryAdmission` path.
+- Directory shapes with a sibling Markdown body and tree-boundary entries retain
+  their existing snapshot path pending compound structural capture. Creation,
+  imports and trash/restore also retain their snapshot path. Filesystem observations
+  remain snapshots; matching bytes do not manufacture a move or copy claim.
+
+Source block-copy capture and causal undo/redo bindings still need explicit editor
+transaction evidence; current edits must not claim those operations by guessing
+from snapshots. Remaining work stays in [Reliability 008](../plans/reliability/008-enable-source-operations.md).
+Native review UI remains [Reliability 010](../plans/reliability/010-client-conflict-review.md).
+
+Verification includes shared preservation fixtures, equal-byte editor admission,
+queue restart, copy-result editing, actual Swift/TypeScript protocol execution
+against disposable Canopy, and macOS/iOS Simulator application builds. This
+checkpoint is implementation evidence, not an installed-client deployment record.

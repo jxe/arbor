@@ -20,6 +20,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     public let intent: WorkspaceDocumentIntent?
     public let candidate: WireSnapshot
     public let update: WireCandidateUpdate
+    public var entryTransfer: EntryTransfer?
     var localTrash: WorkingTreeLocalTrash?
 
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
@@ -81,12 +82,20 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                 if offset < source.count && source[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
             }
             guard let file else { return nil }
-            return try WireSourceOperation([
+            var fields: [String: WireSemanticValue] = [
                 "key": .string("edit-\(index)"), "kind": .string("editSource"),
                 "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
                                    "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
                 "text": .string(edit.replacement)
-            ])
+            ]
+            if let lineage = edit.lineage {
+                fields["lineage"] = .array(lineage.map { part in .object([
+                    "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
+                                       "range": .array([.integer(part.source.lowerBound), .integer(part.source.upperBound)])]),
+                    "range": .array([.integer(part.replacement.lowerBound), .integer(part.replacement.upperBound)])
+                ]) })
+            }
+            return try WireSourceOperation(fields)
         }
         let known = Set(graph.objects.map(\.hash))
         let update = WireCandidateUpdate(candidate: root, change: change, operations: file == nil ? nil : operations,
@@ -101,7 +110,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     /// Structural actions retain an ordinary snapshot in the same dependency queue.
     /// No move/copy provenance is invented from its resulting bytes.
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
-                graph: WireSnapshot, candidate: WireSnapshot) throws {
+                graph: WireSnapshot, candidate: WireSnapshot, entryTransfer: EntryTransfer? = nil) throws {
         _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
@@ -110,8 +119,11 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
         self.candidate = WireSnapshot(root: candidate.root, objects: candidate.objects.sorted { $0.hash < $1.hash })
         self.sourcePath = nil; self.intent = nil
+        self.entryTransfer = entryTransfer
+        let prepared = try entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change)
+        if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
-        self.update = WireCandidateUpdate(candidate: candidate.root, change: change, operations: nil,
+        self.update = WireCandidateUpdate(candidate: candidate.root, change: change, operations: prepared?.operations,
                                           objects: self.candidate.objects.filter { !known.contains($0.hash) })
         _ = try JSONEncoder().encode(update)
     }
@@ -122,7 +134,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, sourcePath: sourcePath, intent: intent)
         } else {
             guard intent == nil, sourcePath == nil else { throw Self.invalid("Incomplete source intent") }
-            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, candidate: candidate)
+            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, candidate: candidate, entryTransfer: entryTransfer)
         }
         try localTrash?.validate()
         rebuilt.localTrash = localTrash
@@ -155,6 +167,7 @@ private struct StoredSourceAdmission: Codable {
     var update: WireCandidateUpdate
     var updateObjects: [String]
     var localTrash: StoredSourceTrash?
+    var entryTransfer: EntryTransfer?
 }
 
 private struct SourceAdmissionJournal: Codable {
@@ -399,7 +412,8 @@ public actor SourceAdmissionQueue {
             candidate: .init(root: record.candidate.root, objects: record.candidate.objects.map(\.hash).sorted()),
             update: update,
             updateObjects: updateObjects,
-            localTrash: record.localTrash.map { .init(nodes: $0.nodes, objects: $0.objects.map(\.hash).sorted()) }
+            localTrash: record.localTrash.map { .init(nodes: $0.nodes, objects: $0.objects.map(\.hash).sorted()) },
+            entryTransfer: record.entryTransfer
         )
     }
 
@@ -424,7 +438,7 @@ public actor SourceAdmissionQueue {
                 throw ArborWireValidationError.invalidValue("Incomplete stored source admission")
             }
             value = try SourceAdmissionRecord(change: record.change, tree: record.tree, basis: record.basis,
-                graph: snapshot(record.graph), candidate: snapshot(record.candidate))
+                graph: snapshot(record.graph), candidate: snapshot(record.candidate), entryTransfer: record.entryTransfer)
         }
         if let trash = record.localTrash {
             value.localTrash = WorkingTreeLocalTrash(nodes: trash.nodes, objects: try trash.objects.map { hash in

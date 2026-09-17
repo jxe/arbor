@@ -6,8 +6,8 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 
 ## Source intent milestones
 
-**Current priority:** install the tested Native rejected-update cleanup in Reliability
-008; retained-basis source admission is already installed and verified. Canopy snapshot acceptance is deployed and verified. Build Canopy-backed
+**Current priority:** complete supported client operation capture in Reliability
+008 and the Canopy/merge side of fine-grained inspection, then build Canopy-backed
 review in [Reliability 010](reliability/010-client-conflict-review.md): first complete
 panel/sheet review with durable drafts, then contextual editor review later.
 Whole-entry accepted conflicts are sufficient; the
@@ -23,14 +23,14 @@ merge-rule improvements. [Reliability 011](reliability/011-compatible-accepted-a
 owns remaining compatible adoption after the completed foundational cutover. Review caching and other
 conveniences are deferred. The merge process and its authority integration are on main.
 
-1. [Reliability 008 — Client operation capture and submission](reliability/008-enable-source-operations.md), on main: retain exact intent and emit new forms once Canopy can safely record them, without waiting for semantic merge support.
-2. [Reliability 009 — Canopy intent retention and forwarding](reliability/009-canopy-provenance-merges.md), on main: specify the recorded-versus-validated contract, retain and authorize material, forward to the tool, and own acceptance and deployment.
+1. [Reliability 008 — Client operation capture and submission](reliability/008-enable-source-operations.md), on main: capture exact editor intent and emit operations already supported by the deployed server.
+2. [Reliability 009 — Canopy provenance and policy](reliability/009-canopy-provenance-merges.md), on main: configure format policies and refine inspection and storage while preserving authoritative operation execution.
 3. [Reliability 010 — Contextual client conflict review](reliability/010-client-conflict-review.md), coordinating the remaining inline work in Reliability 004.
 
 [Reliability 013 — Merge operations and formats](_done/reliability/013-merge-operations-and-formats.md)
 is complete and integrated on main, with all operation families and the format/language
 matrix supported by the deployed merge process. The client and Canopy plans own
-broader emission, future retention contracts and configurable policy.
+broader emission, finer-grained inspection and configurable policy.
 
 ## What to do soon
 
@@ -42,7 +42,7 @@ The near-term direction is intentionally broad. Refine these into smaller execut
 - Make sure Canopy storage is not unreasonably big.
 - Support a user directory so a person sharing a tree can type someone's name instead of their Arbor URL or TreeID, and so profiles can have avatar images.
 
-An isolated [conflict terms experiment](../docs/conflict-terms-experiment.md) tests Jujutsu-style composition and preservation beyond algebra. The [intent comparison](../docs/conflict-intent-comparison.md) now exercises source targets, authored revisions, moves/copies, selective deletion undo, and alternative edits. Range lineage through paragraph splits/combinations and safe provenance compaction remain the discriminating backend questions. The Protocol-ready update grammar now carries that intent while operation execution remains explicitly unsupported. [Reliability 010](reliability/010-client-conflict-review.md) owns accepted-conflict review and the remaining contextual work from Reliability 004; do not revive the retired rejected-update UI.
+An isolated [conflict terms experiment](../docs/conflict-terms-experiment.md) tests Jujutsu-style composition and preservation beyond algebra. The [intent comparison](../docs/conflict-intent-comparison.md) now exercises source targets, authored revisions, moves/copies, selective deletion undo, and alternative edits. Range lineage through paragraph splits/combinations and safe provenance compaction remain the discriminating backend questions. The Protocol-ready update grammar now carries that intent and its eight operation kinds now execute in the deployed merge tool. [Reliability 010](reliability/010-client-conflict-review.md) owns accepted-conflict review and the remaining contextual work from Reliability 004; do not revive the retired rejected-update UI.
 
 ## Arbor Sync
 

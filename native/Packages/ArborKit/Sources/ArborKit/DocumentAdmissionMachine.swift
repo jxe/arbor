@@ -30,9 +30,12 @@ public enum DocumentAdmissionMachine {
         public var generation: Int
         public var source: String
 
-        public init(generation: Int, source: String) {
+        public var preservesIntent: Bool
+
+        public init(generation: Int, source: String, preservesIntent: Bool = false) {
             self.generation = generation
             self.source = source
+            self.preservesIntent = preservesIntent
         }
     }
 
@@ -133,7 +136,7 @@ public enum DocumentAdmissionMachine {
     }
 
     public enum Event: Sendable, Equatable {
-        case edit(source: String)
+        case edit(source: String, preservesIntent: Bool = false)
         case debounceElapsed
         /// Explicit Save, navigation, focus loss, backgrounding, or close: admit the latest source now.
         case flush
@@ -179,9 +182,9 @@ public enum DocumentAdmissionMachine {
         if case .closed = state.phase { return (state, []) }
 
         switch event {
-        case let .edit(source):
+        case let .edit(source, preservesIntent):
             next.generation = state.generation + 1
-            let latest = Submission(generation: next.generation, source: source)
+            let latest = Submission(generation: next.generation, source: source, preservesIntent: preservesIntent)
             switch state.phase {
             case .clean, .dirty:
                 next.phase = .dirty(latest: latest)
@@ -306,7 +309,7 @@ public enum DocumentAdmissionMachine {
     private static func submit(_ state: State, _ latest: Submission) -> (State, [Effect]) {
         var next = state
         // Editing back to the accepted bytes is an idempotent local success.
-        if latest.source == state.accepted.source {
+        if latest.source == state.accepted.source && !latest.preservesIntent {
             next.phase = .clean
             return (next, [])
         }

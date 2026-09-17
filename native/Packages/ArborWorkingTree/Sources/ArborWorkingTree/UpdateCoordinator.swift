@@ -984,6 +984,17 @@ public actor UpdateCoordinator {
             let staging = try await candidateTree(graph)
             let provider = WorkingTreeProvider(workingTree: staging)
             do {
+                var transferred: WorkingTreeNode?
+                var transferKind = EntryTransfer.Kind.moveEntry
+                if case let .action(action) = admission {
+                    switch action {
+                    case let .copy(reference, _):
+                        transferred = try await staging.resolve(reference); transferKind = .copyEntry
+                    case let .rename(reference, _), let .move(reference, _):
+                        transferred = try await staging.resolve(reference)
+                    default: break
+                    }
+                }
                 let node: WorkspaceNode
                 switch admission {
                 case let .action(action):
@@ -995,8 +1006,22 @@ public actor UpdateCoordinator {
                 case let .imported(name, bytes, mediaType, parent):
                     node = try await provider.importFile(name: name, bytes: bytes, mediaType: mediaType, in: parent)
                 }
+                var transfer: EntryTransfer?
+                if let old = transferred {
+                    let moved = try await staging.resolve(node.reference)
+                    func path(_ n: WorkingTreeNode) -> String { n.kind == .markdown ? n.path + ".md" : n.path }
+                    // Sibling-body directories are two physical entries; keep
+                    // their existing atomic snapshot path until compound capture.
+                    let source = path(old), destination = path(moved)
+                    let parts = destination.split(separator:"/").map(String.init)
+                    if old.kind != .boundary && old.directoryBodyPlacement != .siblingMarkdown {
+                        transfer = EntryTransfer(kind:transferKind,source:source,parent:parts.count == 1 ? "/" : "/"+parts.dropLast().joined(separator:"/"),name:parts.last!)
+                    }
+                }
+                let candidate = try await staging.localSnapshot()
+                if transferKind == .copyEntry { transfer = try transfer?.capturingRewrites(graph:graph,candidate:candidate) }
                 var record = try SourceAdmissionRecord(tree: await workingTree.treeID().rawValue, basis: basis,
-                    graph: graph, candidate: await staging.localSnapshot())
+                    graph: graph, candidate:candidate, entryTransfer:transfer)
                 record.localTrash = try await staging.captureLocalTrash()
                 prepared = (record, node)
                 preparedStructures[key] = prepared

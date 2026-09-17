@@ -17,6 +17,8 @@ This page reports what the reference implementation does today. The [specificati
 
 - **Merge authority integration (deployed 2026-09-17).** Canopy forwards all eight specified operations to the merge process and atomically owns accepted/authored semantic states, inspection identities and complete immutable dependencies in additive schema 12. Existing source editors and snapshot clients keep their Wire contract. Whole-file choices remain the initial presentation policy; structural ambiguity uses enclosing decisions. See the [integration checkpoint](docs/merge-authority-integration.md) and [migration rehearsal](migrations/010-merge-state/README.md).
 
+- **Operation capture and source review (implemented, not installed).** Canopy now defaults to independent source-range choices, with exact fragment reads, guarded resolution and placement ranges bound to accepted bytes. Whole-file policy remains available and format rules can couple choices. Swift/TS retain verified source lineage and equal-byte intent; Native emits ordinary entry moves/copies, including post-copy page-ID edits. Compound structural actions, explicit source-copy and causal undo capture remain in Reliability 008. See the [capture checkpoint](docs/source-admission-queue.md#supported-operation-capture-checkpoint--september-17).
+
 ## Implemented and tested
 
 - **Native working-tree editors.** The Mac app and iOS edit placed Arbor trees directly as working trees (`ArborWorkingTree` over `ArborObjectStore`): Markdown remains canonical, the document admission machine makes each edit durable in the working tree, and the update coordinator publishes durable heads to Canopy. The daemon has no editor path; it is the folder's client plus loopback bootstrap, credential, and object services.

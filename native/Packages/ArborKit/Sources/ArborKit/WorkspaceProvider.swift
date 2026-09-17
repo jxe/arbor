@@ -112,15 +112,25 @@ public struct WorkspaceDocumentConflict: Hashable, Codable, Sendable, Error {
     }
 }
 
+public struct WorkspaceSourceLineage: Hashable, Codable, Sendable {
+    public var source: Range<Int>
+    public var replacement: Range<Int>
+    public init(source: Range<Int>, replacement: Range<Int>) {
+        self.source = source; self.replacement = replacement
+    }
+}
+
 public struct WorkspaceSourceEdit: Hashable, Codable, Sendable {
     public var utf8Range: Range<Int>
     public var replacement: String
     public var expected: String?
+    public var lineage: [WorkspaceSourceLineage]?
 
-    public init(utf8Range: Range<Int>, replacement: String, expected: String? = nil) {
+    public init(utf8Range: Range<Int>, replacement: String, expected: String? = nil, lineage: [WorkspaceSourceLineage]? = nil) {
         self.utf8Range = utf8Range
         self.replacement = replacement
         self.expected = expected
+        self.lineage = lineage
     }
 }
 
@@ -146,6 +156,24 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
             if let expected = edit.expected,
                original.subdata(in: edit.utf8Range) != Data(expected.utf8) {
                 throw WorkspacePatchError.guardMismatch(edit.utf8Range)
+            }
+            let replacement = Data(edit.replacement.utf8)
+            var outputEnd = 0
+            var preserved: [Range<Int>] = []
+            for part in edit.lineage ?? [] {
+                guard part.source.lowerBound >= edit.utf8Range.lowerBound,
+                      part.source.upperBound <= edit.utf8Range.upperBound,
+                      part.replacement.lowerBound >= outputEnd,
+                      part.replacement.upperBound <= replacement.count,
+                      part.source.count == part.replacement.count,
+                      !preserved.contains(where: { $0.overlaps(part.source) }),
+                      [part.source.lowerBound, part.source.upperBound].allSatisfy({ $0 == original.count || original[$0] & 0xc0 != 0x80 }),
+                      [part.replacement.lowerBound, part.replacement.upperBound].allSatisfy({ $0 == replacement.count || replacement[$0] & 0xc0 != 0x80 }),
+                      original.subdata(in: part.source) == replacement.subdata(in: part.replacement),
+                      String(data: original.subdata(in: part.source), encoding: .utf8) != nil else {
+                    throw WorkspacePatchError.invalidRange(part.source)
+                }
+                preserved.append(part.source); outputEnd = part.replacement.upperBound
             }
             priorEnd = edit.utf8Range.upperBound
         }

@@ -205,3 +205,22 @@ struct SourceAdmissionQueueTests {
         #expect(try await reopened.retained() == all)
     }
 }
+
+extension SourceAdmissionQueueTests {
+    @Test("Explicit entry transfers survive queue recovery with their authored operation")
+    func entryTransfers() async throws {
+        let graph = try graph("Source\r\n")
+        for kind in [EntryTransfer.Kind.moveEntry, .copyEntry] {
+            let root = try root(); defer { try? FileManager.default.removeItem(at:root) }
+            let transfer = EntryTransfer(kind:kind,source:"/nested/note.md",parent:"/",name:"moved.md")
+            let prepared = try transfer.prepare(graph:graph)
+            let record = try SourceAdmissionRecord(tree:"tr_entry",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,candidate:prepared.candidate,entryTransfer:transfer)
+            let queue = try await SourceAdmissionQueue(tree:"tr_entry",stateRoot:root)
+            try await queue.retain(record)
+            let reopened = try await SourceAdmissionQueue(tree:"tr_entry",stateRoot:root)
+            #expect(try await reopened.retained() == [record])
+            #expect(record.update.operations?.first?.kind == kind.rawValue)
+            #expect(throws:(any Error).self) { try EntryTransfer(kind:kind,source:"/nested",parent:"/nested",name:"loop").prepare(graph:graph) }
+        }
+    }
+}

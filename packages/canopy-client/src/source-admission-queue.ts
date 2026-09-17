@@ -1,3 +1,4 @@
+import {prepareEntryTransfer, type EntryTransfer} from "./entry-transfer.ts";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { applySourceEdits, type SourceEdit } from "@arbor/core";
@@ -13,7 +14,7 @@ export interface SourceAdmissionIntent {
 }
 export interface SourceAdmissionRecord {
   change: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshotJSON;
-  sourcePath: string; intent: SourceAdmissionIntent; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
+  sourcePath: string | null; intent: SourceAdmissionIntent | null; entryTransfer?: EntryTransfer; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
 }
 interface StoredSourceSnapshot { root: string; objects: string[] }
 type StoredSourceAdmissionRecord = Omit<SourceAdmissionRecord, "graph" | "candidate" | "update"> & {
@@ -41,7 +42,7 @@ function snapshotJSON(snapshot: TreeSnapshot): TreeSnapshotJSON {
 export function prepareSourceAdmission(input: {
   change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot;
   sourcePath: string; intent: SourceAdmissionIntent;
-}): SourceAdmissionRecord {
+}): SourceAdmissionRecord & {intent: SourceAdmissionIntent; sourcePath: string} {
   const { tree, sourcePath, intent, graph } = input;
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   if (intent.basis.tree !== tree || typeof intent.basis.revision !== "string" || !intent.basis.revision ||
@@ -92,7 +93,7 @@ export function prepareSourceAdmission(input: {
   const sourceBytes = encoder.encode(intent.basis.source);
   const operations: SourceOperation[] = intent.edits.map((edit, i) => {
     for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
-    return { kind: "editSource", key: `edit-${i}`, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement };
+    return { kind: "editSource", key: `edit-${i}`, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement, ...(edit.lineage ? {lineage: edit.lineage.map(part => ({source: {material: {kind: "basis" as const, path: sourcePath, object: file}, range: part.source}, range: part.replacement}))} : {}) };
   });
   const change = input.change ?? crypto.randomUUID();
   const update = encodeCandidateUpdateJSON({ candidate: root, change, operations: file ? operations : null, resolves: [],
@@ -101,12 +102,30 @@ export function prepareSourceAdmission(input: {
   return JSON.parse(JSON.stringify({ change, tree, basis: input.basis, graph: snapshotJSON(graph), sourcePath, intent, candidate: snapshotJSON(candidate), update }));
 }
 
+export function prepareEntryAdmission(input: {
+  change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; entryTransfer: EntryTransfer; candidate?: TreeSnapshot;
+}): SourceAdmissionRecord {
+  const change=input.change ?? crypto.randomUUID();
+  const {candidate,operations}=prepareEntryTransfer(input.graph,input.entryTransfer,{change,candidate:input.candidate});
+  if(input.candidate && input.candidate.root!==candidate.root)throw Error("Entry intent does not reproduce candidate");
+  const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,operations,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  decodeCandidateUpdateJSON(update);
+  return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,intent:null,entryTransfer:structuredClone(input.entryTransfer),candidate:snapshotJSON(candidate),update};
+}
+
+function rebuildAdmission(record: SourceAdmissionRecord): SourceAdmissionRecord {
+  const graph=decodeTreeSnapshotJSON(record.graph);
+  if(record.intent && record.sourcePath && !record.entryTransfer) return prepareSourceAdmission({...record,graph,intent:record.intent,sourcePath:record.sourcePath});
+  if(record.intent===null && record.sourcePath===null && record.entryTransfer) return prepareEntryAdmission({...record,graph,candidate:decodeTreeSnapshotJSON(record.candidate),entryTransfer:record.entryTransfer});
+  throw Error("Incomplete captured intent");
+}
+
 export function validateSourceAdmissions(records: SourceAdmissionRecord[], tree: string): void {
   const prior = new Map<string, SourceAdmissionRecord>();
   for (const record of records) {
     if (record.tree !== tree || prior.has(record.change)) throw new Error("Invalid queue scope or duplicate identity");
     if (new Set(record.graph.objects.map(o => o.hash)).size !== record.graph.objects.length) throw new Error("Duplicate basis object");
-    const rebuilt = prepareSourceAdmission({ ...record, graph: decodeTreeSnapshotJSON(record.graph) });
+    const rebuilt = rebuildAdmission(record);
     if (!equal(rebuilt, record)) throw new Error("Retained source candidate or operations changed");
     if (record.basis.kind === "accepted") {
       if (!record.basis.update || record.basis.root !== record.graph.root) throw new Error("Accepted basis does not match graph");
@@ -270,7 +289,7 @@ export class SourceAdmissionQueue {
       const bytes = this.objects.get(hash); if (!bytes) throw new Error(`Missing source admission object ${hash}`); return [hash, bytes] as const;
     })) };
     const value = { ...stored, update, graph: snapshot(record.graph), candidate: snapshot(record.candidate) };
-    const rebuilt = prepareSourceAdmission({ ...value, graph: decodeTreeSnapshotJSON(value.graph) });
+    const rebuilt = rebuildAdmission(value);
     if (!equal(rebuilt, value)) throw new Error("Retained source candidate or operations changed");
     return value;
   }

@@ -8,6 +8,52 @@
       "effects": ["schedule", "cancelTimer", "admit", "acknowledge", "apply", "mergeLocally", "surfaceFailure", "stop"],
       "scenarios": [
         {
+          "name": "equal bytes with captured operation intent still require durable admission",
+          "initial": {
+            "accepted": {
+              "source": "same",
+              "revision": "r1"
+            }
+          },
+          "steps": [
+            {
+              "event": {
+                "type": "edit",
+                "source": "same",
+                "preservesIntent": true
+              },
+              "state": "dirty",
+              "effects": [
+                "schedule"
+              ]
+            },
+            {
+              "event": {
+                "type": "flush"
+              },
+              "state": "submitting",
+              "effects": [
+                "cancelTimer",
+                "admit"
+              ]
+            },
+            {
+              "event": {
+                "type": "admitted",
+                "generation": 1,
+                "result": {
+                  "source": "same",
+                  "revision": "r2"
+                }
+              },
+              "state": "clean",
+              "effects": [
+                "acknowledge"
+              ]
+            }
+          ]
+        },
+        {
           "name": "retained-basis sessions cannot enter local review or acknowledge equal projected bytes",
           "admissionPolicy": "retained-basis",
           "initial": {

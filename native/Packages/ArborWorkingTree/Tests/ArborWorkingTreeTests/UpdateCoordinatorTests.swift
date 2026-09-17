@@ -1967,6 +1967,7 @@ extension SourceSessionPublicationTests {
             #expect(records.count == 8)
             #expect(records[0].update.operations == nil)
             #expect(records[1].update.operations?.first?.kind == "editSource")
+            #expect(records[3].update.operations?.first?.kind == "moveEntry")
             #expect(records[4].update.operations == nil) // New directory material, not a made-up source identity.
             for index in 1..<records.count { #expect(records[index].basis == .authored(change: records[index - 1].change)) }
             await coordinator.close(); await session.close(); await body.close()

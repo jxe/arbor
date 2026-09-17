@@ -26,6 +26,8 @@ public final class ArborDocumentBinding {
 
     let session: any WorkspaceDocumentSession
     private var accepted: WorkspaceDocumentSnapshot
+    private var basisLedgers: [String: ArborSourceLedger] = [:]
+    private var authoredBlocks: [Int: [Block]] = [:]
     private var ledger: ArborSourceLedger
     private var machine: DocumentAdmissionMachine.State
     private var debounceTask: Task<Void, Never>?
@@ -95,6 +97,7 @@ public final class ArborDocumentBinding {
             accepted: .init(source: snapshot.source, revision: snapshot.contentRevision)
         )
         self.snapshots[snapshot.contentRevision] = snapshot
+        self.basisLedgers[snapshot.contentRevision] = opened.ledger
     }
 
     // MARK: Independent local recovery
@@ -102,11 +105,17 @@ public final class ArborDocumentBinding {
     private func checkpoint(source: String) {
         guard let recoveryStore else { return }
         do {
+            var captured: WorkspaceDocumentPatch?
+            if let basis = basisLedgers[accepted.contentRevision] {
+                let admission = ArborMarkdownCodec.admission(blocks: document.children, ledger: basis).0
+                if admission.source.utf8.elementsEqual(source.utf8) { captured = admission.patch }
+            }
             if let recoveryRevision, try recoveryStore.source(recoveryRevision) == source,
                recoveryRevision.baseRevision == accepted.contentRevision,
                try recoveryStore.base(recoveryRevision) == accepted.source,
+               try (captured == nil || recoveryStore.intent(recoveryRevision)?.patch == captured),
                !recoveryStore.isSaved(recoveryRevision) || source == accepted.source { return }
-            recoveryRevision = try recoveryStore.record(reference: reference, source: source, base: accepted)
+            recoveryRevision = try recoveryStore.record(reference: reference, source: source, base: accepted, patch: captured)
             recoveryError = nil
         } catch { recoveryError = error }
     }
@@ -145,7 +154,7 @@ public final class ArborDocumentBinding {
         ledger = restored.ledger
         _ = document.replaceChildrenReconciled(restored.blocks)
         lastEnqueuedSource = source
-        dispatch(.edit(source: source))
+        dispatch(.edit(source: source, preservesIntent: recoveredIntent?.patch.edits.contains { !($0.lineage ?? []).isEmpty } ?? false))
         if !retainsBasis, baseSource != current.source {
             // A remote edit cannot silently replace a recovered local draft.
             // Reuse the existing conflict review with both exact alternatives.
@@ -225,6 +234,11 @@ public final class ArborDocumentBinding {
     // MARK: Editor commits
 
     func admitCurrentGeneration() {
+        if basisLedgers[accepted.contentRevision] == nil, ledger.source.utf8.elementsEqual(accepted.source.utf8) {
+            var basis = ledger; basis.revision = accepted.contentRevision
+            basisLedgers[accepted.contentRevision] = basis
+        }
+        authoredBlocks[machine.generation + 1] = document.children
         let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger)
         lastEnqueuedSource = admission.source
         ledger = nextLedger
@@ -237,7 +251,7 @@ public final class ArborDocumentBinding {
             pendingConflict = conflict
         }
         checkpoint(source: admission.source)
-        dispatch(.edit(source: admission.source))
+        dispatch(.edit(source: admission.source, preservesIntent: admission.patch.edits.contains { !($0.lineage ?? []).isEmpty }))
     }
 
     /// Force the latest authored generation through and await local durability.
@@ -441,7 +455,17 @@ public final class ArborDocumentBinding {
 
     private func persist(source: String, generation: Int, baseRevision: String, baseSource: String) async {
         let patch: WorkspaceDocumentPatch
-        if let intent = recoveredIntent, intent.basis.contentRevision == baseRevision,
+        var authoredLedger: ArborSourceLedger?
+        if let basis = basisLedgers[baseRevision], basis.source.utf8.elementsEqual(baseSource.utf8),
+           let blocks = authoredBlocks[generation] {
+            let (captured, next) = ArborMarkdownCodec.admission(blocks: blocks, ledger: basis)
+            guard captured.source.utf8.elementsEqual(source.utf8) else {
+                pendingFailure = WorkspaceProviderError.invalidAction("Captured editor intent changed")
+                dispatch(.admissionFailed(generation: generation, error: .init(message: "Captured editor intent changed", retryable: false)))
+                return
+            }
+            patch = captured.patch; authoredLedger = next
+        } else if let intent = recoveredIntent, intent.basis.contentRevision == baseRevision,
            intent.basis.source.utf8.elementsEqual(baseSource.utf8), intent.source.utf8.elementsEqual(source.utf8) {
             patch = intent.patch
         } else {
@@ -464,6 +488,11 @@ public final class ArborDocumentBinding {
                 patch: patch, source: source)
             let confirmed = try await session.admit(intent: intent)
             snapshots[confirmed.contentRevision] = confirmed
+            if var next = authoredLedger, next.source.utf8.elementsEqual(confirmed.source.utf8) {
+                next.revision = confirmed.contentRevision
+                basisLedgers[confirmed.contentRevision] = next
+            }
+            authoredBlocks = authoredBlocks.filter { $0.key > generation }
             finishAdmission(generation: generation, snapshot: confirmed)
         } catch let value as WorkspaceDocumentConflict {
             if admissionPolicy == .retainedBasis {
@@ -569,5 +598,9 @@ public final class ArborDocumentBinding {
         saveError = nil
         pendingConflict = nil
         pendingFailure = nil
+        if machine.isSettled {
+            authoredBlocks.removeAll()
+            basisLedgers = basisLedgers.filter { $0.key == confirmed.contentRevision }
+        }
     }
 }

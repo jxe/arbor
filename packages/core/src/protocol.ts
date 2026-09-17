@@ -295,6 +295,8 @@ export interface SnapshotEnvelope<T> {
 
 /** One simultaneous UTF-8 byte replacement against an exact source revision. */
 export interface SourceEdit {
+  /** Verified preserved spans; source offsets are absolute, replacement offsets relative. */
+  lineage?: Array<{source: [number, number]; replacement: [number, number]}>;
   offset: number;
   length: number;
   replacement: string;
@@ -336,6 +338,20 @@ export function applySourceEdits(source: string, edits: readonly SourceEdit[]): 
       }
     }
     const replacement = new TextEncoder().encode(edit.replacement);
+    let outputEnd = 0;
+    const preserved: Array<[number, number]> = [];
+    for (const part of edit.lineage ?? []) {
+      const [start,end] = part.source, [from,to] = part.replacement;
+      if (![start,end,from,to].every(Number.isSafeInteger) || start < edit.offset || end < start || end > edit.offset+edit.length ||
+          from < outputEnd || to < from || to > replacement.length || end-start !== to-from ||
+          preserved.some(([a,b]) => start < b && a < end) ||
+          [start,end].some(n => n < original.length && (original[n]! & 0xc0) === 0x80) ||
+          [from,to].some(n => n < replacement.length && (replacement[n]! & 0xc0) === 0x80) ||
+          original.subarray(start,end).some((byte,i) => byte !== replacement[from+i])) throw new SourceEditError("Invalid preservation lineage");
+      try { new TextDecoder("utf-8",{fatal:true}).decode(original.subarray(start,end)); }
+      catch { throw new SourceEditError("Preservation lineage splits UTF-8"); }
+      preserved.push([start,end]); outputEnd=to;
+    }
     chunks.push(replacement);
     size += replacement.length;
     cursor = edit.offset + edit.length;

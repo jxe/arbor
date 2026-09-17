@@ -1456,6 +1456,7 @@ private actor RecordingAdmissionSession: WorkspaceDocumentSession {
     nonisolated let identity: WorkspaceIdentity
     private var current: WorkspaceDocumentSnapshot
     private var admissions = 0
+    private var patches: [WorkspaceDocumentPatch] = []
 
     init(snapshot: WorkspaceDocumentSnapshot) {
         identity = snapshot.reference.identity
@@ -1478,6 +1479,7 @@ private actor RecordingAdmissionSession: WorkspaceDocumentSession {
     }
 
     func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        patches.append(patch)
         guard current.contentRevision == patch.baseContentRevision else {
             throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: current.contentRevision)
         }
@@ -1488,6 +1490,7 @@ private actor RecordingAdmissionSession: WorkspaceDocumentSession {
     }
 
     func admissionCount() -> Int { admissions }
+    func admittedPatches() -> [WorkspaceDocumentPatch] { patches }
     func flush() {}
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
@@ -1718,4 +1721,49 @@ private actor InterleavingLiveUpdateSession: WorkspaceDocumentSession {
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) -> WorkspaceDocumentSnapshot { admitted }
     func close() { continuation.finish() }
+}
+
+@Test("Stable block reorder preserves exact source lineage")
+func reorderedSourceLineage() throws {
+    let source = "Alpha 🪴\r\n\r\nBeta\r\n\r\nGamma\r\n"
+    let opened = ArborMarkdownCodec.open(source:source,revision:"r",identitySeed:"lineage")
+    let blocks = [opened.blocks[1], opened.blocks[0], opened.blocks[2]]
+    let admission = ArborMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger).0
+    #expect(try admission.patch.applying(to:source) == admission.source)
+    #expect(admission.patch.edits.flatMap { $0.lineage ?? [] }.count >= 1)
+    let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
+    let store = try EditorRecoveryStore(root:root,reference:reference)
+    let revision = try store.record(reference:reference,source:admission.source,base:.init(reference:reference,source:source,contentRevision:"r"),patch:admission.patch)
+    #expect(try store.intent(revision)?.patch == admission.patch)
+}
+
+@Test("Reordering equal-byte blocks still retains distinct source intent")
+func equalByteReorderLineage() throws {
+    let opened = ArborMarkdownCodec.open(source:"same\n\nsame\n\n",revision:"r",identitySeed:"equal")
+    #expect(opened.blocks.count == 2)
+    let admission = ArborMarkdownCodec.admission(blocks:opened.blocks.reversed(),ledger:opened.ledger).0
+    #expect(admission.source == opened.ledger.source)
+    #expect(admission.patch.edits.count == 1)
+    #expect(admission.patch.edits[0].lineage?.count == 2)
+    #expect(try admission.patch.applying(to:opened.ledger.source) == admission.source)
+}
+
+@MainActor
+@Test("Editor binding retains equal-byte reorder intent through its admission machine")
+func boundEqualByteReorder() async throws {
+    let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
+    let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:"same\n\nsame\n\n",contentRevision:"r1"))
+    let binding = try await ArborDocumentBinding.open(reference:reference,session:session,debounce:.seconds(60))
+    binding.document.transaction(name:"reorder") {
+        _ = binding.document.replaceChildrenReconciled(Array(binding.document.children.reversed()))
+    }
+    binding.admitCurrentGeneration()
+    try await binding.flush()
+    let patches = await session.admittedPatches()
+    #expect(patches.count == 1)
+    #expect(patches.first?.edits.first?.lineage?.count == 2)
+    #expect(binding.lastError == nil)
+    await binding.close()
 }

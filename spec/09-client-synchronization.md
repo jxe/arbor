@@ -212,6 +212,17 @@ publication machines remain separate. The reference reducers are described in
   disk-only sessions may retain their separate compare-and-swap policy during
   compatibility; that policy MUST NOT leak into Canopy intent admission.
 
+### Captured operations and preserved source
+
+A client that captures an explicit move, copy, or preservation claim MUST retain
+that claim with the exact authored basis and candidate before acknowledging it.
+Preservation lineage MUST select scalar-aligned UTF-8 ranges with identical bytes,
+without duplicating a source occurrence. Copying material is distinct from
+preserving it. Equal candidate bytes MUST NOT erase captured operation identity.
+Editor recovery and publication retries MUST retain these claims unchanged.
+Clients MUST emit operation kinds only after the destination supports their
+execution; an authoritative operation cannot be recorded as an unvalidated hint.
+
 ### Structural admissions and mixed generations
 
 Durable acknowledgement applies to structural actions, imports and assets as well

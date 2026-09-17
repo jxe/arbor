@@ -34,7 +34,9 @@ struct EditorRecoveryStore {
         }
     }
 
-    func record(reference: WorkspaceReference, source: String, base: WorkspaceDocumentSnapshot) throws -> Revision {
+    func record(reference: WorkspaceReference, source: String, base: WorkspaceDocumentSnapshot, patch: WorkspaceDocumentPatch? = nil) throws -> Revision {
+        let exactPatch = patch ?? ArborMarkdownCodec.patch(from: base.source, to: source, revision: base.contentRevision)
+        _ = try WorkspaceDocumentIntent(basis: base, patch: exactPatch, source: source)
         let oldLines = Set(base.source.split(separator: "\n").map(String.init))
         let changedLine = source.split(separator: "\n").first {
             !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !oldLines.contains(String($0))
@@ -43,7 +45,7 @@ struct EditorRecoveryStore {
             id: UUID().uuidString, reference: reference, timestamp: Date(),
             sourceHash: try store(source), baseHash: try store(base.source), baseRevision: base.contentRevision,
             summary: changedLine.map { String($0.prefix(100)) },
-            patch: ArborMarkdownCodec.patch(from: base.source, to: source, revision: base.contentRevision)
+            patch: exactPatch
         )
         try write(try JSONEncoder().encode(revision), to: directory.appending(path: revision.id + ".json"))
         return revision
