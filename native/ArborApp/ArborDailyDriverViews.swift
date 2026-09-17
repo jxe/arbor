@@ -173,14 +173,16 @@ struct ArborSidebarSearchRow: View {
         let titleParts = arborSidebarTitleParts(result.title)
 
         Button(action: open) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if let emoji = titleParts.emoji {
                     Text(emoji)
                         .frame(width: 16)
+                        .offset(y: -1)
                 } else {
-                    Image(systemName: "doc.text.magnifyingglass")
+                    Image(systemName: "text.page")
                         .frame(width: 16)
                         .foregroundStyle(.secondary)
+                        .offset(y: -1)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(titleParts.text)
