@@ -7,7 +7,7 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 ## Source intent milestones
 
 **Current priority:** install the tested Native rejected-update cleanup in Reliability
-008; retained-basis source admission is already installed and verified. Verify the new Canopy snapshot acceptance deployment, then build Canopy-backed
+008; retained-basis source admission is already installed and verified. Canopy snapshot acceptance is deployed and verified. Build Canopy-backed
 review in Reliability 010. Whole-entry accepted conflicts are sufficient; the
 finer-grained storage upgrade remains deferred in
 [Canopy storage 002](canopy-storage/002-composable-conflict-fragments.md).

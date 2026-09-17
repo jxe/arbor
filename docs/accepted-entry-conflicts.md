@@ -1,7 +1,7 @@
 # Accepted whole-entry conflicts
 
 Canopy retains competing source and snapshot edits, including nested files, as accepted choices.
-The source/ancestor checkpoint is deployed with schema 11; snapshot acceptance is described in the checkpoint below. Installed Native now emits
+The source/ancestor and snapshot acceptance checkpoints are deployed with schema 11. Installed Native now emits
 source operations after its [verified cutover](native-source-cutover.md); filesystem
 clients continue to emit snapshots. It uses the existing unversioned Wire
 contract; clients need no identity map, review cache or coordinated upgrade.
@@ -241,4 +241,13 @@ exact replay, root and nested divergent renames, collection metadata, coupled
 child resolution, format-rule output alongside binary ambiguity, and real
 filesystem publication while a choice remains unresolved. The shared inspection
 fixture also runs through Swift. Full product, typecheck, build and protocol gates
-pass. Deployment evidence will be recorded after the live verification.
+pass (795 product tests).
+
+Deployed September 17, 2026: revision `59312d4`, Railway deployment
+`54c3e158-b728-488d-8b6e-1930fe39bded`. All six changed server implementation
+files matched the local hashes; live storage integrity and authenticated snapshot
+and conflict-inspection reads for all three installed trees passed. Schema remains
+11. The online backup in `/Users/joe/arbor-snapshot-acceptance-20260917-6xhgm4jv`
+was restored and verified with 576 accepted updates and no migration; its archive
+SHA-256 is `3813a14badcac6f431c12343a32b18de4ff487d7a7c00acd7c0f60ff1e1d4576`.
+This is an online recovery checkpoint; preserve any subsequent writes during recovery.

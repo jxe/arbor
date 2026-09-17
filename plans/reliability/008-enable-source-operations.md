@@ -104,10 +104,7 @@ boundary; a transport-only Wire client does not own editor admission.
   machinery. Preserve the existing backups. Verify normal opening, continued
   publication and restart after installation. Evidence is in the
   [queue checkpoint](../../docs/source-admission-queue.md#rejected-update-retirement-september-17).
-- Verify deployment of the [snapshot acceptance checkpoint](../../docs/accepted-entry-conflicts.md#snapshot-acceptance-checkpoint).
-  It removes the ordinary rejection fallback and obsolete engine policy switches;
-  exact-state and resolution guards and account policy remain valid rejections.
-  Preserve root-choice support in any subsequent server rollback.
+
 
 
 
