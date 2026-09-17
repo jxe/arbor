@@ -177,6 +177,8 @@ This change does not alter CLI account configuration or reconnect behavior.
 
 ## Ancestor acceptance checkpoint
 
+This checkpoint is [deployed](ancestor-conflicts-deployment.md) on schema 11.
+
 Seven HTTP scenarios cover deletion, file replacement and hidden continuation,
 snapshot movement, selected-child continuation, multiple enclosing decisions,
 ancestor-only and child-only resolution, and atomic child resolution with ancestor
