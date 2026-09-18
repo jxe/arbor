@@ -805,8 +805,8 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("A clean watch applies an accepted transition without fetching a snapshot")
-    func cleanWatchTransition() async throws {
+    @Test("A clean watch applies an accepted transition without fetching a snapshot", arguments: [false, true])
+    func cleanWatchTransition(net: Bool) async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_watchtransition"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
@@ -826,7 +826,7 @@ struct UpdateCoordinatorTests {
                 id: "up_remote",
                 tree: tree,
                 root: remote.root,
-                previous: .init(id: "up_initial", root: initial.root),
+                previous: .init(id: net ? "up_intermediate" : "up_initial", root: initial.root),
                 acceptedAt: 1_800_000_000_000
             )
             let transition = WireAcceptedTransition(
@@ -836,7 +836,8 @@ struct UpdateCoordinatorTests {
                     base: initialFile.hash,
                     result: remoteFile.hash,
                     instructions: [.insert(remoteFile.bytes)]
-                )]
+                )],
+                from: net ? .init(id: "up_initial", root: initial.root) : nil
             )
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: root)
             let result = try await coordinator.observe(WireWatchEvent(
@@ -953,8 +954,8 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("A matching watch digest recovers a lost update response without reconnecting")
-    func watchDigestRecovery() async throws {
+    @Test("A watch retries a lost response even without a matching digest", arguments: [false, true])
+    func watchDigestRecovery(net: Bool) async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_watchdigest"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
@@ -998,15 +999,20 @@ struct UpdateCoordinatorTests {
                     path: "/~owner/watch-digest",
                     endpoint: "https://example.test"
                 ),
-                update: "up_local"
+                update: net ? "up_net" : "up_local"
             )
             let result = try await coordinator.observe(.init(
-                id: "up_local",
+                id: net ? "observation_net" : "observation_local",
                 tree: eventTree,
-                requestDigest: frozen.requestDigest
+                requestDigest: net ? nil : frozen.requestDigest,
+                transitions: net ? [.init(
+                    update: .init(id: "up_net", tree: tree, root: request.candidate,
+                        previous: .init(id: "up_local", root: request.candidate), acceptedAt: 1_800_000_000_000),
+                    objects: [], from: .init(id: "up_initial", root: initial.root))] : []
             ))
             #expect(result.state == .current)
             #expect(await transport.requests.count == 2)
+            #expect(await transport.requests.last?.body == frozen.body)
             #expect(try await workingTree.heads().acceptedCursor == nil)
         }
     }

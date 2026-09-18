@@ -32,6 +32,27 @@ describe("accepted-update transaction store", () => {
 
   afterEach(() => db.close());
 
+  test("observation replay pages by ordinal and catches appends after the starting position", () => {
+    const log = new ObservationLog(db);
+    const anchor = log.latestCursor("tr_test")!;
+    const start = log.position("tr_test", anchor);
+    for (let i=0;i<150;i++) store.insert({tree:"tr_test",root:A,previousRoot:A,kind:"accepted",acceptedAt:i+2,transition:{objects:[],deltas:[]}});
+    const seen: string[] = [];
+    let ordinal = start.through;
+    for (;;) {
+      const page = log.page("tr_test",ordinal);
+      expect(page.length).toBeLessThanOrEqual(64);
+      if (!page.length) break;
+      seen.push(...page.map(row=>row.updateID!)); ordinal=page.at(-1)!.ordinal;
+    }
+    expect(seen).toHaveLength(150);
+    expect(new Set(seen).size).toBe(150);
+    expect(log.position("other-tree",anchor).retained).toBe(false);
+    expect(log.position("tr_test",null).through).toBe(ordinal);
+    const appended=store.insert({tree:"tr_test",root:A,previousRoot:A,kind:"accepted",acceptedAt:999});
+    expect(log.page("tr_test",ordinal).map(row=>row.updateID)).toEqual([appended.id]);
+  });
+
   test("descriptor and observation lookups use their scoped indexes", () => {
     ensureCanopyReadIndexes(db);
     ensureCanopyReadIndexes(db); // Existing stores gain indexes idempotently.

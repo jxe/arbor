@@ -496,6 +496,19 @@ struct UpdateProtocolTests {
         #expect(try parser.finish().isEmpty)
     }
 
+    @Test("Large SSE frames arrive byte by byte without rescanning the accumulated payload")
+    func largeSSE() throws {
+        var parser = ArborSSEParser()
+        let payload = String(repeating: "x", count: 1_100_000)
+        var frames: [ArborSSEFrame] = []
+        for byte in ("id: net\ndata: " + payload + "\r\n\r\n").utf8 {
+            frames.append(contentsOf: try parser.append(Data([byte])))
+        }
+        #expect(frames.count == 1)
+        #expect(frames.first?.data == payload)
+        #expect(try parser.finish().isEmpty)
+    }
+
     @Test("Unterminated and invalid UTF-8 frames fail")
     func malformedSSE() throws {
         var unterminated = ArborSSEParser()

@@ -40,6 +40,13 @@ export class MergeStateStore {
       JSON.stringify(record),
     ]);
   }
+  /** Audit one retained record at a time, bounded to the initial high-water mark. */
+  *entries(): Generator<{accepted: string; record: MergeStateRecord}> {
+    const last = this.db.query("SELECT MAX(rowid) AS n FROM accepted_merge_states").get() as {n: number | null};
+    for (const row of this.db.query("SELECT accepted_id, record_json FROM accepted_merge_states WHERE rowid <= ? ORDER BY rowid").iterate(last.n ?? 0) as Iterable<{accepted_id: string; record_json: string}>) {
+      yield {accepted: row.accepted_id, record: JSON.parse(row.record_json)};
+    }
+  }
   all(): Array<{ accepted: string; record: MergeStateRecord }> {
     return (
       this.db.query("SELECT * FROM accepted_merge_states").all() as Array<{

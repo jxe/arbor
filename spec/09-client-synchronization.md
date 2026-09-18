@@ -114,7 +114,8 @@ one client's local condition gate another client's publication.
    materialization succeeds; a restart in `accepted-pending-apply` completes
    the same apply idempotently.
 7. **Clean catch-up.** A watch event in `current` applies a contiguous
-   transition batch in memory and materializes its final state once, or
+   transport transition batch (including a net transition spanning intermediate
+   accepted updates) in memory and materializes its final state once, or
    pulls the current snapshot when the batch does not chain. A watch event
    under pending work triggers publication and never overwrites the head.
 8. **Accepted ambiguity is ordinary acceptance.** Ordinary valid concurrent

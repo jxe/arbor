@@ -106,7 +106,7 @@ export function validateReadPayload(raw: unknown): void {
   for (const object of payload.objects) check(hashObject(object.bytes)===object.hash);
 }
 export interface AcceptedReadTransition extends TransitionPayloadJSON {
-  update: AcceptedState; requestDigest?: string;
+  update: AcceptedState; from?: StateLink; requestDigest?: string;
 }
 export interface AcceptedWatchChange {
   descriptor: { id: string; update: string; root: string; conflicted: boolean };
@@ -116,6 +116,10 @@ export interface AcceptedWatchChange {
  * A cursor is never compared to an accepted ID. Descriptor policy fields are
  * validated by the tree descriptor decoder; this checks the accepted-state binding.
  */
+export function decodeTransitionBasis(raw: unknown, update: AcceptedState): StateLink {
+  const p=obj(raw); required(p,["id","root"]); token(p.id); hash(p.root); check(p.id!==update.id);
+  return p as StateLink;
+}
 export function decodeAcceptedWatchChange(raw: unknown, tree: string, basis?: StateLink): AcceptedWatchChange {
   const v=obj(raw); required(v,["descriptor","transitions"]);
   const d=obj(v.descriptor); required(d,["id","update","root","conflicted"]);
@@ -126,7 +130,7 @@ export function decodeAcceptedWatchChange(raw: unknown, tree: string, basis?: St
     const update=decodeAcceptedState(t.update); check(update.previous!==null);
     validateReadPayload(t);
     if(Object.hasOwn(t,"requestDigest")) hash(t.requestDigest);
-    return update;
+    return Object.hasOwn(t,"from") ? {...update, previous: decodeTransitionBasis(t.from, update)} : update;
   });
   validateAcceptedChain(tree,basis ?? updates[0]!.previous,updates,{id:d.update,root:d.root});
   check(updates.at(-1)!.conflicted===d.conflicted);

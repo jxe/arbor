@@ -1,3 +1,4 @@
+import { StateMapValidationCache } from "./state-map.ts";
 import { loadIntentState } from "./state-storage.ts";
 import { decodeWireDirectory, hashObject } from "@arbor/wire";
 import { intentReferences, type IntentState } from "./intent-model.ts";
@@ -37,6 +38,7 @@ export class RetentionCache {
   constructor(
     private readonly maxEdges = 250_000,
     private readonly maxEntries = 100_000,
+    private readonly retainStateEdges = false,
   ) {}
   get(ref: Reference): readonly Reference[] | undefined {
     return this.entries.get(ref.kind + ":" + ref.hash)?.edges;
@@ -52,7 +54,7 @@ export class RetentionCache {
   }
   set(ref: Reference, dependencies: Reference[], durable: boolean) {
     if (
-      ref.kind === "state" ||
+      (ref.kind === "state" && !this.retainStateEdges) ||
       dependencies.length > this.maxEdges ||
       this.maxEntries < 1
     )
@@ -81,6 +83,9 @@ export async function verifyIntentRetention(
   options?: {
     cache: RetentionCache;
     durable: (hash: string) => boolean;
+    historyCache?: StateMapValidationCache;
+    /** Audit a union without constructing a separate closure for every root. */
+    union?: boolean;
     /** Already hash-checked and semantically validated, with every object read
      * to reconstruct it. Availability is still checked by this graph walk. */
     state?: (hash: string) =>
@@ -94,9 +99,10 @@ export async function verifyIntentRetention(
 ): Promise<Set<string>> {
   const bytesByHash = new Map<string, Uint8Array>();
   const all = new Set<string>();
+  const unionVerified = new Set<string>(), unionVisited = new Set<string>();
   for (const root of new Set(roots)) {
-    const verified = new Set<string>(),
-      visited = new Set<string>();
+    const verified = options?.union ? unionVerified : new Set<string>(),
+      visited = options?.union ? unionVisited : new Set<string>();
     const pending: Reference[] = [{ hash: root, kind: "state" }];
     const hot: Reference[] = [];
     const schedule = (edge: Reference) => {
@@ -189,6 +195,7 @@ export async function verifyIntentRetention(
             (hash) => {
               if (hash !== ref.hash) add(hash);
             },
+            options?.historyCache,
           ));
         if (proof)
           for (const hash of proof.dependencies)
@@ -205,14 +212,26 @@ export async function verifyIntentRetention(
     // The walk already established this exact typed closure. Rebuilding it
     // from intermediate frontiers revisits the same history several times.
     // Input roots are primed separately; retain only the requested root here.
-    options?.cache.retainClosure(root, {
+    if (!options?.union) options?.cache.retainClosure(root, {
       hashes: verified,
       types: visited,
       pending: new Set([...verified].filter((hash) => !options.durable(hash))),
     });
-    for (const hash of verified) all.add(hash);
+    if (!options?.union) for (const hash of verified) all.add(hash);
     if (all.size > 1_000_000)
       throw new Error("Retained graph exceeds verification budget");
   }
-  return all;
+  return options?.union ? unionVerified : all;
+}
+
+
+/** A new audit owns fresh validation facts; nothing survives into a later
+ * audit. Legacy explicit closures still require per-root equality checks;
+ * compact root records can be checked together in one typed graph traversal. */
+export function retentionAudit(load: (hash: string) => Promise<Uint8Array>) {
+  const cache = new RetentionCache(1_000_000, 1_000_000, true);
+  const historyCache = new StateMapValidationCache();
+  return (roots: string[], union = false) => verifyIntentRetention(roots, load, {
+    cache, historyCache, durable: () => true, union,
+  });
 }

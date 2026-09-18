@@ -308,7 +308,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
       this.deps.trees.setSyncState(workspace.tree, "idle");
       return true;
     }
-    if (transitions[0]!.update.previous?.root !== placement.ref || transitions[0]!.update.previous?.id !== placement.update) return false;
+    if ((transitions[0]!.from ?? transitions[0]!.update.previous)?.root !== placement.ref || (transitions[0]!.from ?? transitions[0]!.update.previous)?.id !== placement.update) return false;
     const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (local.root !== placement.ref) return false;
 
@@ -317,7 +317,7 @@ export class TreeSynchronizer<W extends SyncWorkspace = SyncWorkspace> {
     let expectedID = placement.update;
     try {
       for (const transition of transitions) {
-        if (transition.update.previous?.root !== expected || transition.update.previous?.id !== expectedID) return false;
+        if ((transition.from ?? transition.update.previous)?.root !== expected || (transition.from ?? transition.update.previous)?.id !== expectedID) return false;
         objects = applyTransitionPayload(objects, transition);
         expected = transition.update.root;
         expectedID = transition.update.id;

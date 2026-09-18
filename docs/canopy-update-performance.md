@@ -3,10 +3,10 @@
 September 18, 2026: accepted-prefix reuse and Native payload omission are deployed to Canopy and installed on Mac/iPhone.
 That deployed change requires no schema, Wire, client, or permissions migration.
 
-## Tree readers and watch replay (main, not deployed)
+## Tree readers and watch catch-up
 
-A follow-up removes repeated work from reader endpoints without a cache or Wire
-change. Object membership follows directory edges rather than reading unrelated
+Reader commit `13c78de` removes repeated work from reader endpoints without a
+Wire change. Object membership follows directory edges rather than reading unrelated
 file bodies, shares its visited frontier across retained roots, and queries
 historical roots only after the current root misses. Authorization still precedes
 membership checks, nested-tree boundaries remain separate, and the requested
@@ -19,11 +19,27 @@ roots fell from 920 object reads / 77,461,548 bytes / 111 ms to 19 directory rea
 A synthetic 1,000-file directory needs one directory read for membership, and
 100 roots sharing a directory visit that shared directory once.
 
-Watch replay uses cursors already present in observation records. It attempts
+Legacy watch replay uses cursors already present in observation records. It attempts
 one frame per 64-transition batch and splits only oversized frames, avoiding
 serialization of every growing prefix. Frame byte/count bounds, transition
 ordering, exact observation cursors, caller-specific digests, and authorization
-checks remain unchanged. A fitting 64-transition batch is encoded once.
+checks remain intact. A fitting 64-transition batch is encoded once. Delivery now
+pulls pages of 64 records from the durable observation log under stream
+backpressure, instead of loading all history or buffering live notifications.
+
+Updated TypeScript and Swift clients request `catchup=net` by default. A backlog
+becomes one sparse transition directly from its retained accepted basis to the
+captured destination. Intermediate payloads are neither read nor transmitted;
+the destination's actual predecessor remains unchanged. A 513-update same-root
+backlog is tested to deliver one empty payload without loading stored transitions.
+Concurrent appends follow the captured cursor. Net frames may exceed the ordinary
+1 MiB frame target; Native's byte-level SSE parser scans only new bytes instead
+of copying and rescanning the entire accumulated frame on every byte. Older
+installed clients retain adjacent replay until replaced with the updated build.
+See the [transport contract](update-wire-contract.md#net-watch-catch-up).
+On the fresh production copy, a 100-update Todos span produced four deltas,
+7,699 encoded bytes, in 6.1 ms; reconstruction matched every destination object.
+This measures local payload construction, not network or device apply latency.
 
 Accepted-update descriptor queries select only descriptor columns. Additive
 indexes on accepted tree identity and observation update identity are installed
@@ -34,17 +50,26 @@ on the current production copy (its largest transition payload is about 3 KB).
 Full material integrity traversal now shares its visited set across roots while
 keeping file and directory roles distinct. Reading bytes as a historical file
 never discharges the obligation to traverse those bytes as a later directory.
-The health endpoint still audits historical semantic retention separately, so it
-remains unsuitable for lightweight liveness polling. Large watch replays also
-still load their transition list eagerly; bounding/streaming that work and an
-object membership index remain separate projects.
+Historical semantic audits now iterate records and share freshly validated graph
+edges and history-map facts within one audit. Compact retention roots use one
+union traversal; legacy explicit closures retain exact equality checks. Nothing
+is trusted from a previous audit. The earlier production copy audited in 5.4 s
+(17,684 reads / 689 MB across material and semantic passes). Health still performs
+a full audit and remains unsuitable for lightweight liveness polling.
 
-Verification: 28 focused reader/watch/store tests passed; the complete TypeScript
-suite passed 1,099 tests with the previously observed private-tree CLI placement
-failure unchanged. TypeScript checking, CLI build, and the live TS/Swift protocol
-gate passed. Relative-link checking found the same 29 existing/example missing
-targets, and whitespace checks passed. These follow-up reader changes remain
-uncommitted and undeployed.
+Verification: the full product suite passed 1,111 tests with the previously
+observed private-tree CLI placement failure unchanged. TypeScript checking,
+CLI build, and the live TypeScript/Swift protocol gate passed. Shared vectors
+cover valid net transport and invalid basis identity/root/self/null values;
+Native tests cover clean net application without snapshot fetching and exact
+pending-request retry when the coalesced event has no matching digest. A 1.1 MB
+byte-at-a-time SSE test passed. Fresh production-copy rehearsal evidence is
+retained outside the repository in `~/arbor-net-catchup-20260918/`: 7,838 objects
+were hash-checked, all 17 tables remained unchanged across two restarts, and the
+full integrity audit passed in 5.4 s. The archive SHA-256 is
+`6b755b94e67d3d422200f41e75ab82a3db6d0f900d1d7a1b2bb8e2c974971a6c`.
+Relative-link checking reports the same 29 existing/example missing targets;
+`git diff --check` passes.
 
 ## Incremental state (deployed 2026-09-18)
 

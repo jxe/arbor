@@ -3,6 +3,7 @@ import { StateMapValidationCache } from "../../packages/merge/src/state-map.ts";
 import { encodeWireDirectory, hashObject } from "@arbor/wire";
 import {
   RetentionCache,
+  retentionAudit,
   verifyIntentRetention,
 } from "../../packages/merge/src/retention.ts";
 import {
@@ -283,4 +284,32 @@ test("successive states reach the prior frontier without rereading their history
     });
     expect(retained.has(envelope)).toBe(true);
   }
+});
+
+
+test("fresh audit shares history across records and union traversal without trusting earlier audits", async () => {
+  const f = fixture();
+  const state = await loadIntentState(f.state, f.load);
+  const roots = [f.state];
+  const put = (value: unknown) => {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    const hash = hashObject(bytes); f.objects.set(hash, bytes); return hash;
+  };
+  for (let i=0;i<32;i++) {
+    const change=put({base:{object:state.nodes.root!.object,state:roots.at(-1)},incoming:{object:state.nodes.root!.object}});
+    state.changes[`change-${i}`]=change;
+    roots.push(put(state));
+  }
+  const expected = await verifyIntentRetention([roots.at(-1)!], f.load);
+  const audit = retentionAudit(f.load);
+  const before = f.reads();
+  for (const root of roots) await audit([root]);
+  expect(f.reads()-before).toBeLessThan(roots.length*4);
+  expect(await audit(roots,true)).toEqual(expected);
+  const unionAudit=retentionAudit(f.load);
+  expect(await unionAudit(roots,true)).toEqual(expected);
+  // A union never becomes an incorrectly broad certificate for its first root.
+  expect(await unionAudit([f.state])).toEqual(await verifyIntentRetention([f.state],f.load));
+  f.objects.delete(f.file);
+  await expect(retentionAudit(f.load)(roots,true)).rejects.toThrow("Missing object");
 });

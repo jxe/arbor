@@ -107,6 +107,15 @@ public struct WireAcceptedWatchChangeContract: Codable, Sendable, Equatable {
             try AcceptedReadValidation.check(update.fields["previous"] != .null)
             _ = try AcceptedReadValidation.payload(raw)
             if let digest=t["requestDigest"] { try AcceptedReadValidation.hash(digest) }
+            if let from=t["from"] {
+                let p=try AcceptedReadValidation.object(from)
+                try AcceptedReadValidation.required(p,["id","root"])
+                try AcceptedReadValidation.token(p["id"]); try AcceptedReadValidation.hash(p["root"])
+                try AcceptedReadValidation.check(!AcceptedReadValidation.equal(p["id"],update.fields["id"]))
+                var fields=update.fields
+                fields["previous"]=from
+                return try JSONDecoder().decode(WireAcceptedStateContract.self,from:JSONEncoder().encode(WireReadValue.object(fields)))
+            }
             return update
         }
         try WireAcceptedStateContract.validateChain(tree:tree,previous:basis ?? updates[0].fields["previous"]?.fields,updates:updates,head:["id":d["update"]!,"root":d["root"]!])

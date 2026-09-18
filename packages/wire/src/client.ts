@@ -407,7 +407,7 @@ export class WireClient {
    * `resync-required`; the caller reconnects with a fresh cursor.
    */
   async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal } = {}): AsyncGenerator<WatchEvent> {
-    const query = after ? `?after=${encodeURIComponent(after)}` : "";
+    const query = `?catchup=net${after ? `&after=${encodeURIComponent(after)}` : ""}`;
     const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/watch${query}`, {
       headers: { ...this.headers(), accept: "text/event-stream" },
       signal: options.signal ?? new AbortController().signal,

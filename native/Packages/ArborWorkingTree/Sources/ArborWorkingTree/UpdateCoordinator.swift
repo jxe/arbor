@@ -290,8 +290,8 @@ public actor UpdateCoordinator {
             throw ArborWireValidationError.invalidValue("Watch transition batch does not match its descriptor")
         }
         guard let first=event.transitions.first,
-              first.update.previous?.id.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8) == true,
-              first.update.previous?.root == heads.acceptedRoot else {
+              first.transportBasis?.id.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8) == true,
+              first.transportBasis?.root == heads.acceptedRoot else {
             throw ArborWireValidationError.invalidValue("Watch predecessor differs from confirmed accepted state")
         }
         let basis = try await sparseBasis(deltaBases: Set(event.transitions.flatMap { $0.deltas.map(\.base) }))

@@ -405,6 +405,19 @@ export class CanopyDaemon implements AsyncDisposable {
     return { update, ...payload, ...(requestDigest ? { requestDigest } : {}) };
   }
 
+  /** Capture both endpoints before reading immutable objects; later appends remain queued. */
+  async netAcceptedTransition(tree: string, after: number, credentialSubject?: string): Promise<{record: ObservationRecord; transition: AcceptedTransition} | null> {
+    const basisRecord = this.observations.atOrBefore(tree, after);
+    const tip = this.observations.atOrBefore(tree, this.observations.position(tree, null).through);
+    const basis = basisRecord?.updateID ? this.update(basisRecord.updateID) : null;
+    const update = tip?.updateID ? this.update(tip.updateID) : null;
+    if (!basis || !update || !tip || tip.ordinal <= after) return null;
+    const requestDigest = this.matchingRequestDigest(update.id, credentialSubject);
+    const payload = await this.acceptedTransitionPayload(basis.root, update.root);
+    return {record: tip, transition: {update, from: {id: basis.id, root: basis.root}, ...payload,
+      ...(requestDigest ? {requestDigest} : {})}};
+  }
+
   /** Decision inspection is pinned to one retained accepted state. */
   conflictPage(
     tree: string,
@@ -2145,6 +2158,9 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.observations.forUpdate(update);
   }
 
+  observationPosition(tree: string, cursor: string | null) { return this.observations.position(tree, cursor); }
+  observationPage(tree: string, after: number) { return this.observations.page(tree, after); }
+
   /** Retained observation records strictly after `cursor` for one tree. */
   observationsAfter(tree: string, cursor: string | null) {
     return this.observations.after(tree, cursor);
@@ -2179,25 +2195,25 @@ export class CanopyDaemon implements AsyncDisposable {
       if (dependency.kind === "directory") await this.objects.verifyReachable([dependency.hash]);
       else if (hashObject(await this.objects.load(dependency.hash)) !== dependency.hash) throw new Error("Invalid alternative object");
     }
-    for (const { accepted, record } of this.semantic.store.all()) {
+    const { retentionAudit } = await import("../../merge/src/retention.ts");
+    const auditRetention = retentionAudit(hash => this.objects.load(hash));
+    const compactRoots = new Set<string>();
+    for (const { accepted, record } of this.semantic.store.entries()) {
       const owner = this.update(accepted);
       if (!owner || owner.conflicted !== (record.decisions.length > 0))
         throw new Error("Invalid merge state ownership");
-      const { verifyIntentRetention } = await import(
-        "../../merge/src/retention.ts"
-      );
-      const dependencies = await verifyIntentRetention(
-        [record.state, record.authored],
-        (hash) => this.objects.load(hash)
-      );
       if (record.dependencies) {
+        const dependencies = await auditRetention([record.state, record.authored]);
         if (stableJSONString([...dependencies].sort()) !== stableJSONString([...record.dependencies].sort()))
           throw new Error("Invalid merge retention closure");
       } else if (record.retention?.version !== 1 ||
         stableJSONString([...record.retention.roots].sort()) !== stableJSONString([...new Set([record.state, record.authored])].sort())) {
         throw new Error("Invalid merge retention roots");
+      } else {
+        compactRoots.add(record.state); compactRoots.add(record.authored);
       }
     }
+    await auditRetention([...compactRoots], true);
     for (const { accepted, state } of new ConflictStore(this.db).all()) {
       const owner = this.update(accepted);
       if (!owner || owner.conflicted !== (state.decisions.length > 0))

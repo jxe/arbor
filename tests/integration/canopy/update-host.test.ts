@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
+import type { AcceptedTransitionJSON } from "../../../packages/wire/src/updates/json.ts";
+import { AcceptedUpdateStore } from "../../../packages/canopy/src/updates/store.ts";
 import { ProjectionProviderHost } from "@arbor/stores";
-import { WireClient, applyTransitionPayload, WireUpdateConflict, WireUnsupportedOperation, decodeCandidateUpdateJSON } from "@arbor/wire";
+import { WireClient, applyTransitionPayload, WireUpdateConflict, WireUnsupportedOperation, decodeCandidateUpdateJSON, decodeAcceptedTransitionJSON } from "@arbor/wire";
 import {
   readAccountConfigGraph,
   snapshotAccountConfig,
@@ -77,7 +79,7 @@ async function readWatchFrames(url: string, count: number) {
     return {
       id: field("id")[0],
       event: field("event")[0],
-      data: JSON.parse(field("data").join("\n")) as { cursor: string; change: { transitions?: Array<{ update: { id: string } }> } & Record<string, unknown> },
+      data: JSON.parse(field("data").join("\n")) as { cursor: string; change: { transitions?: AcceptedTransitionJSON[] } & Record<string, unknown> },
     };
   });
 }
@@ -758,4 +760,115 @@ describe("governed account-configuration Canopy server", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: "invalid-request", retryable: false });
   });
+  test("large watch backlogs are paged and include appends during replay", async () => {
+    const baseline = await currentConfig();
+    const tree = baseline.current.tree.id;
+    const root = baseline.current.tree.root;
+    const db = new Database(join(dataRoot,"canopy.sqlite3"));
+    const store = new AcceptedUpdateStore(db);
+    const ids: string[] = [];
+    const append = () => {
+      const update=store.insert({tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
+      ids.push(update.id);
+    };
+    for(let i=0;i<130;i++) append();
+    const original = running.canopy.observationPage.bind(running.canopy);
+    const sizes: number[]=[];
+    running.canopy.observationPage = (id,after) => {
+      const page=original(id,after); sizes.push(page.length);
+      if(sizes.length===1) append(); // Arrives after the replay's first page was read.
+      return page;
+    };
+    try {
+      const frames=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,3);
+      expect(frames.flatMap(frame=>frame.data.change.transitions!.map(t=>t.update.id))).toEqual(ids);
+      expect(frames.map(frame=>frame.data.change.transitions!.length)).toEqual([64,64,3]);
+      expect(sizes.every(size=>size<=64)).toBe(true);
+      expect(frames.at(-1)!.id).toBe(running.canopy.observedThrough(tree));
+    } finally {running.canopy.observationPage=original; db.close();}
+  });
+
+  test("default client catch-up reconstructs net content and retains the actual predecessor", async () => {
+    const baseline = await currentConfig();
+    const tree = baseline.current.tree.id;
+    const admin = baseline.graph.account.admins[0]!;
+    let current = baseline;
+    for (const label of ["net intermediate", "net destination"]) {
+      await submitConfiguration(current.current, {...current.graph,
+        devices: {...current.graph.devices, [admin]: {...current.graph.devices[admin]!, label}}});
+      current = await currentConfig();
+    }
+    const abort = new AbortController();
+    try {
+      const iterator = client.watch(tree, baseline.current.observedThrough, {signal: abort.signal});
+      const event = (await iterator.next()).value!;
+      if (event.kind !== "tree.update") throw new Error("Expected net update");
+      expect(event.transitions).toHaveLength(1);
+      const transition = event.transitions[0]!;
+      expect(transition.from).toEqual({id: baseline.current.tree.update, root: baseline.snapshot.root});
+      expect(transition.update.previous!.id).not.toBe(transition.from!.id);
+      const result = applyTransitionPayload(baseline.snapshot.objects, transition);
+      expect(result.get(current.snapshot.root)).toEqual(current.snapshot.objects.get(current.snapshot.root));
+      for (const [hash, bytes] of current.snapshot.objects) expect(result.get(hash)).toEqual(bytes);
+      expect(event.cursor).toBe(current.current.observedThrough);
+      expect(transition.requestDigest).toBeDefined();
+    } finally { abort.abort(); }
+  });
+
+  test("appends during net construction follow the captured destination", async () => {
+    const baseline = await currentConfig(), tree = baseline.current.tree.id, root = baseline.current.tree.root;
+    const db = new Database(join(dataRoot,"canopy.sqlite3")), store = new AcceptedUpdateStore(db);
+    for (let i=0;i<3;i++) store.insert({tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
+    const original = running.canopy.netAcceptedTransition.bind(running.canopy);
+    let appended: string | undefined;
+    running.canopy.netAcceptedTransition = async (...args) => {
+      const net = await original(...args);
+      appended = store.insert({tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}}).id;
+      return net;
+    };
+    try {
+      const frames = await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?catchup=net&after=${baseline.current.observedThrough}`,2);
+      const first = decodeAcceptedTransitionJSON(frames[0]!.data.change.transitions![0]);
+      const second = decodeAcceptedTransitionJSON(frames[1]!.data.change.transitions![0]);
+      expect(first.from?.id).toBe(baseline.current.tree.update);
+      expect(second.update.previous?.id).toBe(first.update.id);
+      expect(second.update.id).toBe(appended!);
+    } finally {running.canopy.netAcceptedTransition=original;db.close();}
+  });
+
+  test("net catch-up skips intermediate payloads and preserves accepted history", async () => {
+    const baseline=await currentConfig();
+    const tree=baseline.current.tree.id, root=baseline.current.tree.root;
+    const db=new Database(join(dataRoot,"canopy.sqlite3")), store=new AcceptedUpdateStore(db);
+    for(let i=0;i<513;i++) store.insert({tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
+    const original=running.canopy.acceptedTransition.bind(running.canopy);
+    let loaded=0;
+    running.canopy.acceptedTransition=(...args)=>{loaded++;return original(...args);};
+    try {
+      const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?catchup=net&after=${baseline.current.observedThrough}`,1);
+      expect(frame!.event).toBe("tree.update");
+      expect(frame!.data.change.transitions).toHaveLength(1);
+      expect(frame!.data.change.transitions![0]!.update.previous!.id).not.toBe(baseline.current.tree.update);
+      expect(loaded).toBe(0);
+      const current=await client.descriptor(tree);
+      expect(frame!.id).toBe(current.observedThrough);
+      expect((await client.snapshot(tree,current.tree.root)).root).toBe(root);
+      expect(store.list(tree).length).toBeGreaterThanOrEqual(514);
+    } finally {running.canopy.acceptedTransition=original;db.close();}
+  });
+
+  test("net catch-up omits byte-heavy intermediate payloads", async () => {
+    const baseline=await currentConfig(), tree=baseline.current.tree.id, root=baseline.current.tree.root;
+    const db=new Database(join(dataRoot,"canopy.sqlite3")), store=new AcceptedUpdateStore(db);
+    const bytes=new Uint8Array(400_000);
+    const hash=`sha256:${sha256(bytes)}`;
+    try {
+      for(let i=0;i<16;i++) store.insert({tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[{hash,bytes}],deltas:[]}});
+      const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?catchup=net&after=${baseline.current.observedThrough}`,1);
+      expect(frame!.event).toBe("tree.update");
+      expect(frame!.data.change.transitions).toHaveLength(1);
+      expect(frame!.data.change.transitions![0]!.objects).toEqual([]);
+    } finally {db.close();}
+  });
+
 });

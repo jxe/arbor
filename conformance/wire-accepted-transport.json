@@ -1450,6 +1450,268 @@
         "id": "accepted-before",
         "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
       }
+    },
+    {
+      "name": "net catch-up spans same-root accepted decisions",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "from": {
+              "id": "accepted-before",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+            }
+          }
+        ]
+      },
+      "valid": true,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "net catch-up rejects wrong basis identity",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "from": {
+              "id": "wrong",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+            }
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "net catch-up rejects wrong basis root",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "from": {
+              "id": "accepted-before",
+              "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "net catch-up rejects self basis",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "from": {
+              "id": "opaque-final",
+              "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+            }
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
+    },
+    {
+      "name": "net catch-up rejects null basis",
+      "kind": "watch",
+      "value": {
+        "descriptor": {
+          "id": "transport-tree",
+          "update": "opaque-final",
+          "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+          "conflicted": true,
+          "kind": "ordinary",
+          "access": "write",
+          "permissions": [],
+          "canonical": null
+        },
+        "transitions": [
+          {
+            "update": {
+              "id": "opaque-final",
+              "tree": "transport-tree",
+              "root": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+              "previous": {
+                "id": "opaque-é",
+                "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+              },
+              "acceptedAt": 1,
+              "subject": null,
+              "conflicted": true
+            },
+            "objects": [
+              {
+                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+              },
+              {
+                "hash": "sha256:0a244eda528694fa08082a26bffc4cbf4b4324f10e0d610a343f3dd10e88c437",
+                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1k"
+              }
+            ],
+            "deltas": [],
+            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+            "from": null
+          }
+        ]
+      },
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:5ac3bcc23239b67ff5e41723557bb007d07af0d05b270aea99239f448acb19b7"
+      }
     }
   ]
 }

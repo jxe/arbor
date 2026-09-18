@@ -406,6 +406,8 @@ public struct WireObjectDelta: Codable, Sendable, Equatable {
 }
 
 public struct WireAcceptedTransition: Codable, Sendable, Equatable {
+    public var from: WireAcceptedLink?
+    public var transportBasis: WireAcceptedLink? { from ?? update.previous }
     public var update: WireAcceptedUpdate
     public var objects: [WireObjectEnvelope]
     public var deltas: [WireObjectDelta]
@@ -415,18 +417,22 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
         update: WireAcceptedUpdate,
         objects: [WireObjectEnvelope],
         deltas: [WireObjectDelta] = [],
-        requestDigest: String? = nil
+        requestDigest: String? = nil,
+        from: WireAcceptedLink? = nil
     ) {
+        self.from = from
         self.update = update
         self.objects = objects
         self.deltas = deltas
         self.requestDigest = requestDigest
     }
 
-    private enum CodingKeys: String, CodingKey { case update, objects, deltas, requestDigest }
+    private enum CodingKeys: String, CodingKey { case update, objects, deltas, requestDigest, from }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        if values.contains(.from) { from = try values.decode(WireAcceptedLink.self, forKey: .from) }
+        else { from = nil }
         update = try values.decode(WireAcceptedUpdate.self, forKey: .update)
         let payload = try AcceptedReadValidation.payload(WireReadValue(from: decoder))
         objects = payload.objects
@@ -439,6 +445,13 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
         _ = try update.validated()
         guard update.previous != nil else {
             throw ArborWireValidationError.invalidValue("Initial accepted update cannot be replayed as a transition")
+        }
+        if let from {
+            try validateObjectHash(from.root)
+            guard !from.id.isEmpty, from.id.utf8.count <= 1024,
+                  !from.id.utf8.elementsEqual(update.id.utf8) else {
+                throw ArborWireValidationError.invalidValue("Invalid transition basis")
+            }
         }
         if let requestDigest { try validateObjectHash(requestDigest) }
         var results = Set<String>()

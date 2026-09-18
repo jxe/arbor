@@ -55,15 +55,13 @@ struct AcceptedContractTests {
                     _ = try JSONDecoder().decode([WireAcceptedTransition].self,from:JSONEncoder().encode(change.fields["transitions"]))
                     let basis=try #require(c["basis"] as? [String:String])
                     try change.validateBasis(tree:#require(file["tree"] as? String),id:#require(basis["id"]),root:#require(basis["root"]))
-                    if ["same-root decision followed by content in one batch", "sparse accepted transport"].contains(c["name"] as? String ?? "") {
+                    if ["same-root decision followed by content in one batch", "sparse accepted transport", "net catch-up spans same-root accepted decisions"].contains(c["name"] as? String ?? "") {
                         let snapshotData=try JSONSerialization.data(withJSONObject:#require(file["snapshot"]))
                         var snapshot=try JSONDecoder().decode(WireSnapshot.self,from:snapshotData)
                         let transitions=try #require(change.fields["transitions"]?.items)
                         for raw in transitions {
-                            let transition=try #require(raw.fields)
-                            let update=try #require(transition["update"]?.fields)
-                            let payload=try AcceptedReadValidation.payload(raw)
-                            snapshot=try WireTransitionReplay.applying(payload,to:snapshot,root:#require(update["root"]?.text))
+                            let decoded=try JSONDecoder().decode(WireAcceptedTransition.self,from:JSONEncoder().encode(raw))
+                            snapshot=try WireTransitionReplay.applying(decoded,to:snapshot)
                         }
                         #expect(snapshot.root==change.fields["descriptor"]?.fields?["root"]?.text)
                         #expect(snapshot.objects.count==2)

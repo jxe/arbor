@@ -1,4 +1,4 @@
-import { decodeAcceptedState, decodeSubmissionResponse, validateReadPayload } from "./accepted-contract.ts";
+import { decodeTransitionBasis, decodeAcceptedState, decodeSubmissionResponse, validateReadPayload } from "./accepted-contract.ts";
 import { authoredIntentFromTransport, decodeAuthoredUpdateRequestJSON, decodeAuthoredCandidateJSON, encodeAuthoredUpdateRequestJSON, encodeAuthoredCandidateJSON } from "./authored-transport.ts";
 import { decodeAuthoredRequestIntent, type AuthoredUpdateIntent } from "./authored-contract.ts";
 import { decodeWireDirectory, hashObject, wireEntryObject, type WireEntryKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
@@ -40,6 +40,7 @@ export interface TransitionPayloadJSON {
 }
 
 export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
+  from?: AcceptedTransition["from"];
   update: AcceptedTransition["update"];
   requestDigest?: ObjectHash;
 }
@@ -167,6 +168,7 @@ export function encodeTransitionPayloadJSON(payload: AcceptedTransitionPayload):
 export function encodeAcceptedTransitionJSON(transition: AcceptedTransition): AcceptedTransitionJSON {
   return {
     update: transition.update,
+    ...(transition.from ? { from: transition.from } : {}),
     ...encodeTransitionPayloadJSON(transition),
     ...(transition.requestDigest ? { requestDigest: transition.requestDigest } : {}),
   };
@@ -179,7 +181,7 @@ export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
 /** Decode one watch transition, verifying every complete object's hash. */
 export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition {
   if (!value || typeof value !== "object") throw new Error("Accepted transition must be an object");
-  const record = value as { update?: unknown; requestDigest?: unknown };
+  const record = value as { update?: unknown; from?: unknown; requestDigest?: unknown };
   const update = decodeAcceptedUpdateJSON(record.update);
   if (update.previous === null) throw new Error("Activation cannot be replayed as a watch transition");
   validateReadPayload(value);
@@ -193,6 +195,7 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
   return {
     update,
     ...payload,
+    ...(Object.hasOwn(record, "from") ? { from: decodeTransitionBasis(record.from, update) as NonNullable<AcceptedTransition["from"]> } : {}),
     ...(record.requestDigest ? { requestDigest: record.requestDigest as ObjectHash } : {}),
   };
 }

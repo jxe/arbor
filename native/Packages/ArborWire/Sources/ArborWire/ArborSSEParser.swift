@@ -8,6 +8,7 @@ public struct ArborSSEFrame: Equatable, Sendable {
 
 public struct ArborSSEParser: Sendable {
     private var buffer = Data()
+    private var scanned = 0
 
     public init() {}
 
@@ -24,21 +25,27 @@ public struct ArborSSEParser: Sendable {
 
     public mutating func finish() throws -> [ArborSSEFrame] {
         guard !buffer.isEmpty else { return [] }
-        defer { buffer.removeAll() }
+        defer { buffer.removeAll(); scanned = 0 }
         throw ArborWireValidationError.malformedSSE("Unterminated SSE frame")
     }
 
-    private func nextBoundary() -> (start: Int, end: Int)? {
-        let bytes = [UInt8](buffer)
-        for index in bytes.indices {
-            if index + 1 < bytes.count, bytes[index] == 10, bytes[index + 1] == 10 {
+    private mutating func nextBoundary() -> (start: Int, end: Int)? {
+        // URLSession delivers individual bytes. Scan only the unexamined suffix,
+        // retaining three bytes for a CRLF boundary split across appends.
+        let bytes = buffer
+        let start = bytes.startIndex
+        for index in scanned..<bytes.count {
+            if index + 1 < bytes.count, bytes[start + index] == 10, bytes[start + index + 1] == 10 {
+                scanned = 0
                 return (index, index + 2)
             }
-            if index + 3 < bytes.count, bytes[index] == 13, bytes[index + 1] == 10,
-               bytes[index + 2] == 13, bytes[index + 3] == 10 {
+            if index + 3 < bytes.count, bytes[start + index] == 13, bytes[start + index + 1] == 10,
+               bytes[start + index + 2] == 13, bytes[start + index + 3] == 10 {
+                scanned = 0
                 return (index, index + 4)
             }
         }
+        scanned = max(0, bytes.count - 3)
         return nil
     }
 

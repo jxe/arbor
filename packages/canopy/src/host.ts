@@ -545,73 +545,82 @@ export async function serveCanopy(options: {
             };
             return encodeWatchFrames(transitions, frame, MAX_WATCH_TRANSITIONS_PER_FRAME, MAX_WATCH_TRANSITION_FRAME_BYTES);
           };
-          let cancelWatch = () => {};
-          return new Response(new ReadableStream({
+          let closed = false;
+          let delivered = 0;
+          const netCatchup = url.searchParams.get("catchup") === "net";
+          let frames: string[] = [];
+          let wake: (() => void) | undefined;
+          let stop = () => {};
+          let resync = (_reason: string) => {};
+          const authorized = () => {
+            const active = !authentication || canopy.authenticationIsActive(authentication);
+            return active && canopy.execution.run(execution, () => canopy.canRead(account, tree.id, requestedLinkDigest));
+          };
+          return new Response(new ReadableStream<Uint8Array>({
             start(controller) {
-              let closed = false;
-              let replaying = true;
-              if (execution) controller.enqueue(encoder.encode(": authorized\n\n"));
-              let delivered = 0;
-              const pending: ObservationRecord[] = [];
-              let stop = () => {};
-              const authorized = () => {
-                const activeDevice = !authentication || canopy.authenticationIsActive(authentication);
-                return activeDevice && canopy.execution.run(execution, () => canopy.canRead(activeDevice ? account : null, tree.id, requestedLinkDigest));
-              };
-              const resync = (reason: string) => {
+              resync = (reason: string) => {
                 if (closed) return;
                 closed = true;
                 const cursor = canopy.observedThrough(tree.id);
-                const event: ObservationEvent<"resync-required", { reason: string }> = {
-                  cursor,
-                  tree: tree.id,
-                  kind: "resync-required",
-                  change: { reason },
+                const event: ObservationEvent<"resync-required", {reason: string}> = {
+                  cursor, tree: tree.id, kind: "resync-required", change: {reason},
                 };
-                controller.enqueue(encoder.encode(encodeSSEFrame({ id: cursor, event: "resync-required", data: event })));
-                stop();
-                controller.close();
+                controller.enqueue(encoder.encode(encodeSSEFrame({id: cursor, event: "resync-required", data: event})));
+                stop(); controller.close();
               };
-              const sendRefs = (records: ObservationRecord[], failure: string) => {
-                if (!records.length || closed) return;
-                if (!authorized()) return resync("Authorization was revoked");
-                const frames = refFrames(records);
-                if (!frames) return resync(failure);
-                for (const frame of frames) controller.enqueue(encoder.encode(frame));
-              };
-              const deliver = (record: ObservationRecord) => {
-                if (closed || record.ordinal <= delivered) return;
-                delivered = record.ordinal;
-                if (record.updateID) sendRefs([record], "The accepted transition is unavailable or exceeds the watch frame limit");
-              };
-              const stopObserving = canopy.subscribeObservations(tree.id, (record) => {
-                if (replaying) pending.push(record);
-                else deliver(record);
-              });
-              const authorizationTimer = setInterval(() => {
-                if (!authorized()) resync("Authorization was revoked");
-              }, 250);
-              authorizationTimer.unref?.();
-              stop = () => {
-                clearInterval(authorizationTimer);
-                stopObserving();
-              };
-              cancelWatch = () => { closed = true; stop(); };
-              const replay = canopy.observationsAfter(tree.id, lastEventID);
-              if (!replay.retained) return resync("The requested cursor is no longer retained");
-              sendRefs(replay.records, "Retained accepted history has no replayable transition batch");
-              delivered = replay.through;
-              replaying = false;
-              for (const record of pending) deliver(record);
-              request.signal.addEventListener("abort", () => {
-                closed = true;
-                stop();
+              const stopObserving = canopy.subscribeObservations(tree.id, () => { wake?.(); wake = undefined; });
+              const timer = setInterval(() => { if (!authorized()) resync("Authorization was revoked"); }, 250);
+              timer.unref?.();
+              const abort = () => {
+                if (closed) return;
+                closed = true; stop();
                 try { controller.close(); } catch {}
-              }, { once: true });
+              };
+              stop = () => {
+                clearInterval(timer); stopObserving();
+                request.signal.removeEventListener("abort", abort);
+                frames = []; wake?.(); wake = undefined;
+              };
+              request.signal.addEventListener("abort", abort, {once: true});
+              if (request.signal.aborted) return abort();
+              const position = canopy.observationPosition(tree.id, lastEventID);
+              if (!position.retained) return resync("The requested cursor is no longer retained");
+              delivered = position.through;
+              if (execution) controller.enqueue(encoder.encode(": authorized\n\n"));
             },
-            cancel() { cancelWatch(); },
+            async pull(controller) {
+              try {
+                while (!closed) {
+                  if (!authorized()) return resync("Authorization was revoked");
+                  if (frames.length) { controller.enqueue(encoder.encode(frames.shift()!)); return; }
+                  const records = canopy.observationPage(tree.id, delivered);
+                  if (!records.length) {
+                    // Subscription precedes the position read. There is no await
+                    // between checking the log and installing this wakeup.
+                    await new Promise<void>(resolve => { wake = resolve; });
+                    continue;
+                  }
+                  const encoded = netCatchup && records.length > 1 ? null : refFrames(records);
+                  if (netCatchup && !encoded) {
+                    const net = await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject).catch(() => null);
+                    if (closed) return;
+                    if (!authorized()) return resync("Authorization was revoked");
+                    if (!net) return resync("The requested accepted basis is no longer retained");
+                    delivered = net.record.ordinal;
+                    frames = [encodeSSEFrame({id: net.record.cursor, event: "tree.update",
+                      data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [net.transition], access, net.record.cursor)})];
+                    continue;
+                  }
+                  if (!encoded) return resync("Retained accepted history has no replayable transition batch");
+                  delivered = records.at(-1)!.ordinal;
+                  frames = encoded;
+                }
+              } catch (error) { closed = true; stop(); controller.error(error); }
+            },
+            cancel() { closed = true; stop(); },
           }), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" } });
         }
+
         const object = /^\/\.arbor\/trees\/([^/]+)\/objects\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (object && request.method === "GET") {
           const treeID = decodeURIComponent(object[1]!);

@@ -27,8 +27,8 @@ function matchingEntry(entry: WireDirectoryEntry, entries: WireDirectoryEntry[])
  * Derive one replayable sparse transition from the authority's actual accepted
  * endpoints. Every changed object, directory or file, is sent as a delta
  * against its predecessor at the same path whenever that is smaller than the
- * complete object. This deliberately does not fold history: callers invoke it
- * once for each accepted root, including merged results.
+ * complete object. Endpoints may be adjacent accepted roots or span a backlog;
+ * intermediate history is not read or rewritten.
  */
 export async function buildAcceptedTransitionPayload(
   previousRoot: ObjectHash,

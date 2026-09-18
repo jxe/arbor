@@ -261,7 +261,7 @@ public actor ArborWireClient {
     }
 
     public func watch(tree: String, lastEventID: String? = nil) async throws -> AsyncThrowingStream<WireWatchEvent, Error> {
-        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch")
+        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch?catchup=net")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         if let lastEventID { request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID") }
         let session = session
@@ -308,7 +308,7 @@ public actor ArborWireClient {
                                 throw ArborWireValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
                             }
                             var seen = Set<Data>()
-                            if let predecessor = transitions.first?.update.previous { seen.insert(Data(predecessor.id.utf8)) }
+                            if let predecessor = transitions.first?.transportBasis { seen.insert(Data(predecessor.id.utf8)) }
                             for (index, transition) in transitions.enumerated() {
                                 guard seen.insert(Data(transition.update.id.utf8)).inserted else {
                                     throw ArborWireValidationError.malformedSSE("Repeated accepted identity")
@@ -319,8 +319,8 @@ public actor ArborWireClient {
                                 }
                                 if index > 0 {
                                     let previous = transitions[index - 1].update
-                                    guard transition.update.previous?.root == previous.root,
-                                          transition.update.previous?.id.utf8.elementsEqual(previous.id.utf8) == true else {
+                                    guard transition.transportBasis?.root == previous.root,
+                                          transition.transportBasis?.id.utf8.elementsEqual(previous.id.utf8) == true else {
                                         throw ArborWireValidationError.malformedSSE("Tree ref transition batch is not contiguous")
                                     }
                                 }

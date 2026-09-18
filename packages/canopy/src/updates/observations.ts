@@ -84,6 +84,28 @@ export class ObservationLog {
     return row?.cursor ?? null;
   }
 
+  /** Starting position only; the durable log is the watch's backlog queue. */
+  position(tree: string, cursor: string | null): {retained: boolean; through: number} {
+    if (cursor === null) {
+      const row = this.db.query("SELECT MAX(ordinal) AS ordinal FROM observations WHERE tree_id = ? AND update_id IS NOT NULL").get(tree) as {ordinal: number | null};
+      return {retained: true, through: row.ordinal ?? 0};
+    }
+    const row = this.db.query("SELECT ordinal FROM observations WHERE cursor = ? AND tree_id = ?").get(cursor, tree) as {ordinal: number} | null;
+    return {retained: row !== null, through: row?.ordinal ?? 0};
+  }
+
+  /** Accepted state at an observation boundary, including legacy status cursors. */
+  atOrBefore(tree: string, through: number): ObservationRecord | null {
+    const row = this.db.query("SELECT ordinal, cursor, tree_id, update_id FROM observations WHERE tree_id = ? AND ordinal <= ? AND update_id IS NOT NULL ORDER BY ordinal DESC LIMIT 1")
+      .get(tree, through) as ObservationRow | null;
+    return row ? toRecord(row) : null;
+  }
+
+  page(tree: string, after: number, limit = 64): ObservationRecord[] {
+    return (this.db.query("SELECT ordinal, cursor, tree_id, update_id FROM observations WHERE tree_id = ? AND ordinal > ? AND update_id IS NOT NULL ORDER BY ordinal LIMIT ?")
+      .all(tree, after, limit) as ObservationRow[]).map(toRecord);
+  }
+
   /**
    * Accepted updates strictly after `cursor` for one tree. A cursor belonging
    * to a legacy status observation remains a valid anchor, but those old rows

@@ -290,6 +290,10 @@ GET /.arbor/trees/{TreeID}/watch?after={cursor}
 
 The request carries `Accept: text/event-stream` and may carry
 `Last-Event-ID: {cursor}`. `after` and `Last-Event-ID` are equivalent.
+Clients supporting net transitions send `catchup=net` by default. The parameter
+allows the server to emit an explicit `from` spanning intermediate accepted
+updates; without it, the server sends adjacent transitions for compatibility.
+A server may still send adjacent transitions to a net-capable client.
 
 Successful state-change frames are `tree.update` events. Each represents one
 or more accepted updates; derived hosting and device status does not appear on
@@ -309,6 +313,7 @@ type TreeUpdateEvent = {
 
 type AcceptedTransition = TransitionPayload & {
   update: AcceptedUpdate;
+  from?: { id: string; root: Hash };
   requestDigest?: Hash;
 };
 
@@ -368,13 +373,26 @@ exclusive accepted-update kinds. Rule evidence is retained under the semantic
 requirements in [source intent §6](10-source-intent.md#6-format-aware-merge-rules-and-explicit-automatic-resolution).
 
 The transition may carry complete `objects`, [deltas](#25-sparse-transfer-with-object-deltas),
-or both. `transitions` is nonempty and ordered. The first predecessor must match the
-client's confirmed accepted identity and root; each later predecessor must match the
-preceding transition's identity and root. Update IDs must be distinct, all tree IDs
-must match, and the final pair must match `change.descriptor.update` and its `root`.
-A gap, reordered transition or omitted same-root transition requires resynchronization,
-not a successful root-only check. A client may commit only the final file materialization
-while durably processing every accepted identity and correlating request receipts.
+or both. Its transport basis is `from` when present, otherwise `update.previous`.
+`from` names a retained accepted identity and root in the same tree, preceding
+`update` in accepted order. It permits one net transition across several accepted
+updates. `update.previous` always remains the actual historical predecessor;
+coalescing delivery does not rewrite accepted history.
+
+`transitions` is nonempty and ordered. The first transport basis must match the
+client's confirmed accepted identity and root; each later transport basis must
+match the preceding transition's identity and root. Update IDs must be distinct,
+all tree IDs must match, and the final pair must match `change.descriptor.update`
+and its `root`. A mismatched basis requires resynchronization, not a successful
+root-only check. The payload must suffice to reconstruct the destination graph
+from its transport basis without fetching or applying intermediate transitions.
+
+On reconnect, authorities should normally coalesce a retained backlog into one
+net transition to the captured current accepted state. Intermediate updates,
+including same-root updates, need not be delivered individually. The destination
+still carries its exact accepted identity and unresolved-state signal, even when
+its root equals the starting root. Clients may materialize the final state once
+and durably advance accepted metadata and the observation cursor together.
 
 The SSE `cursor` identifies the observation batch. It advances strictly in the
 observation domain and is the frame's observation boundary; it need not equal any
@@ -382,15 +400,24 @@ accepted ID. The enclosed descriptor identifies the final accepted state. One fr
 Implementations may happen to encode some IDs and cursors identically, but clients
 MUST NOT derive one from the other or compare their numeric/string values as accepted
 ordering. Replayed frames are deduplicated by observation cursor before applying the
-accepted chain. An overlapping replay must not apply old transitions to a newer head.
+transport chain. An overlapping replay must not apply old transitions to a newer head.
 
 For `tree.update`, a transition's `requestDigest` is present only when the stream is authenticated by the exact bearer credential that submitted that accepted request. This allows watchers to identify the revision that includes an update they sent.
+A digest on a net transition identifies the request for its destination accepted
+update, not every request accepted within the span. An absent or different digest
+therefore does not prove that a pending request was excluded. Clients preserve
+unconfirmed requests and use the ordinary exact-retry/receipt procedure to settle
+them; advancing a watch cursor alone never acknowledges those requests.
 
-A non-retained event cursor, a retained accepted update without a replay
-payload, or a batch too old for retained transition data produces one terminal
+When retained context cannot support either net catch-up or ordinary replay,
+for example because the event cursor or its basis graph is no longer retained,
+the server produces one terminal
 `resync-required` event and closes. The client reads a new current descriptor,
 obtains its addressed snapshot, and resumes strictly after the descriptor's
-`observedThrough` cursor.
+`observedThrough` cursor. This catch-up path does not acknowledge or discard
+unconfirmed local edits: clients retain and reconcile them through the ordinary
+update/retry path. Retained accepted history need not be deleted merely because
+a watch uses snapshot catch-up.
 
 #### Accepted unresolved state
 
@@ -947,7 +974,8 @@ choice and never part of identity.
 
 The base must be reachable in the relevant basis graph: the request's retained
 accepted watchpoint for its first element, the preceding candidate graph for a
-later element, or the previous accepted root for a watch transition. The
+later element, or the transport basis root (`from.root` when present, otherwise
+`update.previous.root`) for a watch transition. The
 receiver hash-verifies that base, applies the instructions, requires the
 reconstructed bytes to hash to `result`, and decodes them as a valid canonical
 object. It then treats the result exactly like a complete object. A result
