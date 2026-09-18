@@ -68,13 +68,16 @@ export class ObjectStore {
     root: ObjectHash,
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
     visit: (hash: ObjectHash, bytes: Uint8Array) => boolean | void,
+    seen = new Set<ObjectHash>(),
   ): Promise<{ complete: boolean; stopped: boolean }> {
     const pending: Array<{ hash: ObjectHash; kind: "file" | "directory" }> = [{ hash: root, kind: "directory" }];
-    const seen = new Set<ObjectHash>();
     while (pending.length) {
       const { hash, kind } = pending.pop()!;
-      if (seen.has(hash)) continue;
-      seen.add(hash);
+      // The same bytes may be a file in one accepted root and a directory in
+      // another. A verified file does not establish the directory descendants.
+      const key = `${kind}:${hash}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const bytes = await this.find(hash, proposed);
       if (!bytes) return { complete: false, stopped: false };
       if (visit(hash, bytes) === false) return { complete: true, stopped: true };
@@ -90,8 +93,31 @@ export class ObjectStore {
 
   /** Whether `target` is reachable from `root` through stored or proposed objects. */
   async contains(root: ObjectHash, target: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map()): Promise<boolean> {
-    const { stopped } = await this.walk(root, proposed, (hash) => hash !== target);
-    return stopped;
+    return this.containsAny([root], target, proposed);
+  }
+
+  /** Membership needs directory edges, not unrelated file bodies. Share the
+   * visited frontier across retained roots so common subtrees are read once. */
+  async containsAny(roots: Iterable<ObjectHash>, target: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map()): Promise<boolean> {
+    const seen = new Set<ObjectHash>();
+    for (const root of roots) {
+      const pending = [root];
+      while (pending.length) {
+        const hash = pending.pop()!;
+        if (hash === target) return true;
+        if (seen.has(hash)) continue;
+        seen.add(hash);
+        const bytes = await this.find(hash, proposed);
+        if (!bytes) continue;
+        for (const entry of decodeWireDirectory(bytes).entries) {
+          const edge = wireEntryObject(entry);
+          if (!edge) continue; // Nested trees have their own authority boundary.
+          if (edge.hash === target) return true;
+          if (edge.kind === "directory") pending.push(edge.hash);
+        }
+      }
+    }
+    return false;
   }
 
   /** Every object reachable from `root`, as a self-contained snapshot. */
@@ -106,7 +132,7 @@ export class ObjectStore {
   async verifyReachable(roots: ObjectHash[], proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map()): Promise<void> {
     const seen = new Set<ObjectHash>();
     for (const root of roots) {
-      const { complete } = await this.walk(root, proposed, (hash) => { seen.add(hash); });
+      const { complete } = await this.walk(root, proposed, () => {}, seen);
       if (!complete) throw new Error(`Retained history is missing an object under ${root}`);
     }
   }

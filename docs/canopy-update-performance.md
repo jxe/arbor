@@ -3,6 +3,49 @@
 September 18, 2026: accepted-prefix reuse and Native payload omission are deployed to Canopy and installed on Mac/iPhone.
 That deployed change requires no schema, Wire, client, or permissions migration.
 
+## Tree readers and watch replay (main, not deployed)
+
+A follow-up removes repeated work from reader endpoints without a cache or Wire
+change. Object membership follows directory edges rather than reading unrelated
+file bodies, shares its visited frontier across retained roots, and queries
+historical roots only after the current root misses. Authorization still precedes
+membership checks, nested-tree boundaries remain separate, and the requested
+object is hash-checked when served. Snapshot bundles still read their complete
+contents because those bytes are the response.
+
+On the isolated production copy, an absent-object lookup across eight retained
+roots fell from 920 object reads / 77,461,548 bytes / 111 ms to 19 directory reads /
+60,868 bytes / 2.5 ms. This is a local sample, not a live endpoint percentile.
+A synthetic 1,000-file directory needs one directory read for membership, and
+100 roots sharing a directory visit that shared directory once.
+
+Watch replay uses cursors already present in observation records. It attempts
+one frame per 64-transition batch and splits only oversized frames, avoiding
+serialization of every growing prefix. Frame byte/count bounds, transition
+ordering, exact observation cursors, caller-specific digests, and authorization
+checks remain unchanged. A fitting 64-transition batch is encoded once.
+
+Accepted-update descriptor queries select only descriptor columns. Additive
+indexes on accepted tree identity and observation update identity are installed
+idempotently when opening existing or new schema-13 databases; no coordinated
+migration is required. The column selection alone has a small measured effect
+on the current production copy (its largest transition payload is about 3 KB).
+
+Full material integrity traversal now shares its visited set across roots while
+keeping file and directory roles distinct. Reading bytes as a historical file
+never discharges the obligation to traverse those bytes as a later directory.
+The health endpoint still audits historical semantic retention separately, so it
+remains unsuitable for lightweight liveness polling. Large watch replays also
+still load their transition list eagerly; bounding/streaming that work and an
+object membership index remain separate projects.
+
+Verification: 28 focused reader/watch/store tests passed; the complete TypeScript
+suite passed 1,099 tests with the previously observed private-tree CLI placement
+failure unchanged. TypeScript checking, CLI build, and the live TS/Swift protocol
+gate passed. Relative-link checking found the same 29 existing/example missing
+targets, and whitespace checks passed. These follow-up reader changes remain
+uncommitted and undeployed.
+
 ## Incremental state (deployed 2026-09-18)
 
 Implementation commit `926573c` adds typed, bounded retention

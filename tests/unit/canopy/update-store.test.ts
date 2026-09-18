@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "@arbor/canopy";
 import { encodeWireDirectory, type ObjectHash } from "@arbor/wire";
+import { ensureCanopyReadIndexes } from "../../../packages/canopy/src/schema.ts";
 import { ObservationLog } from "../../../packages/canopy/src/updates/observations.ts";
 
 const A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as ObjectHash;
@@ -30,6 +31,21 @@ describe("accepted-update transaction store", () => {
   });
 
   afterEach(() => db.close());
+
+  test("descriptor and observation lookups use their scoped indexes", () => {
+    ensureCanopyReadIndexes(db);
+    ensureCanopyReadIndexes(db); // Existing stores gain indexes idempotently.
+    const plans = [
+      ["SELECT id, root FROM accepted_updates WHERE tree_id = ? ORDER BY rowid DESC LIMIT 1", "tr_test", "accepted_updates_tree"],
+      ["SELECT cursor FROM observations WHERE update_id = ? ORDER BY ordinal DESC LIMIT 1", store.current("tr_test")!.id, "observations_update"],
+    ];
+    for (const [query, value, index] of plans) {
+      const detail = (db.query("EXPLAIN QUERY PLAN " + query).all(value!) as {detail: string}[]).map(row => row.detail).join("\n");
+      expect(detail).toContain(index!);
+      expect(detail).not.toContain("SCAN");
+      expect(detail).not.toContain("TEMP B-TREE");
+    }
+  });
 
   test("commits the ref, reflog, accepted row, and digest as one result", () => {
     const bytes = encodeWireDirectory({ type: "directory", entries: [] });

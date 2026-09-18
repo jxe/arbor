@@ -13,6 +13,7 @@ import {
   type CanopyTree,
   type CanopyBootstrapAccount,
 } from "./canopy.ts";
+import { encodeWatchFrames } from "./updates/watch-frames.ts";
 import type { ObservationRecord } from "./updates/observations.ts";
 import {
   decodeUpdateRequestJSON,
@@ -523,36 +524,26 @@ export async function serveCanopy(options: {
           }
           const lastEventID = queryCursor ?? headerCursor;
           /** Encode a contiguous run of accepted updates as bounded `tree.update` frames, or null when any transition is unavailable. */
-          const refFrames = (updateIDs: string[]): string[] | null => {
+          const refFrames = (records: ObservationRecord[]): string[] | null => {
             const current = canopy.get(tree.id) ?? tree;
             const transitions: AcceptedTransition[] = [];
-            for (const id of updateIDs) {
-              const transition = canopy.acceptedTransition(id, credentialSubject);
+            const cursors = new Map<string, string>();
+            for (const record of records) {
+              if (!record.updateID) continue;
+              cursors.set(record.updateID, record.cursor);
+              const transition = canopy.acceptedTransition(record.updateID, credentialSubject);
               if (!transition) return null;
               transitions.push(transition);
             }
-            const frames: string[] = [];
-            let batch: AcceptedTransition[] = [];
             const frame = (items: AcceptedTransition[]) => {
-              const observation = canopy.observationForUpdate(items.at(-1)!.update.id);
-              if (!observation) throw new Error("Accepted transition has no observation boundary");
+              const cursor = cursors.get(items.at(-1)!.update.id)!;
               return encodeSSEFrame({
-                id: observation.cursor,
+                id: cursor,
                 event: "tree.update",
-                data: watchDescriptor(publicOrigin, current, items, access, observation.cursor),
+                data: watchDescriptor(publicOrigin, current, items, access, cursor),
               });
             };
-            for (const transition of transitions) {
-              const candidate = [...batch, transition];
-              if (batch.length && (candidate.length > MAX_WATCH_TRANSITIONS_PER_FRAME || Buffer.byteLength(frame(candidate)) > MAX_WATCH_TRANSITION_FRAME_BYTES)) {
-                frames.push(frame(batch));
-                batch = [];
-              }
-              batch.push(transition);
-              if (Buffer.byteLength(frame(batch)) > MAX_WATCH_TRANSITION_FRAME_BYTES) return null;
-            }
-            if (batch.length) frames.push(frame(batch));
-            return frames;
+            return encodeWatchFrames(transitions, frame, MAX_WATCH_TRANSITIONS_PER_FRAME, MAX_WATCH_TRANSITION_FRAME_BYTES);
           };
           let cancelWatch = () => {};
           return new Response(new ReadableStream({
@@ -581,17 +572,17 @@ export async function serveCanopy(options: {
                 stop();
                 controller.close();
               };
-              const sendRefs = (updateIDs: string[], failure: string) => {
-                if (!updateIDs.length || closed) return;
+              const sendRefs = (records: ObservationRecord[], failure: string) => {
+                if (!records.length || closed) return;
                 if (!authorized()) return resync("Authorization was revoked");
-                const frames = refFrames(updateIDs);
+                const frames = refFrames(records);
                 if (!frames) return resync(failure);
                 for (const frame of frames) controller.enqueue(encoder.encode(frame));
               };
               const deliver = (record: ObservationRecord) => {
                 if (closed || record.ordinal <= delivered) return;
                 delivered = record.ordinal;
-                if (record.updateID) sendRefs([record.updateID], "The accepted transition is unavailable or exceeds the watch frame limit");
+                if (record.updateID) sendRefs([record], "The accepted transition is unavailable or exceeds the watch frame limit");
               };
               const stopObserving = canopy.subscribeObservations(tree.id, (record) => {
                 if (replaying) pending.push(record);
@@ -608,8 +599,7 @@ export async function serveCanopy(options: {
               cancelWatch = () => { closed = true; stop(); };
               const replay = canopy.observationsAfter(tree.id, lastEventID);
               if (!replay.retained) return resync("The requested cursor is no longer retained");
-              const updates = replay.records.flatMap((record) => record.updateID ? [record.updateID] : []);
-              sendRefs(updates, "Retained accepted history has no replayable transition batch");
+              sendRefs(replay.records, "Retained accepted history has no replayable transition batch");
               delivered = replay.through;
               replaying = false;
               for (const record of pending) deliver(record);

@@ -182,6 +182,12 @@ export function assertCurrentCanopySchema(db: Database): void {
   }
 }
 
+/** Additive read indexes do not change authority data or require a cutover. */
+export function ensureCanopyReadIndexes(db: Database): void {
+  db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree ON accepted_updates(tree_id)");
+  db.run("CREATE INDEX IF NOT EXISTS observations_update ON observations(update_id, ordinal)");
+}
+
 /** Open (creating and stamping if new, otherwise asserting) the Canopy SQLite database at `path`. */
 export function openCanopyDatabase(path: string): Database {
   const databaseExists = existsSync(path);
@@ -192,6 +198,7 @@ export function openCanopyDatabase(path: string): Database {
       assertCurrentCanopySchema(db);
     }
     else db.transaction(() => createCanopySchema(db))();
+    db.transaction(() => ensureCanopyReadIndexes(db))();
   } catch (error) {
     db.close();
     throw error;

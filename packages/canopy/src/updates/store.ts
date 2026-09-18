@@ -44,6 +44,8 @@ export interface AcceptedCommitInput extends AcceptedUpdateInput {
   expectedUpdate: string;
 }
 
+const UPDATE_COLUMNS = "id, tree_id, root, previous_root, previous_id, conflicted, accepted_at, subject";
+
 export class AcceptedUpdateStore {
   private readonly observations: ObservationLog;
 
@@ -111,17 +113,17 @@ export class AcceptedUpdateStore {
 
   current(tree: string): AcceptedUpdate | null {
     return this.row(this.db.query(
-      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY rowid DESC LIMIT 1",
+      `SELECT ${UPDATE_COLUMNS} FROM accepted_updates WHERE tree_id = ? ORDER BY rowid DESC LIMIT 1`,
     ).get(tree));
   }
 
   get(id: string): AcceptedUpdate | null {
-    return this.row(this.db.query("SELECT * FROM accepted_updates WHERE id = ?").get(id));
+    return this.row(this.db.query(`SELECT ${UPDATE_COLUMNS} FROM accepted_updates WHERE id = ?`).get(id));
   }
 
   list(tree: string): AcceptedUpdate[] {
     return (this.db.query(
-      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY rowid",
+      `SELECT ${UPDATE_COLUMNS} FROM accepted_updates WHERE tree_id = ? ORDER BY rowid`,
     ).all(tree) as unknown[]).map((row) => this.row(row)!);
   }
 
@@ -141,7 +143,7 @@ export class AcceptedUpdateStore {
 
   acceptedRequest(tree: string, subject: string, digest: string): StoredAcceptedResponse | null {
     const accepted = this.row(this.db.query(`
-      SELECT * FROM accepted_updates
+      SELECT ${UPDATE_COLUMNS} FROM accepted_updates
       WHERE tree_id = ? AND subject = ? AND request_digest = ?
     `).get(tree, subject, digest));
     if (!accepted) return null;

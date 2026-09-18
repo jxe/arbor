@@ -2235,18 +2235,21 @@ export class CanopyDaemon implements AsyncDisposable {
    * Whether `hash` may be served through the named tree: the caller must be able
    * to read the tree, and the object must be reachable from its current root or
    * from any retained accepted root of that tree (nested-tree entries stop the
-   * walk). This per-request graph scan is the reachability boundary that
+   * walk). This per-request directory-edge scan shares its frontier across retained roots.
+   * It remains the reachability boundary that
    * Security "Bound unauthenticated object reachability checks" and Speed
    * "Canopy object reachability index" (plans/README.md) will later bound.
    */
   async isReadableObject(treeID: string, hash: ObjectHash, account: CanopyAccount | null, linkDigest?: string): Promise<boolean> {
     const tree = this.get(treeID);
     if (!tree || !this.canRead(account, treeID, linkDigest)) return false;
-    const roots = [tree.ref, ...this.acceptedStore.roots(treeID).filter((root) => root !== tree.ref)];
-    for (const root of roots) {
-      if (await this.objects.contains(root, hash)) return true;
+    const accepted = this.acceptedStore;
+    function* roots() {
+      yield tree!.ref;
+      // Ordinary current-object reads need no historical-root query at all.
+      for (const root of accepted.roots(treeID)) if (root !== tree!.ref) yield root;
     }
-    return false;
+    return this.objects.containsAny(roots(), hash);
   }
 
   private async insertTree(
