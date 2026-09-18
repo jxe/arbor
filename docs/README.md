@@ -40,3 +40,5 @@ Arbor separates portable contracts, current implementation status, usage, produc
 - [Protocol cutover preparation](protocol-cutover-preparation.md) — integrated build/rehearsal evidence and the remaining joint cutover.
 
 - [Execution sidecar boundary](execution-sidecar.md): target HTTP forwarding, execution-token use, and provider enforcement; implementation is planned in Apps 005.
+
+- [Resource policy implementation](resource-policy-implementation.md): offline Apps 004 checkpoint, supported enforcement and migration gates.

@@ -14,3 +14,5 @@ export * from "./projection-provider-host.ts";
 export * from "./providers/discovery.ts";
 export * from "./providers/types.ts";
 export * from "./object-index.ts";
+
+export * from "./resource-configuration.ts";

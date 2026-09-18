@@ -55,3 +55,50 @@ describe("account-config-v2 policy", () => {
     expect(mergeAccountConfigGraphsV2(base, removed, edited).graph.devices[phone]).toBeUndefined();
   });
 });
+
+describe("resource policy configuration", () => {
+  function resourceGraph(allow: string[]) {
+    return roundTrip({ ...graph(), resources: { [tree]: { canonical: "https://canopy.example/~joe/notes", access: allow.length ? [{ who: "me", via: "tr_supplies", allow: allow as any }] : [] } } });
+  }
+  test("policy-only entries survive serialization without becoming hosted trees", () => {
+    const result = roundTrip({ ...graph(), resources: { [tree]: { access: [{ who: "me", via: "tr_supplies", allow: ["read"] }] } } });
+    expect(result.trees[tree]).toBeUndefined();
+    expect(result.resources?.[tree]?.access[0]?.via).toBe("tr_supplies");
+  });
+  test("ordinary devices cannot add grants even when hosting projection is unchanged", () => {
+    expect(() => authorizeAccountConfigTransitionV2(resourceGraph(["read"]), resourceGraph(["write"]), phone)).toThrow("administrator");
+  });
+  test("concurrent narrowing and removal never union back privilege", () => {
+    const base = resourceGraph(["write"]);
+    const a = resourceGraph(["read"]), b = resourceGraph(["create-child"]);
+    const merged = mergeAccountConfigGraphsV2(base, a, b);
+    expect(merged.conflicts.length).toBeGreaterThan(0);
+    expect(merged.graph.resources?.[tree]?.access).toEqual([]);
+    expect(mergeAccountConfigGraphsV2(base, resourceGraph([]), b).graph.resources?.[tree]?.access).toEqual([]);
+  });
+});
+
+test("legacy-only device merges do not implicitly migrate trees.yaml", () => {
+  const base = roundTrip();
+  const candidate = structuredClone(base);
+  candidate.devices[phone]!.label = "iPhone";
+  const remote = structuredClone(base);
+  remote.devices[admin]!.label = "MacBook";
+  const merged = mergeAccountConfigGraphsV2(base, candidate, remote);
+  expect(merged.conflicts).toEqual([]);
+  expect(merged.graph.resources).toBeUndefined();
+  expect(readAccountConfigGraphV2(snapshotAccountConfigV2(merged.graph)).resources).toBeUndefined();
+});
+
+test("spelling the default scope explicitly is not a competing policy edit", () => {
+  const initial = graph();
+  const base = roundTrip({ ...initial, resources: { [tree]: { canonical: initial.trees[tree]!.canonical,
+    access: [{ who: "me", via: "tr_supplies", allow: ["read"] }] } } });
+  const candidate = structuredClone(base);
+  candidate.resources![tree]!.access[0]!.within = "/";
+  const remote = structuredClone(base);
+  remote.resources![tree]!.access[0]!.allow = ["read", "create-child"];
+  const merged = mergeAccountConfigGraphsV2(base, candidate, remote);
+  expect(merged.conflicts).toEqual([]);
+  expect(merged.graph.resources![tree]!.access[0]!.allow).toEqual(["create-child", "read"]);
+});

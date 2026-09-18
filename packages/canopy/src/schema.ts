@@ -9,7 +9,9 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * history. The migration sets the stamp. "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "12";
+export const CANOPY_SCHEMA_VERSION = "13";
+/** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
+export const resourcePolicyFormatKey = (accountID: string) => `resource-policy-format:${accountID}`;
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
@@ -26,6 +28,7 @@ export const AUTHORITY_SCHEMA = {
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   account_challenges: ["id", "challenge_json", "expires_at", "consumed_at", "claim_digest"],
+  resource_policy: ["account_id", "tree_id", "rules_json"],
   access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
   tree_reservations: ["id", "account_id", "canonical_path", "status", "error"],
   observations: ["ordinal", "cursor", "tree_id", "kind", "update_id", "change_json", "created_at"],
@@ -33,6 +36,7 @@ export const AUTHORITY_SCHEMA = {
 } as const;
 
 export function createCanopySchema(db: Database): void {
+  db.run(`CREATE TABLE resource_policy (account_id TEXT NOT NULL, tree_id TEXT NOT NULL, rules_json TEXT NOT NULL, PRIMARY KEY(account_id, tree_id))`);
   db.run(`
     CREATE TABLE trees (
       id TEXT PRIMARY KEY,

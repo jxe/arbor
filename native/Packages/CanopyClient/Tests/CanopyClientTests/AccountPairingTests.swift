@@ -462,3 +462,106 @@ private final class PairingURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func stopLoading() {}
 }
+
+@Test("New resource policy sharing edits preserve scoped grants and non-hosting entries")
+func resourcePolicyEditing() throws {
+    let source = """
+    tr_notes:
+      canonical: https://example.test/~joe/notes
+
+      # A blank line inside a declaration must not truncate its replacement.
+      access:
+        - who: everyone
+          allow: [read]
+        - who: me
+          via: tr_supplies
+          allow: [create-child]
+          within: /inbox
+    # Preserve foreign grants exactly.
+    tr_foreign:
+      access:
+        - who: me
+          via: tr_supplies
+          allow: [read]
+    """
+    let original = try ArborAccountConfigurationYAML.trees(from: source)
+    #expect(original.count == 1)
+    #expect(original["tr_notes"]?.access == [ArborAccountAccessRule(subject: .everyone, access: "read")])
+    let changed = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+        trees["tr_notes"]!.access = [ArborAccountAccessRule(subject: .everyone, access: "write")]
+    }
+    let parsed = try ArborAccountConfigurationYAML.trees(from: changed)
+    #expect(parsed["tr_notes"]?.resourceAccess?.contains(where: { $0.via == "tr_supplies" && $0.allow == [.createChild] && $0.within == "/inbox" }) == true)
+    #expect(parsed["tr_notes"]?.access.first?.access == "write")
+    #expect(changed.contains("# Preserve foreign grants exactly.\ntr_foreign:\n  access:\n    - who: me\n      via: tr_supplies\n      allow: [read]"))
+    #expect(!changed.contains("subject:"))
+    #expect(try ArborAccountConfigurationYAML.replacingTrees(in: source) { _ in } == source)
+}
+
+@Test("Resource consent reviews replace one exact key, redact links, and reject stale or non-admin application")
+func resourceConsentReview() throws {
+    let source = """
+    tr_notes:
+      canonical: https://example.test/~joe/notes
+      access:
+        - who: me
+          via: tr_supplies
+          allow: [read]
+    tr_foreign:
+      access: []
+    """
+    let rule = try WireResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read, .createChild], within: "/")
+    let review = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, source: source)
+    #expect(review.previous?.allow == [.read])
+    #expect(review.rule.consentDescription.contains("Me via tr_supplies"))
+    let devices = "dv_admin:\n  label: Mac\n  administrator: true\ndv_phone:\n  label: Phone\n"
+    #expect(try ArborAccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_admin", devicesSource: devices) == review.after)
+    #expect(throws: (any Error).self) {
+        try ArborAccountConfigurationYAML.applyingResourceConsent(review, to: source + "\n", deviceID: "dv_admin", devicesSource: devices)
+    }
+    #expect(throws: (any Error).self) {
+        try ArborAccountConfigurationYAML.applyingResourceConsent(review, to: source, deviceID: "dv_phone", devicesSource: devices)
+    }
+    let removal = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes", rule: rule, removing: true, source: review.after)
+    #expect(try ArborAccountConfigurationYAML.trees(from: removal.after)["tr_notes"]?.resourceAccess == [])
+    let foreign = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_foreign", rule: rule, source: source)
+    #expect(!foreign.after.components(separatedBy: "tr_foreign:")[1].contains("canonical:"))
+    let link = try WireResourceAccessRule(who: .link("sha256:" + String(repeating: "a", count: 64)), allow: [.read])
+    #expect(!link.consentDescription.contains("sha256:"))
+}
+
+@Test("Policy editors reject duplicate YAML keys, aliases, unknown fields and equivalent rule keys")
+func ambiguousPolicySources() throws {
+    for source in [
+        "tr_notes:\n  access: []\n  access: []\n",
+        "tr_notes: &rule\n  access: []\ntr_other: *rule\n",
+        "tr_notes:\n  access: []\n  unexpected: true\n",
+        "tr_notes:\n  access:\n    - who: me\n      allow: [read]\n    - who: me\n      within: /\n      allow: [write]\n"
+    ] {
+        #expect(throws: (any Error).self) { try ArborAccountConfigurationYAML.trees(from: source) }
+    }
+}
+
+@Test("Ordinary sharing adds read without erasing an existing granular rule or duplicating its key")
+func sharingOverGranularPermission() throws {
+    let original = try WireResourceAccessRule(who: .everyone, allow: [.createChild])
+    var declaration = ArborHostedTreeDeclaration(canonical: "https://example.test/~joe/notes", resourceAccess: [original])
+    declaration.access.append(ArborAccountAccessRule(subject: .everyone, access: "read"))
+    let complete = try declaration.completeResourceAccess()
+    #expect(complete.count == 1)
+    #expect(complete[0].allow == [.read, .createChild])
+}
+
+@Test("Resource editors handle the first and last declaration as one YAML mapping")
+func emptyPolicyEditing() throws {
+    let first = try ArborAccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
+        trees["tr_notes"] = ArborHostedTreeDeclaration(canonical: "https://example.test/~joe/notes", access: [])
+    }
+    #expect(try ArborAccountConfigurationYAML.trees(from: first).count == 1)
+    let empty = try ArborAccountConfigurationYAML.replacingTrees(in: first) { $0.removeAll() }
+    #expect(try ArborAccountConfigurationYAML.trees(from: empty).isEmpty)
+    let review = try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: "tr_config", tree: "tr_notes",
+        rule: WireResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read]), source: "{}\n")
+    #expect(review.after.contains("tr_notes:"))
+    #expect(!review.after.contains("canonical:"))
+}

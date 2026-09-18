@@ -1,3 +1,5 @@
+import { ExecutionAuthority } from "./execution-authority.ts";
+import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
 import { SemanticMerge, type StateRef, type Evaluated } from "./updates/semantic-merge.ts";
 import { IntentError } from "../../merge/src/intent-model.ts";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
@@ -23,7 +25,7 @@ import {
   type AccessRule,
 } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
-import { decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
+import { decodeWireCollectionFile, SchemaSandbox, resourceRuleFromLegacy } from "@arbor/stores";
 import {
   validateUpdateRequestIntent,
   decodeWireDirectory,
@@ -66,7 +68,7 @@ import { AccountDirectory } from "./accounts.ts";
 import { rootProfileFacts } from "./profile.ts";
 import type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
-import { openCanopyDatabase } from "./schema.ts";
+import { openCanopyDatabase, resourcePolicyFormatKey } from "./schema.ts";
 
 export type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 
@@ -214,6 +216,7 @@ export class CanopyDaemon implements AsyncDisposable {
   private readonly mergeTool: MergeTool;
   private readonly semantic: SemanticMerge;
   private readonly access: AccessControl;
+  readonly execution: ExecutionAuthority;
   private readonly accounts: AccountDirectory;
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
@@ -243,6 +246,7 @@ export class CanopyDaemon implements AsyncDisposable {
         return tree ? this.rootProfileType(tree.ref) : null;
       },
     });
+    this.execution = new ExecutionAuthority((context, grant, path, operation) => this.access.executionAllows(context, grant, path, operation));
   }
 
   static async open(dataRoot: string, bootstrap?: CanopyBootstrap, mergeTool?: MergeToolOptions): Promise<CanopyDaemon> {
@@ -827,6 +831,24 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!row) throw new Error(`Device ${id} has no credential binding`);
       if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
     }
+    if ((v2Graph(current) && current.resources) || (v2Graph(next) && next.resources)) {
+      this.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES (?, '1')", [resourcePolicyFormatKey(accountID)]);
+    }
+    this.db.run("DELETE FROM resource_policy WHERE account_id = ?", [accountID]);
+    const resources = v2Graph(next) ? next.resources ?? (
+      this.db.query("SELECT 1 FROM meta WHERE key=?").get(resourcePolicyFormatKey(accountID))
+        ? Object.fromEntries(Object.entries(next.trees).map(([id, declaration]) => [id, {
+          canonical: declaration.canonical, access: declaration.access.map(resourceRuleFromLegacy),
+        }])) : undefined
+    ) : undefined;
+    if (resources) {
+      for (const [tree, declaration] of Object.entries(resources)) {
+        this.db.run("INSERT INTO resource_policy(account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
+      }
+      for (const tree of Object.keys(graphTrees(current))) {
+        if (resources[tree] && !resources[tree].canonical) throw new Error("Cannot remove hosting through a policy-only entry");
+      }
+    }
     const currentTrees = graphTrees(current);
     const nextTrees = graphTrees(next);
     for (const id of Object.keys(currentTrees)) {
@@ -931,20 +953,28 @@ export class CanopyDaemon implements AsyncDisposable {
     return activated;
   }
 
+  scopedCaller(account: CanopyAccount | null, tree: string, subject: string, active: () => boolean, linkDigest?: string) {
+    return this.access.directExecution(account, tree, subject, active, linkDigest);
+  }
+
+  resourcePolicy(account: CanopyAccount, tree: string) {
+    return this.execution.current ? undefined : this.access.safePolicy(account.id, tree);
+  }
+
   accessEntries(tree: string): CanopyAccessEntry[] {
     return this.access.entries(tree);
   }
 
   canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    return this.access.canRead(account, treeID, linkDigest);
+    return this.execution.current ? this.execution.allows(treeID, "/", "read") : this.access.canRead(account, treeID, linkDigest);
   }
 
   canWrite(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
-    return this.access.canWrite(account, treeID, linkDigest);
+    return this.execution.current ? this.execution.allows(treeID, "/", "write") : this.access.canWrite(account, treeID, linkDigest);
   }
 
   canAdminister(account: CanopyAccount, treeID: string): boolean {
-    return this.access.canAdminister(account, treeID);
+    return !this.execution.current && this.access.canAdminister(account, treeID);
   }
 
   /**
@@ -1047,6 +1077,10 @@ export class CanopyDaemon implements AsyncDisposable {
         acceptedAt: now,
         subject: `device:${input.deviceID}`,
       });
+      if (config.resources) this.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES (?, '1')", [resourcePolicyFormatKey(accountID)]);
+      if (config.resources) for (const [tree, declaration] of Object.entries(config.resources)) {
+        this.db.run("INSERT INTO resource_policy(account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
+      }
       for (const [id, declaration] of Object.entries(config.trees)) {
         this.db.run(
           "INSERT INTO tree_reservations (id, account_id, canonical_path, status) VALUES (?, ?, ?, 'awaiting-initialization')",
@@ -1072,6 +1106,7 @@ export class CanopyDaemon implements AsyncDisposable {
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
   ): Promise<UpdateResult> {
     if (result.update.root === candidate) return result;
+    if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new Error("Reconciliation disclosure is not allowed");
     const reconciliation = await buildAcceptedTransitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
     return { ...result, reconciliation };
   }
@@ -1122,8 +1157,9 @@ export class CanopyDaemon implements AsyncDisposable {
     authentication?: CanopyAuthentication
   ): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
+    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.operations !== null || u.resolves.length))) throw new Error("Execution update form is not allowed");
     if (
-      this.get(treeID)?.policy.startsWith("account-config-") &&
+      this.get(treeID)?.policy === "account-config-v1" &&
       request.updates.some((u) => u.resolves.length)
     ) {
       throw new UpdateProtocolError("unsupported-operation", "Configuration conflict resolution is not enabled");
@@ -1156,7 +1192,7 @@ export class CanopyDaemon implements AsyncDisposable {
     // without accepted rows. Those elements must not recheck a now-stale guard.
     let recordedThrough = -1;
     const retainedTree = this.get(treeID);
-    if (retainedTree && this.canWrite(account, treeID, linkDigest)) {
+    if (retainedTree && (this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) {
       const policy = retainedTree.policy.startsWith("account-config-")
         ? this.accountConfigPolicy(retainedTree, request.updates[0]!, baseRoot ?? retainedTree.ref, account, credentialSubject)
         : this.ordinaryPolicy(retainedTree, request.updates[0]!, account, linkDigest, credentialSubject);
@@ -1169,7 +1205,7 @@ export class CanopyDaemon implements AsyncDisposable {
       request.base &&
       request.updates.some((update) => update.operations !== null)
     ) {
-      if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
+      if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
       if (recordedThrough === request.updates.length - 1) {
         const tree = this.get(treeID)!;
@@ -1389,14 +1425,22 @@ export class CanopyDaemon implements AsyncDisposable {
   }> {
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
-    if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
+    if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
     const policy = tree.policy.startsWith("account-config-")
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
     const baseConflicts = submittedConflicts === undefined ? new ConflictStore(this.db).get(basisUpdate!) : submittedConflicts;
     const authoredView = (id: string) => authoredConflictBasis(new ConflictStore(this.db).get(id), baseConflicts, request);
+    const execution = this.execution.current;
+    if (execution) {
+      if (this.currentUpdate(treeID)?.conflicted) throw new Error("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
+      if (!request.ifCurrent || request.operations !== null || request.resolves.length) throw new Error("Execution update form is not allowed");
+      const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
+      if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
+    }
     const replay = this.acceptedRequest(treeID, subject, requestDigest);
+    if (!replay && execution && request.ifCurrent !== this.currentUpdate(treeID)?.id) throw new UpdateProtocolError("base-not-retained", "Execution guard is stale; recompute against a current authorized basis");
     if (replay) {
       return {
         ...replay,
@@ -1467,6 +1511,34 @@ export class CanopyDaemon implements AsyncDisposable {
       const currentConflicts = conflictStore.get(remoteUpdate.id);
       let conflictState: ConflictState | undefined;
       let resolutionGuardFailed = false;
+      if (tree.policy === "account-config-v2" && !preconditionFailed) {
+        // Governed policy conflicts retain the conservative projection. Further
+        // edits must explicitly resolve the complete current decision set; an
+        // ordinary snapshot or stale device cannot silently restore authority.
+        const decisions = currentConflicts?.decisions ?? [];
+        if (decisions.length || request.resolves.length) {
+          const exact = request.ifCurrent === remoteUpdate.id && baseRoot === remoteUpdate.root &&
+            request.resolves.length === decisions.length &&
+            new Set(request.resolves.map(r => r.conflict)).size === decisions.length &&
+            decisions.every(d => request.resolves.some(r => r.state === remoteUpdate.id && r.conflict === d.id &&
+              JSON.stringify([...r.alternatives].sort()) === JSON.stringify(d.alternatives.map(a => a.id).sort())));
+          if (!exact) {
+            throw new UpdateProtocolError("unsupported-operation", "Configuration policy conflicts require an exact guarded resolution of every current decision");
+          }
+          conflictState = { decisions: [], resolutions: request.resolves };
+          // Selecting the already restrictive projection is still a resolution.
+          reconciled = { outcome: "accepted", root: request.candidate, generated: new Map() };
+        } else if (reconciled.outcome === "merged" && reconciled.conflicts.length &&
+          reconciled.conflicts.every(c => c.path === "/trees.yaml/access")) {
+          const projection = reconciled.root;
+          const alternatives = [...new Set([remoteUpdate.root, request.candidate, projection])].map(directory => ({
+            id: crypto.randomUUID(), revision: crypto.randomUUID(), value: { directory }, contributions: [],
+          }));
+          conflictState = { decisions: [{ id: crypto.randomUUID(), root: true,
+            selected: alternatives.find(a => a.value.directory === projection)!.id, alternatives }], resolutions: [] };
+          reconciled = { outcome: "accepted", root: reconciled.root, generated: reconciled.generated };
+        }
+      }
       let origins:
         | Map<string, Array<{ change: string; operation: string | null }>>
         | undefined;
@@ -1900,19 +1972,33 @@ export class CanopyDaemon implements AsyncDisposable {
     linkDigest: string | undefined,
     credentialSubject: string | undefined,
   ): UpdatePolicy {
+    const execution = this.execution.current;
+    let effects: ResourceEffect[] = [];
+    const checkEffects = async (before: string, after: string, objects: ReadonlyMap<ObjectHash, Uint8Array>) => {
+      if (!execution) return;
+      if (request.resolves.length || request.operations !== null) throw new Error("Scoped execution operations/resolutions are not allowed until effect validation is available");
+      effects = await resourceEffects(before, after, hash => this.objects.load(hash, objects));
+      if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
+    };
     return {
-      subject: credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public"),
+      subject: execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public"),
       validateCandidate: async (root, objects) => {
+        if (execution && !request.ifCurrent) throw new Error("Execution updates require an exact-state guard");
+        await checkEffects(tree.ref, root, objects);
         await this.validateReservedBoundaries(tree, root, objects);
         const requiredType = this.requiredProfileType(tree.id, tree.canonicalPath);
         if (requiredType) await this.validateProfileRoot(root, objects, requiredType);
       },
       validateAccepted: async (remoteTree, root, objects) => {
+        await checkEffects(remoteTree.ref, root, objects);
         if (root === request.candidate) return;
         await this.validateGraph(root, objects);
         await this.validateReservedBoundaries(remoteTree, root, objects);
       },
       prepareCommit: async (remoteTree) => ({
+        withinTransaction: () => {
+          if (execution && (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution)))) throw new Error("Execution permission is not allowed");
+        },
         afterCommit: () => {
           if (remoteTree.canonicalPath === "/") this.reconcileCommunityAccounts();
         },
@@ -1953,6 +2039,7 @@ export class CanopyDaemon implements AsyncDisposable {
           next as AccountConfigGraphV2,
           deviceID,
           changesFrom as AccountConfigGraphV2,
+          !!(current as AccountConfigGraphV2).resources || !!this.db.query("SELECT 1 FROM meta WHERE key=?").get(resourcePolicyFormatKey(account.id)),
         );
       } else {
         authorizeAccountConfigTransition(
@@ -1972,7 +2059,9 @@ export class CanopyDaemon implements AsyncDisposable {
         baseGraph = await graphAt(baseRoot);
         const current = this.currentUpdate(tree.id);
         if (!current) throw new Error("Account configuration has no accepted update");
-        authorize(await graphAt(current.root), candidateGraph, baseGraph);
+        const acceptedGraph = await graphAt(current.root);
+        if (request.resolves.length && !(acceptedGraph as AccountConfigGraphV2).devices[deviceID]?.administrator) throw new Error("Only an administrator may resolve policy conflicts");
+        authorize(acceptedGraph, candidateGraph, baseGraph);
       },
       merge: (base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed,
         v2 ? "account-config-v2" : "account-config-v1"),
@@ -2043,6 +2132,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private notifyAccepted(update: AcceptedUpdate): void {
+    this.execution.invalidate();
     const record = this.observations.forUpdate(update.id);
     if (record) this.notifyObservation(record);
   }

@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
+import { resourceRuleFromLegacy } from "@arbor/stores";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath } from "@arbor/arborsync";
 import { runArborSyncDaemon } from "@arbor/arborsync/cli";
 import { ArborSyncRESTClient } from "@arbor/arborsync-client";
-import { canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256 } from "@arbor/core";
+import { canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey } from "@arbor/core";
 import { materializeTree, snapshotDirectory } from "@arbor/fs";
 import {
   addLocalPlacement,
@@ -540,6 +541,9 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
     console.log("  history starts again at the destination; the source server history is retained and retired");
     if (dryRun) return;
 
+    if (sourceConfiguration.resources || destinationConfiguration.resources) {
+      throw new Error("Moving resource policy between Canopy accounts requires a reviewed policy transfer; no configuration was changed");
+    }
     await saveRehomeTransaction({
       version: 1,
       tree: sourceTree,
@@ -593,7 +597,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
   });
 }
 
-async function accessRulesFor(client: WireClient, audience: ShareAudience) {
+async function accessRulesFor(client: WireClient, audience: ShareAudience): Promise<import("@arbor/core").AccessRule[]> {
   const raw = audience.kind === "private" ? [] : audience.kind === "everyone"
     ? [{ subject: { kind: "everyone" as const }, access: audience.access }]
     : audience.kind === "profile"
@@ -601,7 +605,7 @@ async function accessRulesFor(client: WireClient, audience: ShareAudience) {
       : audience.rules;
   return Promise.all(raw.map(async (rule) => rule.subject.kind === "profile"
     ? { subject: { kind: "profile" as const, tree: (await client.resolve(new URL(rule.subject.locator).pathname)).ref.tree }, access: rule.access }
-    : rule));
+    : { subject: { kind: "everyone" as const }, access: rule.access }));
 }
 
 /**
@@ -657,7 +661,7 @@ async function placeLocal(
       tree = generateArborID("tr");
       const rules = await accessRulesFor(wire, initialAudience(audience, target));
       await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
-        document.setIn([tree!], { canonical: `${target.endpoint}${target.canonicalPath}`, access: rules });
+        document.setIn([tree!], { canonical: `${target.endpoint}${target.canonicalPath}`, access: config.resources ? rules.map(resourceRuleFromLegacy) : rules });
       }, (source) => { parseHostedTreesConfiguration(source, config.account); });
       try {
         await addLocalPlacement({ configurationTree: config.configurationTree, path, tree });
@@ -672,9 +676,11 @@ async function placeLocal(
     if (tree && !isNew) {
       const declaration = config.trees[tree]!;
       let rules = [...declaration.access];
+      let resourceRules = [...(config.resources?.[tree]?.access ?? [])];
       for (const operation of audience) {
         if (operation.kind === "clear") {
           rules = [];
+          resourceRules = [];
         } else {
           const subject = accessSubject(operation.subject, target);
           const normalized = subject.kind === "everyone" ? { kind: "everyone" as const }
@@ -682,11 +688,14 @@ async function placeLocal(
           const key = JSON.stringify(normalized);
           rules = rules.filter((rule) => JSON.stringify(rule.subject) !== key);
           if (operation.access !== "none") rules.push({ subject: normalized, access: operation.access });
+          const resource = resourceRuleFromLegacy({ subject: normalized, access: operation.access === "write" ? "write" : "read" });
+          resourceRules = resourceRules.filter(rule => resourceRuleKey(rule) !== resourceRuleKey(resource));
+          if (operation.access !== "none") resourceRules.push(resource);
         }
       }
       if (audience.length) {
         await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
-          document.setIn([tree!, "access"], rules);
+          document.setIn([tree!, "access"], config.resources ? resourceRules : rules);
         }, (source) => { parseHostedTreesConfiguration(source, config.account); });
       }
     }

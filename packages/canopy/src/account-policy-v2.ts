@@ -6,7 +6,11 @@ export function authorizeAccountConfigTransitionV2(
   next: AccountConfigGraphV2,
   deviceID: string,
   changesFrom: AccountConfigGraphV2 = current,
+  resourceFormat = !!current.resources,
 ): void {
+  if (resourceFormat && !next.resources && Object.values(next.trees).some(tree => tree.access.length)) {
+    throw new Error("Legacy policy writes are not allowed after resource-policy conversion");
+  }
   const currentDevice = current.devices[deviceID];
   if (!currentDevice) throw new Error("Submitting device is not active in the accepted configuration");
   const accepted = semantic(current);
@@ -15,7 +19,7 @@ export function authorizeAccountConfigTransitionV2(
   if (!same(base.account, candidate.account) && !same(accepted.account, candidate.account)) {
     throw new Error("account.yaml changes require an account lifecycle transition");
   }
-  if (!currentDevice.administrator && !same(base.trees, candidate.trees) && !same(accepted.trees, candidate.trees)) {
+  if (!currentDevice.administrator && (!same(base.trees, candidate.trees) || !same(base.resources, candidate.resources)) && (!same(accepted.trees, candidate.trees) || !same(accepted.resources, candidate.resources))) {
     throw new Error("Only an administrator may edit trees.yaml");
   }
   for (const id of new Set([...Object.keys(base.devices), ...Object.keys(candidate.devices)])) {

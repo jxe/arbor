@@ -77,3 +77,5 @@ coordinates; the trace is client admission metadata, not an additional Wire form
   `copySource`; ordinary text equality is not provenance.
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
+
+- `resource-policy.json`: shared valid/invalid `who` / `via` / `allow` / `within` grammar, consumed by TypeScript and Swift ArborWire.

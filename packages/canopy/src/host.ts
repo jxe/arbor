@@ -207,10 +207,37 @@ export async function serveCanopy(options: {
     hostname: options.hostname ?? "0.0.0.0",
     idleTimeout: 30,
     async fetch(request, server) {
+      const token = bearer(request);
+      const execution = token?.startsWith("execution_") ? canopy.execution.resolve(token) : undefined;
+      if (token?.startsWith("execution_") && !execution) return wireError("unauthenticated", "Execution authorization is unavailable", 401);
+      const response = await canopy.execution.run(execution, async () => {
       const url = new URL(request.url);
       const authentication = canopy.authenticateToken(bearer(request));
-      const account = authentication?.account ?? null;
+      const account = authentication?.account ?? (execution?.caller ? canopy.account(execution.caller) : null);
       try {
+        if (url.pathname === "/.arbor/execution/authority-watch" && request.method === "GET") {
+          if (!execution) return wireError("unauthenticated", "Execution authorization is required", 401);
+          server.timeout(request, 0);
+          let cleanup = () => {};
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              let closed = false;
+              const publish = () => {
+                if (closed) return;
+                const allowed = canopy.execution.covered(execution);
+                controller.enqueue(new TextEncoder().encode(`event: ${allowed ? "refresh" : "revoked"}\ndata: {}\n\n`));
+                if (!allowed) { closed = true; cleanup(); controller.close(); }
+              };
+              const stop = canopy.execution.subscribe(publish);
+              const timer = setInterval(() => { if (!canopy.execution.covered(execution)) publish(); }, 250);
+              timer.unref?.();
+              cleanup = () => { closed = true; stop(); clearInterval(timer); };
+              request.signal.addEventListener("abort", () => { cleanup(); try { controller.close(); } catch {} }, { once: true });
+              publish();
+            },
+            cancel() { cleanup(); },
+          }), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+        }
         const queryRoute = /^\/\.arbor\/trees\/([^/]+)\/queries$/.exec(url.pathname);
         if (request.method === "QUERY" && queryRoute) {
           if (!options.queryRuntime) return wireError("unsupported-operation", "No query runtime is active", 422);
@@ -367,8 +394,11 @@ export async function serveCanopy(options: {
           const treeID = decodeURIComponent(access[1]!);
           if (request.method === "GET") {
             const authenticated = requireAccount(request, canopy);
-            if (!canopy.canAdminister(authenticated, treeID)) return wireError("not-found", "Tree not found", 404);
+            const administer = canopy.canAdminister(authenticated, treeID);
+            const policy = canopy.resourcePolicy(authenticated, treeID);
+            if (!administer && !policy) return wireError("not-found", "Tree not found", 404);
             const snapshot: AccessEntry[] = canopy.accessEntries(treeID)
+              .filter(() => administer)
               .filter((entry) => entry.subjectKind !== "profile" || entry.subject !== authenticated.profileTree)
               .map((entry) => {
               if (entry.subjectKind === "profile") {
@@ -382,7 +412,7 @@ export async function serveCanopy(options: {
               }
               return { id: entry.id, subject: { kind: entry.subjectKind } as AccessEntry["subject"], access: entry.access };
               });
-            return json({ snapshot, observedThrough: canopy.observedThrough(treeID) });
+            return json({ snapshot, ...(policy ? { policy } : {}), observedThrough: canopy.observedThrough(treeID) });
           }
           return new Response("Method not allowed", { status: 405 });
         }
@@ -459,18 +489,21 @@ export async function serveCanopy(options: {
           const tree = canopy.get(treeID);
           // A null base activates a reserved tree, which has no descriptor yet;
           // Canopy checks the reservation and the administrator device.
+          const direct = !execution && tree && !canopy.canWrite(account, treeID, linkDigest(request))
+            ? canopy.scopedCaller(account, treeID, authentication?.subject ?? "public", () => !authentication || canopy.authenticationIsActive(authentication), linkDigest(request)) : undefined;
           const permitted = tree
-            ? canopy.canWrite(account, treeID, linkDigest(request))
+            ? canopy.canWrite(account, treeID, linkDigest(request)) || canopy.execution.canSubmit(treeID) || (direct && canopy.execution.run(direct, () => canopy.execution.canSubmit(treeID)))
             : update.base === null && authentication !== null;
           if (!permitted) return new Response("Not found", { status: 404 });
-          const result = await canopy.submitUpdate(
+          const result = await canopy.execution.run(execution ?? direct, () => canopy.submitUpdate(
             treeID,
             update,
             account,
             linkDigest(request),
             authentication?.subject,
             authentication ?? undefined,
-          );
+          ));
+          if (direct && !canopy.execution.covered(direct)) return wireError("permission-denied", "Authorization changed before receipt disclosure", 403);
           return json(updateJSON(result.result), result.status);
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
@@ -521,16 +554,18 @@ export async function serveCanopy(options: {
             if (batch.length) frames.push(frame(batch));
             return frames;
           };
+          let cancelWatch = () => {};
           return new Response(new ReadableStream({
             start(controller) {
               let closed = false;
               let replaying = true;
+              if (execution) controller.enqueue(encoder.encode(": authorized\n\n"));
               let delivered = 0;
               const pending: ObservationRecord[] = [];
               let stop = () => {};
               const authorized = () => {
                 const activeDevice = !authentication || canopy.authenticationIsActive(authentication);
-                return activeDevice && canopy.canRead(activeDevice ? account : null, tree.id, requestedLinkDigest);
+                return activeDevice && canopy.execution.run(execution, () => canopy.canRead(activeDevice ? account : null, tree.id, requestedLinkDigest));
               };
               const resync = (reason: string) => {
                 if (closed) return;
@@ -570,6 +605,7 @@ export async function serveCanopy(options: {
                 clearInterval(authorizationTimer);
                 stopObserving();
               };
+              cancelWatch = () => { closed = true; stop(); };
               const replay = canopy.observationsAfter(tree.id, lastEventID);
               if (!replay.retained) return resync("The requested cursor is no longer retained");
               const updates = replay.records.flatMap((record) => record.updateID ? [record.updateID] : []);
@@ -583,6 +619,7 @@ export async function serveCanopy(options: {
                 try { controller.close(); } catch {}
               }, { once: true });
             },
+            cancel() { cancelWatch(); },
           }), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" } });
         }
         const object = /^\/\.arbor\/trees\/([^/]+)\/objects\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
@@ -755,6 +792,12 @@ export async function serveCanopy(options: {
         if (/unknown tree|not found/i.test(message)) return wireError("not-found", message, 404);
         return wireError("invalid-request", message, 400);
       }
+      });
+      if (execution && !canopy.execution.covered(execution)) {
+        await response.body?.cancel().catch(() => {});
+        return wireError("permission-denied", "Execution authorization is unavailable", 403);
+      }
+      return response;
     },
   });
   if (dynamicLoopbackOrigin) {

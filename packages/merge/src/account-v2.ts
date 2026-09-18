@@ -1,7 +1,9 @@
+import { parseResourceConfiguration, hostedProjection, resourceRuleFromLegacy, type ResourceConfiguration } from "../../stores/src/resource-configuration.ts";
+import { resourceRuleKey, intersectResourceRules, type ResourceAccessRule } from "@arbor/core";
 import {
   parseAccountDevicesConfiguration,
   parseCanopyAccountConfiguration,
-  parseHostedTreesConfiguration,
+  parseLegacyHostedTreesConfiguration,
   type AccountDeviceConfiguration,
   type CanopyAccountConfiguration,
   type HostedTreeDeclaration,
@@ -20,6 +22,7 @@ import { stringify } from "yaml";
 export interface AccountConfigGraphV2 {
   account: CanopyAccountConfiguration;
   trees: HostedTreesConfiguration;
+  resources?: ResourceConfiguration;
   devices: Record<string, AccountDeviceConfiguration>;
   sources: Record<string, string>;
 }
@@ -55,10 +58,13 @@ export function readAccountConfigGraphV2(snapshot: TreeSnapshot, configurationTr
     "devices.yaml": sourceAt("devices.yaml"),
   };
   const account = parseCanopyAccountConfiguration(sources["account.yaml"]);
-  const trees = parseHostedTreesConfiguration(sources["trees.yaml"], account);
+  let trees: HostedTreesConfiguration;
+  let resources: ResourceConfiguration | undefined;
+  try { trees = parseLegacyHostedTreesConfiguration(sources["trees.yaml"], account); }
+  catch { resources = parseResourceConfiguration(sources["trees.yaml"], account); trees = hostedProjection(resources); }
   const devices = parseAccountDevicesConfiguration(sources["devices.yaml"]);
-  if (configurationTree && trees[configurationTree]) throw new Error("The account-configuration tree must not declare itself");
-  return { account, trees, devices, sources };
+  if (configurationTree && (trees[configurationTree] || resources?.[configurationTree])) throw new Error("The account-configuration tree must not declare itself");
+  return { account, trees, ...(resources ? { resources } : {}), devices, sources };
 }
 
 function subjectKey(rule: HostedTreeDeclaration["access"][number]): string {
@@ -73,6 +79,13 @@ export function semantic(graph: Omit<AccountConfigGraphV2, "sources">): Record<s
       canonical: tree.canonical,
       access: Object.fromEntries(tree.access.map((rule) => [subjectKey(rule), rule])),
     }])),
+    ...({ resources: Object.fromEntries(Object.entries(graph.resources ?? Object.fromEntries(Object.entries(graph.trees).map(([id, d]) => [id, { canonical: d.canonical, access: d.access.map(resourceRuleFromLegacy) }]))).map(([id, d]) => [id, {
+      ...(d.canonical ? { canonical: d.canonical } : {}),
+      access: Object.fromEntries(d.access.map(r => {
+        const { within, ...rule } = r;
+        return [resourceRuleKey(r), { ...rule, ...(within && within !== "/" ? { within } : {}), allow: [...r.allow].sort() }];
+      })),
+    }])) }),
     devices: Object.fromEntries(Object.entries(graph.devices).map(([id, device]) => [id, {
       label: device.label,
       administrator: device.administrator,
@@ -105,6 +118,16 @@ function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: st
     return candidate;
   }
   if (/^devices\.[^.]+$/.test(path) && (candidate === missing || remote === missing)) return missing;
+  if (/^resources\.[^.]+$/.test(path) && (candidate === missing || remote === missing)) {
+    tally.conflicts.push(path);
+    return missing;
+  }
+  if (path.startsWith("resources.") && path.includes(".access.[")) {
+    tally.conflicts.push(path);
+    if (candidate === missing || remote === missing) return missing;
+    const intersection = intersectResourceRules(candidate as ResourceAccessRule, remote as ResourceAccessRule);
+    return intersection ?? missing;
+  }
   const maps = [base, candidate, remote].every((value) => value === missing || (value !== null && typeof value === "object" && !Array.isArray(value)));
   if (maps) {
     const result: Record<string, unknown> = {};
@@ -143,7 +166,8 @@ function fromSemantic(value: Record<string, any>): Omit<AccountConfigGraphV2, "s
     label: raw.label,
     administrator: raw.administrator === true,
   }]));
-  return { account, trees, devices };
+  const resources: ResourceConfiguration | undefined = value.resources ? Object.fromEntries(Object.entries(value.resources).map(([id, d]: [string, any]) => [id, { ...(d.canonical ? { canonical: d.canonical } : {}), access: Object.values(d.access ?? {}) as ResourceAccessRule[] }])) : undefined;
+  return { account, trees: resources ? hostedProjection(resources) : trees, ...(resources ? { resources } : {}), devices };
 }
 
 export function mergeAccountConfigGraphsV2(
@@ -153,7 +177,14 @@ export function mergeAccountConfigGraphsV2(
 ) {
   const tally: MergeTally = { conflicts: [], mergedFields: 0 };
   const value = mergeValue(semantic(base), semantic(candidate), semantic(remote), "", tally) as Record<string, any>;
-  return { graph: fromSemantic(value), conflicts: tally.conflicts, mergedFields: tally.mergedFields };
+  // Resource rules are authoritative; the legacy hosting ACL is only a derived
+  // projection. Its same-field conflicts must not duplicate policy conflicts.
+  const resourceFormat = !!(base.resources || candidate.resources || remote.resources);
+  if (!resourceFormat) delete value.resources;
+  const conflicts = tally.conflicts.filter(path => resourceFormat
+    ? !/^trees\.[^.]+\.access(?:\.|$)/.test(path)
+    : !path.startsWith("resources."));
+  return { graph: fromSemantic(value), conflicts, mergedFields: tally.mergedFields };
 }
 
 
@@ -167,7 +198,7 @@ export function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "source
     label: device.label,
     ...(device.administrator ? { administrator: true } : {}),
   }]));
-  const trees = Object.fromEntries(Object.entries(graph.trees).sort(([a], [b]) => a.localeCompare(b)).map(([id, tree]) => [id, tree]));
+  const trees = Object.fromEntries(Object.entries(graph.resources ?? graph.trees).sort(([a], [b]) => a.localeCompare(b)).map(([id, tree]) => [id, tree]));
   return {
     "account.yaml": yaml(graph.account),
     "devices.yaml": yaml(devices),

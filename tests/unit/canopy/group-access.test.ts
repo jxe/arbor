@@ -76,3 +76,14 @@ describe("group ACL expansion is gated on the subject root's type: group", () =>
     expect(access.canAdminister(bob, "tr_shared")).toBe(false);
   });
 });
+
+test("direct read does not mask a group's stronger write permission", () => {
+  const db = new Database(":memory:");
+  try {
+    db.run("CREATE TABLE access (id TEXT PRIMARY KEY, tree_id TEXT, subject_kind TEXT, subject TEXT, access TEXT, claimed_profile TEXT, UNIQUE(tree_id, subject_kind, subject))");
+    const access = new AccessControl(db, host);
+    access.set("tr_shared", "profile", "tr_bob", "read");
+    access.set("tr_shared", "profile", "tr_group", "write");
+    expect(access.canWrite(bob, "tr_shared")).toBe(true);
+  } finally { db.close(); }
+});

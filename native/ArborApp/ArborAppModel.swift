@@ -395,6 +395,38 @@ final class ArborWorkspaceState {
 #endif
     }
 
+    func prepareResourceConsent(tree: String, rule: WireResourceAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
+#if os(iOS)
+        guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else { throw ResourcePolicyError.invalid }
+        return try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree)
+            .prepareResourceConsent(tree: tree, rule: rule, removing: removing)
+#else
+        guard let placed = localArborSyncOverview?.trees.first(where: { $0.id == tree }),
+              let configuration = placed.configurationTree else { throw ResourcePolicyError.invalid }
+        return try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: configuration,
+            tree: tree, rule: rule, removing: removing,
+            source: readAccountConfigurationFile(configuration, named: "trees.yaml"))
+#endif
+    }
+
+    func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation {
+#if os(iOS)
+        guard let placement = nativePlacements.first(where: { $0.tree.id == review.tree }),
+              placement.configurationTree == review.configurationTree else { throw ResourcePolicyError.invalid }
+        return try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree)
+            .applyResourceConsent(review)
+#else
+        guard let account = localArborSyncOverview?.accounts.first(where: { $0.configurationTree == review.configurationTree }) else { throw ResourcePolicyError.invalid }
+        let devices = try readAccountConfigurationFile(review.configurationTree, named: "devices.yaml")
+        try await editAccountConfigurationFile(review.configurationTree, named: "trees.yaml") { source in
+            try ArborAccountConfigurationYAML.applyingResourceConsent(review, to: source,
+                deviceID: account.deviceID, devicesSource: devices)
+        }
+        await refreshLocalArborSyncOverview()
+        return try await loadLocalTreeAccess(tree: review.tree)
+#endif
+    }
+
     func createShareLink(tree: String, access: String) async throws -> NativeAccessLink {
 #if os(iOS)
         guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else {
@@ -607,7 +639,8 @@ final class ArborWorkspaceState {
             canEdit: try ArborAccountConfigurationYAML.isAdministrator(
                 deviceID: account.deviceID,
                 devicesSource: devicesSource
-            )
+            ),
+            resourceRules: (declaration.resourceAccess ?? []).filter { $0.via != nil || ($0.within ?? "/") != "/" || $0.who == .me || !($0.allow == [.read] || $0.allow == [.write]) }
         )
     }
 

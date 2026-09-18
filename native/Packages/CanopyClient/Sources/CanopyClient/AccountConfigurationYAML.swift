@@ -51,14 +51,80 @@ public struct ArborAccountAccessRule: Codable, Hashable, Sendable {
     }
 }
 
+/// Hosting view retains the complete new policy while the ordinary sharing UI
+/// edits only unscoped read/write rules. Other rules are never flattened.
 public struct ArborHostedTreeDeclaration: Codable, Hashable, Sendable {
     public var canonical: String
-    public var access: [ArborAccountAccessRule]
-
-    public init(canonical: String, access: [ArborAccountAccessRule]) {
-        self.canonical = canonical
-        self.access = access
+    private var legacyAccess: [ArborAccountAccessRule]
+    public var resourceAccess: [WireResourceAccessRule]?
+    public var access: [ArborAccountAccessRule] {
+        get { legacyAccess }
+        set { legacyAccess = newValue }
     }
+    public func completeResourceAccess() throws -> [WireResourceAccessRule] {
+        if let resourceAccess, resourceAccess.compactMap(Self.ordinaryRule) == legacyAccess { return resourceAccess }
+        var retained = (resourceAccess ?? []).filter { Self.ordinaryRule($0) == nil }
+        for rule in try legacyAccess.map(Self.resourceRule) {
+            if let index = retained.firstIndex(where: { $0.sameConsentKey(as: rule) }) {
+                let previous = retained[index]
+                let combined = WireResourceOperation.allCases.filter { previous.allow.contains($0) || rule.allow.contains($0) }
+                retained[index] = try WireResourceAccessRule(who: previous.who, via: previous.via,
+                    allow: combined.contains(.write) ? [.write] : combined, within: previous.within)
+            } else { retained.append(rule) }
+        }
+        return retained
+    }
+    public init(canonical: String, access: [ArborAccountAccessRule]) {
+        self.canonical = canonical; self.legacyAccess = access; self.resourceAccess = nil
+    }
+    public init(canonical: String, resourceAccess: [WireResourceAccessRule]) {
+        self.canonical = canonical; self.legacyAccess = resourceAccess.compactMap(Self.ordinaryRule); self.resourceAccess = resourceAccess
+    }
+    private enum CodingKeys: String, CodingKey { case canonical, access }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        canonical = try values.decode(String.self, forKey: .canonical)
+        if let rules = try? values.decode([ArborAccountAccessRule].self, forKey: .access) {
+            legacyAccess = rules; resourceAccess = nil
+        } else {
+            resourceAccess = try values.decode([WireResourceAccessRule].self, forKey: .access)
+            legacyAccess = resourceAccess!.compactMap(Self.ordinaryRule)
+        }
+    }
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(canonical, forKey: .canonical)
+        if resourceAccess != nil { try values.encode(completeResourceAccess(), forKey: .access) }
+        else { try values.encode(legacyAccess, forKey: .access) }
+    }
+    static func ordinaryRule(_ rule: WireResourceAccessRule) -> ArborAccountAccessRule? {
+        guard rule.via == nil, rule.within == nil || rule.within == "/",
+              rule.allow == [.read] || rule.allow == [.write] else { return nil }
+        let subject: ArborAccountAccessSubject
+        switch rule.who {
+        case .everyone: subject = .everyone
+        case .profile(let tree): subject = .profile(tree: tree)
+        case .link(let digest): subject = .link(digest: digest)
+        case .me: return nil
+        }
+        return ArborAccountAccessRule(subject: subject, access: rule.allow[0].rawValue)
+    }
+    static func resourceRule(_ rule: ArborAccountAccessRule) throws -> WireResourceAccessRule {
+        guard rule.access == "read" || rule.access == "write" else { throw ResourcePolicyError.invalid }
+        let who: WireResourceWho
+        switch rule.subject {
+        case .everyone: who = .everyone
+        case .profile(let tree): who = .profile(tree)
+        case .link(let digest): who = .link(digest)
+        }
+        // Rules produced by the sharing controls have validated subjects/access.
+        return try WireResourceAccessRule(who: who, allow: [rule.access == "write" ? .write : .read])
+    }
+}
+
+public struct ArborResourceDeclaration: Codable, Hashable, Sendable {
+    public var canonical: String?
+    public var access: [WireResourceAccessRule]
 }
 
 public struct ArborAccountDeviceDeclaration: Codable, Hashable, Sendable {
@@ -101,12 +167,14 @@ public struct NativeTreeAccessPresentation: Hashable, Sendable {
     public var canonical: String
     public var entries: [NativeTreeAccessEntry]
     public var canEdit: Bool
+    public var resourceRules: [WireResourceAccessRule]
 
-    public init(tree: String, canonical: String, entries: [NativeTreeAccessEntry], canEdit: Bool) {
+    public init(tree: String, canonical: String, entries: [NativeTreeAccessEntry], canEdit: Bool, resourceRules: [WireResourceAccessRule] = []) {
         self.tree = tree
         self.canonical = canonical
         self.entries = entries
         self.canEdit = canEdit
+        self.resourceRules = resourceRules
     }
 }
 
@@ -124,7 +192,13 @@ public struct NativeAccessLink: Hashable, Sendable {
 
 public enum ArborAccountConfigurationYAML {
     public static func trees(from source: String) throws -> [String: ArborHostedTreeDeclaration] {
-        try YAMLDecoder().decode([String: ArborHostedTreeDeclaration].self, from: source)
+        try validatePolicyYAML(source)
+        if let resources = try? YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source) {
+            return resources.compactMapValues { value in
+                value.canonical.map { ArborHostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
+            }
+        }
+        return try YAMLDecoder().decode([String: ArborHostedTreeDeclaration].self, from: source)
     }
 
     public static func replacingTrees(
@@ -134,6 +208,35 @@ public enum ArborAccountConfigurationYAML {
         let original = try trees(from: source)
         var changed = original
         try change(&changed)
+        if var resources = try? YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source) {
+            let wasEmpty = resources.isEmpty
+            let keys = Set(original.keys).union(changed.keys).filter { original[$0] != changed[$0] }
+            for key in keys {
+                if let tree = changed[key] {
+                    resources[key] = ArborResourceDeclaration(canonical: tree.canonical,
+                        access: try tree.completeResourceAccess())
+                } else { resources[key] = nil }
+            }
+            if keys.isEmpty { return source }
+            // Adding the first entry/removing the last requires changing the
+            // empty mapping representation itself, not appending another root.
+            if wasEmpty || resources.isEmpty { return try YAMLEncoder().encode(resources) }
+            var result = source
+            for key in keys.sorted() {
+                let replacement = try resources[key].map { try YAMLEncoder().encode([key: $0]) } ?? ""
+                if let range = arborTopLevelBlock(named: key, in: result) {
+                    result = result.replacingCharacters(in: range, with: replacement)
+                } else {
+                    guard original[key] == nil else {
+                        throw ArborWireValidationError.invalidValue("Cannot preserve this YAML layout; edit trees.yaml directly")
+                    }
+                    result += (result.hasSuffix("\n") || result.isEmpty ? "" : "\n") + replacement
+                }
+            }
+            try validatePolicyYAML(result)
+            _ = try YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: result)
+            return result
+        }
         let keys = Set(original.keys).union(changed.keys).filter { original[$0] != changed[$0] }
         guard keys.count == 1, let key = keys.first else {
             return try YAMLEncoder().encode(changed)
@@ -404,22 +507,27 @@ public enum ArborLocalPlacementsYAML {
     }
 }
 
-private func arborTopLevelBlock(named key: String, in source: String) -> Range<String.Index>? {
+func arborTopLevelBlock(named key: String, in source: String) -> Range<String.Index>? {
     var cursor = source.startIndex
     var start: String.Index?
+    var trailing: String.Index?
     while cursor < source.endIndex {
         let newline = source[cursor...].firstIndex(of: "\n")
         let lineEnd = newline ?? source.endIndex
         let next = newline.map { source.index(after: $0) } ?? source.endIndex
         let line = source[cursor..<lineEnd].trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
         if start == nil {
-            if line == "\(key):" || line.hasPrefix("\(key): ") {
+            if [key, "'\(key)'", "\"\(key)\""].contains(where: { line == "\($0):" || line.hasPrefix("\($0): ") }) {
                 start = cursor
             }
-        } else if line.isEmpty || line.first?.isWhitespace != true {
-            return start!..<cursor
+        } else if line.isEmpty || line.hasPrefix("#") {
+            if trailing == nil { trailing = cursor }
+        } else if line.first?.isWhitespace == true {
+            trailing = nil
+        } else {
+            return start!..<(trailing ?? cursor)
         }
         cursor = next
     }
-    return start.map { $0..<source.endIndex }
+    return start.map { $0..<(trailing ?? source.endIndex) }
 }

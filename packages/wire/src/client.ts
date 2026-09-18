@@ -333,13 +333,13 @@ export class WireClient {
     tree: string,
     base: string | null,
     snapshot: TreeSnapshot,
-    options: { change?: string; deltas?: ObjectDelta[]; ifCurrent?: string } = {},
+    options: { change?: string; deltas?: ObjectDelta[]; ifCurrent?: string; resolves?: CandidateUpdate["resolves"] } = {},
   ): Promise<UpdateResult> {
     const update: CandidateUpdate = {
       change: options.change ?? crypto.randomUUID(),
       operations: null,
       candidate: snapshot.root,
-      resolves: [],
+      resolves: options.resolves ?? [],
       ...(options.ifCurrent !== undefined ? { ifCurrent: options.ifCurrent } : {}),
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       deltas: options.deltas ?? [],
@@ -379,7 +379,7 @@ export class WireClient {
     return result;
   }
 
-  async access(tree: string): Promise<SnapshotEnvelope<RemoteAccessEntry[]>> {
+  async access(tree: string): Promise<SnapshotEnvelope<RemoteAccessEntry[]> & { policy?: import("@arbor/core").SafeResourceAccessRule[] }> {
     const response = await this.checked(await this.request(
       `/.arbor/trees/${encodeURIComponent(tree)}/access`,
       { headers: this.headers() },

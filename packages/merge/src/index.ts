@@ -63,13 +63,24 @@ export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<M
     result = await mergeWireTrees(base.object, incoming.object, current.object, hash => objects.read(hash));
   } else if (request.rules.id === "account-config-v1" || request.rules.id === "account-config-v2") {
     const [b, i, c] = await Promise.all([base, incoming, current].map(ref => snapshot(ref.object, objects)));
-    const merged = request.rules.id === "account-config-v1"
-      ? mergeAccountConfigGraphs(readAccountConfigGraph(b!), readAccountConfigGraph(i!), readAccountConfigGraph(c!))
-      : mergeAccountConfigGraphsV2(readAccountConfigGraphV2(b!), readAccountConfigGraphV2(i!), readAccountConfigGraphV2(c!));
+    const resourceInputs = request.rules.id === "account-config-v2"
+      ? [b!, i!, c!].map(value => readAccountConfigGraphV2(value)) : null;
+    const merged = resourceInputs
+      ? mergeAccountConfigGraphsV2(resourceInputs[0]!, resourceInputs[1]!, resourceInputs[2]!)
+      : mergeAccountConfigGraphs(readAccountConfigGraph(b!), readAccountConfigGraph(i!), readAccountConfigGraph(c!));
+    const policyOnlyRemoval = (field: string) => {
+      const match = /^resources\.([^.]+)$/.exec(field);
+      return !!match && !!resourceInputs && resourceInputs.every(graph => !graph.resources?.[match[1]!]?.canonical);
+    };
     const output = request.rules.id === "account-config-v1"
       ? snapshotAccountConfig(merged.graph as Parameters<typeof snapshotAccountConfig>[0])
       : snapshotAccountConfigV2(merged.graph as Parameters<typeof snapshotAccountConfigV2>[0]);
-    result = { root: output.root, objects: output.objects, conflicts: merged.conflicts.map(path => ({ path, reason: "account-configuration" })),
+    result = { root: output.root, objects: output.objects, conflicts: merged.conflicts.map(field => ({
+      path: /^resources\.[^.]+\.access(?:\.|$)/.test(field) || policyOnlyRemoval(field) ? "/trees.yaml/access"
+        : /^(resources|trees)\./.test(field) ? "/trees.yaml"
+        : field.startsWith("devices.") ? "/devices.yaml" : "/account.yaml",
+      reason: "account-configuration",
+    })),
       summary: { version: request.rules.id, mergedFields: merged.mergedFields } };
   } else throw new Error(`Unknown tree rule: ${request.rules.id}`);
   await objects.store([...result.objects].map(([hash, bytes]) => ({ hash, bytes })));
