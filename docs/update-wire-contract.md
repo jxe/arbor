@@ -30,6 +30,12 @@ must preserve unnamed decisions, and stale dependent evidence invalidates resolu
 
 ## Active conflict inspection subset
 
+Both Wire clients expose `conflictObject(tree, state, conflict, alternative, hash)`
+over the existing
+`GET /.arbor/trees/{tree}/conflicts/{conflict}/alternatives/{alternative}/objects/{hash}?state={state}`
+route. The read is pinned to historical decision authority and verifies the returned
+hash. Native's first consumer is the [accepted-choice review](native-conflict-review.md).
+
 The [whole-entry accepted-conflict implementation](accepted-entry-conflicts.md) now
 serves the specified conflict page and alternative-object routes. TypeScript and
 Swift readers use the existing `DecisionPage` encoding and validate accepted context.

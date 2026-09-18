@@ -121,6 +121,7 @@ final class ArborWorkspaceState {
     var errorMessage: String?
 
     private var syncCoordinator: UpdateCoordinator?
+    private(set) var conflictReview: ArborConflictReviewModel?
     private var serverWatchTask: Task<Void, Never>?
 #if os(macOS)
     private var supervisor: ArborSyncProcessSupervisor?
@@ -187,6 +188,7 @@ final class ArborWorkspaceState {
 
     func place(tree: WireTreeDescriptor, from origin: URL, configurationTree: String? = nil, remember: Bool = true) async throws {
         _ = try tree.validated()
+        try await conflictReview?.flushDraft()
         serverWatchTask?.cancel()
         serverWatchTask = nil
         let credentialProvider: any WireCredentialProvider = configurationTree.map {
@@ -251,6 +253,8 @@ final class ArborWorkspaceState {
             detail: "Offline replica · \(tree.canonicalPath ?? tree.id)"
         )
         syncCoordinator = coordinator
+        conflictReview = ArborConflictReviewModel(coordinator: coordinator)
+        Task { [weak self] in await self?.conflictReview?.refresh() }
         syncPresentation = try await coordinator.presentation()
         startServerWatch(client: client, tree: tree, coordinator: coordinator)
     }
@@ -293,6 +297,7 @@ final class ArborWorkspaceState {
     }
 
     func disconnectNativeAccount() async throws {
+        try await conflictReview?.flushDraft()
         guard let placement = try await nativePlacementStore.load() else { return }
         try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).forget()
         try await nativePlacementStore.clear(configurationTree: placement.configurationTree)
@@ -301,6 +306,7 @@ final class ArborWorkspaceState {
         serverWatchTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
+        conflictReview = nil
         await editorWorkspace.closeAll()
     }
 #endif
@@ -768,13 +774,15 @@ final class ArborWorkspaceState {
     }
 
     /// Drop the tree that is open: its watch, its coordinator, or its visit follower.
-    private func closeOpenTree() async {
+    private func closeOpenTree() async throws {
+        try await conflictReview?.flushDraft()
         serverWatchTask?.cancel()
         serverWatchTask = nil
         visitFollowTask?.cancel()
         visitFollowTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
+        conflictReview = nil
         openPlacedTreeID = nil
         openVisitLocator = nil
     }
@@ -790,7 +798,7 @@ final class ArborWorkspaceState {
     /// seeds nor blocks this client's direct Canopy update coordinator.
     func openPlacedTree(_ treeID: String) async throws {
         try await editorWorkspace.flushAll()
-        await closeOpenTree()
+        try await closeOpenTree()
         let runtime = try await ensureArborSync()
         let client = runtime.client
         let bootstrap = try await client.bootstrap(tree: treeID)
@@ -854,6 +862,8 @@ final class ArborWorkspaceState {
             detail: "Working tree · \(placeName) · \(placed.osPath ?? "")"
         )
         syncCoordinator = coordinator
+        conflictReview = ArborConflictReviewModel(coordinator: coordinator)
+        Task { [weak self] in await self?.conflictReview?.refresh() }
         openPlacedTreeID = treeID
         syncPresentation = try await coordinator.presentation()
         startServerWatch(client: wireClient, tree: descriptor, coordinator: coordinator)
@@ -875,7 +885,7 @@ final class ArborWorkspaceState {
             throw ArborWireValidationError.invalidValue("Enter an http(s):// or arbor:// locator")
         }
         try await editorWorkspace.flushAll()
-        await closeOpenTree()
+        try await closeOpenTree()
         if arborsyncClient == nil { _ = try? await ensureArborSync() }
         if localArborSyncOverview == nil, arborsyncClient != nil { await refreshLocalArborSyncOverview() }
         if let placed = localArborSyncOverview?.trees.first(where: { candidate in
@@ -1358,11 +1368,14 @@ final class ArborWorkspaceState {
     private func refreshSyncPresentation(from coordinator: UpdateCoordinator) async {
         guard syncCoordinator === coordinator else { return }
         capabilities = await provider.capabilities()
+        conflictReview?.scheduleRefresh()
         syncPresentation = (try? await coordinator.presentation())
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
     }
 
     func flush() async {
+        do { try await conflictReview?.flushDraft() }
+        catch { errorMessage = "Retaining the review draft did not finish: \(error.localizedDescription)" }
         do { try await editorWorkspace.flushAll() }
         catch { errorMessage = "Retaining edits locally did not finish: \(error.localizedDescription)" }
     }
@@ -1389,6 +1402,7 @@ final class ArborWorkspaceState {
         overviewWatchTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
+        conflictReview = nil
         if let supervisor { await supervisor.stop() }
         arborsyncClient = nil
         arborsyncProcessKind = nil
@@ -1409,6 +1423,7 @@ final class ArborWorkspaceState {
         detail: String
     ) async {
         await editorWorkspace.closeAll()
+        conflictReview = nil
         provider = nextProvider
         editorWorkspace = ArborEditorWorkspace(provider: nextProvider, recoveryRoot: editorRecoveryRoot)
         home = nextHome

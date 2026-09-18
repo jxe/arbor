@@ -1,5 +1,6 @@
 import ArborSyncClient
 import ArborKit
+import ArborWorkingTree
 import ArborQuagmire
 import CanopyClient
 import ArborWire
@@ -724,6 +725,7 @@ struct ArborRootView: View {
     @State private var voiceLaunchReady = false
     @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
     @State private var sidebarSearchText = ""
+    @State private var reviewingChoices = false
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @FocusState private var sidebarSearchFocused: Bool
 #if os(macOS)
@@ -843,6 +845,10 @@ struct ArborRootView: View {
             }
         }
         .onChange(of: model.currentLocation) { _, _ in
+            if let review = workspace.conflictReview,
+               review.selectedDecision?.path.map({ reviewLogicalPath($0) != model.currentReference.path }) == true {
+                review.expanded = false
+            }
             documentConflictExpanded = false
         }
         .onChange(of: model.binding?.conflict) { _, conflict in
@@ -865,6 +871,22 @@ struct ArborRootView: View {
             Text(recordingRecoveryMessage)
         }
 #if os(iOS)
+        .sheet(isPresented: Binding(
+            get: { workspace.conflictReview?.expanded ?? false },
+            set: { workspace.conflictReview?.expanded = $0 }
+        )) {
+            if let review = workspace.conflictReview {
+                NavigationStack {
+                    ScrollView {
+                        ArborChoiceReviewPanel(review: review,
+                            previous: { stepReviewChoice(-1) }, next: { stepReviewChoice(1) })
+                    }
+                    .navigationTitle("Review choice")
+                    .navigationBarTitleDisplayMode(.inline)
+                }
+                .presentationDetents([.large])
+            }
+        }
         .sheet(isPresented: $accountPresented) {
             IOSAccountPanel(workspace: workspace, onDisconnect: onDisconnect)
         }
@@ -1084,7 +1106,7 @@ struct ArborRootView: View {
             if !sidebarTitlebarAccessoryInstalled {
                 sidebarPagesHeader
             }
-            sidebarList
+            sidebarReviewContent
         }
         .background {
             GeometryReader { geometry in
@@ -1103,9 +1125,83 @@ struct ArborRootView: View {
 #else
         VStack(spacing: 0) {
             sidebarPagesHeader
-            sidebarList
+            sidebarReviewContent
         }
 #endif
+    }
+
+    @ViewBuilder
+    private var sidebarReviewContent: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                if let review = workspace.conflictReview,
+                   review.hasEntries || workspace.syncPresentation.acceptedConflicted == true {
+                    Button {
+                        reviewingChoices = true
+                        Task { await review.refresh() }
+                    } label: {
+                        HStack {
+                            Label("Review choices", systemImage: "arrow.triangle.branch")
+                            Spacer()
+                            if review.snapshot != nil { Text("\(review.decisions.count)").monospacedDigit() }
+                            else { Image(systemName: "circle.fill").font(.system(size: 6)) }
+                        }.padding(.horizontal, 12).padding(.vertical, 10)
+                    }.buttonStyle(.plain)
+                    Divider()
+                }
+                sidebarList
+            }
+            .opacity(reviewingChoices ? 0 : 1)
+            .allowsHitTesting(!reviewingChoices)
+            .accessibilityHidden(reviewingChoices)
+            if reviewingChoices, let review = workspace.conflictReview {
+                ArborChoiceReviewList(review: review, back: { reviewingChoices = false },
+                    open: openReviewChoice, openDraft: { draft in
+                        Task { await review.openRetained(draft) }
+#if os(iOS)
+                        closeIOSSidebar()
+#endif
+                    })
+            }
+        }
+        .onChange(of: workspace.generation) { _, _ in reviewingChoices = false }
+    }
+
+    @State private var reviewAccessoryReveal: EditorAccessoryReveal?
+
+    private func openReviewChoice(_ decision: ConflictReviewDecision) {
+        guard let review = workspace.conflictReview else { return }
+#if os(iOS)
+        closeIOSSidebar()
+#endif
+        Task {
+            if let path = decision.path {
+                let reference = WorkspaceReference(tree: workspace.home.tree, path: reviewLogicalPath(path))
+                // Deleted entries still have a review even when no live page exists.
+                if (try? await workspace.provider.resolve(reference)) != nil {
+                    await model.navigate(to: reference)
+                }
+            }
+            await review.select(decision)
+            reviewAccessoryReveal = EditorAccessoryReveal("accepted-choices")
+        }
+    }
+
+    private func reviewLogicalPath(_ path: String) -> String {
+        if path == "/_index.md" { return "/" }
+        if path.hasSuffix("/_index.md") { return String(path.dropLast(10)) }
+        if path.hasSuffix(".md") { return String(path.dropLast(3)) }
+        if path.hasSuffix(".mdx") { return String(path.dropLast(4)) }
+        return path
+    }
+
+    private func stepReviewChoice(_ offset: Int) {
+        guard let review = workspace.conflictReview else { return }
+        let choices = review.decisions.sorted { ($0.path ?? "", $0.id) < ($1.path ?? "", $1.id) }
+        guard !choices.isEmpty else { return }
+        let current = choices.firstIndex { $0.id == review.selectedID }
+        let next = current.map { ($0 + offset + choices.count) % choices.count } ?? (offset > 0 ? 0 : choices.count - 1)
+        openReviewChoice(choices[next])
     }
 
     private var sidebarList: some View {
@@ -1167,16 +1263,26 @@ struct ArborRootView: View {
         _ result: WorkspaceSearchResult,
         showsBacklinkCount: Bool
     ) -> some View {
-        ArborSidebarSearchRow(
-            result: result,
-            showsBacklinkCount: showsBacklinkCount,
-            isKeyboardSelected: sidebarKeyboardSelection == result.id,
-            acceptsBlockDrop: !isCurrent(.reference(result.reference)),
-            movePage: {
-                Task { _ = await model.editorHost?.moveDocument(result.reference) }
+        HStack(spacing: 4) {
+            ArborSidebarSearchRow(
+                result: result,
+                showsBacklinkCount: showsBacklinkCount,
+                isKeyboardSelected: sidebarKeyboardSelection == result.id,
+                acceptsBlockDrop: !isCurrent(.reference(result.reference)),
+                movePage: {
+                    Task { _ = await model.editorHost?.moveDocument(result.reference) }
+                }
+            ) {
+                openFromSidebar(.reference(result.reference))
             }
-        ) {
-            openFromSidebar(.reference(result.reference))
+            if let review = workspace.conflictReview,
+               result.reference.tree == workspace.home.tree,
+               let choice = review.decisions.first(where: { $0.path.map { reviewLogicalPath($0) == result.reference.path } ?? false }) {
+                Button { openReviewChoice(choice) } label: { Image(systemName: "arrow.triangle.branch") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel("Review choices on \(result.title)")
+                    .help("Review choices on this page")
+            }
         }
         .id(result.id)
     }
@@ -1610,6 +1716,36 @@ struct ArborRootView: View {
                     create: { Task { await model.newTab() } }
                 )
             }
+            if location == model.currentLocation, !hostsReviewAccessory(location), let review = workspace.conflictReview {
+                let choices = review.decisions.filter {
+                    $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false
+                }
+                if review.expanded {
+#if os(macOS)
+                    ScrollView {
+                        ArborChoiceReviewPanel(review: review,
+                            previous: { stepReviewChoice(-1) }, next: { stepReviewChoice(1) })
+                    }
+                    .frame(maxHeight: 440)
+                    Divider()
+#endif
+                } else if !choices.isEmpty {
+                    HStack {
+                        Button { openReviewChoice(choices[0]) } label: {
+                            Label("\(choices.count) unresolved \(choices.count == 1 ? "choice" : "choices")", systemImage: "arrow.triangle.branch")
+                        }.buttonStyle(.plain)
+                        Spacer()
+                        Button("Review in tree") { reviewingChoices = true
+#if os(macOS)
+                            columnVisibility = .all
+#else
+                            withAnimation { sidebarRevealProgress = 1 }
+#endif
+                        }.buttonStyle(.plain)
+                    }.font(.callout).padding(.horizontal, 20).padding(.vertical, 10)
+                    Divider()
+                }
+            }
             pageFrameContent(for: location)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -1799,6 +1935,35 @@ struct ArborRootView: View {
     }
 #endif
 
+    private func hostsReviewAccessory(_ location: WorkspaceLocation) -> Bool {
+        guard let presentation = model.pagePresentation(for: location) else { return false }
+        if let review = workspace.conflictReview, review.expanded,
+           review.selectedDecision?.path.map({ reviewLogicalPath($0) != model.currentReference.path }) == true { return false }
+        return presentation.node.surface.supportsDocumentSession && presentation.node.isWritable && presentation.editorLease != nil
+    }
+
+    private func reviewAccessories(for location: WorkspaceLocation) -> [EditorAccessory] {
+        guard location == model.currentLocation, hostsReviewAccessory(location), let review = workspace.conflictReview else { return [] }
+        let choices = review.decisions.filter { $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false }
+        guard !choices.isEmpty || review.expanded else { return [] }
+        return [EditorAccessory(
+            id: "accepted-choices", anchor: .document, accessibilityLabel: "Review alternatives",
+            isExpanded: Binding(get: { review.expanded }, set: { expanded in
+                if expanded, !choices.contains(where: { $0.id == review.selectedID }), let first = choices.first { openReviewChoice(first) }
+                else { review.expanded = expanded }
+            }), marker: {
+                Label("\(choices.count) unresolved \(choices.count == 1 ? "choice" : "choices")", systemImage: "arrow.triangle.branch")
+                    .font(.callout)
+            }, detail: {
+#if os(macOS)
+                ArborChoiceReviewPanel(review: review,
+                    previous: { stepReviewChoice(-1) }, next: { stepReviewChoice(1) })
+#else
+                EmptyView()
+#endif
+            })]
+    }
+
     @ViewBuilder
     private func pageFrameContent(for location: WorkspaceLocation) -> some View {
         if let presentation = model.pagePresentation(for: location) {
@@ -1824,7 +1989,9 @@ struct ArborRootView: View {
                             host: host,
                             configuration: ArborStyle.editorConfiguration,
                             pinchDictation: pinchDictation,
-                            topOverscrollAction: editorTopOverscrollAction
+                            topOverscrollAction: editorTopOverscrollAction,
+                            accessories: reviewAccessories(for: location),
+                            accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil
                         ) {
                             ArborDocumentFooter(
                                 status: syncStatus(for: lease.binding),

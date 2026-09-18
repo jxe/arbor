@@ -345,3 +345,207 @@ extension LiveSourceAdmissionTests {
         await recovered.close(); await clean.close()
     }
 }
+
+extension LiveSourceAdmissionTests {
+    @Test("Native review reads hidden material, resolves exact content and recovers a lost response", arguments: ["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response"])
+    func nativeReviewThroughCanopy(mode: String) async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
+              let token = environment["ARBOR_SOURCE_TEST_TOKEN"],
+              let trees = environment["ARBOR_REVIEW_TEST_TREES"],
+              let treeID = try JSONDecoder().decode([String: String].self, from: Data(trees.utf8))[mode] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "review-live-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ArborWireClient(origin: origin, credential: token)
+        let transport = ReviewResponseLossTransport(client: client)
+        let initial = try await client.descriptor(tree: treeID)
+        let tree = try await place(initial, client: client)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
+        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
+        let basis = try await session.snapshot()
+        let capture = try await tree.captureSourceAdmissionBasis(reference)
+        let peer = try capture.prepare(intent: intent("Peer review version\n", from: capture.document))
+        let prepared = try await client.prepareUpdates(tree: treeID,
+            base: .init(root: initial.tree.root, update: initial.tree.update), updates: [peer.update])
+        _ = try await client.submitUpdateResponse(prepared)
+        _ = try await session.admit(intent: intent("Hidden review version\n", from: basis))
+        _ = try await coordinator.syncOnce()
+        let inspection = try await coordinator.inspectChoices()
+        let decision = try #require(inspection.decisions.first { $0.path == "/page.md" })
+        var hiddenID = decision.selected
+        #expect(decision.supportsIndependentResolution)
+        var sourceBytes = Set<Data>()
+        for alternative in decision.alternatives {
+            let content = try #require(try await coordinator.reviewContent(alternative, decision: decision.id, state: inspection.state))
+            sourceBytes.insert(content)
+            if content == Data("Hidden review version\n".utf8) { hiddenID = alternative.id }
+        }
+        #expect(sourceBytes.contains(Data("Hidden review version\n".utf8)))
+        #expect(sourceBytes.contains(Data("Peer review version\n".utf8)))
+        if mode.hasPrefix("group-") {
+            // Deleting an ancestor of an unresolved leaf produces a coupled root choice.
+            let projected = try await client.snapshot(tree: treeID, root: inspection.root)
+            let rootBytes = try #require(projected.objects.first { $0.hash == projected.root }?.bytes)
+            guard case let .directory(entries, metadata) = try WireObjectCodec.decode(rootBytes, kind: .directory) else { throw ConflictReviewError.unavailable }
+            let deletionBytes = try WireObjectCodec.encode(.directory(entries.filter { $0.name != "page.md" }, childrenSource: metadata))
+            let deletionRoot = WireObjectCodec.hash(deletionBytes)
+            let deletion = WireCandidateUpdate(candidate: deletionRoot, operations: nil,
+                objects: [.init(hash: deletionRoot, bytes: deletionBytes)])
+            let deletionRequest = try await client.prepareUpdates(tree: treeID,
+                base: .init(root: inspection.root, update: inspection.state), updates: [deletion])
+            _ = try await client.submitUpdateResponse(deletionRequest)
+            _ = try await coordinator.recoverWatchGap()
+            let coupled = try await coordinator.inspectChoices()
+            let ancestor = try #require(coupled.decisions.first { $0.dependencies.contains(decision.id) })
+            let rootAlternative = try #require(ancestor.alternatives.first { $0.value.directory == (mode == "group-keep" ? coupled.root : deletionRoot) })
+            var group = ConflictReviewDraft(snapshot: coupled, decision: ancestor, alternative: rootAlternative.id)
+            #expect(group.decisions.count == 2)
+            #expect(!group.obligations.isEmpty)
+            group.set(.init(alternative: hiddenID, source: mode == "group-keep" ? "Grouped exact\r\n" : nil,
+                destination: mode == "group-rescue" ? "/rescued.md" : nil,
+                remove: mode == "group-remove" || mode == "group-lost-response"), for: decision.id)
+            let preview = try await coordinator.previewReviewDraft(group)
+            #expect(preview.changes.contains { $0.path == (mode == "group-rescue" ? "/rescued.md" : "/page.md") })
+            if mode == "group-lost-response" {
+                await transport.dropNextResponse()
+                await #expect(throws: URLError.self) { try await coordinator.applyReviewDraft(group) }
+                await session.close(); await coordinator.close(); await tree.close()
+                let reopenedTree = try await place(try await client.descriptor(tree: treeID), client: client)
+                let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
+                    sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+                _ = try await reopened.syncOnce()
+                #expect(await transport.replayedExactBody())
+                #expect(try await reopened.reviewDrafts().isEmpty)
+                #expect(try await reopened.reviewSubmissionPending() == false)
+                await reopened.close(); await reopenedTree.close()
+            } else {
+                try await coordinator.applyReviewDraft(group)
+                #expect(try await coordinator.reviewDrafts().isEmpty)
+                await session.close(); await coordinator.close(); await tree.close()
+            }
+            let accepted = try await client.descriptor(tree: treeID)
+            #expect(!accepted.tree.conflicted)
+            #expect(accepted.tree.root == preview.candidate.root)
+            return
+        }
+        let source = mode == "choose" ? "Hidden review version\n" : "# Reviewed\r\n\r\nKeep exact spaces  \r\nCafe\u{301} and café\r\n"
+        let draft = ConflictReviewDraft(snapshot: inspection, decision: decision, alternative: hiddenID, source: mode == "choose" ? nil : source)
+        try await coordinator.retainReviewDraft(draft)
+        #expect(try await coordinator.reviewDrafts().count == 1)
+        if mode == "lost-response" {
+            await transport.dropNextResponse()
+            await #expect(throws: URLError.self) { try await coordinator.applyReviewDraft(draft) }
+            #expect(try await coordinator.reviewSubmissionPending())
+            await session.close(); await coordinator.close(); await tree.close()
+            let acceptedCurrent = try await client.descriptor(tree: treeID)
+            let reopenedTree = try await place(acceptedCurrent, client: client)
+            let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root, sourceOperationEmission: true)
+            #expect(try await reopened.reviewDrafts().first?.source.map { Data($0.utf8) } == Data(source.utf8))
+            _ = try await reopened.syncOnce()
+            #expect(try await reopened.reviewSubmissionPending() == false)
+            #expect(try await reopened.reviewDrafts().isEmpty)
+            #expect(await transport.replayedExactBody())
+            let provider = WorkingTreeProvider(workingTree: reopenedTree, sourceCoordinator: reopened)
+            let reopenedSession = try await provider.openDocument(reference)
+            #expect(try await reopenedSession.snapshot().source.utf8.elementsEqual(source.utf8))
+            let current = try await reopenedSession.snapshot()
+            _ = try await reopenedSession.admit(intent: .init(basis: current, patch: .init(baseContentRevision: current.contentRevision,
+                edits: [.init(utf8Range: 0..<current.source.utf8.count, replacement: "Review completed\n", expected: current.source)]), source: "Review completed\n"))
+            _ = try await reopened.syncOnce()
+            await reopenedSession.close(); await reopened.close(); await reopenedTree.close()
+            return
+        }
+        if mode == "continued-edit" {
+            await transport.holdResolutionResponse()
+            let apply = Task { try await coordinator.applyReviewDraft(draft) }
+            for _ in 0..<500 {
+                if await transport.isHolding { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            guard await transport.isHolding else {
+                await transport.releaseResponse()
+                try await apply.value
+                Issue.record("Resolution never reached response gate"); return
+            }
+            let laterBasis = try await session.snapshot()
+            let later = "Latest local after review\n"
+            _ = try await session.admit(intent: .init(basis: laterBasis, patch: .init(baseContentRevision: laterBasis.contentRevision,
+                edits: [.init(utf8Range: 0..<laterBasis.source.utf8.count, replacement: later, expected: laterBasis.source)]), source: later))
+            var newerDraft = draft; newerDraft.source = "Unsubmitted scratch\n"
+            try await coordinator.retainReviewDraft(newerDraft)
+            await transport.releaseResponse()
+            try await apply.value
+            #expect(try await coordinator.reviewDrafts().first?.source == "Unsubmitted scratch\n")
+            let latest = try await coordinator.inspectChoices()
+            var preserved = try await session.snapshot().source == later
+            for choice in latest.decisions {
+                for alternative in choice.alternatives where alternative.value.file != nil {
+                    if try await coordinator.reviewContent(alternative, decision: choice.id, state: latest.state) == Data(later.utf8) { preserved = true }
+                }
+            }
+            #expect(preserved)
+            // Explicitly resolve a supported new choice if the
+            // racing ordinary edit correctly introduced a newer choice.
+            for choice in latest.decisions where choice.path == "/page.md" {
+                var group = ConflictReviewDraft(snapshot: latest, decision: choice,
+                    alternative: choice.selected, source: "Review completed\n")
+                for member in group.decisions where member.id != choice.id {
+                    try group.choose(member.id, alternative: member.selected)
+                }
+                try await coordinator.applyReviewDraft(group)
+            }
+            try await coordinator.discardReviewDraft(draft.id)
+            await session.close(); await coordinator.close(); await tree.close()
+            return
+        }
+        try await coordinator.applyReviewDraft(draft)
+        #expect(try await coordinator.reviewSubmissionPending() == false)
+        #expect(try await coordinator.reviewDrafts().isEmpty)
+        let after = try await coordinator.inspectChoices()
+        #expect(!after.decisions.contains { $0.id == decision.id })
+        let current = try await session.snapshot()
+        #expect(Data(current.source.utf8) == Data(source.utf8))
+        _ = try await session.admit(intent: .init(basis: current, patch: .init(baseContentRevision: current.contentRevision,
+            edits: [.init(utf8Range: 0..<current.source.utf8.count, replacement: "Review completed\n", expected: current.source)]), source: "Review completed\n"))
+        _ = try await coordinator.syncOnce()
+        await session.close(); await coordinator.close(); await tree.close()
+    }
+}
+
+private actor ReviewResponseLossTransport: UpdateTransport {
+    let client: ArborWireClient
+    private var shouldDrop = false
+    private var shouldHold = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    var isHolding: Bool { continuation != nil }
+    func holdResolutionResponse() { shouldHold = true }
+    func releaseResponse() { continuation?.resume(); continuation = nil; shouldHold = false }
+    private var dropped: Data?
+    private var replay: Data?
+    init(client: ArborWireClient) { self.client = client }
+    func dropNextResponse() { shouldDrop = true }
+    func replayedExactBody() -> Bool { dropped != nil && dropped == replay }
+    func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
+        let response = try await client.submitUpdateResponse(prepared)
+        let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+        if shouldHold, request.updates.contains(where: { !$0.resolves.isEmpty }) {
+            await withCheckedContinuation { continuation = $0 }
+        }
+        if shouldDrop {
+            shouldDrop = false; dropped = prepared.body
+            throw URLError(.networkConnectionLost)
+        }
+        if dropped != nil { replay = prepared.body }
+        return response
+    }
+    func descriptor(tree: String) async throws -> WireCurrentTree { try await client.descriptor(tree: tree) }
+    func snapshot(tree: String, root: String) async throws -> WireSnapshot { try await client.snapshot(tree: tree, root: root) }
+    func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
+        try await client.conflicts(tree: tree, state: state, root: root, after: after)
+    }
+    func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data {
+        try await client.conflictObject(tree: tree, state: state, conflict: conflict, alternative: alternative, hash: hash)
+    }
+}

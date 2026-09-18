@@ -1,10 +1,9 @@
 # Reliability 010: Native accepted-conflict review
 
-Status: READY for Phase 1. Priority: P1. Build the first usable review before the
-later contextual editor work. Canopy accepted alternatives and guarded resolution
-are the foundation; richer merge rules, additional source operations and
-[finer-grained storage](../canopy-storage/002-composable-conflict-fragments.md)
-are not prerequisites. Recheck deployed and installed status before execution.
+Status: IN PROGRESS. Priority: P1. Native grouped review and generic editor accessories are
+implemented on `codex/native-conflict-review` and `codex/editor-accessories`; they are not installed or manually
+verified. See the [implementation and verification checkpoint](../../docs/native-conflict-review.md).
+The remaining Phase 1 work below precedes finer contextual editor work.
 
 ## Outcome and ownership
 
@@ -38,89 +37,37 @@ another merge engine. Put correctness checks in client APIs and state transition
 so a view cannot accidentally bypass them. Mirror shared policy changes in Swift,
 TypeScript, conformance fixtures and the client state-machine specification.
 
-## Phase 1: Complete review without inline editor integration
+## Phase 1: Remaining work
 
-### Discovery and presentation
+The implemented sidebar list, page markers, exact-source comparison/composition,
+draft persistence, grouped structural resolution and generic Quagmire accessories are documented in the
+[checkpoint](../../docs/native-conflict-review.md). Keep their supported scope and
+conservative accepted-state freshness checks explicit while completing this phase.
 
-- Add a quiet tree-level “3 unresolved choices” indicator and a navigable list,
-  grouped by affected page or directory. Add page badges where the affected page
-  is known. Keep accepted sync status distinct from review status; do not imply
-  that publication has paused. Counts come from authoritative decisions, not
-  a boolean or a guessed count of affected files.
-- Open a review panel beside the document on macOS and a full-screen review sheet
-  on iPhone. No forced modal on receipt of an accepted conflict.
-- Show all alternatives, mark the currently projected one, and highlight exact
-  differences. Support more than two alternatives. Use “Version A/B” or verified
-  author/action descriptions; avoid device-relative “mine/theirs” labels.
-- Show whole-file and directory scope honestly. Do not synthesize source hunks
-  from a whole-entry choice and present them as independently resolvable.
-- Provide raw-source access, preserving whitespace, line endings and Markdown
-  fidelity. Long content must remain usable. Binary review exposes available
-  metadata and safe previews/openable copies. Directory/root review summarizes
-  affected paths, renames, deletions and metadata, without a synthetic root filename.
+- Manually verify macOS and iPhone layout, normal editor typing, focus, selection,
+  scroll, keyboard routing, VoiceOver and large text. App builds do not establish
+  these behaviors. Verify installed restart recovery after Joe's manual app gate.
+- Add safe binary previews/export and richer directory browsing beyond the exact
+  recursive path/metadata preview. Add format-specific collection reconstruction. Keep
+  explicit unavailable states for unsupported renderers or missing material.
+- Add richer long-source comparison and verify whitespace-only and line-ending
+  differences visually. Current bounded changed-line highlighting falls back to
+  raw source for very large comparisons.
+- Make unrelated accepted updates less disruptive only through an explicit,
+  compatible freshness policy. Current Canopy guards require the current accepted
+  state; preserve drafts and require renewed review rather than silently retargeting.
+- Expand fault injection across review persistence, submission, installation and
+  retirement, including authorization changes and cancellation. Existing live
+  tests cover lost accepted responses, restart and newer editor/draft work.
+- Complete cross-language shared review policy when the TypeScript editor-host
+  integration is built. Both Wire clients already read authorized alternatives;
+  the durable review controller currently lives in the Swift working-tree client.
 
-### Choices and submission
-
-- Offer “Use this version” for supported alternatives. “Edit result…” opens a
-  separate durable text draft. Show the exact proposed content and placement
-  changes before “Apply and resolve”; drafting does not replace the live document.
-- Offer “Keep both” or automatic combination only when Canopy supplies a supported,
-  format-appropriate action. Never hard-code duplication as universally safe for
-  Markdown, code, keyed data or binary files. Manual composition remains an explicit
-  user-authored result, not a claim that a rule proved it safe.
-- Group coupled choices and explain their combined effect. Submit their operations
-  and complete guarded resolution declarations as one atomic candidate.
-- Bind review to accepted state identity, decision identity and the complete
-  alternative sets, not just file hashes or the projection root. Read hidden
-  alternatives through the authorized Canopy material paths.
-- Ordinary editing can change the projection or an alternative without resolving
-  it. Only an explicit guarded declaration resolves the reviewed choice.
-- Persist the exact draft, references, guards and outgoing intent before submission.
-  Install ordinary accepted results through the existing coordinator. Clear pending
-  submission evidence only after the accepted transition is durable. A resulting
-  accepted tree may still contain other or newer choices.
-- Preserve later local edits and pending intent when applying the resolution result.
-  Do not build a second merge engine over the local queue. If a draft cannot yet be
-  validly expressed, retain it and explain that specific limitation while ordinary
-  synchronization continues.
-
-### Refresh, recovery and accessibility
-
-- If relevant alternatives or their guards change, retain the draft, show “This
-  choice has changed,” refresh evidence and require review before resubmission.
-  An unrelated update must not discard the draft or silently retarget its guards.
-- Preserve drafts across network failure, process exit and restart, including
-  uncertain submission outcomes; use existing replay/acceptance identity handling
-  rather than inventing a second retry protocol. Another device's resolution must
-  not silently delete a local draft.
-- Offline users can retain their draft; do not claim resolution before acceptance.
-  Fresh complete offline inspection and durable review caching are deferred.
-- Keep normal document typing, focus, selection and scroll intact during review
-  refresh. Include keyboard navigation, screen-reader labels, non-color status
-  cues, dynamic type and small-screen layouts from the first release.
-
-### Phase 1 acceptance gate
-
-Use deterministic fixtures plus real Canopy integration for:
-
-- Multiple independent choices, more than two alternatives and long exact source.
-- Hidden-alternative edits, identical projection bytes with changed accepted state,
-  and another client resolving while a local review draft exists.
-- Binary, delete/edit, file/directory, rename and whole-root choices; coupled choices
-  resolve atomically and incomplete guards do not discard alternatives.
-- New ordinary edits and remote catch-up while review remains open; publication
-  continues and newer local intent survives the resolution transition.
-- Stale resolution, transport failure and restart at each durability boundary,
-  including an accepted response lost before the client records it.
-- Explicit choice, manual draft, cancellation and draft recovery without ordinary
-  document edits accidentally resolving a decision.
-
-Run focused shared-client and Native tests, applicable protocol/conformance gates,
-and the relevant [development gates](../../DEVELOPMENT.md). Manually verify macOS
-and iPhone presentation, keyboard/focus, VoiceOver, large text, normal publication
-and restart. Distinguish built/tested from installed/verified. Follow the documented
-Quagmire local development and release workflow if shared editor changes are needed.
-Record evidence in docs and status; remove completed tasks from this active plan.
+Use deterministic fixtures and real Canopy integration for the remaining scopes.
+Run focused shared-client/Native tests, applicable protocol/conformance checks,
+and the relevant [development gates](../../DEVELOPMENT.md). Distinguish
+built/tested from installed/verified. Record completed evidence in the checkpoint
+and status, and remove completed executor work from this active plan.
 
 ## Phase 2: Contextual review in the editor — later
 
@@ -143,7 +90,8 @@ and the editor's exact source mapping support them.
   states and existing clients; they must not require a coordinated cutover.
 - Verify duplicate paragraphs, moved ranges, split/combined blocks, tables, links,
   fences, selection/IME composition, keyboard navigation and scroll stability in
-  both platforms. Extend Quagmire accessories only for concrete needed surfaces.
+  both platforms. The generic document/block accessory API is implemented; extend
+  its anchors only when authoritative source mapping requires another concrete surface.
 
 ## Deferred conveniences
 

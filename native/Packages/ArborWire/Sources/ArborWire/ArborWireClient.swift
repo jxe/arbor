@@ -88,6 +88,19 @@ public actor ArborWireClient {
         return page
     }
 
+    /// Read hidden alternative material under its pinned accepted-state authority.
+    public func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data {
+        try validateObjectHash(hash)
+        let query = state.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+        let path = "/.arbor/trees/\(component(tree))/conflicts/\(component(conflict))/alternatives/\(component(alternative))/objects/\(hash)?state=\(query)"
+        let request = try await authorizedRequest(path: path)
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, status: statusCode(response))
+        let actual = WireObjectCodec.hash(data)
+        guard actual == hash else { throw ArborWireValidationError.objectHashMismatch(expected: hash, actual: actual) }
+        return data
+    }
+
     public func resolve(path: String) async throws -> WireLocatorResolution {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
         let value: WireLocatorResolution = try await get(path: "/.well-known/arbor\(encoded)")
