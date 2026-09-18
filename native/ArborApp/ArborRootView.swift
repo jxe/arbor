@@ -250,6 +250,17 @@ private enum MacSidebarSearchCommand {
     case escape
 }
 
+@MainActor
+private func returnFocusFromMacSearch(to commands: EditorCommands?) {
+    // FocusState reconciliation happens asynchronously. Release the AppKit
+    // field editor now, then let that reconciliation settle before asking the
+    // Quagmire editor to run its page-focus pump.
+    NSApp.keyWindow?.makeFirstResponder(nil)
+    DispatchQueue.main.async {
+        commands?.perform(.escape)
+    }
+}
+
 private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     let width: CGFloat
     let isVisible: Bool
@@ -278,7 +289,7 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     private func dispatchSearchCommand(_ command: MacSidebarSearchCommand) {
         handleSearchCommand(command)
         if case .escape = command {
-            editorCommands?.perform(.escape)
+            returnFocusFromMacSearch(to: editorCommands)
         }
     }
 
@@ -585,7 +596,7 @@ struct ArborPageSearchControls: View {
                     .onKeyPress(.escape) {
                         guard escapeReturnsToDocument else { return .ignored }
                         focused.wrappedValue = false
-                        editorCommands?.perform(.escape)
+                        returnFocusFromMacSearch(to: editorCommands)
                         return .handled
                     }
 #endif
