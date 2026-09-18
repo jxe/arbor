@@ -7,9 +7,9 @@ object layout, public Wire, or require a client cutover. See the
 [integration checkpoint](merge-authority-integration.md) and
 [offline migration](../migrations/010-merge-state/README.md).
 
-The incremental-state worktree connects Canopy to the executable's existing
+The incremental-state implementation connects Canopy to the executable's existing
 sequential persistent mode: one worker and a bounded FIFO queue, with no fan-out.
-This change is not yet deployed; production still invokes a process per evaluation.
+This is deployed to `arb.nxhx.org` as of September 18, 2026.
 Canopy still owns
 accepted history, causal reconstruction, authorization, guards, conflict identity,
 retention and atomic acceptance. The executable owns the existing format rules
@@ -27,7 +27,7 @@ bun run arbor-merge serve --objects /data/objects --staging /data/merge-jobs/exa
 stdout. Failures exit nonzero with diagnostics on stderr. `serve` accepts one
 JSON request per line and returns one response per line, in order; an invalid
 request returns `{ "error": { "message": "..." } }` and leaves the process usable.
-Persistent callers own staging lifetime and serialization. The worktree's Canopy
+Persistent callers own staging lifetime and serialization. Canopy
 adapter keeps the worker alive across jobs, validates each result, then clears
 staging before starting the next job. Timeouts and crashes are reaped before
 cleanup; queued successors can start a replacement. Canopy shutdown drains the
@@ -104,7 +104,7 @@ smaller slice against the same basis. Other failures remain failures. These are
 internal worker requests, with no public Wire or database schema change.
 Bun uses native SHA-256 with the same object identities as the portable fallback.
 
-## Incremental retained state (worktree)
+## Incremental retained state
 
 Indexed state maps retain large history records through shared value pages.
 Before/after piece sequences share unchanged pages across effects instead of
@@ -148,7 +148,7 @@ is not pruned during evaluation. A future collector must pin job inputs, staged
 inputs, results awaiting commit, hidden alternatives and provenance dependencies;
 the job manifest alone is not a completed GC lease protocol.
 
-The worktree's Canopy uses one worker, at most 64 queued evaluations, a
+Canopy uses one worker, at most 64 queued evaluations, a
 30-second worker timeout with forced termination, and an 8 MiB stdout/stderr buffer
 limit. Runtime options can change the timeout, but not add workers. Worker launch, timeout,
 validation or execution failure preserves ordinary snapshot content as accepted

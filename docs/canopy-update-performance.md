@@ -3,9 +3,9 @@
 September 18, 2026: accepted-prefix reuse and Native payload omission are deployed to Canopy and installed on Mac/iPhone.
 That deployed change requires no schema, Wire, client, or permissions migration.
 
-## Incremental state worktree (not deployed)
+## Incremental state (deployed 2026-09-18)
 
-The `codex/incremental-merge-state` worktree adds typed, bounded retention
+Implementation commit `926573c` adds typed, bounded retention
 certificates, keyed immutable history maps, root-based acceptance
 retention records, fast-forward preflight reuse, and one persistent queued worker.
 New state readers also read legacy monolithic states. There is no SQLite schema
@@ -15,7 +15,23 @@ writes requires a compatible reader or coordinated restoration. The update reque
 The latency target is **under 100 ms of server processing, ideally well under**,
 including validation and durable acceptance of a small fast-forward. Comparable
 small concurrent merges should not take much longer. Network time is measured
-separately. The worktree does **not** meet that target yet.
+separately. Local warm fast-forward samples now meet the target; live latency
+and divergent-merge latency have not yet been established.
+
+Deployment evidence: Railway deployment `95b1209a-10bd-46c9-9d5f-0ebf4c12cf32`
+succeeded for implementation commit `926573c`. The operator selected local tests
+and a fresh production-copy rehearsal instead of recreating the retired Hetzner
+lab. The fresh backup's 4,937 immutable objects passed hash verification; all 17
+SQLite tables were unchanged across two starts. Three copied-data updates were
+accepted, warm samples measured 73–76 ms, and two further starts preserved the
+resulting database and 7,600 objects. No benchmark edits were sent to production.
+
+Live verification matched the worker/source hashes to the commit, passed SQLite
+integrity, and confirmed root liveness, authenticated tree/permission reads, and
+anonymous private-tree denial. The existing `/.arbor/health` endpoint runs a full
+historical integrity audit and exceeded a short request timeout; it is not a
+lightweight readiness check. Railway checks `/`, which passed. Full-history audit
+cost remains separate work.
 
 On an isolated production-data copy, a one-byte fast-forward initially took
 about 800 ms warm after removing duplicate preflight evaluation. Its worker read
