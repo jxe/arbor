@@ -1998,8 +1998,8 @@ class Engine {
                   await this.bytes(remote.pieces),
                   await this.bytes(incoming.pieces),
                   await this.bytes(proposal),
-                  localEdits,
                   remoteEdits,
+                  localEdits,
                   this.request.rules.config?.formats?.[path]
                 );
                 this.formatEvidence.push(evidence);

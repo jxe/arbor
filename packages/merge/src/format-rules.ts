@@ -4,7 +4,7 @@ import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, join } from "node:path";
 import { parseDocument } from "yaml";
-import type { PieceEdit } from "./pieces.ts";
+import { overlap, pieceLength, type PieceEdit } from "./pieces.ts";
 
 export interface FormatConfig {
   format?: Format;
@@ -366,7 +366,48 @@ function tableUnits(
   }
   return units;
 }
-/** Policy checks follow correspondence; syntax validity alone never authorizes a merge. */
+/** Normalize verified inline edits and prose insertions before checking transfers.
+ * Everything else, including the exact protected host/embedded syntax, remains
+ * in the signature. Source ranges come from identity correspondence, not a diff. */
+function proseTransferShape(base: Uint8Array, changed: Uint8Array, edits: PieceEdit[]): string | null {
+  try {
+    if (edits.length > 128) return null;
+    const source = decoder.decode(base), layout = markdownLayout(source);
+    if (!layout) return null;
+    const parts: string[] = [];
+    let old = 0, next = 0;
+    for (const edit of [...edits].sort((a, b) => a.range[0] - b.range[0])) {
+      const [start, end] = edit.range, size = pieceLength(edit.pieces);
+      if (start < old || end < start || end > base.length) return null;
+      const gap = start - old;
+      if (!Buffer.from(base.subarray(old, start)).equals(changed.subarray(next, next + gap))) return null;
+      parts.push(decoder.decode(base.subarray(old, start)));
+      next += gap;
+      if (next + size > changed.length) return null;
+      const text = decoder.decode(changed.subarray(next, next + size));
+      const previous = decoder.decode(base.subarray(start, end));
+      const inline = !/[\r\n]/.test(previous + text) &&
+        touched(layout.units.filter(u => !u.key.startsWith("embedded:")), [edit]) !== null &&
+        markdownProseInsertion(source, start, [text]) &&
+        markdownLayout(decoder.decode(base.subarray(0, start)) + text + decoder.decode(base.subarray(end)))?.skeleton === layout.skeleton;
+      // New prose/list items use the established insertion guard. Headings and
+      // blockquotes can change the scope of later edits and remain protected.
+      const insertion = start === end && !/^ {0,3}(?:#{1,6}(?:\s|$)|>)/m.test(text) &&
+        markdownProseInsertion(source, start, [text]);
+      parts.push(inline || insertion ? previous : text);
+      old = end; next += size;
+    }
+    if (!Buffer.from(base.subarray(old)).equals(changed.subarray(next))) return null;
+    parts.push(decoder.decode(base.subarray(old)));
+    return markdownTransferShape(parts.join(""), false);
+  } catch {
+    // A piece boundary may divide a UTF-8 scalar; it is not a prose boundary.
+    return null;
+  }
+}
+
+/** Policy checks follow correspondence; a and b describe current and incoming,
+ * respectively. Syntax validity alone never authorizes a merge. */
 export async function evaluateFormat(
   path: string,
   base: Uint8Array,
@@ -406,11 +447,26 @@ export async function evaluateFormat(
       !layouts.every(Boolean) ||
       !layouts.every((l) => l!.skeleton === layouts[0]!.skeleton) ||
       !touched(layouts[0]!.units, [...a, ...b])
-    )
+    ) {
+      // Paragraph removal/reordering changes the line skeleton without changing
+      // protected Markdown structure. Permit it alongside independently verified
+      // inline prose edits, and validate the combined result as well.
+      // For overlaps the caller's tentative projection selects incoming edits;
+      // proving its host safe permits local choices, not automatic resolution.
+      const projection = [...b, ...a.filter(x => !b.some(y => overlap(x, y)))];
+      const shapes = [
+        markdownTransferShape(sources[0]!, false),
+        proseTransferShape(base, current, a),
+        proseTransferShape(base, incoming, b),
+        proseTransferShape(base, proposed, projection),
+      ];
+      if (shapes[0] !== null && shapes.every(shape => shape === shapes[0]))
+        return result(true, "Independent prose edits and transfers preserve protected Markdown structure");
       return result(
         false,
         "Markdown host structure or unsupported source scope changed",
       );
+    }
     const aliases: Record<string, Format> = {
       js: "javascript",
       ts: "typescript",
@@ -690,7 +746,7 @@ export function evaluateSourceTransfer(
     return result(false, "Invalid UTF-8 for source transfer");
   }
   if (format === "text") return result(true, "Identity-verified text transfer");
-  const shapes = sources.map(markdownTransferShape);
+  const shapes = sources.map(source => markdownTransferShape(source));
   const safe =
     shapes.length === 4 &&
     shapes[0] !== null &&

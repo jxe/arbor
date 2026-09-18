@@ -257,8 +257,10 @@ export function markdownProseInsertion(
 
 /** Transfer replay already proves source identity and destination. This signature
  * permits plain paragraph insertion/removal without treating changed host syntax
- * or embedded programs as prose. It is a policy guard, never an identity map. */
-export function markdownTransferShape(source: string): string | null {
+ * or embedded programs as prose. editSource independence keeps inline formatting
+ * protected; explicit transfer replay may carry complete formatted prose spans.
+ * This is a policy guard, never an identity map. */
+export function markdownTransferShape(source: string, formattedProse = true): string | null {
   const protectedBlocks: string[] = [];
   let cursor = 0;
   const protectProse = (text: string) => {
@@ -269,7 +271,7 @@ export function markdownTransferShape(source: string): string | null {
           .split(/\r?\n/)
           .some(
             (line) =>
-              !inlineProse(line) ||
+              !inlineProse(line) || (!formattedProse && /[`*_~<>|\[\]\\]/.test(line)) ||
               /^(?:[ \t]| {0,3}(?:#{1,6}(?:\s|$)|>|[-+]\s|\d+[.)]\s|[-=]+\s*$))/.test(
                 line
               )

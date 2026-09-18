@@ -28,7 +28,7 @@ export interface PieceEdit {
   pieces: Piece[];
   attachment?: boolean;
 }
-/** Exact shared-origin correspondence. Reorders remain an atomic transformation. */
+/** Exact shared-origin correspondence. Reorders remain a bounded atomic transformation. */
 export function pieceEdits(base: Piece[], changed: Piece[]): PieceEdit[] {
   if (base.length * changed.length > 2_000_000)
     throw new IntentError(
@@ -55,12 +55,22 @@ export function pieceEdits(base: Piece[], changed: Piece[]): PieceEdit[] {
     a += x.length;
   }
   matches.sort((x, y) => x.a - y.a);
-  let old = 0,
-    updated = 0;
+  // Only anchor correspondences that no other shared identity crosses. A
+  // reordered region remains atomic, while stable source before, between and
+  // after reorders continues to delimit independent edits. This is identity
+  // order, not a longest-subsequence guess about which occurrence was moved.
+  const following = new Array<number>(matches.length + 1).fill(Infinity);
+  for (let i = matches.length - 1; i >= 0; i--)
+    following[i] = Math.min(following[i + 1]!, matches[i]!.b);
+  let priorA = 0, priorB = 0, old = 0, updated = 0;
   const edits: PieceEdit[] = [];
-  for (const m of matches) {
-    if (m.a < old || m.b < updated)
-      return [{ range: [0, pieceLength(base)], pieces: changed }];
+  for (const [index, m] of matches.entries()) {
+    const anchored = m.a >= priorA && m.b >= priorB &&
+      m.a + m.n <= (matches[index + 1]?.a ?? Infinity) &&
+      m.b + m.n <= following[index + 1]!;
+    priorA = Math.max(priorA, m.a + m.n);
+    priorB = Math.max(priorB, m.b + m.n);
+    if (!anchored) continue;
     if (m.a > old || m.b > updated)
       edits.push({
         range: [old, m.a],
