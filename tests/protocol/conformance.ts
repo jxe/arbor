@@ -64,12 +64,14 @@ try {
     const tree = generateArborID("tr");
     const sourceTree = generateArborID("tr");
     const crossDocumentTree = generateArborID("tr");
+    const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"].map(mode => [mode, generateArborID("tr")]));
     await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
       account: graph.account,
       trees: { version: 1, trees: { ...graph.trees.trees,
         [tree]: { canonicalPath: "/~owner/protocol", access: [] },
         [sourceTree]: { canonicalPath: "/~owner/source-admissions", access: [] },
         [crossDocumentTree]: { canonicalPath: "/~owner/cross-document", access: [] },
+        ...Object.fromEntries(Object.entries(reviewTrees).map(([mode, id]) => [id, { canonicalPath: `/~owner/review-${mode}`, access: [] }])),
       } },
       devices: {
         ...graph.devices,
@@ -78,12 +80,16 @@ try {
           [tree]: { server: new URL(canopy.url).origin, path: treeDir },
           [sourceTree]: { server: new URL(canopy.url).origin },
           [crossDocumentTree]: { server: new URL(canopy.url).origin },
+          ...Object.fromEntries(Object.values(reviewTrees).map(id => [id, { server: new URL(canopy.url).origin }])),
         } },
       },
     }));
     await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
     await owner.submitUpdate(sourceTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
     await owner.submitUpdate(crossDocumentTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
+    for (const reviewTree of Object.values(reviewTrees)) {
+      await owner.submitUpdate(reviewTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
+    }
 
     // Materialize the accepted configuration checkout into the data home and
     // record the device and community credential the daemon reads at start.
@@ -160,6 +166,7 @@ try {
     await run(["swift", "test", "--package-path", "native/Packages/ArborWorkingTree"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
+      ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees),
     });
     await run(["tools/test-arbor-quagmire-local.sh", "--filter", "LiveEditorAdmissionTests"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,

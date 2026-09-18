@@ -244,7 +244,8 @@ public actor UpdateCoordinator {
     public func recoverWatchGap() async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         let heads = try await workingTree.heads()
-        if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+        let reviewPending = try files.loadReview().attempt != nil
+        if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil || reviewPending {
             return try await synchronize(admission: nil)
         }
         return try await pullCurrentSnapshot(treeID: await workingTree.treeID().rawValue, priorHeads: heads)
@@ -264,7 +265,8 @@ public actor UpdateCoordinator {
             // the exact durable request obtains the server's stored response.
             return try await synchronize(admission: nil)
         }
-        if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+        let reviewPending = try files.loadReview().attempt != nil
+        if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil || reviewPending {
             return try await synchronize(admission: nil)
         }
         guard !event.transitions.isEmpty else {
@@ -542,6 +544,7 @@ public actor UpdateCoordinator {
         admission: WorkingTreePatchAdmission?,
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
+        if let review = try files.loadReview().attempt { return try await syncReviewAttempt(review) }
         let sourcePending = try await hasSourceWork()
         if sourceOperationEmission, control.sourceAttemptChange != nil || (control.attempt == nil && sourcePending) {
             return try await syncSourcePass()
@@ -1477,5 +1480,184 @@ public actor UpdateCoordinator {
 
     private func requireOpen() throws {
         if terminal { throw UpdateError.closed }
+    }
+}
+
+// MARK: Accepted-choice review
+extension UpdateCoordinator {
+    public func inspectChoices() async throws -> ConflictReviewSnapshot {
+        try requireOpen()
+        let tree = await workingTree.treeID().rawValue
+        let current = try await transport.descriptor(tree: tree)
+        var snapshot = ConflictReviewSnapshot(tree: tree, state: current.tree.update, root: current.tree.root, decisions: [])
+        guard current.tree.conflicted else { return snapshot }
+        var after: String?
+        var cursors = Set<String>()
+        var identities = Set<String>()
+        repeat {
+            let page = try await transport.conflicts(tree: tree, state: snapshot.state, root: snapshot.root, after: after)
+            try page.validateContext(tree: tree, state: snapshot.state, root: snapshot.root)
+            guard case let .array(values) = page.fields["decisions"] else { throw ConflictReviewError.unavailable }
+            for value in values {
+                let decision = try JSONDecoder().decode(ConflictReviewDecision.self, from: JSONEncoder().encode(value))
+                guard identities.insert(decision.id).inserted else { throw ConflictReviewError.unavailable }
+                snapshot.decisions.append(decision)
+            }
+            if case let .string(next) = page.fields["next"] {
+                guard cursors.insert(next).inserted else { throw ConflictReviewError.unavailable }
+                after = next
+            } else { after = nil }
+        } while after != nil
+        return snapshot
+    }
+
+    public func reviewDrafts() throws -> [ConflictReviewDraft] { try files.loadReview().drafts }
+    public func reviewSubmissionPending() throws -> Bool { try files.loadReview().attempt != nil }
+
+    public func retainReviewDraft(_ draft: ConflictReviewDraft) async throws {
+        guard draft.snapshot.tree.utf8.elementsEqual((await workingTree.treeID().rawValue).utf8) else { throw ConflictReviewError.unavailable }
+        var journal = try files.loadReview()
+        journal.drafts.removeAll { $0.id == draft.id }
+        journal.drafts.append(draft)
+        try files.writeReview(journal)
+    }
+
+    public func discardReviewDraft(_ id: String) throws {
+        var journal = try files.loadReview()
+        guard journal.attempt?.draft.id != id else { throw ConflictReviewError.publicationPending }
+        journal.drafts.removeAll { $0.id == id }
+        try files.writeReview(journal)
+    }
+
+    public func reviewContent(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> Data? {
+        if let text = alternative.value.text { return Data(text.utf8) }
+        guard let hash = alternative.value.file else { return nil }
+        let bytes = try await transport.conflictObject(tree: workingTree.treeID().rawValue, state: state, conflict: decision, alternative: alternative.id, hash: hash)
+        guard WireObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
+        return bytes
+    }
+
+    public func reviewDirectory(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> [WireDirectoryEntry]? {
+        guard let hash = alternative.value.directory else { return nil }
+        let bytes = try await transport.conflictObject(tree: workingTree.treeID().rawValue, state: state,
+            conflict: decision, alternative: alternative.id, hash: hash)
+        guard WireObjectCodec.hash(bytes) == hash,
+              case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else {
+            throw UpdateError.returnedSnapshotMismatch
+        }
+        return entries
+    }
+
+    /// Freeze and durably retain one explicit guarded candidate. Normal editor
+    /// admissions continue against their captured bases; review never installs its
+    /// draft as the live document or invents a merge over pending editor work.
+    public func applyReviewDraft(_ draft: ConflictReviewDraft) async throws {
+        try requireOpen()
+        try await retainReviewDraft(draft)
+        guard sourceOperationEmission, !syncActive, control.attempt == nil,
+              try files.loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
+        let fresh = try await inspectChoices()
+        guard draft.isCurrent(in: fresh) else { throw ConflictReviewError.changed }
+        let preview = try await prepareReviewPreview(draft, current: fresh)
+        // New editor admissions can arrive during material loading.
+        guard !(try await hasSourceWork()), !syncActive, control.attempt == nil,
+              try files.loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
+        let update = WireCandidateUpdate(candidate: preview.candidate.root, operations: preview.operations,
+            resolves: draft.decisions.map { .init(state: draft.snapshot.state, conflict: $0.id, alternatives: $0.alternatives.map(\.id)) },
+            objects: preview.candidate.objects)
+        let base = WireUpdateBase(root: fresh.root, update: fresh.state)
+        let request = WireUpdateRequest(base: base.update, updates: [update])
+        let attempt = try Self.attempt(tree: fresh.tree, base: base, generation: 0, request: request)
+        var journal = try files.loadReview()
+        journal.attempt = .init(draft: draft, request: attempt)
+        try files.writeReview(journal)
+        _ = try await synchronize(admission: nil)
+    }
+
+    public func previewReviewDraft(_ draft: ConflictReviewDraft) async throws -> ConflictReviewPreview {
+        try requireOpen()
+        let current = try await inspectChoices()
+        guard draft.isCurrent(in: current) else { throw ConflictReviewError.changed }
+        return try await prepareReviewPreview(draft, current: current)
+    }
+
+    private func prepareReviewPreview(_ draft: ConflictReviewDraft, current: ConflictReviewSnapshot) async throws -> ConflictReviewPreview {
+        guard draft.obligations.isEmpty else { throw ConflictReviewProposalError(draft.obligations.joined(separator: "\n")) }
+        let base = try await transport.snapshot(tree: current.tree, root: current.root)
+        var material: [String: Data] = [:]
+        let known = Dictionary(uniqueKeysWithValues: base.objects.map { ($0.hash, $0.bytes) })
+        for decision in draft.decisions {
+            guard let selection = draft.selection(for: decision.id), let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }) else {
+                throw ConflictReviewError.unsupported
+            }
+            var pending: [(String, WireEntryKind)] = []
+            if let file = alternative.value.file { pending.append((file, .file)) }
+            if let directory = alternative.value.directory { pending.append((directory, .directory)) }
+            var visited = Set<String>()
+            while let (hash, kind) = pending.popLast() {
+                guard visited.insert(hash).inserted else { continue }
+                let bytes: Data
+                if let retained = material[hash] ?? known[hash] { bytes = retained }
+                else {
+                    bytes = try await transport.conflictObject(tree: current.tree, state: draft.snapshot.state,
+                        conflict: decision.id, alternative: alternative.id, hash: hash)
+                }
+                guard WireObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
+                material[hash] = bytes
+                if kind == .directory, case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: kind) {
+                    for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
+                }
+            }
+        }
+        return try ConflictReviewCompiler.compile(draft, base: base, material: material, allDecisions: current.decisions)
+    }
+
+    private func syncReviewAttempt(_ retained: ConflictReviewAttempt) async throws -> WorkspaceSyncPresentation {
+        guard transportAvailable else { return try await presentation() }
+        let attempt = retained.request
+        let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)
+        guard attempt.tree.utf8.elementsEqual((await workingTree.treeID().rawValue).utf8),
+              request.base == attempt.base.update, request.updates.count == 1,
+              request.updates[0].candidate == attempt.candidate,
+              request.updates[0].resolves == retained.draft.decisions.map({
+                  WireResolutionDeclaration(state: retained.draft.snapshot.state, conflict: $0.id, alternatives: $0.alternatives.map(\.id))
+              }),
+              updateRequestDigests(tree: attempt.tree, base: attempt.base, updates: request.updates) == attempt.allRequestDigests else {
+            throw ArborWireValidationError.invalidValue("Retained review request does not match its evidence")
+        }
+        // Reestablish durability if an earlier atomic write returned an uncertain error.
+        try files.writeReview(files.loadReview())
+        let response: WireUpdateResponse
+        do {
+            response = try await transport.submit(.init(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
+        } catch is WireUpdateConflictError {
+            // A definite rejection cannot have applied. Preserve the authored
+            // draft, retire only this request, and let ordinary publication run.
+            var journal = try files.loadReview(); journal.attempt = nil
+            try files.writeReview(journal)
+            Task { [weak self] in _ = try? await self?.syncOnce() }
+            throw ConflictReviewError.changed
+        }
+        guard response.results.map(\.requestDigest) == attempt.allRequestDigests else {
+            throw UpdateError.returnedRequestDigestMismatch
+        }
+        for result in response.results {
+            let accepted: WireAcceptedUpdate
+            switch result.result { case let .accepted(value), let .unchanged(value): accepted = try value.validated() }
+            guard accepted.tree == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
+        }
+        // Exact retries recover lost responses. Install current accepted state
+        // through the same coordinator path used by ordinary synchronization.
+        let heads = try await workingTree.heads()
+        _ = try await pullCurrentSnapshot(treeID: attempt.tree, priorHeads: heads)
+        await workingTree.invalidateDocumentViews()
+        var journal = try files.loadReview()
+        journal.attempt = nil
+        // A later edited draft is never retired by an earlier submission.
+        let submittedFingerprint = try retained.draft.fingerprint()
+        journal.drafts = try journal.drafts.filter { try $0.fingerprint() != submittedFingerprint }
+        try files.writeReview(journal)
+        syncAgain = try await hasSourceWork()
+        return try await presentation()
     }
 }

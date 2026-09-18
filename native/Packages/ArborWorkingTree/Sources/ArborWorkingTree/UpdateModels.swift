@@ -54,6 +54,15 @@ public protocol UpdateTransport: Sendable {
     func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse
     func descriptor(tree: String) async throws -> WireCurrentTree
     func snapshot(tree: String, root: String) async throws -> WireSnapshot
+    func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract
+    func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data
+}
+
+extension UpdateTransport {
+    public func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
+        throw ConflictReviewError.unavailable
+    }
+    public func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data { throw ConflictReviewError.unavailable }
 }
 
 public struct ArborWireReplicaTransport: UpdateTransport, Sendable {
@@ -69,6 +78,10 @@ public struct ArborWireReplicaTransport: UpdateTransport, Sendable {
     public func snapshot(tree: String, root: String) async throws -> WireSnapshot {
         try await client.snapshot(tree: tree, root: root)
     }
+    public func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
+        try await client.conflicts(tree: tree, state: state, root: root, after: after)
+    }
+    public func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data { try await client.conflictObject(tree: tree, state: state, conflict: conflict, alternative: alternative, hash: hash) }
 }
 
 /// One exact persisted request: its body (with every object envelope it

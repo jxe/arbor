@@ -90,9 +90,9 @@ export function markdownLayout(source: string): MarkdownLayout | null {
         skeleton.push(
           cells
             .map((c) =>
-              /^\s*:?-+:?\s*$/.test(c) ? c : c.trim() ? "<cell>" : c
+              /^\s*:?-+:?\s*$/.test(c) ? c : c.trim() ? "<cell>" : c,
             )
-            .join("|") + ending
+            .join("|") + ending,
         );
       }
       offset += Buffer.byteLength(line);
@@ -101,7 +101,7 @@ export function markdownLayout(source: string): MarkdownLayout | null {
     }
     const prefix =
       /^(?:#{1,6}\s+|\s*(?:[-+*]|\d+[.)])\s+(?:\[[ xX]\]\s+)?|>\s*)/.exec(
-        body
+        body,
       )?.[0] ?? "";
     const checkbox = /\[[ xX]\]/.exec(prefix);
     if (checkbox)
@@ -115,7 +115,7 @@ export function markdownLayout(source: string): MarkdownLayout | null {
     skeleton.push(
       prefix.replace(/\[[ xX]\]/, "[ ]") +
         body.slice(prefix.length).replace(/[^`*_\[\]<>\\]/g, "") +
-        ending
+        ending,
     );
     units.push({ key: String(index), start, end });
     offset += Buffer.byteLength(line);

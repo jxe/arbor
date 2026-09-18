@@ -131,7 +131,7 @@ struct UpdateControlFiles: Sendable {
         hash.replacingOccurrences(of: ":", with: "-")
     }
 
-    private func atomicWrite(_ data: Data, to destination: URL) throws {
+    func atomicWrite(_ data: Data, to destination: URL) throws {
         try atomicWrite(data, to: destination, in: directory)
     }
 
