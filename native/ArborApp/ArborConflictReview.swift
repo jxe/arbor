@@ -471,43 +471,69 @@ private struct ArborChoiceSourceComparison: View {
     let sameAlternative: Bool
     @State private var showCurrent = false
     var body: some View {
+        let displayed = showCurrent && !sameAlternative ? current ?? proposed : proposed
+        let comparison = ArborSourceLineComparison(
+            displayed: displayed,
+            baseline: sameAlternative ? nil : (showCurrent ? proposed : current))
         VStack(alignment: .leading, spacing: 6) {
-            if !sameAlternative, let current {
+            if !sameAlternative, current != nil {
                 HStack {
                     Button(showCurrent ? "Show proposed version" : "Compare with currently displayed") { showCurrent.toggle() }
                     Spacer()
-                    Text(Data(current.utf8) == Data(proposed.utf8) ? "Identical source" : "Changed lines highlighted")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(comparison.status).font(.caption).foregroundStyle(.secondary)
                 }
             }
             Text(showCurrent && !sameAlternative ? "Currently displayed" : "Proposed result").font(.caption).bold()
             ScrollView([.horizontal, .vertical]) {
-                Text(highlighted).font(.body.monospaced()).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(comparison.lines.indices, id: \.self) { index in
+                        Text(displayed.isEmpty ? "(Empty file)" : comparison.lines[index].isEmpty ? " " : comparison.lines[index])
+                            .font(.body.monospaced())
+                            .foregroundStyle(Color.primary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: true, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(comparison.changedLines.contains(index) ? Color.accentColor.opacity(0.25) : Color.clear)
+                    }
+                }.padding(8)
             }
             .frame(minHeight: 80, idealHeight: 180, maxHeight: 260)
-            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+            .background(.background, in: RoundedRectangle(cornerRadius: 8))
         }
     }
-    private var highlighted: AttributedString {
-        let displayed = showCurrent && !sameAlternative ? current ?? proposed : proposed
-        guard !displayed.isEmpty else { return AttributedString("(Empty file)") }
-        guard !sameAlternative, let current else { return AttributedString(displayed) }
-        let other = showCurrent ? proposed : current
-        // Keep original line endings and bound diff work for very long sources.
-        let lines = displayed.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let baseline = other.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard lines.count + baseline.count <= 4000 else { return AttributedString(displayed) }
-        let changes = lines.map { Data($0.utf8) }.difference(from: baseline.map { Data($0.utf8) })
-        let inserted = Set(changes.compactMap { change -> Int? in
-            if case let .insert(offset, _, _) = change { return offset }; return nil
-        })
-        var result = AttributedString()
-        for (index, line) in lines.enumerated() {
-            var part = AttributedString(line + (index < lines.count - 1 ? "\n" : ""))
-            if inserted.contains(index) { part.backgroundColor = Color.accentColor.opacity(0.17) }
-            result.append(part)
+}
+
+/// Byte-exact comparisons preserve Unicode spelling and original line endings.
+struct ArborSourceLineComparison {
+    let lines: [String]
+    let changedLines: Set<Int>
+    let status: String
+
+    init(displayed: String, baseline: String?) {
+        lines = displayed.components(separatedBy: "\n")
+        guard let baseline else {
+            changedLines = []
+            status = "Comparison unavailable"
+            return
         }
-        return result
+        guard Data(displayed.utf8) != Data(baseline.utf8) else {
+            changedLines = []
+            status = "Identical source"
+            return
+        }
+        let other = baseline.components(separatedBy: "\n")
+        guard lines.count + other.count <= 4000 else {
+            changedLines = []
+            status = "Highlighting unavailable for this large comparison"
+            return
+        }
+        let changes = lines.map { Data($0.utf8) }.difference(from: other.map { Data($0.utf8) })
+        changedLines = Set(changes.compactMap { change -> Int? in
+            if case let .insert(offset, _, _) = change { return offset }
+            return nil
+        })
+        status = changedLines.isEmpty
+            ? "Changes appear in the other version"
+            : "\(changedLines.count) changed line\(changedLines.count == 1 ? "" : "s") highlighted"
     }
 }

@@ -10,6 +10,21 @@ import Testing
 
 @MainActor
 struct ArborAppTests {
+    @Test("Source comparison highlights exact changed lines in either direction")
+    func sourceComparisonLines() {
+        let proposed = ArborSourceLineComparison(displayed: "same\nnew\n", baseline: "same\nold\n")
+        #expect(proposed.changedLines == [1])
+        #expect(proposed.lines.joined(separator: "\n") == "same\nnew\n")
+        #expect(ArborSourceLineComparison(displayed: "same\nold\n", baseline: "same\nnew\n").changedLines == [1])
+        #expect(ArborSourceLineComparison(displayed: "é", baseline: "e\u{301}").changedLines == [0])
+        #expect(ArborSourceLineComparison(displayed: "a\r\n", baseline: "a\n").changedLines == [0])
+        #expect(ArborSourceLineComparison(displayed: "same", baseline: "same\nremoved").status == "Changes appear in the other version")
+        #expect(ArborSourceLineComparison(displayed: "", baseline: "").status == "Identical source")
+        let large = ArborSourceLineComparison(displayed: String(repeating: "a\n", count: 4000), baseline: "b")
+        #expect(large.changedLines.isEmpty)
+        #expect(large.status == "Highlighting unavailable for this large comparison")
+    }
+
     @Test("Profile toolbar summarizes synchronization into four visible states")
     func profileToolbarSyncStatus() {
         for synchronization in [WorkspaceSynchronization.current, .autoMerged] {
