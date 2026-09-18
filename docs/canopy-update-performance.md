@@ -1,6 +1,6 @@
 # Canopy update performance
 
-September 18, 2026: accepted-prefix reuse and Native payload omission are implemented locally, not deployed.
+September 18, 2026: accepted-prefix reuse and Native payload omission are deployed to Canopy and installed on Mac/iPhone.
 No schema, Wire, client, or permissions migration is required.
 
 Native sends an authored chain whose prefix may already be accepted. Canopy
@@ -81,4 +81,4 @@ suite passed, as did focused source replay tests, TypeScript checking, and the C
 build. The full product suite passed 1,027 tests with the previously reproduced
 private-tree CLI placement failure remaining. Relative-link checking found only
 existing/example targets; whitespace checks passed. Native diagnostic logging
-remains enabled; these performance changes have not been installed or deployed.
+remains enabled; these performance changes were installed and deployed with the September 18 permissions cutover.

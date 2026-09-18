@@ -1,9 +1,10 @@
 # Resource policy implementation checkpoint
 
-This worktree implements the pre-migration portion of [Apps 004](../plans/apps/004-mutation-permissions.md).
-It is not deployed. Existing Canopy data uses schema 12; this build requires schema
-13 and explicitly refuses startup against schema 12. Do not install it over a live
-server before the coordinated migration and remaining gates below.
+[Apps 004](../plans/apps/004-mutation-permissions.md) is deployed on schema 13.
+The [September 18 cutover](../migrations/011-resource-policy/README.md#september-18-live-cutover)
+converted the accepted and local configuration and installed matching Mac/iPhone
+clients. Runtime provider integration and the remaining interactive/soak gates below
+are still open.
 
 ## Implemented boundary
 
@@ -75,20 +76,14 @@ Snapshot creation currently needs a caller-supplied candidate; blind create-only
 construction through an operation API remains future work.
 Apps 005/006 may add provider-specific exact enforcement independently.
 
-## Remaining before deployment
+## Remaining integration and observation
 
-Exercise the Native permission screen and installed-client editing on an isolated
-production copy, including queued configuration writes and conflict resolution.
-The macOS/iOS builds and model/transport tests pass; no installed app was launched or
-replaced for interactive validation. Provider-specific operations, source resolution,
-activation consent prompts and hostile cross-tree JS isolation remain Apps 005/006
-work. No SQLite connection is made safe merely by possessing a token.
-
-Migration 011 prepares exact configuration diffs/guarded requests and performs the
-additive offline schema step with a verified database backup. It intentionally does
-not submit configuration requests or deploy/restart applications. Production object
-backup, schema/config/client rollout, post-cutover verification, rollback and soak
-remain the coordinated operator gate. Keep Apps 004 active.
+Exercise Native consent/revocation and configuration conflict resolution on the
+isolated production copy, including queued configuration writes. Provider-specific
+operations, source resolution, activation consent prompts and hostile cross-tree
+JS isolation remain Apps 005/006 work. No SQLite connection is made safe merely by
+possessing a token. The coordinated live schema/configuration/client migration is
+complete; retain its backups and keep Apps 004 active through observation and soak.
 
 ## Verification evidence
 

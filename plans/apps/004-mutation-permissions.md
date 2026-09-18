@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-**P1 · IN PROGRESS · pre-migration implementation expanded; no live migration.** This replaces the unimplemented
+**P1 · IN PROGRESS · deployed 2026-09-18; integration and soak remain.** This replaces the unimplemented
 named-mutation-permission proposal under the same stable plan identifier. No old
 permission namespace or unused query/mutation API compatibility is required.
 Depends on current governed account configuration and ordinary accepted updates,
@@ -24,9 +24,10 @@ rules, resource parsing/indexing, execution tokens, guarded effects, replay chec
 revocation streams and offline schema/configuration preparation are implemented.
 Restrictive policy-conflict acceptance and restart, exact administrator resolution,
 Native consent/review and configuration preservation, safe access responses, and
-watch cancellation cleanup are also implemented. Remaining work is production-copy
-and installed-client rehearsal, required provider integration in Apps 005/006, and
-the coordinated cutover below. Do not deploy merely because synthetic gates pass.
+watch cancellation cleanup are also implemented. The production-copy rehearsal and coordinated cutover are complete; see the
+Migration 011 live evidence. Remaining work is interactive consent/conflict
+validation, required provider integration in Apps 005/006, rollback observation
+and soak.
 
 ## Target and frozen decisions
 

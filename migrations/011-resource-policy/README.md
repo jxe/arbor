@@ -1,6 +1,6 @@
 # Migration 011: resource policy preparation (12 → 13)
 
-**Rehearsed on Joe's production copy on 2026-09-18; not yet deployed.** Complete the remaining [Apps 004](../../plans/apps/004-mutation-permissions.md)
+**Deployed on 2026-09-18; rollback window and soak remain open.** Complete the remaining [Apps 004](../../plans/apps/004-mutation-permissions.md)
 implementation gates and follow [the operator procedure](../README.md) before live use.
 Never retarget this migration after its rollback window begins.
 
@@ -83,3 +83,32 @@ placement remains at its older accepted state with pre-existing file-read errors
 its state is preserved rather than reset. Configuration/profile manifests and the
 entire Mac private data home are backed up. Do not infer filesystem placement health
 from Native's completed publication.
+
+### September 18 live cutover
+
+Clean main revision `82e0c8e` was deployed to `canopy-arb-nxhx-org`;
+active Railway deployment is `cd17ea6e-c5f1-4452-bb6e-6ab8a801c519`.
+The final quiesced archive passed its remote/local checksum comparison and SQLite
+quick/foreign-key checks, with 1,072 accepted rows through update 2653.
+The offline schema step backed up schema 12 and advanced to 13. The ordinary
+guarded configuration submission returned 201 at update 2654 with the exact
+rehearsed root. All four non-configuration roots stayed unchanged; the accepted
+count advanced by exactly one and the derived resource index has two rows.
+Authorized access returned 200, anonymous Todos access 404, and a stale guarded
+configuration write 409.
+
+Signed matching Mac and iPhone builds were installed over the existing apps.
+Both retained Todos at accepted update 2653 with the server's exact root; Mac
+reopened with the recovery edits visible and fully synced. Arbor Sync pulled the
+configuration to 2654, and local `trees.yaml` exactly matches the prepared bytes.
+Account, device and profile file hashes are unchanged. No device was re-paired.
+
+The pre-existing filesystem catch-up failure was traced to six undownloaded iCloud
+placeholders. Foundation download requests hydrated them, and an ordinary sync
+advanced Todos from 2564 to 2653 with the exact server root. All three placements
+are idle. No content reset or replacement was needed.
+
+Private backups are retained at `/Users/joe/arbor-permissions-cutover-20260918`
+and `/data/backups/permissions-20260918-cutover`. Runtime provider integration,
+interactive consent/conflict exercises and ordinary-use soak remain open; this
+cutover does not activate an apps sidecar. Do not delete rollback artifacts.
