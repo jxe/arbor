@@ -410,3 +410,26 @@ describe("Canopy deployment guards", () => {
     expect(missingFirstWriter).toContain("requires --first-writer <handle>");
   });
 });
+
+test("CLI sharing edits preserve unrelated granular and executable resource grants", async () => {
+  const { resourceRuleFromLegacy } = await import("@arbor/stores");
+  const path = await source("resource-policy-cli", "# Resource policy\n");
+  const canonical = `${firstCanopy.url}/~alice/resource-policy-cli`;
+  await arbor(["place", path, canonical]);
+  const account = (await loadCanopyAccountConfigurations()).find(a => a.account?.canopy === firstCanopy.url)!;
+  const tree = firstCanopy.canopy.boundary("/~alice/resource-policy-cli")!.id;
+  const document = parseDocument(account.sources["trees.yaml"]!);
+  for (const [id, declaration] of Object.entries(account.trees!)) {
+    document.setIn([id, "access"], declaration.access.map(resourceRuleFromLegacy));
+  }
+  const grants = [
+    { who: { profile: generateArborID("tr") }, allow: ["create-child"] },
+    { who: "everyone", via: "tr_supplies", allow: ["read"] },
+    { who: "me", within: "/inbox", allow: ["create-child"] },
+  ];
+  document.setIn([tree, "access"], grants);
+  await writeFile(join(account.path, "trees.yaml"), document.toString());
+  await arbor(["place", "--access", "public=read", path, canonical]);
+  const changed = (await loadCanopyAccountConfigurations()).find(a => a.configurationTree === account.configurationTree)!;
+  expect<unknown>(changed.resources![tree]!.access).toEqual([...grants, { who: "everyone", allow: ["read"] }]);
+});

@@ -643,8 +643,37 @@ public actor NativeAccountService {
             canEdit: try ArborAccountConfigurationYAML.isAdministrator(
                 deviceID: account.device?.id,
                 devicesSource: devicesSource
-            )
+            ),
+            resourceRules: (declaration.resourceAccess ?? []).filter { $0.via != nil || ($0.within ?? "/") != "/" || $0.who == .me || !($0.allow == [.read] || $0.allow == [.write]) }
         )
+    }
+
+    public func prepareResourceConsent(tree: String, rule: WireResourceAccessRule, removing: Bool = false) async throws -> NativeResourceConsent {
+        let wire = try await client()
+        let account = try await wire.account().account
+        let configuration = try account.configuration.validated()
+        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
+        return try ArborAccountConfigurationYAML.prepareResourceConsent(configurationTree: configuration.id,
+            tree: tree, rule: rule, removing: removing,
+            source: utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml"))
+    }
+
+    public func applyResourceConsent(_ review: NativeResourceConsent) async throws -> NativeTreeAccessPresentation {
+        let wire = try await client()
+        let account = try await wire.account().account
+        let configuration = try account.configuration.validated()
+        guard configuration.id == review.configurationTree else { throw ResourcePolicyError.invalid }
+        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
+        let after = try ArborAccountConfigurationYAML.applyingResourceConsent(review,
+            to: utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml"),
+            deviceID: account.device?.id,
+            devicesSource: utf8(snapshot.rootFile(named: "devices.yaml"), name: "devices.yaml"))
+        let candidate = try snapshot.replacingRootFile(named: "trees.yaml", with: Data(after.utf8))
+        let prepared = try await wire.prepareUpdate(tree: configuration.id,
+            base: WireUpdateBase(root: configuration.root, update: configuration.update), snapshot: candidate,
+            ifCurrent: configuration.update)
+        _ = try await wire.submitUpdate(prepared)
+        return try await access(tree: review.tree)
     }
 
     public func setAccess(

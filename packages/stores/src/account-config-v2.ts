@@ -1,3 +1,4 @@
+import { parseResourceConfiguration, hostedProjection, type ResourceConfiguration } from "./resource-configuration.ts";
 import { watch, type FSWatcher } from "node:fs";
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -29,6 +30,7 @@ export interface CanopyAccountConfigurationSnapshot {
   path: string;
   account?: CanopyAccountConfiguration;
   trees?: HostedTreesConfiguration;
+  resources?: ResourceConfiguration;
   devices?: Record<string, AccountDeviceConfiguration>;
   currentDevice?: AccountDeviceConfiguration;
   sources: Record<string, string>;
@@ -145,7 +147,7 @@ function canonicalURL(value: unknown, account: CanopyAccountConfiguration, label
   return value;
 }
 
-export function parseHostedTreesConfiguration(source: string, account: CanopyAccountConfiguration): HostedTreesConfiguration {
+export function parseLegacyHostedTreesConfiguration(source: string, account: CanopyAccountConfiguration): HostedTreesConfiguration {
   const value = record(parseStrict(source), "trees.yaml");
   const trees: HostedTreesConfiguration = {};
   for (const [idValue, candidate] of Object.entries(value)) {
@@ -158,6 +160,12 @@ export function parseHostedTreesConfiguration(source: string, account: CanopyAcc
     };
   }
   return trees;
+}
+
+/** Compatibility projection for hosting consumers; full policy remains in resources/source bytes. */
+export function parseHostedTreesConfiguration(source: string, account: CanopyAccountConfiguration): HostedTreesConfiguration {
+  try { return parseLegacyHostedTreesConfiguration(source, account); }
+  catch { return hostedProjection(parseResourceConfiguration(source, account)); }
 }
 
 export function parseAccountDevicesConfiguration(source: string): Record<string, AccountDeviceConfiguration> {
@@ -274,10 +282,14 @@ export async function loadCanopyAccountConfiguration(configurationTreeInput: str
   }
   let account: CanopyAccountConfiguration | undefined;
   let trees: HostedTreesConfiguration | undefined;
+  let resources: ResourceConfiguration | undefined;
   let devices: Record<string, AccountDeviceConfiguration> | undefined;
   try { if (sources["account.yaml"] !== undefined) account = parseCanopyAccountConfiguration(sources["account.yaml"]); }
   catch (error) { diagnostics.push(issue("invalid-account-yaml", error instanceof Error ? error.message : String(error), join(path, "account.yaml"))); }
-  try { if (account && sources["trees.yaml"] !== undefined) trees = parseHostedTreesConfiguration(sources["trees.yaml"], account); }
+  try { if (account && sources["trees.yaml"] !== undefined) {
+    try { trees = parseLegacyHostedTreesConfiguration(sources["trees.yaml"], account); }
+    catch { resources = parseResourceConfiguration(sources["trees.yaml"], account); trees = hostedProjection(resources); }
+  } }
   catch (error) { diagnostics.push(issue("invalid-trees-yaml", error instanceof Error ? error.message : String(error), join(path, "trees.yaml"))); }
   try { if (sources["devices.yaml"] !== undefined) devices = parseAccountDevicesConfiguration(sources["devices.yaml"]); }
   catch (error) { diagnostics.push(issue("invalid-devices-yaml", error instanceof Error ? error.message : String(error), join(path, "devices.yaml"))); }
@@ -289,6 +301,7 @@ export async function loadCanopyAccountConfiguration(configurationTreeInput: str
     path,
     account,
     trees,
+    ...(resources ? { resources } : {}),
     devices,
     ...(current && devices?.[current] ? { currentDevice: devices[current] } : {}),
     sources,

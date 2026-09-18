@@ -1,3 +1,4 @@
+import { CANOPY_SCHEMA_VERSION } from "../../../packages/canopy/src/schema.ts";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -597,7 +598,7 @@ test("ancestor deletion retains children and requires coherent joint guards, wit
   expect(ancestor.dependencies).toEqual([child.id]);
   expect(ancestor.alternatives.map(a => a.value)).toContainEqual({ directory: deletion.candidate });
   const snapshot = new Database(`${dir}/canopy.sqlite3`, { readonly: true });
-  expect(snapshot.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: "12" }); snapshot.close();
+  expect(snapshot.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: CANOPY_SCHEMA_VERSION }); snapshot.close();
   // An ancestor-only guard cannot abandon either retained child alternative.
   const incomplete = { ...deletion, change: crypto.randomUUID(), resolves: [resolutionGuard(result.update.id, ancestor)] };
   await expect(client.submitUpdates(tree, { base: result.update.id, updates: [incomplete] })).rejects.toBeInstanceOf(WireUpdateConflict);

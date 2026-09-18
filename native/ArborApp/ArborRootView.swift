@@ -2283,6 +2283,7 @@ private struct ArborSharePanel: View {
     @State private var selectedAccountID = ""
     @State private var canonicalURL = ""
     @State private var promotionAccess = "none"
+    @State private var permissionEditor = false
 
     var body: some View {
         NavigationStack {
@@ -2331,6 +2332,13 @@ private struct ArborSharePanel: View {
         .frame(width: 520, height: fittedMacHeight)
         .formStyle(.grouped)
 #endif
+        .sheet(isPresented: $permissionEditor) {
+            if case let .tracked(access) = presentation {
+                ArborResourcePermissionPanel(workspace: workspace, access: access) { updated in
+                    presentation = .tracked(updated)
+                }
+            }
+        }
         .task { await load() }
         .onChange(of: selectedAccountID) { _, id in
             guard case let .promotable(path, accounts) = presentation,
@@ -2405,6 +2413,13 @@ private struct ArborSharePanel: View {
                 Text("Only an administrator for this Canopy account can change access.")
             }
         }
+        Section {
+            ForEach(Array(access.resourceRules.enumerated()), id: \.offset) { _, rule in
+                Text(rule.consentDescription).font(.callout).textSelection(.enabled)
+            }
+            Button("Manage app permissions…") { permissionEditor = true }
+                .disabled(busy || !access.canEdit)
+        } header: { Text("Scoped and app permissions") }
     }
 
     private func accessRow(
@@ -3862,5 +3877,95 @@ private struct WorkspaceSurfaceView: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+}
+
+private struct ArborResourcePermissionPanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: ArborWorkspaceState
+    let access: NativeTreeAccessPresentation
+    let applied: (NativeTreeAccessPresentation) -> Void
+    @State private var caller = "me"
+    @State private var via = ""
+    @State private var scope = "/"
+    @State private var operations: Set<WireResourceOperation> = [.read]
+    @State private var removing = false
+    @State private var review: NativeResourceConsent?
+    @State private var busy = false
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let review {
+                    Section("Review permission change") {
+                        Text("Account configuration: \(review.configurationTree)")
+                        Text("Resource: \(review.tree)")
+                        Text("Before: \(review.previous?.consentDescription ?? "No matching rule")")
+                        Text("After: \(review.removing ? "Remove this rule" : review.rule.consentDescription)")
+                        Text("This grants only authority this account currently holds. Other matching rules may also grant access.")
+                            .foregroundStyle(.secondary)
+                        Button("Back") { self.review = nil }
+                        Button(review.removing ? "Remove permission" : "Grant permission") {
+                            Task {
+                                busy = true
+                                defer { busy = false }
+                                do {
+                                    applied(try await workspace.applyResourceConsent(review))
+                                    dismiss()
+                                } catch { self.error = error.localizedDescription }
+                            }
+                        }.disabled(busy)
+                    }
+                } else {
+                    Section("Existing rules") {
+                        ForEach(Array(access.resourceRules.enumerated()), id: \.offset) { _, rule in
+                            Button(rule.consentDescription) { select(rule) }
+                        }
+                    }
+                    Section("Permission") {
+                        TextField("Caller: me, everyone, or profile TreeID", text: $caller)
+                        TextField("Executable TreeID (optional)", text: $via)
+                        TextField("Within", text: $scope)
+                        ForEach(WireResourceOperation.allCases, id: \.self) { operation in
+                            Toggle(operation.rawValue, isOn: Binding(
+                                get: { operations.contains(operation) },
+                                set: { if $0 { operations.insert(operation) } else { operations.remove(operation) } }
+                            ))
+                        }
+                        Toggle("Remove matching rule", isOn: $removing)
+                        Button("Review change") { Task { await prepare() } }.disabled(busy)
+                    }
+                }
+                if let error { Section { Text(error).foregroundStyle(.red) } }
+            }
+            .navigationTitle("App permissions")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+#if os(macOS)
+        .frame(width: 620, height: 620)
+        .formStyle(.grouped)
+#endif
+    }
+
+    private func select(_ rule: WireResourceAccessRule) {
+        switch rule.who {
+        case .me: caller = "me"
+        case .everyone: caller = "everyone"
+        case .profile(let tree): caller = tree
+        case .link: error = "Use the account configuration to edit access-link rules."; return
+        }
+        via = rule.via ?? ""; scope = rule.within ?? "/"; operations = Set(rule.allow)
+    }
+
+    private func prepare() async {
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            let who: WireResourceWho = caller == "me" ? .me : caller == "everyone" ? .everyone : .profile(caller)
+            let rule = try WireResourceAccessRule(who: who, via: via.isEmpty ? nil : via,
+                allow: WireResourceOperation.allCases.filter { operations.contains($0) }, within: scope)
+            review = try await workspace.prepareResourceConsent(tree: access.tree, rule: rule, removing: removing)
+        } catch { self.error = error.localizedDescription }
     }
 }

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { generateArborID, sha256 } from "@arbor/core";
+import { generateArborID, sha256, safeResourceRule } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
 import { ArborSyncDaemon } from "@arbor/arborsync";
 import { CanopyAccountStore, ProfileIdentityStore } from "@arbor/stores";
@@ -356,4 +356,151 @@ describe("self-certifying profile account proof", () => {
       await target.canopy[Symbol.asyncDispose]();
     }
   });
+});
+
+test("accepted resource policy enables and revokes anonymous executable authority", async () => {
+  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const accountResponse = await client.account();
+  const configID = accountResponse.account.configuration.id;
+  const current = await client.descriptor(configID);
+  const snapshot = await client.snapshot(configID, current.tree.root);
+  const graph = readAccountConfigGraphV2(snapshot, configID);
+  const { resourceRuleFromLegacy } = await import("../../../packages/stores/src/resource-configuration.ts");
+  const resources = graph.resources ?? Object.fromEntries(Object.entries(graph.trees).map(([id, d]) => [id, { canonical: d.canonical, access: d.access.map(resourceRuleFromLegacy) }]));
+  resources[bobProfileTree]!.access.push({ who: "everyone", via: "tr_supplies", allow: ["create-child"] });
+  const updated = await client.submitUpdate(configID, current.tree.update, snapshotAccountConfigV2({ ...graph, resources }), { ifCurrent: current.tree.update });
+  const bob = running.canopy.accountByHandle("bob")!;
+  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: null, sponsor: bob.id, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
+    grants: [{ account: bob.id, role: "author", tree: bobProfileTree, within: "/", allow: ["create-child"] }] });
+  const context = running.canopy.execution.resolve(token)!;
+  expect(running.canopy.execution.run(context, () => running.canopy.execution.canSubmit(bobProfileTree))).toBe(true);
+  resources[bobProfileTree]!.access = resources[bobProfileTree]!.access.filter(r => !r.via);
+  await client.submitUpdate(configID, updated.update.id, snapshotAccountConfigV2({ ...graph, resources }), { ifCurrent: updated.update.id });
+  expect(running.canopy.execution.run(context, () => running.canopy.execution.canSubmit(bobProfileTree))).toBe(false);
+});
+
+test("ordinary anonymous create permission works without via and does not grant overwrite", async () => {
+  const owner = new WireClient(running.url, "locally-generated-bob-credential");
+  const configID = (await owner.account()).account.configuration.id;
+  const configCurrent = await owner.descriptor(configID);
+  const graph = readAccountConfigGraphV2(await owner.snapshot(configID, configCurrent.tree.root), configID);
+  const resources = graph.resources!;
+  resources[bobProfileTree]!.access.push({ who: "everyone", allow: ["create-child"], within: "/" });
+  // Replace the existing unrestricted public rule rather than creating a duplicate key.
+  resources[bobProfileTree]!.access = resources[bobProfileTree]!.access.filter(r => r.who !== "everyone" || r.allow.includes("create-child"));
+  await owner.submitUpdate(configID, configCurrent.tree.update, snapshotAccountConfigV2({ ...graph, resources }), { ifCurrent: configCurrent.tree.update });
+  const current = await owner.descriptor(bobProfileTree);
+  const snapshot = await owner.snapshot(bobProfileTree, current.tree.root);
+  const { decodeWireDirectory, encodeWireDirectory, hashObject } = await import("@arbor/wire");
+  const bytes = new TextEncoder().encode("created"), hash = hashObject(bytes);
+  const root = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
+  const rootBytes = encodeWireDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: hash }] });
+  const candidate = { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hash, bytes], [hashObject(rootBytes), rootBytes]]) };
+  const anonymous = new WireClient(running.url);
+  const accepted = await anonymous.submitUpdate(bobProfileTree, current.tree.update, candidate, { ifCurrent: current.tree.update });
+  expect(accepted.outcome).toBe("accepted");
+  await expect(anonymous.descriptor(bobProfileTree)).rejects.toThrow();
+  const changed = new TextEncoder().encode("overwritten"), changedHash = hashObject(changed);
+  const changedRoot = encodeWireDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: changedHash }] });
+  await expect(anonymous.submitUpdate(bobProfileTree, accepted.update.id, { root: hashObject(changedRoot), objects: new Map([...candidate.objects, [changedHash, changed], [hashObject(changedRoot), changedRoot]]) }, { ifCurrent: accepted.update.id })).rejects.toThrow();
+});
+
+test("concurrent policy narrowing is accepted restrictively until exact administrator resolution", async () => {
+  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const config = (await client.account()).account.configuration.id;
+  const head = await client.descriptor(config);
+  const graph = readAccountConfigGraphV2(await client.snapshot(config, head.tree.root), config);
+  const policy = (allow: any[]) => {
+    const next = structuredClone(graph);
+    next.resources![bobProfileTree]!.access = [{ who: "everyone", via: "tr_supplies", allow }];
+    return snapshotAccountConfigV2(next);
+  };
+  const initial = await client.submitUpdate(config, head.tree.update, policy(["read", "create-child", "delete"]));
+  const bob = running.canopy.accountByHandle("bob")!;
+  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: null, sponsor: bob.id, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
+    grants: [{ account: bob.id, role: "author", tree: bobProfileTree, within: "/", allow: ["create-child"] }] });
+  await client.submitUpdate(config, initial.update.id, policy(["read", "create-child"]));
+  const merged = await client.submitUpdate(config, initial.update.id, policy(["read", "delete"]));
+  expect(merged.update.conflicted).toBe(true);
+  const accepted = readAccountConfigGraphV2(await client.snapshot(config, merged.update.root), config);
+  expect(accepted.resources![bobProfileTree]!.access).toEqual([{ who: "everyone", via: "tr_supplies", allow: ["read"] }]);
+  expect(running.canopy.execution.run(running.canopy.execution.resolve(token)!, () => running.canopy.execution.canSubmit(bobProfileTree))).toBe(false);
+  await expect(client.submitUpdate(config, merged.update.id, policy(["write"]))).rejects.toThrow(/guarded resolution/);
+  const origin = running.url;
+  running.server.stop(true);
+  await running.canopy[Symbol.asyncDispose]();
+  running = await serveCanopy({ dataRoot: join(sandbox, "canopy"), publicOrigin: origin,
+    hostname: "127.0.0.1", port: Number(new URL(origin).port) });
+  expect((await client.descriptor(config)).tree).toMatchObject({ update: merged.update.id, root: merged.update.root, conflicted: true });
+  expect(running.canopy.execution.resolve(token)).toBeUndefined();
+  expect((await client.access(bobProfileTree)).policy).toEqual(accepted.resources![bobProfileTree]!.access.map(safeResourceRule));
+  const page = await client.conflicts(config, merged.update.id, merged.update.root);
+  expect(page.decisions).toHaveLength(1);
+  const resolves = page.decisions.map(d => ({ state: merged.update.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }));
+  await expect(client.submitUpdate(config, merged.update.id, policy(["write"]), { ifCurrent: merged.update.id, resolves: resolves.map(r => ({ ...r, alternatives: [] })) })).rejects.toThrow();
+  const resolved = await client.submitUpdate(config, merged.update.id, policy(["read"]), { ifCurrent: merged.update.id, resolves });
+  expect(resolved.update.conflicted).toBe(false);
+  await expect(client.submitUpdate(config, merged.update.id, policy(["write"]), { ifCurrent: merged.update.id, resolves })).rejects.toThrow();
+});
+
+test("access metadata exposes only the caller account's redacted resource rules", async () => {
+  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const config = (await client.account()).account.configuration.id;
+  const head = await client.descriptor(config);
+  const graph = readAccountConfigGraphV2(await client.snapshot(config, head.tree.root), config);
+  const digest = `sha256:${"a".repeat(64)}`;
+  graph.resources![bobProfileTree]!.access.push({ who: { link: digest }, via: "tr_supplies", allow: ["read"] });
+  await client.submitUpdate(config, head.tree.update, snapshotAccountConfigV2(graph));
+  const visible = await client.access(bobProfileTree);
+  expect(visible.policy).toContainEqual({ who: { link: true }, via: "tr_supplies", allow: ["read"] });
+  expect(JSON.stringify(visible)).not.toContain(digest);
+  await expect(owner.access(bobProfileTree)).rejects.toThrow();
+  const bob = running.canopy.accountByHandle("bob")!;
+  const token = running.canopy.execution.issue({ code: "tr_supplies", version: "v1", caller: bob.id, sponsor: bob.id, subject: "bob", expiresAt: Date.now() + 60000, active: () => true,
+    grants: [{ account: bob.id, role: "user", tree: bobProfileTree, within: "/", allow: ["read"] }] });
+  await expect(new WireClient(running.url, token).access(bobProfileTree)).rejects.toThrow();
+  await expect(new WireClient(running.url, token).account()).rejects.toThrow();
+});
+
+test("deleting non-hosting policy wins a concurrent expansion and re-add needs resolution", async () => {
+  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const config = (await client.account()).account.configuration.id;
+  const head = await client.descriptor(config);
+  const graph = readAccountConfigGraphV2(await client.snapshot(config, head.tree.root), config);
+  const foreign = generateArborID("tr");
+  graph.resources![foreign] = { access: [{ who: "me", via: "tr_supplies", allow: ["read"] }] };
+  const base = await client.submitUpdate(config, head.tree.update, snapshotAccountConfigV2(graph));
+  const expanded = structuredClone(graph);
+  expanded.resources![foreign]!.access[0]!.allow = ["write"];
+  await client.submitUpdate(config, base.update.id, snapshotAccountConfigV2(expanded));
+  const deleted = structuredClone(graph);
+  delete deleted.resources![foreign];
+  const merged = await client.submitUpdate(config, base.update.id, snapshotAccountConfigV2(deleted));
+  expect(merged.update.conflicted).toBe(true);
+  const effective = readAccountConfigGraphV2(await client.snapshot(config, merged.update.root), config);
+  expect(effective.resources![foreign]).toBeUndefined();
+  await expect(client.submitUpdate(config, merged.update.id, snapshotAccountConfigV2(expanded))).rejects.toThrow(/guarded resolution/);
+  const conflicts = await client.conflicts(config, merged.update.id, merged.update.root);
+  const resolves = conflicts.decisions.map(d => ({ state: merged.update.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }));
+  const confirmed = await client.submitUpdate(config, merged.update.id, snapshotAccountConfigV2(effective), { ifCurrent: merged.update.id, resolves });
+  expect(confirmed.update.conflicted).toBe(false);
+  const readded = await client.submitUpdate(config, confirmed.update.id, snapshotAccountConfigV2(graph), { ifCurrent: confirmed.update.id });
+  expect(readded.update.conflicted).toBe(false);
+});
+
+test("clearing every rule does not let a legacy writer restore privileges", async () => {
+  const client = new WireClient(running.url, "locally-generated-bob-credential");
+  const config = (await client.account()).account.configuration.id;
+  const head = await client.descriptor(config);
+  const graph = readAccountConfigGraphV2(await client.snapshot(config, head.tree.root), config);
+  for (const [id, entry] of Object.entries(graph.resources!)) {
+    if (!entry.canonical) delete graph.resources![id];
+    else entry.access = [];
+  }
+  const cleared = await client.submitUpdate(config, head.tree.update, snapshotAccountConfigV2(graph));
+  expect((await client.access(bobProfileTree)).policy).toEqual([]);
+  const legacy = { account: graph.account, devices: graph.devices, trees: graph.trees };
+  for (const entry of Object.values(legacy.trees)) entry.access = [];
+  legacy.trees[bobProfileTree]!.access = [{ subject: { kind: "everyone" }, access: "write" }];
+  await expect(client.submitUpdate(config, cleared.update.id, snapshotAccountConfigV2(legacy))).rejects.toThrow(/Legacy policy writes/);
 });

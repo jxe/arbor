@@ -256,7 +256,7 @@ public actor ArborWireClient {
         return result
     }
 
-    public func access(tree: String) async throws -> WireSnapshotEnvelope<[WireAccessEntry]> {
+    public func access(tree: String) async throws -> WireTreeAccessSnapshot {
         try await get(path: "/.arbor/trees/\(component(tree))/access")
     }
 

@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-**P1 · PLANNED · first in Apps execution sequence.** This replaces the unimplemented
+**P1 · IN PROGRESS · pre-migration implementation expanded; no live migration.** This replaces the unimplemented
 named-mutation-permission proposal under the same stable plan identifier. No old
 permission namespace or unused query/mutation API compatibility is required.
 Depends on current governed account configuration and ordinary accepted updates,
@@ -15,6 +15,18 @@ Normative contracts: [access control](../../spec/05-access-control.md),
 `git status`, and schema constants are authoritative implementation evidence.
 This plan schedules Joe's coordinated live upgrade; writing this plan is not a
 live deployment. Preserve dirty editors and unrelated work throughout execution.
+
+## Worktree checkpoint (2026-09-18)
+
+See [implementation evidence and limits](../../docs/resource-policy-implementation.md)
+and [Migration 011](../../migrations/011-resource-policy/README.md). Shared TS/Swift
+rules, resource parsing/indexing, execution tokens, guarded effects, replay checks,
+revocation streams and offline schema/configuration preparation are implemented.
+Restrictive policy-conflict acceptance and restart, exact administrator resolution,
+Native consent/review and configuration preservation, safe access responses, and
+watch cancellation cleanup are also implemented. Remaining work is production-copy
+and installed-client rehearsal, required provider integration in Apps 005/006, and
+the coordinated cutover below. Do not deploy merely because synthetic gates pass.
 
 ## Target and frozen decisions
 
@@ -43,47 +55,23 @@ and configuration consumers, conformance account fixtures, and `migrations/READM
 Inventory current deployed schema/version and actual configuration identities;
 do not reuse the obsolete schema 6 assumption in the former plan.
 
-## Implementation sequence
+## Remaining implementation/rehearsal boundaries
 
-1. **Shared contract and effective policy.** Add language-neutral vectors and
-   paired TS/Swift types for rules, safe redacted entries, resource scopes and
-   effective operation descriptions. Remove named mutation permission targets.
-   Keep scalar `AccessLevel` only as a whole-tree summary. Define canonical rule
-   key `(who, via, within)`, duplicate rejection, deterministic serialization,
-   scope segment matching, operation expansion and unknown-operation rejection.
-   Preserve group/person distinction and link-secret secrecy.
-2. **Governed configuration.** Extend strict parser/serializer and policy merge;
-   support non-hosting entries without reserving or unhosting a tree. Preserve
-   canonical-origin and administrator invariants. Normalize omitted scope for
-   merge identity. Concurrent narrowing/deletion must not union back authority;
-   conflicts enforce restrictive effective policy until exact authorized resolution.
-   Test stale-device edits and removal/re-add separately; no new grant identity.
-3. **Authority engine.** Centralize current caller, code attestation, policy owner,
-   underlying authority and declared requirements. Owner ACLs grant access;
-   non-owner policy only delegates authority independently established from the
-   owner. Detect/deny circular delegation. Bind `me` to the configuration account.
-   Issue opaque bounded runtime authorization without general credentials; token
-   claims cannot outlive revocation. Explicit privileged cross-code invocation
-   starts a new context; library imports acquire no independent grants.
-4. **All data boundaries.** Audit tree inventory/descriptors, bootstrap, current
-   and historical snapshots, object fetch, source/schema reads, conflict inspection,
-   updates, receipt replay, and watches. Whole-object reachability must not leak
-   unrelated nodes through a scoped grant. Reject unsupported scoped projection
-   rather than return a whole tree. Check submitted intent and accepted effects,
-   including merge-created alternatives, cascades, moves, deletes, resolution and
-   schema edits. Create-only must not replace existing content. Validate before
-   work and atomically recheck policy at acceptance. Guard failure recomputes;
-   a guard never grants write. Preserve ordinary update identity and replay rules.
-5. **Observation and revocation.** Order event disclosure against accepted policy
-   changes. Reauthorize replay and queued events; prevent out-of-scope path/hash
-   leakage. Add runtime invalidation for configuration, group, device/session and
-   underlying ACL changes. A broken channel fails closed until refresh. Test a
-   revoked stream while buffered data and an update are racing. Define scoped
-   observation projection or reject it explicitly; whole-tree watch needs read.
-6. **Administration and UI.** Consent produces a concrete configuration diff with
-   caller, executable, resources and operations. Safe effective descriptions power
-   UI only, never authorization. Update CLI/config editing and Swift decoding;
-   do not expose execution tokens or other accounts' private policies.
+The [checkpoint](../../docs/resource-policy-implementation.md) records completed
+implementation and verification. Before enabling the first sidecar application:
+
+- Exercise Native consent/revocation and exact configuration conflict resolution on
+  the isolated production copy, including stale editors and queued device writes.
+- Connect Apps 005 host/session/code-activation attestations to token issuance and
+  authority-watch invalidation. There is intentionally no public mint endpoint.
+- Verify that the app's requested effects fit the supported scoped snapshot subset.
+  Unsupported operation/resolution forms and scoped whole-object/watch projection
+  currently reject. Implement exact provider enforcement in Apps 005/006 before
+  exposing those forms; never substitute broad write/read to make them work.
+- Rehearse matched server, merge worker, CLI and Native binaries with the additive
+  `policy` access response and the new configuration grammar. Verify ordinary CLI
+  sharing assignments replace only their selected root rule; explicit `--clear-access`
+  removes all rules. Cross-account policy transfer remains explicitly unsupported.
 
 ## Coordinated Joe configuration and Canopy migration
 
