@@ -7,8 +7,10 @@ object layout, public Wire, or require a client cutover. See the
 [integration checkpoint](merge-authority-integration.md) and
 [offline migration](../migrations/010-merge-state/README.md).
 
-Canopy invokes one process per evaluation by default. The same executable has a
-sequential persistent mode for future sidecar integration. Canopy still owns
+The incremental-state worktree connects Canopy to the executable's existing
+sequential persistent mode: one worker and a bounded FIFO queue, with no fan-out.
+This change is not yet deployed; production still invokes a process per evaluation.
+Canopy still owns
 accepted history, causal reconstruction, authorization, guards, conflict identity,
 retention and atomic acceptance. The executable owns the existing format rules
 and tree merge computation. It has no database connection or credentials in its
@@ -25,8 +27,12 @@ bun run arbor-merge serve --objects /data/objects --staging /data/merge-jobs/exa
 stdout. Failures exit nonzero with diagnostics on stderr. `serve` accepts one
 JSON request per line and returns one response per line, in order; an invalid
 request returns `{ "error": { "message": "..." } }` and leaves the process usable.
-Persistent callers own staging lifetime and serialization. Production Canopy does
-not yet supervise or multiplex a persistent sidecar.
+Persistent callers own staging lifetime and serialization. The worktree's Canopy
+adapter keeps the worker alive across jobs, validates each result, then clears
+staging before starting the next job. Timeouts and crashes are reaped before
+cleanup; queued successors can start a replacement. Canopy shutdown drains the
+active job, rejects queued work, and closes its worker. Custom executables retain
+one-shot mode unless `persistent: true` is explicitly configured.
 
 The [typed and validated contract](../packages/merge/src/contract.ts) is the
 source of truth. For example, a tree merge takes these fields (replace abbreviated
@@ -67,6 +73,22 @@ Unrecognized rules, invalid responses or missing material fail evaluation. There
 is no supported-operation advertisement to clients. Ship server support before
 clients emit additional operations.
 
+### Trusted semantic basis
+
+For operation-bearing tree requests, the host supplies already validated
+`base` and `current` state/root pairs within the named tree. Canopy derives them
+from accepted records, validated legacy checkpoints, or validated earlier batch
+results. They are not client-provided assertions. This is the worker contract;
+there is no trust flag or optional untrusted-basis mode.
+
+Exact-basis source execution loads active state and directory metadata to obtain
+unchanged file hashes. It does not reread untouched file bodies or reconstruct
+the entire basis to prove the state/root relationship again. Referenced bytes
+remain hash-checked, operation selectors remain checked, and the computed result
+must match the supplied candidate. Canopy still validates worker output and
+retention before acceptance. General merges currently retain their full
+projection work; extending incremental execution is separate remaining work.
+
 ## Historical checkpoints
 
 Canopy reconstructs missing legacy semantic states with `checkpoint-batch`
@@ -82,12 +104,31 @@ smaller slice against the same basis. Other failures remain failures. These are
 internal worker requests, with no public Wire or database schema change.
 Bun uses native SHA-256 with the same object identities as the portable fallback.
 
+## Incremental retained state (worktree)
+
+Indexed state maps retain large history records through shared value pages.
+Before/after piece sequences share unchanged pages across effects instead of
+embedding a complete copy in every record. Readers retain compatibility with
+inline history records and legacy state roots. These are internal object formats,
+not changes to public update requests; old deployed binaries cannot read the new
+formats after they have been written.
+
+Canopy validates new history records and carries their typed dependencies with
+that validation. Per-evaluation proofs survive until acceptance even when they
+are too large for the optional cross-request cache. Material validation compares
+against the preceding validated state; graph validation inherits unchanged
+structure only from an accepted root. Retention independently checks availability
+of staged dependencies before acceptance. See the [scaling measurements and
+remaining limits](canopy-update-performance.md#structural-diagnosis-and-fixes).
+
 ## Objects, authority and failure
 
-`@arbor/object-store` extracts the existing immutable, hash-sharded store unchanged.
-Reads verify hashes; writes flush files and atomically link them into place. A merge
-job reads the shared store plus its private staged inputs, and writes generated
-objects only into staging. Generated hashes already present in the shared store
+`@arbor/object-store` provides immutable, hash-sharded storage. Reads verify
+hashes. Durable writes flush files and atomically link them into place;
+disposable staging uses atomic publication without fsync. A merge job reads
+shared storage first, falling back to staging only when an object is absent.
+Corrupt shared bytes fail validation. Generated objects are written only into
+staging. Generated hashes already present in the shared store
 reuse those verified bytes; Canopy reads returned hashes from staging or shared
 storage. Neither process recopies existing immutable material into every job.
 Request JSON contains no object-store filesystem paths.
@@ -107,9 +148,9 @@ is not pruned during evaluation. A future collector must pin job inputs, staged
 inputs, results awaiting commit, hidden alternatives and provenance dependencies;
 the job manifest alone is not a completed GC lease protocol.
 
-Canopy defaults to four concurrent workers, at most 64 queued evaluations, a
+The worktree's Canopy uses one worker, at most 64 queued evaluations, a
 30-second worker timeout with forced termination, and an 8 MiB stdout/stderr buffer
-limit. Runtime options can change concurrency and timeout. Worker launch, timeout,
+limit. Runtime options can change the timeout, but not add workers. Worker launch, timeout,
 validation or execution failure preserves ordinary snapshot content as accepted
 ambiguity where the existing snapshot path can do so safely. Authoritative operation
 execution and semantic checkpoint failures cannot become unchecked snapshot writes:

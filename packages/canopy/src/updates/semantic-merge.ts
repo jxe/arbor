@@ -1,3 +1,4 @@
+import { loadIntentState } from "../../../merge/src/state-storage.ts";
 import { Database } from "bun:sqlite";
 import { stableJSONString } from "@arbor/core";
 import {
@@ -15,11 +16,9 @@ import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
 import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
 import {
-  parseIntentState,
   type IntentRequest,
   type IntentResponse,
 } from "../../../merge/src/intent-model.ts";
-import { verifyIntentRetention } from "../../../merge/src/retention.ts";
 import { MAX_CHECKPOINT_BATCH, type CheckpointRequest } from "../../../merge/src/checkpoint.ts";
 const encoder = new TextEncoder();
 const id = (value: unknown) =>
@@ -270,17 +269,14 @@ export class SemanticMerge {
     objects: Map<string, Uint8Array>,
     evidence: Evaluated["evidence"] | null
   ): Promise<MergeStateRecord> {
-    const state = parseIntentState(
-      JSON.parse(
-        new TextDecoder().decode(await this.read(result.state, objects))
-      )
-    );
+    const state = this.tool.validatedState(tree, result)
+      ?? await loadIntentState(result.state, (hash) => this.read(hash, objects));
     if (state.tree !== tree) throw new Error("Merge state tree mismatch");
     const legacy = new Map(
-      new ConflictStore(this.db)
+      (state.decisions.length ? new ConflictStore(this.db)
         .all()
         .filter((row) => this.updates.get(row.accepted)?.tree === tree)
-        .flatMap((row) => row.state.decisions.map((d) => [d.id, d] as const))
+        .flatMap((row) => row.state.decisions.map((d) => [d.id, d] as const)) : [])
     );
     const decisionID = (key: string) =>
       legacy.has(key) ? key : id([tree, "decision", key]);
@@ -370,16 +366,17 @@ export class SemanticMerge {
       };
       return { key: d.key, inspection };
     }));
-    const dependencies = [
-      ...(await verifyIntentRetention([result.state, authored.state], (hash) =>
-        this.read(hash, objects)
-      )),
-    ];
+    const proofs = new Map();
+    for (const ref of [result, authored]) {
+      const proof = this.tool.validationProof(tree, ref);
+      if (proof) proofs.set(ref.state, proof);
+    }
+    await this.tool.verifyRetention([result.state, authored.state], objects, proofs);
     return {
       state: result.state,
       authored: authored.state,
       decisions,
-      dependencies,
+      retention: { version: 1, roots: [...new Set([result.state, authored.state])] },
       evidence,
       request: {
         change: request.change,

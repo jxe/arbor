@@ -1,3 +1,4 @@
+import { loadIntentState } from "../../../packages/merge/src/state-storage.ts";
 import { expect, test } from "bun:test";
 import type { MaterialRef, SourceOperation } from "@arbor/wire";
 import { Fixture } from "./fixture.ts";
@@ -1890,9 +1891,7 @@ test("retained effects include exact authored copy intent and its basis", async 
       "copy",
     ),
   );
-  const state = JSON.parse(
-    new TextDecoder().decode(f.objects.get(result.result.state)),
-  );
+  const state = await loadIntentState(result.result.state, async (hash) => f.objects.get(hash)!);
   const effect = Object.values(state.effects)[0] as {
     authored: { basis: string; operation: string };
   };

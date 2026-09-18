@@ -1,3 +1,4 @@
+import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
 import { SemanticMerge, type StateRef, type Evaluated } from "./updates/semantic-merge.ts";
@@ -31,7 +32,6 @@ import {
   decodeWireDirectory,
   encodeWireDirectory,
   hashObject,
-  wireEntryObject,
   updateRequestDigests,
   type AcceptedTransition,
   type AcceptedTransitionPayload,
@@ -209,6 +209,7 @@ export class ReservedBoundaryConflictError extends Error {
 
 export class CanopyDaemon implements AsyncDisposable {
   private readonly wireSchemas = new SchemaSandbox();
+  private readonly validatedGraphs = new Map<string, ValidatedGraph>();
   private db: Database;
   private acceptedStore: AcceptedUpdateStore;
   private readonly observations: ObservationLog;
@@ -227,7 +228,10 @@ export class CanopyDaemon implements AsyncDisposable {
     mergeTool?: MergeToolOptions
   ) {
     this.db = db;
-    this.mergeTool = new MergeTool(dataRoot, mergeTool);
+    this.mergeTool = new MergeTool(dataRoot, {
+      persistent: !mergeTool?.command && !process.env.ARBOR_MERGE_EXECUTABLE,
+      ...mergeTool,
+    });
     this.semantic = new SemanticMerge(
       db,
       this.mergeTool,
@@ -1200,7 +1204,7 @@ export class CanopyDaemon implements AsyncDisposable {
         if (this.acceptedRequest(treeID, policy.subject, digests[index]!)) { recordedThrough = index; break; }
       }
     }
-    const intents = new Map<number, { basis: StateRef }>();
+    const intents = new Map<number, { basis: StateRef; evaluated: Evaluated; guards: string[] }>();
     if (
       request.base &&
       request.updates.some((update) => update.operations !== null)
@@ -1295,7 +1299,7 @@ export class CanopyDaemon implements AsyncDisposable {
               objects,
               keys
             );
-            intents.set(index, { basis });
+            intents.set(index, { basis, evaluated: validated, guards: keys });
             basis = validated.authored;
           } catch (error) {
             if (error instanceof IntentError && error.code === "unsupported")
@@ -1429,7 +1433,7 @@ export class CanopyDaemon implements AsyncDisposable {
     credentialSubject?: string,
     provenAcceptedPrefix = false,
     basisUpdate?: string,
-    preparedIntent?: { basis: StateRef },
+    preparedIntent?: { basis: StateRef; evaluated: Evaluated; guards: string[] },
     submittedConflicts?: ConflictState | null,
     authoredChainBase?: string
   ): Promise<{
@@ -1474,7 +1478,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (this.acceptedStore.acceptedChange(treeID, request.change) || new SourceIntentStore(this.db).get(treeID, request.change)) {
       throw new Error("Authored change identity is already bound to a different accepted request");
     }
-    await this.validateGraph(request.candidate, proposed);
+    await this.validateGraph(request.candidate, proposed, tree.ref);
     await policy.validateCandidate(request.candidate, proposed);
     const semanticCurrent = this.currentUpdate(treeID)!;
     if (
@@ -1771,7 +1775,7 @@ export class CanopyDaemon implements AsyncDisposable {
     proposed: Map<string, Uint8Array>,
     reconstructed: Array<{ hash: string; bytes: Uint8Array }>,
     policy: UpdatePolicy,
-    prepared?: { basis: StateRef }
+    prepared?: { basis: StateRef; evaluated: Evaluated; guards: string[] }
   ): Promise<{
     status: number;
     result: UpdateResult | UpdateConflictResult;
@@ -1805,7 +1809,12 @@ export class CanopyDaemon implements AsyncDisposable {
         authored: StateRef,
         evidence: Evaluated["evidence"] | null = null;
       if (prepared) {
-        const evaluated = await this.semantic.evaluate(
+        // Preflight already evaluated the exact no-concurrency case. Reuse only
+        // when both material states and resolution keys still match; authority,
+        // guards, candidate validation and commit checks remain above/below.
+        const exact = prepared.basis.object === currentState.object && prepared.basis.state === currentState.state
+          && stableJSONString(prepared.guards) === stableJSONString(guards);
+        const evaluated = exact ? prepared.evaluated : await this.semantic.evaluate(
           tree.id,
           prepared.basis,
           currentState,
@@ -2006,7 +2015,7 @@ export class CanopyDaemon implements AsyncDisposable {
       validateAccepted: async (remoteTree, root, objects) => {
         await checkEffects(remoteTree.ref, root, objects);
         if (root === request.candidate) return;
-        await this.validateGraph(root, objects);
+        await this.validateGraph(root, objects, remoteTree.ref);
         await this.validateReservedBoundaries(remoteTree, root, objects);
       },
       prepareCommit: async (remoteTree) => ({
@@ -2181,11 +2190,13 @@ export class CanopyDaemon implements AsyncDisposable {
         [record.state, record.authored],
         (hash) => this.objects.load(hash)
       );
-      if (
-        stableJSONString([...dependencies].sort()) !==
-        stableJSONString([...record.dependencies].sort())
-      )
-        throw new Error("Invalid merge retention closure");
+      if (record.dependencies) {
+        if (stableJSONString([...dependencies].sort()) !== stableJSONString([...record.dependencies].sort()))
+          throw new Error("Invalid merge retention closure");
+      } else if (record.retention?.version !== 1 ||
+        stableJSONString([...record.retention.roots].sort()) !== stableJSONString([...new Set([record.state, record.authored])].sort())) {
+        throw new Error("Invalid merge retention roots");
+      }
     }
     for (const { accepted, state } of new ConflictStore(this.db).all()) {
       const owner = this.update(accepted);
@@ -2541,59 +2552,32 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private async validateGraph(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
-    const pending: Array<{ hash: ObjectHash; kind: "file" | "directory" }> = [{ hash: root, kind: "directory" }];
-    const kinds = new Map<ObjectHash, string>();
-    const seen = new Set<ObjectHash>();
-    let totalBytes = 0;
-    while (pending.length) {
-      const { hash, kind } = pending.pop()!;
-      if (kinds.has(hash) && kinds.get(hash) !== kind) throw new Error(`Object kind conflict: ${hash}`);
-      kinds.set(hash, kind);
-      if (seen.has(hash)) continue;
-      seen.add(hash);
-      if (seen.size > 100_000) throw new Error("Tree exceeds the object quota");
-      const bytes = await this.objects.find(hash, proposed);
-      if (!bytes) throw new Error(`Missing referenced object: ${hash}`);
-      if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
-      totalBytes += bytes.byteLength;
-      if (totalBytes > 1_000_000_000) throw new Error("Tree exceeds the storage quota");
-      if (kind === "file") continue;
-      const object = decodeWireDirectory(bytes);
-      const names = new Set<string>();
-      for (const entry of object.entries) {
-        if (
-          !entry.name
-          || entry.name === "."
-          || entry.name === ".."
-          || entry.name.includes("/")
-          || entry.name.includes("\\")
-          || names.has(entry.name)
-        ) throw new Error(`Invalid or duplicate directory entry: ${entry.name}`);
-        names.add(entry.name);
-        const target = wireEntryObject(entry);
-        if (target) pending.push(target);
-      }
-      if (object.childrenSource) {
-        const loadFile = async (name: string): Promise<Uint8Array> => {
-          const target = object.entries.find((entry) => entry.name === name)?.file;
-          if (!target) throw new Error(`Missing collection-file entry: ${name}`);
-          const targetBytes = await this.objects.find(target, proposed);
-          if (!targetBytes || hashObject(targetBytes) !== target) throw new Error(`Missing collection-file object: ${target}`);
-          return targetBytes;
-        };
-        await decodeWireCollectionFile(
-          object.childrenSource,
-          await loadFile(object.childrenSource.source),
-          await loadFile(object.childrenSource.schemaSource),
-          this.wireSchemas,
-        );
-      }
-    }
+  private async validateGraph(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>, acceptedBasis?: ObjectHash): Promise<void> {
+    // acceptedBasis comes from the server's current tree, never from worker or
+    // client assertions. A staged proof is only inherited once that root has
+    // actually become accepted (and therefore durable).
+    const collection = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+      const source = directory.childrenSource!;
+      const loadFile = async (name: string) => {
+        const target = directory.entries.find(entry => entry.name === name)?.file;
+        if (!target) throw Error(`Missing collection-file entry: ${name}`);
+        return load(target);
+      };
+      await decodeWireCollectionFile(source, await loadFile(source.source), await loadFile(source.schemaSource), this.wireSchemas);
+    };
+    let basis = acceptedBasis ? this.validatedGraphs.get(acceptedBasis) : undefined;
+    if (acceptedBasis && !basis)
+      basis = await validateGraphChange(acceptedBasis, hash => this.objects.read(hash), new Map(), collection);
+    const result = await validateGraphChange(root, hash => this.objects.read(hash), proposed, collection, basis);
+    this.validatedGraphs.delete(root);
+    this.validatedGraphs.set(root, result);
+    while (this.validatedGraphs.size > 8 || [...this.validatedGraphs.values()].reduce((n, graph) => n + graph.objects.size, 0) > 200_000)
+      this.validatedGraphs.delete(this.validatedGraphs.keys().next().value!);
     await this.cacheRootProfile(root, proposed);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    await this.mergeTool[Symbol.asyncDispose]();
     await this.wireSchemas[Symbol.asyncDispose]();
     this.db.close();
     this.observationListeners.clear();

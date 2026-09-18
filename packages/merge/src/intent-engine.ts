@@ -1,3 +1,5 @@
+import { loadEditableIntentState, loadIntentState, storeIntentState } from "./state-storage.ts";
+import type { StateMapValidationCache } from "./state-map.ts";
 import { stableJSONString } from "@arbor/core";
 import {
   decodeWireDirectory,
@@ -13,7 +15,6 @@ import {
   alternativeKey,
   keyOf,
   parseIntentRequest,
-  parseIntentState,
   type Effect,
   type IntentRequest,
   type IntentDecision,
@@ -98,7 +99,18 @@ function normalize(pieces: Piece[]): Piece[] {
 }
 
 /** An evaluation-local material graph. State is immutable object data, not a database. */
+/** Per-validation material proof, inherited only from a fully validated state.
+ * No bytes or global hash cache: compare file nodes against the preceding state. */
+export type ValidatedMaterial = Map<string, {node: Node; object: string}>;
+type StateValidation = {
+  historyCache: StateMapValidationCache;
+  retained: (hash: string) => void;
+  summary?: {bytes: (count: number) => void; references: (refs: ReadonlySet<string>) => void};
+  material?: {previous?: ValidatedMaterial; next: ValidatedMaterial};
+};
 class Engine {
+  private validation?: StateValidation;
+  private projection?: StateValidation["material"];
   authoredResult?: { object: string; state: string };
   readonly pendingEnclosures = new Set<string>();
   readonly formatEvidence: FormatEvidence[] = [];
@@ -136,6 +148,7 @@ class Engine {
   }
   put(bytes: Uint8Array): string {
     const hash = hashObject(bytes);
+    if (this.cache.has(hash)) return hash;
     if (!this.generated.has(hash)) {
       this.writtenBytes += bytes.length;
       if (
@@ -242,17 +255,19 @@ class Engine {
     await this.importNode(state, root, "directory", state.root, null, "");
     return state;
   }
-  async load(ref: { object: string; state?: string }): Promise<IntentState> {
+  async load(ref: { object: string; state?: string }, validation?: StateValidation): Promise<IntentState> {
+    this.validation = validation;
     if (!ref.state) return this.initial(ref.object);
     let state: IntentState;
     try {
-      state = parseIntentState(
-        JSON.parse(decoder.decode(await this.read(ref.state)))
-      );
+      state = await loadIntentState(ref.state, (hash) => this.read(hash), validation?.retained, validation?.historyCache, validation?.summary);
     } catch (error) {
       if (error instanceof IntentError) throw error;
       return fail("Invalid material state");
     }
+    return this.validateState(state, ref);
+  }
+  async validateState(state: IntentState, ref: {object: string}): Promise<IntentState> {
     if (
       state.format !== "arbor-merge-intent-state" ||
       state.tree !== this.request.tree ||
@@ -328,8 +343,16 @@ class Engine {
   async project(
     view: View,
     root = view.root,
-    visiting = new Set<string>()
+    visiting = new Set<string>(),
+    childrenByParent?: Map<string, Node[]>
   ): Promise<string> {
+    if (!childrenByParent) {
+      childrenByParent = new Map();
+      for (const node of Object.values(view.nodes)) if (node.active && node.parent !== null) {
+        const children = childrenByParent.get(node.parent) ?? [];
+        children.push(node); childrenByParent.set(node.parent, children);
+      }
+    }
     this.checkBudget();
     const node = view.nodes[root];
     if (!node?.active) return fail("Projection root is absent");
@@ -338,19 +361,25 @@ class Engine {
       throw new IntentError("limit", "Directory depth budget exceeded");
     visiting.add(root);
     try {
-      if (node.kind === "file")
-        return node.pieces
-          ? this.put(await this.bytes(node.pieces))
+      if (node.kind === "file") {
+        const material = this.projection ?? this.validation?.material;
+        const previous = material?.previous?.get(node.id);
+        const object = previous && same(previous.node, node)
+          ? previous.object
+          : node.pieces ? this.put(await this.bytes(node.pieces))
           : (await this.read(node.object), node.object);
+        material?.next.set(node.id, {node, object});
+        return object;
+      }
       if (node.kind === "tree") return node.object;
       const entries = [];
       const names = new Set<string>();
-      for (const child of this.children(view, root).sort((a, b) =>
+      for (const child of (childrenByParent.get(root) ?? []).sort((a, b) =>
         Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
       )) {
         if (names.has(child.name)) return fail("Duplicate directory placement");
         names.add(child.name);
-        const object = await this.project(view, child.id, visiting);
+        const object = await this.project(view, child.id, visiting, childrenByParent);
         entries.push(
           child.kind === "file"
             ? { name: child.name, file: object }
@@ -738,11 +767,12 @@ class Engine {
     state: IntentState,
     basis: View,
     operation: SourceOperation,
-    change: string
+    change: string,
+    validatedBasisObject?: string
   ): Promise<void> {
     this.checkBudget();
     const key = keyOf(change, operation.key),
-      before = clone(state.nodes);
+      before: Record<string, Node> = validatedBasisObject ? Object.create(null) : clone(state.nodes);
     if (Object.hasOwn(state.effects, key))
       return fail("Operation identity reused");
     let result: Material | undefined;
@@ -861,6 +891,10 @@ class Engine {
       }
       if (!node || (!node.active && operation.kind !== "copySource"))
         return fail("Source entry was removed");
+      // The exact-basis edit path can mutate only this file. Capture it before
+      // text() or replacement changes it; other operation kinds retain the full
+      // structural comparison below.
+      if (validatedBasisObject) before[node.id] = clone(node);
       const current = await this.text(node),
         range =
           operation.kind === "copySource"
@@ -1135,7 +1169,7 @@ class Engine {
     const effect: Effect = {
       authored: {
         operation: this.put(encoder.encode(stableJSONString(operation))),
-        basis: await this.project(basis),
+        basis: validatedBasisObject ?? await this.project(basis),
       },
       change,
       operation: operation.key,
@@ -1150,7 +1184,7 @@ class Engine {
       after: {},
       undone: false,
     };
-    for (const id of new Set([
+    for (const id of validatedBasisObject ? Object.keys(before) : new Set([
       ...Object.keys(before),
       ...Object.keys(state.nodes),
     ]))
@@ -1405,14 +1439,12 @@ class Engine {
     }
   }
   async context(hash: string): Promise<IntentState> {
-    const state = parseIntentState(
-      JSON.parse(decoder.decode(await this.read(hash)))
-    );
+    const state = await loadIntentState(hash, (hash) => this.read(hash));
     return this.load({ object: await this.project(state), state: hash });
   }
-  async record(state: IntentState): Promise<{ object: string; state: string }> {
+  async record(state: IntentState, editable = false): Promise<{ object: string; state: string }> {
     const object = await this.project(state),
-      stored = this.put(encoder.encode(stableJSONString(state)));
+      stored = storeIntentState(state, (bytes) => this.put(bytes), editable);
     return { object, state: stored };
   }
   async contributions(
@@ -1435,10 +1467,14 @@ class Engine {
     }
     return result;
   }
-  async run(): Promise<IntentResponse> {
+  async run(incremental = true): Promise<IntentResponse> {
+    const fastForward = incremental ? await this.editFastForward() : undefined;
+    if (fastForward) return fastForward;
     const request = this.request,
       base = await this.load(request.base),
-      current = await this.load(request.current);
+      sameBasis = request.base.object === request.current.object && request.base.state === request.current.state,
+      current = sameBasis && !base.decisions.length && !request.alternatives?.length
+        ? base : await this.load(request.current);
     const signature = this.put(
       encoder.encode(
         stableJSONString({
@@ -1472,8 +1508,7 @@ class Engine {
           !base.nodes[alternative.node] ||
           (await this.project(base, alternative.node)) !== alternative.object)
       ) {
-        const bytes = await this.read(decision.context);
-        const context = parseIntentState(JSON.parse(decoder.decode(bytes)));
+        const context = await loadIntentState(decision.context, (hash) => this.read(hash));
         const retained = context.decisions.find((d) => d.key === decision.key)
           ?.alternatives[binding.alternative];
         if (!retained?.node)
@@ -1655,6 +1690,13 @@ class Engine {
         dependencies: [...wrapped],
         reason: "Opaque transformation encloses existing decisions",
       });
+    }
+    // With an identical retained basis and no decisions, authored and accepted
+    // material are identical. All operation/candidate checks above still run;
+    // no second state copy, projection, or serialization is necessary.
+    if (sameBasis && !authored.decisions.length && !resolved.size) {
+      const result = await this.record(authored, true);
+      return this.response(result, authored);
     }
     const authoredSnapshot = clone(authored);
     authoredSnapshot.decisions = authoredSnapshot.decisions.filter(
@@ -2447,6 +2489,73 @@ class Engine {
     const result = await this.record(resultState);
     return this.response(result, resultState);
   }
+  /** Recover projected file hashes from accepted directory metadata, without
+   * rereading file bodies or re-proving the host-validated state/root relation. */
+  private async trustedProjection(state: IntentState, object: string): Promise<ValidatedMaterial> {
+    const children = new Map<string, Node[]>();
+    for (const node of Object.values(state.nodes)) if (node.active && node.parent !== null) {
+      const list = children.get(node.parent) ?? [];
+      list.push(node); children.set(node.parent, list);
+    }
+    const material: ValidatedMaterial = new Map();
+    const visit = async (id: string, hash: string, depth: number): Promise<void> => {
+      this.checkBudget();
+      if (depth > 256) return fail("Directory depth budget exceeded");
+      const node = state.nodes[id] ?? fail("Missing validated node");
+      if (node.kind === "file") { material.set(id, {node, object: hash}); return; }
+      if (node.kind === "tree") return;
+      const entries = new Map(decodeWireDirectory(await this.read(hash)).entries.map(e => [e.name, e]));
+      for (const child of children.get(id) ?? []) {
+        const entry = entries.get(child.name);
+        const target = entry && (child.kind === "file" && "file" in entry ? entry.file
+          : child.kind === "directory" && "directory" in entry ? entry.directory
+          : child.kind === "tree" && "tree" in entry ? entry.tree : undefined);
+        if (!target) return fail("Validated basis directory mismatch");
+        await visit(child.id, target, depth + 1);
+      }
+    };
+    await visit(state.root, object, 0);
+    return material;
+  }
+
+  /** Exact-basis source replacements cannot import historical material. Read
+   * current nodes and identity keys, then append records by path-copying their
+   * maps. Existing history remains reachable without being decoded or copied. */
+  private async editFastForward(): Promise<IntentResponse | undefined> {
+    const request = this.request;
+    if (!request.base.state || request.base.state !== request.current.state ||
+        request.base.object !== request.current.object || request.alternatives?.length ||
+        request.incoming.resolves?.length || !request.incoming.operations.length ||
+        !request.incoming.operations.every(op => op.kind === "editSource" &&
+          op.source.material.kind === "basis" && !op.lineage?.length)) return;
+    const partial = await loadEditableIntentState(request.base.state, hash => this.read(hash));
+    if (!partial || partial.value.decisions.length) return;
+    // The identity lookup must consult retained history, not the empty write set.
+    if (await partial.get("changes", request.incoming.change) !== undefined) return;
+    // The host supplies a previously validated state/root pair. Recover file
+    // hashes from directory metadata; do not revalidate accepted file bodies.
+    const basis = partial.value;
+    if (basis.tree !== request.tree) return fail("Invalid material state tree");
+    const projected = await this.trustedProjection(basis, request.base.object);
+    this.projection = {previous: projected, next: new Map()};
+    const authored = clone(basis);
+    for (const operation of request.incoming.operations) {
+      if (await partial.get("effects", keyOf(request.incoming.change, operation.key)) !== undefined)
+        return fail("Operation identity reused");
+      await this.apply(authored, basis, operation, request.incoming.change, request.base.object);
+    }
+    // Historical deletions have already been applied to this exact basis. These
+    // operations introduce only fresh source origins, so only new deletion
+    // effects can remove any additional material.
+    this.enforceDeletions(authored);
+    const object = await this.project(authored);
+    if (object !== request.incoming.object) return fail("Operations do not reproduce the complete candidate");
+    authored.changes[request.incoming.change] = this.put(encoder.encode(stableJSONString({
+      base: request.base, incoming: request.incoming, alternatives: request.alternatives, rules: request.rules,
+    })));
+    const state = await partial.store(authored, bytes => this.put(bytes));
+    return this.response({object, state}, authored);
+  }
   response(
     result: { object: string; state: string },
     state: IntentState
@@ -2478,11 +2587,12 @@ class Engine {
 
 export async function mergeIntent(
   raw: IntentRequest,
-  objects: MergeObjects
+  objects: MergeObjects,
+  options: {incremental?: boolean} = {}
 ): Promise<IntentResponse> {
   try {
     const engine = new Engine(parseIntentRequest(raw), objects),
-      result = await engine.run();
+      result = await engine.run(options.incremental);
     await objects.store(
       [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
     );
@@ -2794,7 +2904,8 @@ export async function checkpointIntent(
 export async function validateIntentState(
   ref: { object: string; state: string },
   tree: string,
-  objects: MergeObjects
+  objects: MergeObjects,
+  validation?: StateValidation
 ): Promise<IntentState> {
   const engine = new Engine(
     {
@@ -2807,5 +2918,5 @@ export async function validateIntentState(
     },
     objects
   );
-  return engine.load(ref);
+  return engine.load(ref, validation);
 }

@@ -2,7 +2,7 @@
 import { resolve } from "node:path";
 import { ObjectStore } from "@arbor/object-store";
 import { merge } from "./index.ts";
-import { hashObject } from "@arbor/wire";
+import { workerObjects } from "./worker-objects.ts";
 import { CheckpointBatchLimitError } from "./checkpoint-batch.ts";
 import { CHECKPOINT_BATCH_TOO_LARGE_EXIT } from "./checkpoint.ts";
 
@@ -49,17 +49,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     throw new Error("Separate shared and staging directories are required");
   const shared = new ObjectStore(options.get("--objects")!);
   const staging = new ObjectStore(options.get("--staging")!);
-  const objects = {
-    read: async (hash: string) =>
-      (await staging.find(hash)) ?? (await shared.read(hash)),
-    store: async (values: Parameters<ObjectStore["store"]>[0]) => {
-      for (const value of values) {
-        if (hashObject(value.bytes) !== value.hash) throw new Error("Object hash mismatch");
-        // Existing immutable material is already available to both processes.
-        if (!(await shared.find(value.hash))) await staging.store([value]);
-      }
-    },
-  };
+  const objects = workerObjects(shared, staging);
   if (mode === "evaluate") {
     for await (const text of requests(false))
       process.stdout.write(
@@ -76,6 +66,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         process.stdout.write(
           JSON.stringify({
             error: {
+              ...(error instanceof CheckpointBatchLimitError ? {code: "checkpoint-batch-too-large"} : {}),
               message:
                 error instanceof Error
                   ? error.message

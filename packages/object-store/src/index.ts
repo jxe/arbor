@@ -12,7 +12,7 @@ import {
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
-async function syncDirectory(path: string): Promise<void> {
+async function syncPath(path: string): Promise<void> {
   const handle = await open(path, "r");
   try {
     await handle.sync();
@@ -144,6 +144,16 @@ export class ObjectStore {
 
   /** Durably publish objects; an object already present must be byte-identical. */
   async store(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>): Promise<void> {
+    await this.publish(objects, true);
+  }
+
+  /** Publish complete scratch objects atomically, without promising survival of
+   * a host crash. Only for disposable worker staging; accepted storage uses store. */
+  async stage(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>): Promise<void> {
+    await this.publish(objects, false);
+  }
+
+  private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean): Promise<void> {
     for (const object of objects) {
       if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
       const path = this.path(object.hash);
@@ -153,10 +163,13 @@ export class ObjectStore {
         if (hashObject(existing) !== object.hash) {
           throw new Error(`Stored object hash mismatch: ${object.hash}`);
         }
-        // Another publisher may have linked the flushed inode just before this
-        // read. Complete directory durability without rewriting identical bytes.
-        await syncDirectory(directory);
-        await syncDirectory(dirname(directory));
+        // An existing object may have been published as scratch data. Complete
+        // file and directory durability without rewriting identical bytes.
+        if (durable) {
+          await syncPath(path);
+          await syncPath(directory);
+          await syncPath(dirname(directory));
+        }
         continue;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -167,12 +180,12 @@ export class ObjectStore {
         const file = await open(temporary, "wx", 0o600);
         try {
           await file.writeFile(object.bytes);
-          await file.sync();
+          if (durable) await file.sync();
         } finally {
           await file.close();
         }
         try {
-          // A hard link publishes the fully flushed inode without ever replacing
+          // A hard link publishes the complete inode without ever replacing
           // an immutable object that another writer may have published first.
           await link(temporary, path);
         } catch (error) {
@@ -181,12 +194,14 @@ export class ObjectStore {
           if (hashObject(existing) !== object.hash) {
             throw new Error(`Stored object hash mismatch: ${object.hash}`);
           }
+          if (durable) await syncPath(path);
         }
         await unlink(temporary);
-        await syncDirectory(directory);
-        // The two-hex-character shard may itself have been created for this
-        // object, so flush its entry in the stable objects directory too.
-        await syncDirectory(dirname(directory));
+        if (durable) {
+          await syncPath(directory);
+          // The shard may itself be new, so flush its parent as well.
+          await syncPath(dirname(directory));
+        }
       } finally {
         await unlink(temporary).catch((error) => {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

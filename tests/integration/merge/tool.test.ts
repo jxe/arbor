@@ -243,3 +243,67 @@ test("only explicit checkpoint byte limits request a smaller historical batch",a
   await expect(new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map())).rejects.toBeInstanceOf(CheckpointBatchTooLargeError);
   expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
 });
+
+test("one persistent stdin worker processes concurrent submissions in FIFO order", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const script = join(directory, "tracked-worker.ts"), log = join(directory, "starts.log");
+  const cli = new URL("../../../packages/merge/src/cli.ts", import.meta.url).pathname;
+  await writeFile(script, `import {appendFile} from "node:fs/promises"; import {run} from ${JSON.stringify(cli)};
+    await appendFile(${JSON.stringify(log)}, process.pid + "\\n"); await run();`);
+  await using sequential = new MergeTool(directory, {persistent:true,command:[process.execPath,script]});
+  const base = snapshot("base"), requests = [];
+  for (let i=0;i<6;i++) requests.push(await prepare(base, base, snapshot(`edit-${i}`)));
+  const completed: number[] = [];
+  const results = await Promise.all(requests.map(({request,inputs},i) => sequential.evaluate(request,inputs).then(result => {completed.push(i);return result;})));
+  expect(completed).toEqual([0,1,2,3,4,5]);
+  expect(results.map(result => result.response.result.object)).toEqual(requests.map(({request}) => "incoming" in request ? request.incoming.object : ""));
+  expect((await readFile(log,"utf8")).trim().split("\n")).toHaveLength(1);
+  expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
+  const workers = await readdir(join(directory,"merge-workers"));
+  expect(workers).toHaveLength(1);
+  expect(await readdir(join(directory,"merge-workers",workers[0]!))).toEqual([]);
+});
+
+test("persistent jobs cannot borrow discarded staging and a failed job releases the queue", async () => {
+  await using sequential = new MergeTool(directory,{persistent:true});
+  const base = snapshot("base"), incoming = snapshot("new staged bytes");
+  const {request,inputs} = await prepare(base,base,incoming);
+  await sequential.evaluate(request, inputs);
+  const missing = sequential.evaluate(request,new Map());
+  const retry = sequential.evaluate(request,inputs);
+  await expect(missing).rejects.toThrow();
+  expect((await retry).response.result.object).toBe(incoming.root);
+  expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
+});
+
+test.each(["exit", "timeout"])("persistent worker %s is reaped and the queued successor starts a replacement", async mode => {
+  const {readFile} = await import("node:fs/promises");
+  const script = join(directory,"fail-once.ts"), marker = join(directory,"started.log");
+  const cli = new URL("../../../packages/merge/src/cli.ts",import.meta.url).pathname;
+  await writeFile(script, `import {existsSync,appendFileSync} from "node:fs"; import {run} from ${JSON.stringify(cli)};
+    const first = !existsSync(${JSON.stringify(marker)}); appendFileSync(${JSON.stringify(marker)},process.pid+"\\n");
+    if (first) { ${mode === "exit" ? "process.exit(42);" : "await new Promise(resolve=>setTimeout(resolve,10_000));"} }
+    await run();`);
+  await using sequential = new MergeTool(directory,{persistent:true,command:[process.execPath,script],timeoutMs:500});
+  const base = snapshot("base"), {request,inputs} = await prepare(base,base,snapshot("edited"));
+  const failed = sequential.evaluate(request,inputs), next = sequential.evaluate(request,inputs);
+  await expect(failed).rejects.toThrow(mode === "exit" ? "exited" : "timed out");
+  expect((await next).response.result.object).toBe(request.kind === "tree" ? request.incoming.object : "");
+  expect((await readFile(marker,"utf8")).trim().split("\n")).toHaveLength(2);
+  expect(await readdir(join(directory,"merge-workers"))).toHaveLength(1);
+});
+
+test("the single-worker queue is bounded and shutdown rejects waiting work", async () => {
+  const sequential = new MergeTool(directory,{persistent:true});
+  const base = snapshot("base"), {request,inputs} = await prepare(base,base,snapshot("queued"));
+  const pending = Array.from({length:65}, () => sequential.evaluate(request,inputs).then(
+    () => "completed", error => String(error.message),
+  ));
+  await expect(sequential.evaluate(request,inputs)).rejects.toThrow("queue is full");
+  await sequential[Symbol.asyncDispose]();
+  const results = await Promise.all(pending);
+  expect(results[0]).toBe("completed");
+  expect(results.slice(1)).toEqual(Array(64).fill("Merge tool is closing"));
+  expect(await readdir(join(directory,"merge-workers"))).toEqual([]);
+  await expect(sequential.evaluate(request,inputs)).rejects.toThrow("closing");
+});

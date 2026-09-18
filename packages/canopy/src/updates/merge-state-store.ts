@@ -5,7 +5,9 @@ export interface MergeStateRecord {
   state: string;
   authored: string;
   decisions: Array<{ key: string; inspection: InspectedDecision }>;
-  dependencies: string[];
+  /** Legacy rows contain a flattened closure. New rows retain graph roots. */
+  dependencies?: string[];
+  retention?: { version: 1; roots: string[] };
   evidence:
     | Extract<IntentResponse, { outcome: "evaluated" }>["evidence"]
     | null;

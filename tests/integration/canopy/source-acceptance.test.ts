@@ -69,6 +69,26 @@ test("equal-byte edits create accepted provenance and subsequent batch edits use
   expect(response.results[0]!.update.id).not.toBe(base);
   expect(records()).toHaveLength(2);
 });
+test("preflight is reused only for the same retained material; divergent heads still merge", async () => {
+  const first = await edit("ABC");
+  const accepted = (await client.submitUpdates(tree, {base, updates: [first]})).results[0]!.update;
+  await stop();
+  let workers = 0;
+  await start({onTiming: (phase) => { if (phase === "worker-process") workers++; }});
+  const next = await edit("AAA", first.candidate);
+  const peer = await edit("BBB", first.candidate);
+  const forward = (await client.submitUpdates(tree, {base: accepted.id, updates: [next]})).results[0]!.update;
+  expect(forward.root).toBe(next.candidate);
+  expect(workers).toBe(1);
+  workers = 0;
+  const merged = (await client.submitUpdates(tree, {base: accepted.id, updates: [peer]})).results[0]!.update;
+  expect(merged.conflicted).toBe(true);
+  expect(workers).toBe(2);
+  const count = records().length;
+  await expect(client.submitUpdates(tree, {base: accepted.id, updates: [{...await edit("CCC", first.candidate), ifCurrent: accepted.id}]})).rejects.toThrow();
+  expect(records()).toHaveLength(count);
+  await running.canopy.verifyIntegrity();
+});
 test("concurrent range edits retain both accepted alternatives", async () => {
   const a = await edit("AAA"), b = await edit("BBB");
   const results = await Promise.allSettled([client.submitUpdates(tree, { base, updates: [a] }), client.submitUpdates(tree, { base, updates: [b] })]);

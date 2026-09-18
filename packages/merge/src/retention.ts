@@ -1,73 +1,218 @@
+import { loadIntentState } from "./state-storage.ts";
 import { decodeWireDirectory, hashObject } from "@arbor/wire";
-import {
-  intentDependencies,
-  parseIntentState,
-  type Node,
-} from "./intent-model.ts";
-/** Explicit graph walk; arbitrary file bytes are never interpreted as metadata. */
+import { intentReferences, type IntentState } from "./intent-model.ts";
+
+type Kind = "object" | "directory" | "state" | "change";
+type Reference = { hash: string; kind: Kind };
+type Closure = {
+  hashes: ReadonlySet<string>;
+  types: ReadonlySet<string>;
+  /** Validated bytes that have not yet been read from the durable store. */
+  pending: ReadonlySet<string>;
+};
+
+/** Derived, bounded facts about hash-verified immutable objects, never authority.
+ * The kind is part of the key: reading file bytes does not validate a directory.
+ * At most eight complete frontiers bound repeated history traversal. A proof
+ * may include staged bytes, but those remain pending until a durable read.
+ * An explicit integrity audit omits this cache and reads every byte again. */
+export class RetentionCache {
+  private entries = new Map<string, { edges: Reference[]; durable: boolean }>();
+  private edges = 0;
+  private closures = new Map<string, Closure>();
+  closure(hash: string): Closure | undefined {
+    return this.closures.get(hash);
+  }
+  retainClosure(hash: string, closure: Closure) {
+    if (closure.types.size > this.maxEdges) return;
+    this.closures.delete(hash);
+    this.closures.set(hash, closure);
+    while (
+      this.closures.size > 8 ||
+      [...this.closures.values()].reduce((n, c) => n + c.types.size, 0) >
+        this.maxEdges
+    )
+      this.closures.delete(this.closures.keys().next().value!);
+  }
+  constructor(
+    private readonly maxEdges = 250_000,
+    private readonly maxEntries = 100_000,
+  ) {}
+  get(ref: Reference): readonly Reference[] | undefined {
+    return this.entries.get(ref.kind + ":" + ref.hash)?.edges;
+  }
+  isDurable(ref: Reference): boolean {
+    return this.entries.get(ref.kind + ":" + ref.hash)?.durable ?? false;
+  }
+  markDurable(hash: string) {
+    for (const kind of ["object", "directory", "change"]) {
+      const entry = this.entries.get(kind + ":" + hash);
+      if (entry) entry.durable = true;
+    }
+  }
+  set(ref: Reference, dependencies: Reference[], durable: boolean) {
+    if (
+      ref.kind === "state" ||
+      dependencies.length > this.maxEdges ||
+      this.maxEntries < 1
+    )
+      return;
+    const key = ref.kind + ":" + ref.hash;
+    const prior = this.entries.get(key);
+    if (prior) this.edges -= prior.edges.length;
+    this.entries.delete(key);
+    this.entries.set(key, { edges: dependencies, durable });
+    this.edges += dependencies.length;
+    while (this.edges > this.maxEdges || this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next().value!;
+      this.edges -= this.entries.get(oldest)!.edges.length;
+      this.entries.delete(oldest);
+    }
+  }
+}
+
+/** Explicit typed graph walk; arbitrary file bytes are never interpreted as metadata.
+ * `durable(hash)` describes where `load(hash)` will read from. It is not itself
+ * proof of availability: previously staged bytes must be loaded again before
+ * their durability can be established. Durable storage is append-only. */
 export async function verifyIntentRetention(
   roots: string[],
-  load: (hash: string) => Promise<Uint8Array>
+  load: (hash: string) => Promise<Uint8Array>,
+  options?: {
+    cache: RetentionCache;
+    durable: (hash: string) => boolean;
+    /** Already hash-checked and semantically validated, with every object read
+     * to reconstruct it. Availability is still checked by this graph walk. */
+    state?: (hash: string) =>
+      | {
+          value: IntentState;
+          dependencies: Iterable<string>;
+          references?: ReadonlySet<string>;
+        }
+      | undefined;
+  },
 ): Promise<Set<string>> {
-  const cache = new Map<string, Uint8Array>();
-  const verified = new Set<string>(),
-    states = new Set<string>(),
-    directories = new Set<string>();
-  const read = async (hash: string) => {
-    const existing = cache.get(hash);
-    if (existing) return existing;
-    const bytes = await load(hash);
-    if (hashObject(bytes) !== hash)
-      throw new Error("Invalid retained object hash");
-    verified.add(hash);
-    cache.set(hash, bytes);
-    if (verified.size > 1000000)
+  const bytesByHash = new Map<string, Uint8Array>();
+  const all = new Set<string>();
+  for (const root of new Set(roots)) {
+    const verified = new Set<string>(),
+      visited = new Set<string>();
+    const pending: Reference[] = [{ hash: root, kind: "state" }];
+    const hot: Reference[] = [];
+    const schedule = (edge: Reference) => {
+      const known =
+        options &&
+        (options.cache.closure(edge.hash) ||
+          (edge.kind === "change" && !options.cache.get(edge)) ||
+          options.cache
+            .get(edge)
+            ?.some(
+              (next) =>
+                next.kind === "state" && options.cache.closure(next.hash),
+            ));
+      (known ? hot : pending).push(edge);
+    };
+    while (pending.length || hot.length) {
+      const ref = (hot.pop() ?? pending.pop())!,
+        key = ref.kind + ":" + ref.hash;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      verified.add(ref.hash);
+      if (verified.size > 1_000_000)
+        throw new Error("Retained graph exceeds verification budget");
+      const closure =
+        ref.kind === "state" ? options?.cache.closure(ref.hash) : undefined;
+      if (closure) {
+        // A proposal may include an already durable hash, but cannot override its
+        // bytes merely because the stored graph has a certificate.
+        for (const type of closure.types) visited.add(type);
+        for (const hash of closure.hashes) {
+          if (closure.pending.has(hash) || !options!.durable(hash)) {
+            const bytes = bytesByHash.get(hash) ?? (await load(hash));
+            if (hashObject(bytes) !== hash)
+              throw new Error("Invalid retained object hash");
+            bytesByHash.set(hash, bytes);
+            if (options!.durable(hash)) options!.cache.markDurable(hash);
+          }
+          verified.add(hash);
+        }
+        if (verified.size > 1_000_000)
+          throw new Error("Retained graph exceeds verification budget");
+        continue;
+      }
+      const durable = options?.durable(ref.hash) ?? false;
+      const cached = options?.cache.get(ref);
+      if (cached && durable && options!.cache.isDurable(ref)) {
+        for (const edge of cached) schedule(edge);
+        continue;
+      }
+      let bytes = bytesByHash.get(ref.hash);
+      if (!bytes) {
+        bytes = await load(ref.hash);
+        if (hashObject(bytes) !== ref.hash)
+          throw new Error("Invalid retained object hash");
+        bytesByHash.set(ref.hash, bytes);
+      }
+      if (cached) {
+        if (durable) options!.cache.markDurable(ref.hash);
+        for (const edge of cached) schedule(edge);
+        continue;
+      }
+      const edges = new Map<string, Reference>();
+      const add = (hash: string, kind: Kind = "object") =>
+        edges.set(kind + ":" + hash, { hash, kind });
+      if (ref.kind === "directory") {
+        for (const entry of decodeWireDirectory(bytes).entries) {
+          if (entry.directory) add(entry.directory, "directory");
+          else if (entry.file) add(entry.file);
+        }
+      } else if (ref.kind === "change") {
+        const recorded = JSON.parse(new TextDecoder().decode(bytes));
+        if (recorded.base?.state) add(recorded.base.state, "state");
+        add(recorded.base.object, "directory");
+        add(recorded.incoming.object, "directory");
+      } else if (ref.kind === "state") {
+        const proof = options?.state?.(ref.hash);
+        const value =
+          proof?.value ??
+          (await loadIntentState(
+            ref.hash,
+            async (hash) => {
+              const cached = bytesByHash.get(hash);
+              if (cached) return cached;
+              const bytes = await load(hash);
+              if (hashObject(bytes) !== hash)
+                throw new Error("Invalid retained object hash");
+              bytesByHash.set(hash, bytes);
+              return bytes;
+            },
+            (hash) => {
+              if (hash !== ref.hash) add(hash);
+            },
+          ));
+        if (proof)
+          for (const hash of proof.dependencies)
+            if (hash !== ref.hash) add(hash);
+        for (const ref of proof?.references ?? intentReferences(value)) {
+          const colon = ref.indexOf(":");
+          add(ref.slice(colon + 1), ref.slice(0, colon) as Kind);
+        }
+      }
+      const dependencies = [...edges.values()];
+      options?.cache.set(ref, dependencies, durable);
+      for (const edge of dependencies) schedule(edge);
+    }
+    // The walk already established this exact typed closure. Rebuilding it
+    // from intermediate frontiers revisits the same history several times.
+    // Input roots are primed separately; retain only the requested root here.
+    options?.cache.retainClosure(root, {
+      hashes: verified,
+      types: visited,
+      pending: new Set([...verified].filter((hash) => !options.durable(hash))),
+    });
+    for (const hash of verified) all.add(hash);
+    if (all.size > 1_000_000)
       throw new Error("Retained graph exceeds verification budget");
-    return bytes;
-  };
-  const directory = async (hash: string) => {
-    if (directories.has(hash)) return;
-    directories.add(hash);
-    for (const entry of decodeWireDirectory(await read(hash)).entries) {
-      if (entry.directory) await directory(entry.directory);
-      else if (entry.file) await read(entry.file);
-    }
-  };
-  const nodes = async (values: Record<string, Node>) => {
-    for (const node of Object.values(values)) {
-      if (node.kind === "directory") await directory(node.object);
-      else if (node.kind === "file") await read(node.object);
-    }
-  };
-  const state = async (hash: string) => {
-    if (states.has(hash)) return;
-    states.add(hash);
-    const value = parseIntentState(
-      JSON.parse(new TextDecoder().decode(await read(hash)))
-    );
-    for (const dependency of intentDependencies(value)) await read(dependency);
-    await nodes(value.nodes);
-    for (const material of Object.values(value.outputs))
-      if (material.view) await nodes(material.view.nodes);
-    for (const effect of Object.values(value.effects)) {
-      await nodes(effect.before);
-      await nodes(effect.after);
-      await directory(effect.authored.basis);
-    }
-    for (const envelope of Object.values(value.changes)) {
-      const recorded = JSON.parse(
-        new TextDecoder().decode(await read(envelope))
-      );
-      if (recorded.base?.state) await state(recorded.base.state);
-      await directory(recorded.base.object);
-      await directory(recorded.incoming.object);
-    }
-    for (const decision of value.decisions) {
-      if (decision.context) await state(decision.context);
-      for (const alternative of decision.alternatives)
-        await state(alternative.state);
-    }
-  };
-  for (const root of roots) await state(root);
-  return verified;
+  }
+  return all;
 }
