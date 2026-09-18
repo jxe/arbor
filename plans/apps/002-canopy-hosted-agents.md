@@ -1,5 +1,13 @@
 # Apps 002: Host authored agents on Canopy
 
+> **Execution-model revision (2026-09-18):** Resource policy is now owned by
+> [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
+> by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /
+> durable workflows by [Apps 006](006-durable-authoring.md). These supersede inherited
+> named-permission, single-domain-only and unchanged-syntax instructions below.
+> Preserve Supplies behavior while intentionally adapting its source to the new API.
+
+
 **Status:** Planned. Depends on the compiler, query/mutation handles, Arbor-user context, and Canopy execution delivered by [Apps 001](001-supplies-executable-site.md).
 
 ## Target result

@@ -172,24 +172,28 @@ query discovery, delegated authorization, or server-to-server routing
 
 ## 5. Mutations
 
-A mutation is validated code running against explicit write prefixes. Its
-caller requirement is either whole-tree `write` or one named, tree-scoped
-mutation permission from [access control](05-access-control.md#11-named-mutation-permissions).
-The no-options authoring form requires `write`; an explicit permission is the
-only way a reader without whole-tree write access may invoke it. Whole-tree
-`write` satisfies every tree-local mutation permission, but never an external
-effect capability.
+Queries and mutations declare author and user resource requirements under
+[resource policy](05-access-control.md#11-execution-authority). Requirements are
+resolved before use; matching rules contribute combined authority without changing
+the caller's identity. Code is trusted to narrow behavior and disclosure within
+that authority. There is no named mutation-permission namespace or implicit
+whole-tree-write default for invocation.
 
-Caller permission and executable authority are separate. Permission authorizes
-invocation of the reviewed handle; the active manifest still confines the code
-to its resolved transaction domain, trees, write prefixes, and operations. The
-runner opens one transaction in the selected store and supplies it as `tx`.
-Returning commits; throwing rolls back. All reads, data-dependent authorization
-checks, ordered operations, and writes through `tx` share that transaction. A
-mutation cannot silently span several transaction domains. Authorship,
-ownership, membership, current-state, and input-dependent policy remain handler
-checks; an ACL permission does not make them static or move them outside the
-transaction.
+A single-domain mutation runs with a runner-owned transaction: reads, policy
+checks, writes, and its receipt commit together; throwing rolls that transaction
+back. Data-dependent ownership and workflow checks belong inside the transaction.
+A Canopy-backed operation may instead compute against a snapshot and submit an
+ordinary update guarded by all relevant same-domain dependencies. Stale guards
+rerun computation; they do not silently merge a stale policy decision.
+
+A mutation may coordinate multiple domains through durable steps. This is a
+recoverable workflow, not a distributed atomic transaction. A later failure does
+not roll back previously committed steps. The runtime records stable step identity,
+input, code/binding identity and completed output; each backing atomically couples
+effects with retry evidence or supplies equivalent crash recovery. A sidecar journal
+alone cannot close the committed-but-response-lost gap. Pending work resumes against
+its pinned code and bindings, reauthorizes remaining effects, and reports blocked
+or failed progress without disguising partial completion. Compensation is explicit.
 
 Portable mutable schema includes primary and alternate unique keys, ordered
 foreign-key field pairs, nullability, and explicit constraint actions. Primary
@@ -211,8 +215,8 @@ source bindings, the replay scoping, and the receipt. The runtime captures one
 logical mutation time and deterministic generated-ID namespace before
 execution; exact retries observe the same values.
 
-The runtime records retry identity and its completed result in the same
-transaction domain as the data effects, or uses an equivalent crash-recoverable
+For each atomic step the runtime records retry identity and its completed result
+in the same transaction domain as its data effects, or uses an equivalent crash-recoverable
 mechanism that distinguishes a completed commit from an unexecuted intent after
 restart. Backing adapters provide guarded physical commit primitives; they do
 not define transaction scope, retry identity, or mutation semantics.
@@ -221,15 +225,15 @@ Expected failures are declared public errors with stable codes and safe
 messages; other thrown values become a generic internal error without stack
 traces, SQL, paths, or private row data.
 
-External side effects and cross-domain workflows require a separately specified effect and consent contract ([deferred 3](../spec.md#deferred)); they are not disguised as deterministic collection mutations.
+External non-tree effects require a separately specified effect and consent contract ([deferred 3](../spec.md#deferred)). Durable coordination across supported tree/database providers is defined here; arbitrary external effects are not implied.
 
 ## 6. Components, imports, and consent
 
 Components run within a confined UI realm. Node data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#2-authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
 
-Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
+Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported libraries retain source-resolution context but acquire no independent grants. Privileged invocation of an imported tree is an explicit authorized execution boundary; importing code cannot silently widen authority.
 
-Before first execution in a context, a human-readable consent statement lists the resolved trees, readable prefixes, writable prefixes, caller mutation permissions, hosted execution, any backing-coupled or external capability, and—for an agent run—its tools, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad. This is the single definition of the statement's contents, and enforcement must make it true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
+Before first execution in a context, a human-readable consent statement lists the resolved trees, readable prefixes, writable prefixes, author and user resource requirements, hosted execution, any backing-coupled or external capability, and—for an agent run—its tools, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad. This is the single definition of the statement's contents, and enforcement must make it true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
 
 ## 7. Compilation and hosting
 
@@ -238,8 +242,7 @@ Compilation begins from the addressed executable document and follows its explic
 - source tree `TreeID`, logical document path, and code-version identity;
 - public component and asset bundles;
 - server-only query and mutation handles with Standard Schema input contracts
-  and each mutation's `write` or named-permission caller requirement;
-- tree-scoped mutation-permission names, human titles, and descriptions;
+  and author/user authority requirements with human-readable consent descriptions;
 - resolved read/write capabilities and backing-coupled features;
 - required tree roots, node/edge schemas, store identities, and schema fingerprints;
 - static query results when explicitly baked; and
@@ -271,6 +274,17 @@ SQLite or Postgres materialization. A mutation of a shared external Postgres
 store may update live query results without changing the executable source-tree
 ref.
 
+Logical source bindings follow [source resolution](03-locators.md#7-source-resolution).
+A host-authenticated runtime receives an [execution token](05-access-control.md#21-execution-tokens)
+binding the caller, executable and bounded authority; authored JavaScript receives
+handles rather than this token. The runtime presents it when resolving sources,
+reading or watching Canopy data, or submitting ordinary guarded updates. Code and
+provider identity asserted in public input never establish execution authority.
+HTTP forwarding and process details belong to the
+[reference sidecar boundary](../docs/execution-sidecar.md). The sidecar may use Canopy and direct
+backing providers in the same invocation. Authority invalidation reaches provider
+operations and live output, not merely the initial HTTP request.
+
 ## 9. Arbor user identity and authorization
 
 Executable documents do not define their own password, login-code, or session model. The host resolves the existing Arbor account/device or server browser session and injects an unforgeable user context into queries and mutations:
@@ -301,7 +315,7 @@ The host resolves the requested Arbor path, loads one coherent executable-docume
 
 Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](#121-evaluate-and-stream-named-queries) and its separate named-mutation operation.
 
-Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](08-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back.
+Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](08-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. For a single-domain action, successful return commits its transaction and throwing rolls it back. Workflow actions expose pending, blocked, failed, or completed state; failure does not erase committed steps.
 
 Server exceptions, database diagnostics, private values, and stack traces never become action state. Expected public errors have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as the source of truth.
 
@@ -493,19 +507,16 @@ type MutationResultReceipt<Result = unknown> = {
 };
 ```
 
-`document.tree` must equal the route `SourceTreeID`. The host first requires
-effective read access to that tree, then validates the document and handle
-versions, the handle's active manifest membership, the caller's `write` or
-named-permission requirement, and the input before opening the transaction
-domain. An unavailable handle, inert permission, or unauthorized invocation
-does not disclose private handle or tree existence. Revocation blocks the next
-invocation and any later receipt replay; it does not undo an effect that already
-committed.
+`document.tree` must equal the route `SourceTreeID`. The host validates activated
+document/handle versions, input, source bindings and declared authority before data
+access. Invocation requires authorized executable presentation, not raw private
+source disclosure. Current authority is checked before every new step and receipt
+return. Revocation does not undo committed effects. Missing authority cannot reserve
+a new backing effect or leak private handle/resource existence.
 Mutation semantic identity is the SHA-256 of the canonical CBOR encoding of
 `{ version: "mutate-v1", handle, input, sources }`, where `sources` is the
 activated handle's complete, authored-path-sorted set of
-`{ authoredPath, tree, path, schemaFingerprint }` bindings. The bindings are
-reviewed manifest state, not caller-selected destinations. This prevents an
+`{ authoredPath, tree, path, schemaFingerprint }` bindings. The bindings are validated manifest/resource-selection state; caller-selected destinations require concrete resolution and grant coverage. This prevents an
 ambiguous retry from executing the same code and input against a newly resolved
 store, relation, or schema. Durable lookup is scoped by the source tree, a
 trusted caller replay principal, and `mutationID`. The principal is the
@@ -522,7 +533,7 @@ canonical data tree, `affected` identifies its accepted update, Wire root, and
 gap-free watch cursor. A shared external-store mutation may omit `affected`
 and uses `observedThrough` for the derived-query observation domain. The mutate
 payload remains distinct from `UpdateRequest`: it carries reviewed intent and
-authorization context, while updates carry complete candidate tree state.
+authorization context, while updates carry tree intent/material and may be submitted by the sidecar under scoped authority.
 
 Document React Actions may use the document's ordinary canonical HTTP action
 surface, while a named Wire call uses the endpoint above. Both bind through the
@@ -536,8 +547,8 @@ The four operations share authentication, semantic digests, receipts,
 observation brokers, SSE framing, and tree-scoped authorization, but not
 transaction or replay domains: `updates` and `mutate` have different conflict
 domains, and `watch` has retained replay identity while `queries` deliberately
-has none. An accepted update requires whole-tree `write`; a named mutation
-requires whole-tree `write` or its declared mutation permission. Consolidation
+has none. An accepted update requires authority covering its actual effects; a named mutation
+requires coverage of its declared author/user capabilities. Consolidation
 is shared machinery, not one polymorphic endpoint.
 
 Query streaming is derived-result delivery, not tree history. A mutation of an
@@ -550,6 +561,33 @@ the readable tree graph, or exposes raw stores, credentials, private handler
 source, unrelated rows, or private diagnostics. Cross-server query discovery,
 delegated authorization, and server-to-server execution routing remain
 unspecified ([deferred 2](../spec.md#deferred)).
+
+### 12.4 Durable workflow execution
+
+The query/mutation Wire shapes above describe single-domain values and remain a
+basis for the runtime bridge, not a compatibility requirement for unused APIs.
+Workflow calls additionally expose `pending`, `blocked`, `failed`, or `completed`
+status and domain-specific receipts. They must not invent one `observedThrough`
+that promises atomic cross-domain visibility. [Apps 006](../plans/apps/006-durable-authoring.md)
+owns the paired language-neutral request/progress/receipt encoding before implementation.
+
+A durable step key is unique within an invocation, has canonical input, and is
+bound to pinned code and resolved source identities. Reusing a key for different
+intent fails. Completed output is replayed without repeating effects. Clock and
+ID values needed for replay are captured durably before use. Branches and loops
+require stable keys; automatic identity is allowed only where the compiler proves
+it remains stable. No arbitrary JavaScript continuation or process heap is durable.
+Transactions cannot span a suspension awaiting another provider. Restart without
+the pinned code or binding yields a diagnosable blocked run, never execution with
+new code. Receipts/results remain subject to current disclosure authority.
+
+Query SSR/hydration may reuse validated initial values; subscription always
+reauthorizes and establishes snapshot-and-follow. SQLite changes use provider
+observation, tree changes use Canopy watch, and policy changes invalidate both.
+Mutation completion and subscribed results may arrive in either order. A disconnected
+client does not cancel already committed steps; explicit cancellation stops only
+future steps and reports what committed. Durable records must retain pinned code,
+bindings, step receipts and pending effects until safe recovery/retention expiry.
 
 ## 13. Agents
 

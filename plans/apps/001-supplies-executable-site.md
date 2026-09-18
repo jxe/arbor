@@ -1,5 +1,13 @@
 # Apps 001: Complete the Supplies executable site
 
+> **Execution-model revision (2026-09-18):** Resource policy is now owned by
+> [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
+> by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /
+> durable workflows by [Apps 006](006-durable-authoring.md). These supersede inherited
+> named-permission, single-domain-only and unchanged-syntax instructions below.
+> Preserve Supplies behavior while intentionally adapting its source to the new API.
+
+
 ## Status
 
 - **Priority**: P1
@@ -15,7 +23,7 @@
 
 ## Target result
 
-The unchanged checked-in Supplies tree runs over its private SQLite data tree:
+The behavior-preserving updated Supplies tree runs over its private SQLite data tree:
 
 1. in local `arbor open`;
 2. in signed macOS Arbor through the same arborsync runtime; and
@@ -32,7 +40,7 @@ Arbor version has been built, populated, staged, and cut over. SQLite is the
 only runtime backing required for this milestone; a Postgres runtime driver is
 measurement-driven follow-up, not a gate.
 
-## Authored contract frozen by the port
+## Existing corpus to adapt through Apps 006
 
 ```text
 examples/supplies/
@@ -90,7 +98,7 @@ because that historical implementation passed.
 ## Remaining milestone 1 — compiler and development typechecking
 
 Complete [Apps 003](003-development-compiler-and-editor-tooling.md)
-against the unchanged Supplies corpus. This application plan consumes its
+against the updated Supplies corpus. This application plan consumes its
 coherent compiled document and activation manifest; it does not maintain a
 second compiler checklist or choose editor-specific typing semantics.
 
@@ -121,7 +129,7 @@ Gate: Apps 003's completion gate passes for `examples/supplies`.
    users, every Action, related/unrelated changes, profile edits, reconnect,
    rollout, revocation, and absence of SQLite/server code in responses.
 
-Gate: local `arbor open` and the Canopy URL run the same unchanged seeded tree;
+Gate: local `arbor open` and the Canopy URL run the same updated seeded tree;
 two clients converge live and every source/runtime error stays diagnosable.
 
 ## Remaining milestone 3 — signed native presentation
@@ -170,7 +178,7 @@ matching content/access/order, recoverable backups, and a tested rollback.
 
 ## Completion gate
 
-The unchanged checked-in source passes local web, signed macOS Arbor, and
+The behavior-preserving updated source passes local web, signed macOS Arbor, and
 canonical Canopy presentation. Related database and profile changes reach two
 clients without refresh; unrelated precise changes avoid reruns; reconnects
 cannot leave stale results; retries cannot duplicate mutations; private rows

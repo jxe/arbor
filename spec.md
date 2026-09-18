@@ -61,7 +61,7 @@ New readers should start with the non-normative [walkthrough](spec/00-walkthroug
 | [directory format](spec/02-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names |
 | [locators](spec/03-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, discovery routes, and public HTTP projection |
 | [accounts and devices](spec/04-accounts-and-devices.md) | Local-first profile identity, Canopy accounts and community-defined allocation, governed account configuration, account-local device pairing, local placements, and tree activation |
-| [access control](spec/05-access-control.md) | Access subjects, read/write levels, named mutation permissions, authentication and secrets, tree-scoped authorization, and the access route |
+| [access control](spec/05-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
 | [child backings](spec/06-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
 | [executable documents](spec/07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Wire operations |
 | [authoring API](spec/08-authoring-api.md) | The `arbor/react` and `arbor/data` packages, React Actions, hooks, and styling an executable document is written against |
@@ -93,6 +93,7 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | `GET /.arbor/trees/{TreeID}/watch` | [watching §1.1.3](spec/01-tree-operations.md#113-watching) |
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/07-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/07-executable-documents.md#122-execute-named-mutations) |
+| `POST /.arbor/trees/{SourceTreeID}/resolve-source` | [locators §7](spec/03-locators.md#7-source-resolution) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/05-access-control.md#4-reading-access) |
 | `POST /.arbor/account-challenges`, `PUT /.arbor/accounts` | [accounts §1.1–1.2](spec/04-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §5](spec/04-accounts-and-devices.md#5-device-pairing) |
@@ -117,6 +118,14 @@ Authentication headers apply to every route ([access control §2](spec/05-access
 
 The wire carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [configuration](spec/04-accounts-and-devices.md).
 
+## Source resolution and execution hosts
+
+[Source resolution](spec/03-locators.md#7-source-resolution) defines authorized logical bindings,
+provider metadata and invalidation. [Executable documents](spec/07-executable-documents.md#8-host-and-server-boundaries)
+defines execution authority use; [reference sidecar documentation](docs/execution-sidecar.md)
+owns HTTP forwarding. Implementations
+may extract the runtime without preserving the unused legacy query/mutation APIs.
+
 ## Deferred
 
 These are the behaviors the specification names but does not yet define. Each
@@ -126,14 +135,14 @@ inline mention links here; accepted implementation work is indexed under
 
 1. **Remote tree deletion.** Removing an active remote tree declaration from `trees.yaml` is invalid until a deletion lifecycle exists ([configuration](spec/04-accounts-and-devices.md#3-configuration-yaml)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](spec/07-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](spec/07-executable-documents.md#4-queries)).
-3. **External side effects and cross-domain workflows** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/07-executable-documents.md#5-mutations)).
+3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/07-executable-documents.md#5-mutations)).
 4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([child backings](spec/06-child-backings.md#4-postgres-and-placement-projections)).
 5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([child backings §1.1](spec/06-child-backings.md#11-child-backings)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](spec/07-executable-documents.md#131-agent-files)).
 7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/03-locators.md#2-stable-keys-revisions-and-fragments)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/07-executable-documents.md#4-queries)).
 9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](spec/03-locators.md#1-forms)).
-10. **Finer-grained write grants** restricting allowed authored effects or explicit resolutions. Exact-state preconditions are concurrency guards, not permissions ([updates §2.2](spec/01-tree-operations.md#22-reconciliation-and-exact-state-preconditions), [access control §4](spec/05-access-control.md#4-reading-access)).
+10. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates §2.2](spec/01-tree-operations.md#22-reconciliation-and-exact-state-preconditions), [access control §4](spec/05-access-control.md#4-reading-access)).
 11. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.
 12. **Placement-specific read-only ceilings** for installations where the same TreeID has several local placements with different effective limits.
 13. **Durable pinned placements of immutable historical revisions.** Revision locators remain read-only even when a client later makes them durable.

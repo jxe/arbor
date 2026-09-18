@@ -7,7 +7,7 @@ Package names are part of the authored portability surface: a compatible runtime
 
 ## 1. Packages
 
-`arbor/data` is authoring for data and handles: `arbor(path)` logical node sources, schema-derived children handles, `query`, `permission`, `mutation`, `publicError`, `RowOf`, and `ResultOf`.
+`arbor/data` is authoring for data and handles: `arbor(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`.
 
 `arbor/react` is the component package: `useQuery`, `skipQuery`, `useMutationAction`, `useCanInvoke`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`.
 
@@ -50,43 +50,50 @@ fragment.
 
 `query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Arbor-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
 
-`permission(name, { title, description })` declares a stable, tree-scoped
-[mutation permission](07-executable-documents.md#5-mutations). `name` is the
-lower-case wire/YAML identity; `title` and `description` are human-facing
-review and sharing text rather than authority-bearing values. The compiler
-rejects conflicting declarations of one name in a tree.
+Queries and mutations declare `authority: { author: [...], user: [...] }`.
+Requirements identify resolved source handles and operations, not credentials or
+arbitrary authority-bearing strings supplied by callers. Both parties' requirements
+are checked separately, then their granted capabilities combine for execution.
+Expansion beyond existing resource rules requires renewed consent; module/export
+renames within a code TreeID do not discard grants. Omission never confers ambient
+authority. Ordinary caller read permission, including `everyone`, works through code.
 
-The existing three-argument mutation form requires whole-tree `write`. A
-four-argument form places one declared permission requirement before the
-handler:
+The following is illustrative authoring syntax; [Apps 006](../plans/apps/006-durable-authoring.md)
+freezes the exact overloads, resource-selection typing and step API using the Supplies
+corpus before implementation. The previous `permission()` and `{ requires }` forms
+are superseded, not compatibility obligations.
 
 ```ts
-const contribute = permission("contribute", {
-  title: "Contribute",
-  description: "Add content and edit contributions you are allowed to edit",
-})
-
-export const updatePractice = mutation(
-  suppliesData,
-  inputSchema,
-  { requires: contribute },
-  async ({ user, tx }, input) => {
-    // Ownership and other data-dependent policy is checked through tx here.
+export const savePractice = mutation({
+  input: inputSchema,
+  authority: {
+    author: [practices.read(), saves.create()],
+    user: [notebook.createChildren()],
   },
-)
+  async run({ input, user, step }) {
+    const prepared = await step("prepare", () => database.transaction(async tx => {
+      const practice = await tx.practices.get(input.practiceID)
+      return tx.saves.prepare({ practice, user })
+    }))
+    const page = await step("page", () => notebook.create(prepared.page))
+    return page
+  },
+})
 ```
 
-One mutation declares one requirement. If several operations need the same
-authority, they share a permission; if one operation represents materially
-different authority, it receives a different permission and ordinarily a
-separate handle. Permission requirements are compile-time manifest facts, not
-caller input and not strings inspected ad hoc by handler code.
+Runtime handles choose their provider through [source resolution](03-locators.md#7-source-resolution).
+Single-domain handlers retain an implicit runner-owned transaction where declared;
+multi-domain handlers use explicit transaction blocks and stable durable steps.
+Straight-line handle calls may receive compiler-generated stable steps; loops,
+branches or dynamic repetition require explicit keys where stability is not proved.
+The runtime owns receipts and deterministic IDs; authors do not implement receipt
+or outbox tables. A transaction callback is one atomic step, not a sequence of
+independently replayed row writes. Throws roll back only the active transaction.
 
-`useCanInvoke(handle)` returns whether the current caller satisfies the
-handle's active manifest requirement. It is suitable for hiding an unavailable
-action, but it does not predict data-dependent handler authorization such as
-ownership of the addressed row. The host rechecks permission when the action is
-submitted; a hydrated boolean is never authorization evidence.
+`useCanInvoke(handle)` reports current requirement coverage or missing consent,
+not predicted success of row-dependent checks. The server always reauthorizes.
+Workflow action state distinguishes pending, blocked, failed and completed, and
+can expose already committed progress without disclosing private backing details.
 
 `RowOf` and `ResultOf` expose the types the development compiler infers from declared property and child schemas, so authored source maintains no second result schema.
 

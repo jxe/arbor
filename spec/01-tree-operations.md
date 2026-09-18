@@ -146,7 +146,6 @@ type RemoteTreeDescriptor = {
   id: TreeID;
   kind: "ordinary" | "account-configuration";
   access: "none" | "read" | "write";
-  permissions: string[];
   root: Hash;
   update: string;
   conflicted: boolean;
@@ -161,13 +160,10 @@ type EventCursor = string;
 type Hash = `sha256:${string}`;
 ```
 
-The descriptor's `access` is the caller's effective whole-tree level and
-`permissions` is the sorted, duplicate-free set of effective active
-tree-scoped mutation permissions defined by
-[access control](05-access-control.md#11-named-mutation-permissions).
-The list is empty when the tree is unreadable or no named permission applies;
-`write` additionally satisfies every tree-local permission without enumerating
-them. The descriptor's `root` is the bytes hash of the current accepted tree state
+The descriptor's `access` summarizes the caller's effective whole-tree access.
+Scoped or executable-constrained authority is evaluated by
+[access control](05-access-control.md), not encoded as named mutation permissions.
+The descriptor's `root` is the bytes hash of the current accepted tree state
 and `update` is the accepted-update id that produced this observation.
 The enclosing read's `observedThrough` is the cursor after which watching begins.
 It is an observation boundary, not an alias for the accepted `update` identity.
@@ -614,6 +610,11 @@ HTTP caches. The [target read vectors](../conformance/wire-accepted-state.json) 
 paired TypeScript and Swift models; they do not assert server execution.
 
 ## 2. Updates and writes
+
+Every update, exact-state guard, retry receipt, object read, and watch is subject
+to [current resource authority](05-access-control.md#3-tree-scoped-authorization).
+Narrow executable authority must be checked over actual effects; it never implies
+whole-tree read or bypasses governed account policy.
 
 ### 2.1 The update request
 

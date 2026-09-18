@@ -1,145 +1,208 @@
 # Access control
-*Part of the [Arbor spec](../spec.md): who may read, write, or invoke reviewed mutations for a tree, how a request proves who it is, and what a hash does not authorize.*
+*Part of the [Arbor spec](../spec.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
 
-*Owns: access subjects, rules, levels, and named mutation permissions; authentication headers and secret handling; tree-scoped authorization; and the `access` route. References: [accounts and devices](04-accounts-and-devices.md) for the `trees.yaml` that carries rules and `devices.yaml` whose entries govern account-scoped credentials, and [executable documents](07-executable-documents.md) for reviewed named mutations.*
+*Owns: `who` / `via` / `allow` rules. References: [account configuration](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [source resolution](03-locators.md#7-source-resolution). This is the target contract; [Apps 004](../plans/apps/004-mutation-permissions.md) owns implementation and coordinated migration.*
 
 ## 1. Subjects and rules
 
+Policy is resource-centric. An account's `trees.yaml` is keyed by the resource
+TreeID; its `access` list contains rules of this shape:
+
 ```ts
-type ReadWriteAccess = "read" | "write";
-type MutationPermission = string;
-
-type AccessSubject =
-  | { kind: "everyone" }
-  | { kind: "profile"; tree: TreeID }
-  | { kind: "link"; digest: Hash };
-
+type AccessWho = "everyone" | "me" | { profile: TreeID } | { link: Hash };
+type AccessOperation = "read" | "write" | "create-child" | "update-content"
+  | "update-properties" | "delete";
 type AccessRule = {
-  subject: AccessSubject;
-  access: ReadWriteAccess;
-  permissions?: MutationPermission[];
-};
-
-type SafeAccessSubject =
-  | { kind: "everyone" }
-  | { kind: "profile"; tree: TreeID; locator?: string }
-  | { kind: "link" };
-
-type AccessEntry = {
-  id: string;
-  subject: SafeAccessSubject;
-  access: ReadWriteAccess;
-  permissions?: MutationPermission[];
+  who: AccessWho;
+  via?: TreeID;
+  allow: AccessOperation[];
+  within?: LogicalPath;
 };
 ```
 
-`AccessRule` is the submitted and stored form; `AccessEntry` is the safe
-administrative form, and a `SafeAccessSubject` never carries a link digest or
-secret.
+```yaml
+tr_notebook:
+  canonical: https://canopy.example/~joe/notebook
+  access:
+    - who: {profile: tr_alice}
+      allow: [read]
+    - who: me
+      via: tr_supplies
+      allow: [create-child]
+tr_private_data:
+  access:
+    - who: everyone
+      via: tr_supplies
+      allow: [read]
+      within: /published
+```
 
-Access subjects are `everyone`, a stable profile `TreeID`, or a
-`sha256:<hex>` access-link digest. Every stored rule contains `read` or
-`write`; `none` means removal and is never stored. A rule may additionally
-carry an ordered, duplicate-free list of mutation permissions. An omitted
-`permissions` field means an empty list. A permission is a lower-case ASCII
-identifier matching `[a-z][a-z0-9-]*`, with `none`, `read`, and `write`
-reserved. Permission identity is scoped by the tree whose executable mutation
-declares it; the same spelling in another tree is unrelated.
+`me` is the policy account's stable profile identity, not the submitting device
+or an authored user parameter. A profile subject matches that profile, or the
+current membership of a group profile; person-profile fields never create a
+group. A link subject matches a valid presented secret's digest.
 
-Public access is represented by the `everyone` rule; there is no
-`publicAccess` field. A `write` rule permits authored updates and satisfies every
-tree-local mutation permission. An exact-state precondition never grants additional
-write authority. Finer-grained write permissions are deferred
-([deferred 10](../spec.md#deferred)). A raw link secret
-never enters YAML.
+`via` restricts a rule to a host-attested execution of that source TreeID. It is
+not a module or export name. Omitting it imposes no executable restriction:
+ordinary read access, including public access, works through code too. A
+browser-supplied TreeID or header is never execution attestation. Libraries
+execute within their caller's authority; imports do not acquire the imported
+tree's grants. Calling another tree as a privileged executable requires a new,
+explicitly authorized execution boundary. Nested code trees do not inherit `via`.
 
-Rules live in the account's `trees.yaml` ([accounts §3](04-accounts-and-devices.md#3-configuration-yaml));
-an administrator changes them by editing that file, and the server applies the
-change atomically with the accepted configuration root
-([accounts §7](04-accounts-and-devices.md#7-governed-account-tree)).
-Group membership is authored profile content and does not itself grant access.
+`within` defaults to `/` and selects a logical subtree including its root;
+resolution uses segment boundaries, not string prefix matching. It never crosses
+a nested TreeID boundary. Rules use concrete resource identities, not mutable
+canonical URLs. `allow` is nonempty and duplicate-free; unknown operations fail
+validation. Rules have no authored grant IDs. Their merge key is canonical
+`(who, via-or-absent, within-or-/)`; duplicate keys are invalid.
 
-### 1.1 Named mutation permissions
+`read` permits scoped content, properties, membership, and authorized observation.
+`write` includes read and all ordinary content mutation operations within scope,
+but not account administration, resource delegation, external effects, or raw
+backing credentials. `create-child` permits adding a previously absent child
+and its new content beneath an allowed parent, not overwriting an existing child.
+`update-content` and `update-properties` affect only their respective fields;
+`delete` removes an allowed node. Moves require authority for removal and
+creation and all consequential effects. No narrow operation implies read.
+Providers reject operations they cannot enforce exactly; they never silently
+promote a narrow operation to whole-store write.
 
-A mutation permission authorizes invocation of reviewed named mutations that
-declare that permission. It does not authorize an accepted tree update, direct
-node or backing writes, another mutation permission, external effects, or
-access to any unreadable tree. In the initial contract every subject with a
-mutation permission also has `read` or `write`; blind mutation submission
-without read access is not defined.
+### 1.1 Execution authority
 
-Executable source declares a stable permission name, human title, and concise
-description, and each named mutation declares exactly one requirement. A
-mutation with no explicit requirement requires `write`, preserving the default
-for existing authored source. The compiler records permission definitions,
-per-handle requirements, and resolved write prefixes in the reviewed manifest.
-An ACL reference to a permission absent from the active manifest is inert and
-diagnosable rather than an authorization grant.
+Queries and mutations declare requirements supplied by author and user. The host
+binds author to an explicitly configured sponsoring account, not the last editor;
+user is the authenticated caller or anonymous. Applicable rules are evaluated
+against that caller and the attested executing TreeID. An author's private read
+access does not automatically become available to anonymous users: a matching
+rule, such as `who: everyone, via: tr_supplies`, must authorize that execution.
 
-Authorization has three cumulative boundaries:
+Each party's declared requirements must be covered by its applicable policy and
+current underlying authority. Only those requested capabilities enter execution;
+the resulting author and user contributions are combined. Grant provenance is
+retained internally, while user identity remains the caller. No union may invent
+a capability not independently covered by an authorized contribution.
 
-1. the caller must have effective read access and either `write` or the named
-   permission required by the mutation;
-2. the active reviewed manifest confines the mutation to its declared trees,
-   transaction domain, write prefixes, and operations; and
-3. data-dependent checks such as authorship, ownership, or current workflow
-   state occur inside the mutation transaction.
+Hosted resource owners can grant direct access. Rules in a non-owner account
+configuration can only attenuate access that account currently holds; they cannot
+change the owner's ACL, authorize delegation of account administration, or survive
+loss of underlying access. The authority evaluates underlying access without
+recursively treating the proposed delegation as its own justification. Cross-server
+delegation transport is not defined by this local-host contract.
 
-An ACL permission is therefore coarse authority to invoke a class of reviewed
-operations, not a replacement for row- or input-dependent authorization. The
-host rechecks it on every call before entering the transaction. External
-effects remain governed by their separate effect and consent contract; full
-tree `write` does not imply them.
+Consent edits accepted account configuration. Requirements expanding beyond
+applicable rules need new approval from the affected party; reduced requirements
+need none. Grants follow the code TreeID across module moves and revisions.
+Thus maintainers are trusted to change behavior inside that envelope. Each run
+pins code, requirements, and resolved resources; it never silently upgrades while
+resuming. Runtime tokens are opaque, limited to that execution authority, and
+contain no general user/author credentials. Their encoding is host-private.
+
+Rules are edited through governed configuration acceptance, not a separate grant
+CRUD service. Only administrator devices may edit resource policy. Enforcement
+uses accepted configuration and current identity/group/access facts, never an
+unaccepted local edit. Policy indexes are derived. Revocation does not undo
+committed effects or retract bytes already disclosed.
 
 ## 2. Authentication and secrets
 
-Authenticated requests use:
+Authenticated ordinary requests use:
 
 ```text
 Authorization: Bearer <device credential>
 Arbor-Access-Link: <access-link secret>
 ```
 
-The server stores only cryptographic digests. Across all valid presented
-subjects it grants the maximum `none`/`read`/`write` level and the union of
-their mutation permissions; `write` satisfies all tree-local mutation
-permissions. Tree descriptors expose that effective base level and the
-sorted, duplicate-free effective list of permissions declared by the active
-manifest; they omit inert names and do not enumerate the permissions implied
-by `write`. Administrative access entries still expose stored inert names so
-an administrator can diagnose or remove them. Raw credentials, profile private
-keys, and link secrets never appear
-in URLs, redirects, response bodies, errors, logs, refs, objects, YAML, access
-lists, or events. Link entries returned to administrators reveal neither secret
-nor digest.
+A device credential identifies one account and contributes its `account.yaml.profile`.
+The host establishes executable context separately over an authenticated runtime
+channel. Incoming public requests cannot forge or override it. Across matching
+rules, allowed operations union within their scopes. Caller authentication,
+executable identity, and policy-account provenance remain distinct.
 
-An accepted device credential authenticates one device in one Canopy account.
-For profile-subject access, it contributes exactly that account's
-`account.yaml.profile` TreeID. The server never infers a profile subject from
-the Canopy origin, account handle, canonical profile URL, or a device identity.
-One physical installation paired with several accounts therefore presents the
-credential for the account through which it is acting.
+Raw credentials, private keys, execution tokens, and link secrets never appear
+in authored YAML, URLs, diagnostics, query results, or transcripts. Link-subject
+hashes may appear in canonical private policy but are omitted from safe access
+responses. Account-specific policy is not public executable metadata.
+
+### 2.1 Execution tokens
+
+A host issues an opaque execution token to its trusted runtime through an
+authenticated channel after checking activation and requirement coverage. The
+token binds the actual caller/replay principal, executing source TreeID (matched
+against `via`), sponsoring account, pinned code and requirements, resolved resource
+bindings, and the bounded author/user authority with its provenance. It can refer
+to authenticated claims or host-private records; its encoding and issuance transport
+are implementation details, not authored data or a durable query-session protocol.
+
+The runtime authenticates Canopy calls with:
+
+```http
+POST /.arbor/trees/tr_notebook/updates
+Authorization: Bearer <execution-token>
+Content-Type: application/json
+```
+
+The body is an ordinary `UpdateRequest`, including its normal exact-state guard
+when required. No author, caller, `via`, or grant field in that body supplies
+authority. Ordinary clients continue using device credentials. Execution tokens
+also authenticate authorized resolution, object/read, receipt and watch requests;
+a runtime cannot substitute a source-binding ID for a token.
+
+Canopy verifies the token's issuer, validity and intended host, then checks current
+policy and underlying authority within its bound requirements. Matching `who` /
+`via` rules authorize effects; a valid state guard checks concurrency independently.
+Recheck at atomic acceptance and stored-receipt disclosure. Token possession does
+not freeze ACLs, device/session validity or grants. Watches and direct-provider
+execution use the revocation rules below; expiration or refresh cannot silently
+broaden the pinned execution. Untrusted clients cannot mint execution context, and
+authored code receives no raw token or general author/user credentials.
 
 ## 3. Tree-scoped authorization
 
-Possession of a hash is not authorization. Every object or snapshot read is
-scoped through one named tree and its current ACL.
+Possession of a hash, source binding, watch cursor, or accepted receipt is not
+authorization. Every operation checks current authority through a named TreeID.
+Nested tree entries stop both reachability and permission scope.
 
-The generic object route additionally requires reachability from any retained
-accepted root of the named tree. The accepted-snapshot route instead requires
-that its root belong to one of the named tree's retained accepted updates. It deliberately
-provides non-enumerable known-root historical reads: the server exposes neither
-a history listing nor accepted-update metadata, and unknown, unretained,
-wrong-tree, and unauthorized roots are indistinguishable `404`s.
+A whole-tree read permits objects reachable from retained accepted roots and
+known-root accepted snapshots. Unknown, unretained, wrong-tree, and unauthorized
+roots are indistinguishable `404`s. Scoped read cannot expose a whole root,
+ancestor directory listing, conflict alternative, provenance object, or shared
+object merely because some descendant is readable. Object reads must prove
+reachability within the authorized projection; unsupported scoped projections
+fail closed. Source/schema resolution must observe the same disclosure limit.
 
-Deleting content from the current root does not erase it from a retained
-accepted snapshot. Revoking a subject prevents later authorized origin fetches
-but cannot retract bytes already received. A response admitted to a shared
-public cache while the tree is readable by `everyone` can therefore outlive a
-later ACL change.
+### 3.1 Updates and guards
 
-A nested tree entry is a boundary, not an object copy. Parent reachability stops
-there and the child's root, objects, history, and ACL remain independent.
+The ordinary updates endpoint accepts executable-authorized effects as well as
+ordinary writer updates. Authority is checked over the submitted intent and the
+actual accepted effects, including deletions, moves, cascades, schema changes,
+conflict alternatives, and explicit resolutions. Snapshot replacement cannot
+bypass narrow operation limits. If confinement cannot be proved, reject rather
+than requiring or assuming broader authority. Account configuration always retains
+its additional governance rules.
+
+Exact-state guards are concurrency checks, never permission grants. A mutation
+whose checks depend on state submits a guard covering that state. Failed guards
+require recomputation rather than automatic merging of stale policy decisions.
+A single-tree guard does not establish atomic checks across independent trees or
+stores. Recheck authority at atomic acceptance, and before returning a stored
+receipt; a revoked retry must neither reveal its result nor create a second effect.
+
+### 3.2 Watches and revocation
+
+Authorize stream admission, cursor replay, and every disclosed event against
+current policy. Whole-tree watches require whole-tree read. Scoped observation
+must filter paths, hashes, metadata, and changes outside the readable projection;
+if the host lacks that facility it rejects the request. Reauthorization and event
+publication must be ordered against policy acceptance so queued events cannot
+escape after revocation. Terminate or invalidate affected streams without
+revealing private details. Reconnect repeats authorization; a cursor is not a grant.
+
+Hosts notify trusted runtimes of policy, device/session, and group-membership
+changes affecting active execution. A disconnected invalidation channel blocks
+new disclosures/effects until authority is refreshed. Direct backing providers
+must participate in this enforcement; a token checked once at SQLite connection
+creation is insufficient. Cached public bytes cannot be recalled.
 
 ## 4. Reading access
 
@@ -147,11 +210,12 @@ there and the child's root, objects, history, and ACL remain independent.
 GET /.arbor/trees/{TreeID}/access
 ```
 
-The response is a snapshot envelope of safe `AccessEntry`s, including each
-entry's named mutation permissions. Steady-state ACL
-mutation occurs by editing the authenticated account's `trees.yaml`; there is
-no separate access-mutation endpoint. Rule subjects, levels, and the `none`
-removal rule are defined once in
-[§1](#1-subjects-and-rules). An access-link secret
-is generated and shown locally once; only its digest is submitted in
-configuration, and a safe entry exposes neither.
+Administrators receive a safe projection of resource rules with `who`, optional
+`via`, `allow`, and `within`. Link subjects are redacted, and private policy from
+other accounts is not exposed. Effective permission descriptions are scoped to
+current caller/executable context; they are advisory, never authorization proof.
+The legacy `none | read | write` descriptor remains a summary of whole-tree access,
+not a representation of scoped capabilities. Permission changes occur only through
+accepted `trees.yaml` updates. Concurrent narrowing/removal must not resurrect
+broader permissions through ordinary union merging: ambiguous policy edits retain
+the restrictive effective result pending explicit authorized resolution.

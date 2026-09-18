@@ -236,3 +236,80 @@ a Markdown data projection; a stale readable path redirects permanently to the
 current row path while preserving the key, application query, and content
 fragment. Public projection never materializes a row as a Markdown file and
 never exposes the reserved representation objects as children.
+
+## 7. Source resolution
+
+```text
+POST /.arbor/trees/{SourceTreeID}/resolve-source
+```
+
+An authorized runtime resolves an authored locator from its defining module:
+
+```ts
+type ResolveSourceRequest = {
+  from: { tree: TreeID; root: Hash; module: LogicalPath };
+  locator: string;
+};
+type SourceBinding = {
+  tree: TreeID;
+  path: LogicalPath;
+  bindingVersion: Hash;
+  schema: { fingerprint: Hash; definition?: Hash };
+  operations: AccessOperation[];
+  backing:
+    | { kind: "canopy-tree"; root: Hash; update: string; observedThrough: EventCursor }
+    | { kind: "provider"; provider: string; binding: string };
+};
+```
+
+`from.tree` equals the route tree; `from.root` must be an authorized retained
+source root. Relative paths resolve from the defining module, including imported
+helpers, through explicit logical placements and nested tree boundaries. Physical
+filesystem paths, sampled table names, and the current browser document are not
+fallback resolution contexts. Computed locators require declared bounds and
+validated concrete bindings before execution. Explicit user-selected resources
+are resolved and consented as concrete TreeIDs/paths.
+
+Authentication determines permitted resolution and metadata disclosure; the request
+has no purpose or consent mode. A consent UI uses the grantor's ordinary authenticated
+context. An execution runtime uses an [execution token](05-access-control.md#21-execution-tokens).
+Neither can use a not-yet-approved grant. If a resource cannot safely be identified,
+resolution fails without revealing its existence.
+
+The response provides authorized logical identity and a safe backing descriptor.
+Private schema and data are fetched separately under current authority. Resolving a
+binding never authorizes those later reads. Even fingerprints, accepted-root hashes,
+and operation metadata must be within the caller's permitted disclosure scope;
+if the complete binding cannot be returned safely, resolution fails closed.
+
+`read` authority for the whole resource is required for the full schema; a
+write-only binding instead carries an authorized operation/input contract without
+private schema content. In that case `schema.definition` is omitted.
+Schema definitions use the host's authorized object transport. Public/client
+bundles contain safe result metadata, not private schemas or provider bindings.
+An unavailable, ambiguous, stale, unsupported, or unauthorized source fails before
+data access; it is never silently redirected to a same-named store. Matching names
+are not proof of identity. A source-binding response conveys metadata, not access.
+Every provider use rechecks authority.
+
+### 7.1 Binding, data, and observation
+
+`bindingVersion` identifies the resolved resource, backing identity, and schema
+contract. It excludes ordinary row/content updates. Code version, binding version,
+and data observation cursor are independent. Changing a resource target requires
+fresh grant coverage; changing incompatible schema or provider meaning invalidates
+the compiled plan. Running mutations retain their original concrete bindings.
+
+A Canopy binding includes an atomic accepted state/observation boundary. Tree
+watches invalidate dependent bindings or data; the runtime must follow/replay from
+the sampled cursor and rerun on races. Provider configuration publishes opaque
+backing descriptors and schema changes to the host. The host cannot infer changes
+inside an unmanaged database. A provider binding is mapped to connections by
+private host configuration, never by arbitrary authored filenames or credentials.
+SQLite/provider snapshots and committed observation establish their own no-gap
+boundary. Across domains, observations form a vector, not a global transaction.
+
+The host must offer authorized binding/authority invalidation or require a
+conservative refresh before use. Reconnect and cursor expiry trigger fresh
+resolution/authorization; stale cached metadata must never become authority.
+Unsupported source types fail explicitly.

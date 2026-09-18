@@ -1,5 +1,13 @@
 # Apps 003: Compile and typecheck executable Arbor documents
 
+> **Execution-model revision (2026-09-18):** Resource policy is now owned by
+> [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
+> by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /
+> durable workflows by [Apps 006](006-durable-authoring.md). These supersede inherited
+> named-permission, single-domain-only and unchanged-syntax instructions below.
+> Preserve Supplies behavior while intentionally adapting its source to the new API.
+
+
 ## Status
 
 - **Priority:** P1
@@ -11,7 +19,7 @@
   provider-neutral node/query contracts and Apps 001's checked-in
   Supplies corpus.
 - **Blocks:** Apps 001 local/Canopy execution, Apps 002 hosted agents, and
-  Apps 004 mutation-permission manifest integration.
+  Apps 006 authority-manifest and durable-step integration.
 
 ## Target result
 
@@ -22,8 +30,8 @@ integration is an adapter over an editor-independent compiler and language
 service; no normative type information exists only inside a VS Code plugin.
 
 The common authored source locator is tree-logical rather than database-
-specific. This plan must settle the exact `arbor(...)` locator syntax with the
-user before changing checked-in applications. A literal locator resolves from
+specific. Resolve locator syntax through the source-resolution contract and coordinate
+authored API changes with Apps 006 before changing checked-in applications. A literal locator resolves from
 the source module's enclosing tree and placement graph, then pins the resolved
 TreeID, logical path, schema fingerprint, and required capabilities in the
 activation manifest.
@@ -117,7 +125,7 @@ and server-handle leakage.
 
 Completion gate:
 
-- `arbor check examples/supplies` typechecks the unchanged corpus;
+- `arbor check examples/supplies` typechecks the corpus adapted under Apps 006;
 - inferred result and mutation types reach TSX and MDX call sites;
 - VS Code and Zed show the same representative completions and diagnostics;
 - local Arbor and Canopy activate the identical reviewed manifest; and
@@ -126,11 +134,10 @@ Completion gate:
 
 ## Deliberate boundaries
 
-- Do not change authored query syntax without discussing it with the user
-  first. Mutation-permission syntax is now frozen by
+- Coordinate authored query/mutation syntax changes with Apps 006. Authority
+  semantics are defined by
   [`spec/08-authoring-api.md`](../../spec/08-authoring-api.md#3-handles) and
-  [Apps 004](004-mutation-permissions.md); do not redesign it during compiler
-  implementation.
+  [Apps 004](004-mutation-permissions.md); Apps 006 owns the final authoring surface.
 - Do not make a global TreeID/path registry part of authored application code.
 - Do not infer property types from currently sampled rows.
 - Do not require one editor, one workspace layout, or a running Canopy.

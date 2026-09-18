@@ -180,9 +180,8 @@ profile: "tr_joe_profile"
 tr_notes:
   canonical: "https://canopy-a.example/~joe/notes"
   access:
-    - subject:
-        kind: everyone
-      access: read
+    - who: everyone
+      allow: [read]
 tr_private:
   canonical: "https://canopy-a.example/~joe/private"
   access: []
@@ -203,8 +202,13 @@ the normalized HTTPS origin and `profile` is the stable person-profile
 administrator list, or nested community object. Account-locator allocation
 belongs to the Canopy's community policy.
 
-`trees.yaml` is keyed directly by client-generated `TreeID`. Each entry declares
-one tree hosted by this account, its complete canonical HTTPS URL, and its ACL.
+`trees.yaml` is keyed directly by resource `TreeID`. An entry with `canonical`
+declares hosting and its complete canonical HTTPS URL; an entry without it records
+only resource policy and does not reserve, host, claim ownership of, or fetch a tree.
+Both forms carry an `access` list using [resource rules](05-access-control.md).
+This permits a user's policy for code acting on an already shared resource.
+Omitting `canonical` from an existing hosted entry is not a deletion operation.
+A non-hosting policy cannot widen the account's underlying access.
 The canonical URL's origin must equal `account.yaml`'s `canopy`; the Canopy then
 decides whether that account may allocate its requested path. A full URL makes
 the intended Canopy visible where the canonical placement is authored; it
@@ -372,7 +376,10 @@ accepted root. Derived credential bindings, retired IDs, status, and indexes
 live in the server database while the accepted graph remains canonical.
 
 The top-level entries of `devices.yaml` merge by `DeviceID`; `trees.yaml`
-entries merge by `TreeID`; ACLs merge by semantic subject. Disjoint changes
+entries merge by `TreeID`; access rules merge by canonical `(who, via, within)` identity. No authored grant
+ID is added. Concurrent removal/narrowing must not resurrect authority through a
+union; ambiguous policy edits enforce the restrictive intersection until explicitly
+resolved by an authorized administrator. Disjoint changes
 auto-merge. Delete versus unchanged resolves to delete, and an administrator's
 device revocation wins a concurrent edit by that revoked device. Incompatible
 edits to the same semantic field create a private typed conflict that requires
