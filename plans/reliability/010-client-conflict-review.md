@@ -1,7 +1,7 @@
 # Reliability 010: Native accepted-conflict review
 
 Status: IN PROGRESS. Priority: P1. Native grouped review and generic editor accessories are
-implemented on `codex/native-conflict-review` and `codex/editor-accessories`; they are not installed or manually
+implemented and integrated with main; they are not installed or manually
 verified. See the [implementation and verification checkpoint](../../docs/native-conflict-review.md).
 The remaining Phase 1 work below precedes finer contextual editor work.
 
@@ -40,7 +40,7 @@ TypeScript, conformance fixtures and the client state-machine specification.
 ## Phase 1: Remaining work
 
 The implemented sidebar list, page markers, exact-source comparison/composition,
-draft persistence, grouped structural resolution and generic Quagmire accessories are documented in the
+draft persistence, source-range resolution, grouped structural resolution and generic Quagmire accessories are documented in the
 [checkpoint](../../docs/native-conflict-review.md). Keep their supported scope and
 conservative accepted-state freshness checks explicit while completing this phase.
 
@@ -81,8 +81,9 @@ and the editor's exact source mapping support them.
 - Map authoritative source ranges through editor refreshes; validate the mapping
   before presenting a location. Fall back to page/directory review when placement
   is uncertain, rather than guessing or mutating the document to insert markers.
-- Support fine-grained choices when Canopy actually exposes independent decisions.
-  Keep coupled decisions grouped even when their markers appear far apart.
+- Attach independently resolvable source choices to their verified block locations.
+  The range compiler and Canopy operations are implemented; contextual block mapping
+  remains. Keep coupled decisions grouped even when markers appear far apart.
 - Explain verified actions such as moves, copies, deletion and hidden-alternative
   edits. Keep uncertain correspondence and unknown authors explicit.
 - Offer rule-provided combination previews and richer format-specific controls as

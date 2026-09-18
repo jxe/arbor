@@ -375,15 +375,24 @@ extension LiveSourceAdmissionTests {
         let inspection = try await coordinator.inspectChoices()
         let decision = try #require(inspection.decisions.first { $0.path == "/page.md" })
         var hiddenID = decision.selected
+        let hiddenFragment = decision.sourceRange == nil ? "Hidden review version\n" : "Hidden review version"
+        let peerFragment = decision.sourceRange == nil ? "Peer review version\n" : "Peer review version"
+        func expectedSource(_ replacement: String) async throws -> String {
+            guard let range = decision.sourceRange else { return replacement }
+            let snapshot = try await client.snapshot(tree: treeID, root: inspection.root)
+            let bytes = try #require(snapshot.objects.first { $0.hash == decision.affected[0].material.object }?.bytes)
+            var result = bytes; result.replaceSubrange(range, with: Data(replacement.utf8))
+            return try #require(String(data: result, encoding: .utf8))
+        }
         #expect(decision.supportsIndependentResolution)
         var sourceBytes = Set<Data>()
         for alternative in decision.alternatives {
             let content = try #require(try await coordinator.reviewContent(alternative, decision: decision.id, state: inspection.state))
             sourceBytes.insert(content)
-            if content == Data("Hidden review version\n".utf8) { hiddenID = alternative.id }
+            if content == Data(hiddenFragment.utf8) { hiddenID = alternative.id }
         }
-        #expect(sourceBytes.contains(Data("Hidden review version\n".utf8)))
-        #expect(sourceBytes.contains(Data("Peer review version\n".utf8)))
+        #expect(sourceBytes.contains(Data(hiddenFragment.utf8)))
+        #expect(sourceBytes.contains(Data(peerFragment.utf8)))
         if mode.hasPrefix("group-") {
             // Deleting an ancestor of an unresolved leaf produces a coupled root choice.
             let projected = try await client.snapshot(tree: treeID, root: inspection.root)
@@ -430,7 +439,8 @@ extension LiveSourceAdmissionTests {
             #expect(accepted.tree.root == preview.candidate.root)
             return
         }
-        let source = mode == "choose" ? "Hidden review version\n" : "# Reviewed\r\n\r\nKeep exact spaces  \r\nCafe\u{301} and café\r\n"
+        let source = mode == "choose" ? hiddenFragment : "# Reviewed\r\n\r\nKeep exact spaces  \r\nCafe\u{301} and café\r\n"
+        let expected = try await expectedSource(source)
         let draft = ConflictReviewDraft(snapshot: inspection, decision: decision, alternative: hiddenID, source: mode == "choose" ? nil : source)
         try await coordinator.retainReviewDraft(draft)
         #expect(try await coordinator.reviewDrafts().count == 1)
@@ -449,7 +459,7 @@ extension LiveSourceAdmissionTests {
             #expect(await transport.replayedExactBody())
             let provider = WorkingTreeProvider(workingTree: reopenedTree, sourceCoordinator: reopened)
             let reopenedSession = try await provider.openDocument(reference)
-            #expect(try await reopenedSession.snapshot().source.utf8.elementsEqual(source.utf8))
+            #expect(try await reopenedSession.snapshot().source.utf8.elementsEqual(expected.utf8))
             let current = try await reopenedSession.snapshot()
             _ = try await reopenedSession.admit(intent: .init(basis: current, patch: .init(baseContentRevision: current.contentRevision,
                 edits: [.init(utf8Range: 0..<current.source.utf8.count, replacement: "Review completed\n", expected: current.source)]), source: "Review completed\n"))
@@ -481,21 +491,25 @@ extension LiveSourceAdmissionTests {
             let latest = try await coordinator.inspectChoices()
             var preserved = try await session.snapshot().source == later
             for choice in latest.decisions {
-                for alternative in choice.alternatives where alternative.value.file != nil {
-                    if try await coordinator.reviewContent(alternative, decision: choice.id, state: latest.state) == Data(later.utf8) { preserved = true }
+                for alternative in choice.alternatives {
+                    if let content = try await coordinator.reviewContent(alternative, decision: choice.id, state: latest.state),
+                       content == Data(later.utf8) || content == Data(later.dropLast().utf8) { preserved = true }
+                    if let directory = alternative.value.directory {
+                        var pending = [(directory, WireEntryKind.directory)], visited = Set<String>()
+                        while let (hash, kind) = pending.popLast() {
+                            guard visited.insert(hash).inserted else { continue }
+                            let bytes = try await client.conflictObject(tree: treeID, state: latest.state, conflict: choice.id, alternative: alternative.id, hash: hash)
+                            if kind == .file, bytes == Data(later.utf8) { preserved = true }
+                            if kind == .directory, case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: kind) {
+                                for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
+                            }
+                        }
+                    }
                 }
             }
             #expect(preserved)
-            // Explicitly resolve a supported new choice if the
-            // racing ordinary edit correctly introduced a newer choice.
-            for choice in latest.decisions where choice.path == "/page.md" {
-                var group = ConflictReviewDraft(snapshot: latest, decision: choice,
-                    alternative: choice.selected, source: "Review completed\n")
-                for member in group.decisions where member.id != choice.id {
-                    try group.choose(member.id, alternative: member.selected)
-                }
-                try await coordinator.applyReviewDraft(group)
-            }
+            // The disposable tree may retain a new enclosing choice. Do not
+            // choose its source placement implicitly while testing publication.
             try await coordinator.discardReviewDraft(draft.id)
             await session.close(); await coordinator.close(); await tree.close()
             return
@@ -506,10 +520,63 @@ extension LiveSourceAdmissionTests {
         let after = try await coordinator.inspectChoices()
         #expect(!after.decisions.contains { $0.id == decision.id })
         let current = try await session.snapshot()
-        #expect(Data(current.source.utf8) == Data(source.utf8))
+        #expect(Data(current.source.utf8) == Data(expected.utf8))
         _ = try await session.admit(intent: .init(basis: current, patch: .init(baseContentRevision: current.contentRevision,
             edits: [.init(utf8Range: 0..<current.source.utf8.count, replacement: "Review completed\n", expected: current.source)]), source: "Review completed\n"))
         _ = try await coordinator.syncOnce()
+        await session.close(); await coordinator.close(); await tree.close()
+    }
+}
+
+extension LiveSourceAdmissionTests {
+    @Test("Native source-range review preserves and relocates another unresolved choice")
+    func independentRangeReview() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string: address),
+              let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let trees = environment["ARBOR_REVIEW_TEST_TREES"],
+              let treeID = try JSONDecoder().decode([String: String].self, from: Data(trees.utf8))["independent-ranges"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "range-review-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ArborWireClient(origin: origin, credential: token)
+        let tree = try await place(try await client.descriptor(tree: treeID), client: client)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client), stateRoot: root,
+            sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let reference = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page")
+        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
+        let initialSource = try await session.snapshot()
+        _ = try await session.admit(intent: .init(basis: initialSource,
+            patch: .init(baseContentRevision: initialSource.contentRevision, edits: [
+                .init(utf8Range: 0..<initialSource.source.utf8.count, replacement: "éaaa bccc\r\n", expected: initialSource.source)
+            ]), source: "éaaa bccc\r\n"))
+        _ = try await coordinator.syncOnce()
+        let basis = try await session.snapshot(), captured = try await tree.captureSourceAdmissionBasis(reference)
+        func change(_ first: String, _ second: String, from basis: WorkspaceDocumentSnapshot) throws -> WorkspaceDocumentIntent {
+            try .init(basis: basis, patch: .init(baseContentRevision: basis.contentRevision, edits: [
+                .init(utf8Range: 2..<5, replacement: first, expected: "aaa"),
+                .init(utf8Range: 7..<10, replacement: second, expected: "ccc")
+            ]), source: "é\(first) b\(second)\r\n")
+        }
+        let peer = try captured.prepare(intent: change("AAA", "CCC", from: captured.document))
+        let request = try await client.prepareUpdates(tree: treeID, base: #require(captured.accepted), updates: [peer.update])
+        _ = try await client.submitUpdateResponse(request)
+        _ = try await session.admit(intent: change("X", "Z", from: basis)); _ = try await coordinator.syncOnce()
+        let inspection = try await coordinator.inspectChoices()
+        #expect(inspection.decisions.count == 2)
+        let first = try #require(inspection.decisions.first { $0.sourceRange == 2..<5 })
+        let second = try #require(inspection.decisions.first { $0.id != first.id })
+        var hidden: String?
+        for alternative in first.alternatives {
+            if try await coordinator.reviewContent(alternative, decision: first.id, state: inspection.state) == Data("X".utf8) { hidden = alternative.id }
+        }
+        let draft = ConflictReviewDraft(snapshot: inspection, decision: first, alternative: try #require(hidden))
+        let preview = try await coordinator.previewReviewDraft(draft)
+        #expect(preview.operations?.map(\.kind) == ["copySource", "editSource"])
+        try await coordinator.applyReviewDraft(draft)
+        let remaining = try await coordinator.inspectChoices()
+        #expect(remaining.decisions.count == 1)
+        #expect(remaining.decisions.first?.id == second.id)
+        #expect(remaining.decisions.first?.sourceRange == 5..<8)
+        #expect(try await session.snapshot().source == "éX bCCC\r\n")
         await session.close(); await coordinator.close(); await tree.close()
     }
 }

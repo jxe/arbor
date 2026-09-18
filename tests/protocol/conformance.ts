@@ -64,7 +64,7 @@ try {
     const tree = generateArborID("tr");
     const sourceTree = generateArborID("tr");
     const crossDocumentTree = generateArborID("tr");
-    const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response"].map(mode => [mode, generateArborID("tr")]));
+    const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"].map(mode => [mode, generateArborID("tr")]));
     await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
       account: graph.account,
       trees: { version: 1, trees: { ...graph.trees.trees,

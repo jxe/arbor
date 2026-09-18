@@ -59,10 +59,44 @@ enum ConflictReviewCompiler {
         }
         struct Assignment { let decision: ConflictReviewDecision; let old: String; let destination: String; let value: WireDirectoryEntry? }
         var assignments: [Assignment] = []
+        struct RangeEdit { let decision: ConflictReviewDecision; let range: Range<Int>; let replacement: Data }
+        var rangeEdits: [String: [RangeEdit]] = [:]
+        var rangeOperations: [WireSourceOperation] = []
+        let onlyRanges = draft.decisions.allSatisfy { $0.sourceRange != nil }
         for decision in draft.decisions {
             guard let selection = draft.selection(for: decision.id),
                   let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
                   let old = decision.path else { throw ConflictReviewError.unsupported }
+            if let range = decision.sourceRange {
+                let currentFile = try entry(old, in: base.root)?.file
+                guard let projected = decision.affected[0].material.object,
+                      (!onlyRanges || currentFile == projected),
+                      let bytes = objects[projected], range.upperBound <= bytes.count,
+                      String(data: bytes.prefix(range.lowerBound), encoding: .utf8) != nil,
+                      String(data: bytes.suffix(bytes.count - range.upperBound), encoding: .utf8) != nil else {
+                    throw ConflictReviewProposalError("The source range no longer matches its pinned file.")
+                }
+                let replacement: Data
+                if selection.remove == true { replacement = Data() }
+                else if let source = selection.source { replacement = Data(source.utf8) }
+                else if let text = alternative.value.text { replacement = Data(text.utf8) }
+                else if let file = alternative.value.file, let data = objects[file] { replacement = data }
+                else { throw ConflictReviewError.unsupported }
+                guard let text = String(data: replacement, encoding: .utf8) else { throw ConflictReviewError.unsupported }
+                rangeEdits[old, default: []].append(.init(decision: decision, range: range, replacement: replacement))
+                let target = try JSONDecoder().decode(WireSemanticValue.self, from: JSONEncoder().encode(decision.affected[0]))
+                let key = "review-\(rangeOperations.count)"
+                if selection.source == nil, selection.remove != true {
+                    rangeOperations.append(try .init(["key": .string(key + "-copy"), "kind": .string("copySource"),
+                        "source": .object(["material": .object(["kind": .string("alternative"), "state": .string(draft.snapshot.state),
+                            "conflict": .string(decision.id), "alternative": .string(alternative.id)])]),
+                        "at": target, "side": .string("before")]))
+                    rangeOperations.append(try .init(["key": .string(key + "-remove"), "kind": .string("editSource"), "source": target, "text": .string("")]))
+                } else {
+                    rangeOperations.append(try .init(["key": .string(key), "kind": .string("editSource"), "source": target, "text": .string(text)]))
+                }
+                continue
+            }
             guard decision.kind == "entry" || (decision.kind == "directory" && old == "/") else { throw ConflictReviewError.unsupported }
             let destination = selection.destination ?? alternative.placement?.path ?? old
             if old != "/" { _ = try parts(old); _ = try parts(destination) }
@@ -81,11 +115,37 @@ enum ConflictReviewCompiler {
             if old == "/", value?.directory == nil { throw ConflictReviewProposalError("The tree root must remain a directory.") }
             assignments.append(.init(decision: decision, old: old, destination: destination, value: value))
         }
+        for path in rangeEdits.keys.sorted() {
+            let edits = rangeEdits[path]!.sorted { $0.range.lowerBound < $1.range.lowerBound }
+            for pair in zip(edits, edits.dropFirst()) where pair.0.range.upperBound > pair.1.range.lowerBound || pair.0.range.lowerBound == pair.1.range.lowerBound {
+                throw ConflictReviewProposalError("Overlapping source choices must be reviewed through their enclosing structural decision.")
+            }
+            guard !assignments.contains(where: { $0.old == path }),
+                  let first = edits.first, let file = first.decision.affected[0].material.object, var bytes = objects[file],
+                  edits.allSatisfy({ $0.decision.affected[0].material.object == file }) else { throw ConflictReviewError.unsupported }
+            let selections = edits.compactMap { draft.selection(for: $0.decision.id) }
+            let destinations = Set(selections.compactMap(\.destination))
+            guard destinations.count <= 1 else { throw ConflictReviewProposalError("Source choices in one file need the same destination.") }
+            let destination = destinations.first ?? path
+            if onlyRanges && destination != path { throw ConflictReviewProposalError("A source-range choice cannot move its whole file. Resolve the source, then move the page.") }
+            for edit in edits.reversed() { bytes.replaceSubrange(edit.range, with: edit.replacement) }
+            let removesFile = !onlyRanges && selections.allSatisfy { $0.remove == true }
+            if !onlyRanges && selections.contains(where: { $0.remove == true }) && !removesFile {
+                throw ConflictReviewProposalError("Choose one consistent disposition for the source choices in this file.")
+            }
+            assignments.append(.init(decision: first.decision, old: path, destination: destination,
+                value: removesFile ? nil : .init(name: "", file: try store(.file(bytes)))))
+        }
         let nonabsent = assignments.filter { $0.value != nil }
         guard Set(nonabsent.map(\.destination)).count == nonabsent.count else {
             throw ConflictReviewProposalError("Two chosen entries have the same destination. Choose distinct destinations.")
         }
         if let whole = assignments.first(where: { $0.old == "/" }), let directory = whole.value?.directory { root = directory }
+        for path in rangeEdits.keys {
+            if let chosen = try entry(path, in: root), chosen.file != rangeEdits[path]?.first?.decision.affected[0].material.object {
+                throw ConflictReviewProposalError("The selected parent changes the source around \(path). Review that enclosing source as a whole entry.")
+            }
+        }
         // Remove every old placement first, allowing swaps without overwrites.
         for assignment in assignments where assignment.old != "/" {
             root = try rewrite(root, names: parts(assignment.old), depth: 0, value: nil)
@@ -98,6 +158,14 @@ enum ConflictReviewCompiler {
                !assignments.contains(where: { $0.old == assignment.destination }) {
                 throw ConflictReviewProposalError("\(assignment.destination) already exists. Choose another destination; unrelated entries are never overwritten implicitly.")
             }
+            if let directory = assignment.value?.directory {
+                for path in rangeEdits.keys where path.hasPrefix(assignment.old + "/") {
+                    let relative = String(path.dropFirst(assignment.old.count))
+                    if let chosen = try entry(relative, in: directory), chosen.file != rangeEdits[path]?.first?.decision.affected[0].material.object {
+                        throw ConflictReviewProposalError("The selected directory changes the source around \(path). Review that enclosing source as a whole entry.")
+                    }
+                }
+            }
             root = try rewrite(root, names: parts(assignment.destination), depth: 0, value: assignment.value)
             if assignment.value?.directory != nil {
                 for child in assignments where child.old.hasPrefix(assignment.old + "/") {
@@ -109,6 +177,9 @@ enum ConflictReviewCompiler {
         for decision in allDecisions where !draft.decisions.contains(where: { $0.id == decision.id }) {
             guard let path = decision.path else { throw ConflictReviewError.unsupported }
             if try entry(path, in: base.root) != entry(path, in: root) {
+                if onlyRanges, let range = decision.sourceRange, let edits = rangeEdits[path],
+                   edits.allSatisfy({ $0.range.upperBound <= range.lowerBound || $0.range.lowerBound >= range.upperBound }),
+                   !edits.contains(where: { $0.range.isEmpty && $0.range.lowerBound == range.lowerBound }) { continue }
                 throw ConflictReviewProposalError("This result would change an unresolved choice at \(path). Include that choice in the review before applying.")
             }
         }
@@ -137,6 +208,6 @@ enum ConflictReviewCompiler {
         try visit(root, kind: .directory)
         let candidate = WireSnapshot(root: root, objects: reachable.sorted().map { .init(hash: $0, bytes: objects[$0]!) })
         _ = try WireObjectGraph.validate(candidate)
-        return .init(fingerprint: try draft.fingerprint(), changes: changes, candidate: candidate)
+        return .init(fingerprint: try draft.fingerprint(), changes: changes, candidate: candidate, operations: onlyRanges ? rangeOperations : nil)
     }
 }

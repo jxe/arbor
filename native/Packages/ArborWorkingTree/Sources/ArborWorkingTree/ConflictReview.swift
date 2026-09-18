@@ -78,15 +78,24 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
         if Set(alternatives.compactMap { $0.placement?.path }).count > 1 { return "Different locations" }
         return "\(alternatives.count) alternatives"
     }
+    public var sourceRange: Range<Int>? {
+        guard kind == "content", affected.count == 1, let range = affected[0].range,
+              range.count == 2, range[0] >= 0, range[1] >= range[0],
+              affected[0].material.kind == "basis", affected[0].material.object != nil,
+              affected[0].path != nil else { return nil }
+        return range[0]..<range[1]
+    }
     public var scope: String {
+        if let range = sourceRange { return "Resolves source bytes \(range.lowerBound)–\(range.upperBound) in \(path ?? "this page"); surrounding source stays intact" }
         if path == "/" { return "Resolves a choice affecting the whole tree" }
         if alternatives.contains(where: { $0.value.directory != nil }) { return "Resolves this directory choice" }
         return "Resolves this whole-page choice"
     }
-    /// This first review surface supports whole entries at one verified location.
-    /// Unknown kinds and coupled choices remain inspectable, never guessed.
+    /// Whether this decision can be resolved without other declarations.
+    /// Group compilation separately checks every structural and material obligation.
     public var supportsIndependentResolution: Bool {
-        dependencies.isEmpty && actions.contains("resolveConflict") &&
+        if sourceRange != nil { return dependencies.isEmpty && actions.contains("resolveConflict") }
+        return dependencies.isEmpty && actions.contains("resolveConflict") &&
         affected.allSatisfy { $0.range == nil } &&
         (kind == "entry" && Set(alternatives.compactMap { $0.placement?.path }).count == 1 &&
          alternatives.allSatisfy { $0.value.file != nil || $0.value.absent == true })
@@ -159,8 +168,8 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
             guard let selection = selection(for: decision.id), decision.alternatives.contains(where: { $0.id == selection.alternative }) else {
                 issues.append("Choose a version for \(decision.title)."); continue
             }
-            if !decision.actions.contains("resolveConflict") || decision.affected.contains(where: { $0.range != nil }) {
-                issues.append("The scope of \(decision.title) is not supported by this whole-entry reviewer.")
+            if !decision.actions.contains("resolveConflict") || (decision.sourceRange == nil && decision.affected.contains(where: { $0.range != nil })) {
+                issues.append("The scope of \(decision.title) is not supported by this reviewer.")
             }
             for dependency in decision.dependencies where !decisions.contains(where: { $0.id == dependency }) {
                 issues.append("Load the dependent choice before resolving \(decision.title).")
@@ -192,6 +201,7 @@ public struct ConflictReviewPreview: Sendable {
     public let fingerprint: String
     public let changes: [ConflictReviewChange]
     public let candidate: WireSnapshot
+    public var operations: [WireSourceOperation]? = nil
 }
 public struct ConflictReviewProposalError: LocalizedError {
     public let message: String

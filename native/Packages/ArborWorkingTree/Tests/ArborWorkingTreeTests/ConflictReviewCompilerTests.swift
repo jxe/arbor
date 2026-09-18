@@ -40,6 +40,46 @@ struct ConflictReviewCompilerTests {
             ]))
         }
     }
+    private func sourceDecision(_ id: String, range: [Int], file: String, alternatives: [String]) throws -> ConflictReviewDecision {
+        try JSONDecoder().decode(ConflictReviewDecision.self, from: JSONSerialization.data(withJSONObject: [
+            "id": id, "kind": "content", "selected": "\(id)-0", "dependencies": [], "actions": ["resolveConflict"],
+            "affected": [["material": ["kind": "basis", "path": "/page.md", "object": file], "range": range]],
+            "alternatives": alternatives.enumerated().map { ["id": "\(id)-\($0.offset)", "revision": "revision", "value": ["file": $0.element]] }
+        ]))
+    }
+
+    @Test func sourceRangePreservesExactSurroundingsAndAnotherChoice() throws {
+        var f = Fixture()
+        let full = try f.file("éAAA bCCC\r\n"), first = try f.file("AAA"), second = try f.file("CCC"), hidden = try f.file("X")
+        let root = try f.directory([.init(name: "page.md", file: full)])
+        let a = try sourceDecision("a", range: [2, 5], file: full, alternatives: [first, hidden])
+        let b = try sourceDecision("b", range: [7, 10], file: full, alternatives: [second])
+        var proposal = draft(root, [a, b]); proposal.alternative = "a-1"
+        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
+        let result = try #require(preview.changes.first { $0.path == "/page.md" }?.after?.file)
+        #expect(result == WireObjectCodec.hash(Data("éX bCCC\r\n".utf8)))
+        #expect(preview.operations?.map(\.kind) == ["copySource", "editSource"])
+        proposal.source = "e\u{301}\r\n"
+        let composed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
+        #expect(composed.changes.first { $0.path == "/page.md" }?.after?.file == WireObjectCodec.hash(Data("ée\u{301}\r\n bCCC\r\n".utf8)))
+        #expect(composed.operations?.map(\.kind) == ["editSource"])
+        proposal.source = nil; proposal.remove = true
+        let removed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
+        #expect(removed.changes.first { $0.path == "/page.md" }?.after?.file == WireObjectCodec.hash(Data("é bCCC\r\n".utf8)))
+    }
+
+    @Test func rangesRejectInvalidBoundariesStaleFileIdentityAndOverlap() throws {
+        var f = Fixture()
+        let full = try f.file("éABC"), fragment = try f.file("X"), root = try f.directory([.init(name: "page.md", file: full)])
+        for (range, file) in [([1, 2], full), ([0, 99], full), ([2, 3], fragment)] {
+            let bad = try sourceDecision("bad", range: range, file: file, alternatives: [fragment])
+            #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(draft(root, [bad]), base: f.snapshot(root), material: f.objects) }
+        }
+        let a = try sourceDecision("a", range: [2, 4], file: full, alternatives: [fragment])
+        let b = try sourceDecision("b", range: [3, 5], file: full, alternatives: [fragment])
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(draft(root, [a]), base: f.snapshot(root), material: f.objects, allDecisions: [a, b]) }
+    }
+
     private func draft(_ root: String, _ decisions: [ConflictReviewDecision]) -> ConflictReviewDraft {
         let snapshot = ConflictReviewSnapshot(tree: "tr_review", state: "accepted", root: root, decisions: decisions)
         return .init(snapshot: snapshot, decision: decisions[0], alternative: decisions[0].selected)

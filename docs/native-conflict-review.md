@@ -1,10 +1,9 @@
 # Native accepted-choice review
 
-This checkpoint describes the worktree implementation of
-[Reliability 010](../plans/reliability/010-client-conflict-review.md) on
-`codex/native-conflict-review`, based on `bd6d9a3`. It has not been installed or
-interactively verified. The original checkout's concurrent source-preservation
-and merge changes were not imported into this worktree.
+This checkpoint describes the implementation of
+[Reliability 010](../plans/reliability/010-client-conflict-review.md), developed on
+`codex/native-conflict-review` and integrated with main's causal undo and source
+admission changes at `3a3d694`. It has not been installed or interactively verified.
 
 ## Interaction
 
@@ -48,9 +47,18 @@ compiler. Swaps remove old placements before installing the chosen destinations.
 Tree boundaries cannot be traversed; unrelated existing entries cannot be overwritten
 implicitly, and other unresolved decisions cannot be changed.
 
-Source ranges and unknown decision kinds fail closed. Whole-entry Canopy evidence
-gets a document anchor, never a fabricated paragraph location. There are no
-independently resolvable diff hunks. Binary rendering/export and format-specific
+Source-range choices validate the exact pinned file hash and UTF-8 boundaries,
+then replace only the declared bytes. Choosing a retained version emits explicit
+`copySource` plus `editSource` operations; composition emits `editSource`. Independent
+choices elsewhere in the same file remain unresolved, with their positions updated
+by Canopy. Removing a source choice removes its range, not the page. A source-only
+review cannot relocate its whole file. Coupled structural drafts may move or remove
+the containing file, but must agree on one disposition and preserve the pinned
+surroundings of every source choice.
+
+Unknown or unlocatable scopes fail closed. Canopy ranges remain document-anchored
+in the editor until the host has a validated source-to-block mapping; byte ranges
+must not be presented as guessed paragraph locations. Binary rendering/export and format-specific
 collection reconstruction remain outside this surface; all candidates must pass
 Wire graph and collection descriptor validation.
 
@@ -67,10 +75,11 @@ shifts following rows but remains outside document hit targets, drag lifts, sour
 selection and undo history. Native text controls retain their own keyboard/undo
 routing. Arbor uses document anchors until authoritative finer source mapping exists.
 
-The ignored local workspace points to the Quagmire worktree at
-`/Users/joe/src/arbor-review-deps/quagmire`; the final directory name must be
-`quagmire` for Xcode's package-identity override. Published dependency pins and the
-standalone package lock remain unchanged.
+Coordinated validation used the ignored local workspace with the Quagmire
+worktree at `/Users/joe/src/arbor-review-deps/quagmire`; the final directory name
+must be `quagmire` for Xcode's package-identity override. Arbor's published pins
+and standalone package lock adopt Quagmire 0.8.0 in a separate dependency commit.
+Ordinary local development can use the sibling Quagmire main checkout.
 
 A private schema-2 `sync/conflict-review.json` (also reading schema 1) retains exact drafts, pinned decision and
 alternative evidence, and an immutable prepared request. Drafts are serialized
@@ -112,13 +121,16 @@ review controller is not implemented in this Native slice.
 The current coordinated worktrees have compiler and automated coverage; neither
 application has been installed or launched for this change.
 
-- The protocol harness uses eight disposable review trees: hidden-version choice,
+- The protocol harness uses nine disposable review trees: hidden-version choice,
   exact composition, lost response/restart, concurrent editor/draft work, grouped
-  ancestor deletion, child rescue, grouped composition and grouped lost response.
+  ancestor deletion, child rescue, grouped composition, grouped lost response, and
+  independent source-range resolution with another range preserved and relocated.
 - Compiler tests cover incomplete groups, reverse dependency discovery, child
   removal under a selected/moved directory, swaps, collisions, boundaries,
   protection of unreviewed choices, exact secondary composition fingerprints and
-  durable grouped recovery. Existing tests cover opaque state identity and CRLF.
+  durable grouped recovery. Source-range cases cover Unicode/CRLF surroundings,
+  invalid boundaries, mismatched file identity and preservation of another choice.
+  Existing tests cover opaque state identity and CRLF.
 - Quagmire tests cover accessory hit geometry, missing/duplicate anchors, collapse
   while offscreen, source/selection separation and external undo routing.
 - Both app destinations build through the local workspace. Quagmire's complete
@@ -126,12 +138,12 @@ application has been installed or launched for this change.
   both libraries. Wire client authorization/hash tests and TypeScript checks remain
   part of the coordinated verification.
 
-Automated results (2026-09-18): `bun run test:protocol` passed, including 85
-working-tree tests and all eight live review modes; the focused Wire/pin/Canopy
+Automated results (2026-09-18): `bun run test:protocol` passed, including 97
+working-tree tests and all nine live review scenarios; the focused Wire/pin/Canopy
 suite passed 52 tests. TypeScript typecheck and build passed. Quagmire verification
-passed 411 tests and all four clean builds. Both final Arbor app builds passed
+passed 413 tests and all four clean builds. Both final Arbor app builds passed
 without signing, installation or launch. Both worktrees pass `git diff --check`.
-The repository Markdown scan checked 886 relative links: 34 unresolved references
+The repository Markdown scan checked 929 relative links: 34 unresolved references
 already existed in HEAD and none were introduced by this change.
 
 Interactive focus, selection, scroll, VoiceOver, large text, IME and visual layout

@@ -294,11 +294,13 @@ struct ArborChoiceReviewPanel: View {
                 }.disabled(review.pending || review.showingAppliedResult)
                 if let selection = review.selection {
                     if decision.path != "/" {
-                        Toggle("Remove this entry in the combined result", isOn: Binding(
+                        Toggle(decision.sourceRange != nil && draft.decisions.allSatisfy({ $0.sourceRange != nil }) ? "Remove this source range" : "Remove this entry in the combined result", isOn: Binding(
                             get: { review.selection?.remove == true }, set: { review.removeEntry($0) }))
                             .disabled(review.pending || review.showingAppliedResult)
                         if selection.remove == true {
-                            Text("The retained versions stay in this draft, but this entry will be absent from the submitted tree.")
+                            Text(decision.sourceRange != nil && draft.decisions.allSatisfy({ $0.sourceRange != nil })
+                                 ? "The retained versions stay in this draft. Only the indicated source range will be removed."
+                                 : "The retained versions stay in this draft, but this entry will be absent from the submitted tree.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -333,7 +335,8 @@ struct ArborChoiceReviewPanel: View {
                         } else { Text(alternative.summary).foregroundStyle(.secondary) }
                     }
                     if let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
-                       decision.path != "/", alternative.value.absent != true, selection.remove != true {
+                       decision.path != "/", alternative.value.absent != true, selection.remove != true,
+                       (decision.sourceRange == nil || draft.decisions.contains(where: { $0.sourceRange == nil })) {
                             TextField("Destination", text: Binding(
                                 get: { review.selection?.destination ?? alternative.placement?.path ?? decision.path ?? "" },
                                 set: { review.move(to: $0) }))
