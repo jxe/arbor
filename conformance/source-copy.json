@@ -1,0 +1,11 @@
+{
+  "cases": [
+    {"name":"copy Unicode CRLF", "source":"Café\r\n", "replacement":"Café\r\nCafé\r\n", "copies":[{"source":[0,7],"replacement":[7,14]}], "lineage":[{"source":[0,7],"replacement":[0,7]}], "valid":true},
+    {"name":"copy the same occurrence twice", "source":"abc", "replacement":"abcabcabc", "copies":[{"source":[0,3],"replacement":[3,6]},{"source":[0,3],"replacement":[6,9]}], "lineage":[{"source":[0,3],"replacement":[0,3]}], "valid":true},
+    {"name":"copy source omitted from projection", "source":"abc", "replacement":"abc", "copies":[{"source":[0,3],"replacement":[0,3]}], "valid":true},
+    {"name":"copy differs", "source":"abc", "replacement":"abd", "copies":[{"source":[0,3],"replacement":[0,3]}], "valid":false},
+    {"name":"overlapping destinations", "source":"aaa", "replacement":"aaa", "copies":[{"source":[0,2],"replacement":[0,2]},{"source":[0,2],"replacement":[1,3]}], "valid":false},
+    {"name":"copy and preservation overlap", "source":"abc", "replacement":"abc", "copies":[{"source":[0,3],"replacement":[0,3]}], "lineage":[{"source":[0,3],"replacement":[0,3]}], "valid":false},
+    {"name":"scalar split", "source":"é", "replacement":"é", "copies":[{"source":[0,1],"replacement":[0,1]}], "valid":false}
+  ]
+}

@@ -297,6 +297,7 @@ export interface SnapshotEnvelope<T> {
 export interface SourceEdit {
   /** Verified preserved spans; source offsets are absolute, replacement offsets relative. */
   lineage?: Array<{source: [number, number]; replacement: [number, number]}>;
+  copies?: Array<{source: [number, number]; replacement: [number, number]}>;
   offset: number;
   length: number;
   replacement: string;
@@ -351,6 +352,16 @@ export function applySourceEdits(source: string, edits: readonly SourceEdit[]): 
       try { new TextDecoder("utf-8",{fatal:true}).decode(original.subarray(start,end)); }
       catch { throw new SourceEditError("Preservation lineage splits UTF-8"); }
       preserved.push([start,end]); outputEnd=to;
+    }
+    let copiedEnd=0;
+    for(const part of edit.copies ?? []) {
+      const [start,end]=part.source,[from,to]=part.replacement;
+      if(![start,end,from,to].every(Number.isSafeInteger)||start<0||end<=start||end>original.length||from<copiedEnd||to>replacement.length||end-start!==to-from||
+         (edit.lineage??[]).some(p=>from<p.replacement[1]&&p.replacement[0]<to)||
+         [start,end].some(n=>n<original.length&&(original[n]!&0xc0)===0x80)||
+         [from,to].some(n=>n<replacement.length&&(replacement[n]!&0xc0)===0x80)||
+         original.subarray(start,end).some((byte,i)=>byte!==replacement[from+i]))throw new SourceEditError("Invalid explicit source copy");
+      copiedEnd=to;
     }
     chunks.push(replacement);
     size += replacement.length;

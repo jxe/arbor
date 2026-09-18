@@ -257,3 +257,48 @@ test("compound move transports a concurrent child edit without changing the sibl
   const originalBody=decodeWireDirectory(graph.objects.get(graph.root)!).entries.find(e=>e.name==="pair.md")!.file;
   expect(body).toBe(originalBody);
 }));
+
+test("explicit source copies validate, survive recovery, and execute through the merge process",async()=>{
+  const fixtures=await Bun.file(new URL("../../conformance/source-copy.json",import.meta.url)).json();
+  for(const c of fixtures.cases)await withQueue(async(queue,root)=>{
+    const bytes=Buffer.from(c.source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file}]});
+    const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
+    const prepare=()=>prepareSourceAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"r",source:c.source},edits:[{offset:0,length:bytes.length,replacement:c.replacement,copies:c.copies,...(c.lineage?{lineage:c.lineage}:{})}],source:c.replacement}});
+    if(!c.valid){expect(prepare).toThrow();return;}
+    const record=prepare();await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
+    const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+    const candidate=decodeTreeSnapshotJSON(record.candidate),operations=decodeCandidateUpdateJSON(record.update).operations!;
+    expect(operations.filter(o=>o.kind==="copySource").length).toBe(c.copies.length);
+    const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    expect(evaluated.response.result.object).toBe(candidate.root);
+  });
+});
+
+test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit under the %s merge policy",async(name)=>withQueue(async(_queue,root)=>{
+  const source="abc\n\n",bytes=Buffer.from(source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name,file}]});
+  const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])},basis={kind:"accepted" as const,root:hashObject(directory),update:"basis"};
+  const base={tree:fixture.tree,path:"/note",revision:"r",source};
+  const copy=prepareSourceAdmission({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:5,replacement:source+source,lineage:[{source:[0,5],replacement:[0,5]}],copies:[{source:[0,5],replacement:[5,10]}]}],source:source+source}});
+  const peer=prepareSourceAdmission({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:1,replacement:"X"}],source:"Xbc\n\n"}});
+  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+  const tool=new MergeTool(root),current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(copy.candidate);
+  const objects=new Map([...graph.objects,...current.objects,...incoming.objects]),rules={id:"tree-default",revision:1 as const};
+  const accepted=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,operations:decodeCandidateUpdateJSON(peer.update).operations!},rules},objects);
+  for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
+  const result=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,operations:decodeCandidateUpdateJSON(copy.update).operations!},rules},objects);
+  for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
+  const {decodeWireDirectory}=await import("@arbor/wire");
+  const hash=decodeWireDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
+  if(!("decisions" in result.response))throw Error("Expected evaluated intent response");
+  if(name.endsWith(".txt")) {
+    expect(result.response.decisions).toEqual([]);
+    expect(Buffer.from(objects.get(hash)!).toString()).toBe("Xbc\n\nabc\n\n");
+  } else {
+    // The deployed Markdown policy reviews changed host structure. Both inputs
+    // remain accepted evidence; client capture does not bypass format policy.
+    expect(result.response.decisions.length).toBeGreaterThan(0);
+    const alternatives=result.response.decisions.flatMap(d=>"alternatives" in d ? d.alternatives.map(a=>a.object) : []);
+    expect(alternatives).toContain(current.root);
+    expect(alternatives).toContain(incoming.root);
+  }
+}));

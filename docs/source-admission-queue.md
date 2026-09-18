@@ -347,9 +347,32 @@ client emission.
   Filesystem observations remain snapshots; matching bytes do not manufacture a
   move or copy claim.
 
-Source block-copy capture and causal undo/redo bindings still need explicit editor
-transaction evidence; current edits must not claim those operations by guessing
-from snapshots. Remaining work stays in [Reliability 008](../plans/reliability/008-enable-source-operations.md).
+Quagmire now exposes explicit same-document duplication evidence during the commit
+callback. The Arbor adapter maps source-backed, unchanged copied blocks to exact
+UTF-8 spans, including descendants whose source layout is unchanged. Copies retain
+source formatting; any necessary Markdown separators are newly authored bytes.
+Evidence survives debounce, deferred host callbacks, editor recovery and the
+publication journal. Recovery immediately submits the retained copy generation
+before new editing can coalesce away its evidence; later edits retain its accepted
+ledger. Ordinary insertion/paste does not acquire copy provenance.
+
+Swift and TypeScript patches carry `copies` separately from preservation lineage.
+The queue excludes ordered preserved spans from the authored edit footprint.
+A simple duplicate insertion emits `copySource` directly. For mixed replacements,
+it constructs the exact replacement and then replaces each copied span with
+`copySource` material, removing its temporary authored counterpart through an
+operation-result reference. This uses existing authoritative Wire operations;
+it neither reuses an original occurrence nor leaves duplicated placeholder text in
+the candidate. A copied occurrence has independent provenance. Plain-text concurrent source
+edits merge independently; the deployed Markdown structural rule may instead
+retain both branches for review when copying changes host structure. Shared fixtures cover repeated copies, Unicode/CRLF and invalid claims; live
+editor tests cover draft loss, restart and actual Canopy publication.
+
+This capture does not yet describe copies of newly authored or transformed source
+without a matching basis span, cross-document copies, or causal undo/redo. These
+need richer transaction capture rather than guesses from matching bytes. The
+Quagmire API addition and Arbor adapter are tested through the local override;
+release/pin status must be checked before installation. Remaining work stays in [Reliability 008](../plans/reliability/008-enable-source-operations.md).
 Native review UI remains [Reliability 010](../plans/reliability/010-client-conflict-review.md).
 
 Verification includes shared preservation fixtures, equal-byte editor admission,
@@ -358,3 +381,11 @@ private Trash restoration, concurrent child edits transported by a move,
 copy-result editing, actual Swift/TypeScript protocol execution
 against disposable Canopy, and macOS/iOS Simulator application builds. This
 checkpoint is implementation evidence, not an installed-client deployment record.
+
+Copy-capture verification: 976 product tests pass, together with the Swift/TS
+protocol suite, real editor copy/recovery/continued-edit publication through a
+disposable Canopy, local Mac/iOS Simulator app builds, and Quagmire's full package
+and four-target build verification. One CLI reconnect test failed in an earlier
+parallel run; its complete test file and a subsequent complete suite both passed.
+Release and exact dependency pinning remain pending; no live service or app was
+changed by this checkpoint.

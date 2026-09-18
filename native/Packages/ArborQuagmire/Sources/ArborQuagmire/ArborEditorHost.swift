@@ -737,6 +737,7 @@ public final class ArborEditorHost: EditorHost {
 
     public func persistCommit(changes _: [DocumentChange], in document: Document, after delay: Duration) {
         guard document === binding.document else { return }
+        binding.captureTransactionEvidence()
         deferredPersistTask?.cancel()
         deferredPersistTask = Task { @MainActor [weak self, weak document] in
             do { try await Task.sleep(for: delay) } catch { return }

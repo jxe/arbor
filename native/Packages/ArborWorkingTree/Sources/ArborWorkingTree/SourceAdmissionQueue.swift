@@ -76,13 +76,20 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         try visit(root, .directory)
         let candidate = WireSnapshot(root: root, objects: reachable.sorted().compactMap { hash in bytes[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } })
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
-        let operations = try intent.patch.edits.enumerated().compactMap { index, edit -> WireSourceOperation? in
+        let operations = try Self.operationEdits(intent.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
             // Byte-valid output alone does not prove scalar-aligned selection.
             let source = Array(intent.basis.source.utf8)
             for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
                 if offset < source.count && source[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
             }
-            guard let file else { return nil }
+            guard let file else { return [] }
+            if edit.utf8Range.isEmpty, let copies = edit.copies, copies.count == 1,
+               copies[0].replacement == 0..<edit.replacement.utf8.count {
+                let material: WireSemanticValue = .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
+                return [try WireSourceOperation(["key":.string("copy-\(index)-0"),"kind":.string("copySource"),
+                    "source":.object(["material":material,"range":.array([.integer(copies[0].source.lowerBound),.integer(copies[0].source.upperBound)])]),
+                    "at":.object(["material":material,"range":.array([.integer(edit.utf8Range.lowerBound),.integer(edit.utf8Range.lowerBound)])]),"side":.string("before")])]
+            }
             var fields: [String: WireSemanticValue] = [
                 "key": .string("edit-\(index)"), "kind": .string("editSource"),
                 "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
@@ -96,7 +103,18 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                     "range": .array([.integer(part.replacement.lowerBound), .integer(part.replacement.upperBound)])
                 ]) })
             }
-            return try WireSourceOperation(fields)
+            var operations = [try WireSourceOperation(fields)]
+            for (copyIndex, copy) in (edit.copies ?? []).enumerated() {
+                let target: WireSemanticValue = .object([
+                    "material":.object(["kind":.string("operation"),"change":.string(change),"operation":.string("edit-\(index)")]),
+                    "range":.array([.integer(copy.replacement.lowerBound),.integer(copy.replacement.upperBound)])])
+                let source: WireSemanticValue = .object([
+                    "material":.object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)]),
+                    "range":.array([.integer(copy.source.lowerBound),.integer(copy.source.upperBound)])])
+                operations.append(try WireSourceOperation(["key":.string("copy-\(index)-\(copyIndex)"),"kind":.string("copySource"),"source":source,"at":target,"side":.string("before")]))
+                operations.append(try WireSourceOperation(["key":.string("copy-placeholder-\(index)-\(copyIndex)"),"kind":.string("editSource"),"source":target,"text":.string("")]))
+            }
+            return operations
         }
         let known = Set(graph.objects.map(\.hash))
         let update = WireCandidateUpdate(candidate: root, change: change, operations: file == nil ? nil : operations,
@@ -141,6 +159,35 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         try localTrash?.validate()
         rebuilt.localTrash = localTrash
         guard rebuilt == self else { throw Self.invalid("Retained source candidate or operations changed") }
+    }
+
+    /// Ordered preservation spans are untouched material, not part of the
+    /// authored replacement footprint. Copies live only in the gaps.
+    private static func operationEdits(_ edits: [WorkspaceSourceEdit]) -> [WorkspaceSourceEdit] {
+        edits.flatMap { edit in
+            let lineage = edit.lineage ?? []
+            guard !(edit.copies ?? []).isEmpty, !lineage.isEmpty else { return [edit] }
+            var prior = edit.utf8Range.lowerBound
+            for part in lineage {
+                if part.source.lowerBound < prior { return [edit] }
+                prior = part.source.upperBound
+            }
+            let bytes = Data(edit.replacement.utf8)
+            var source = edit.utf8Range.lowerBound, output = 0
+            var result: [WorkspaceSourceEdit] = []
+            let sentinel = WorkspaceSourceLineage(source:edit.utf8Range.upperBound..<edit.utf8Range.upperBound,replacement:bytes.count..<bytes.count)
+            for part in lineage + [sentinel] {
+                let end = part.replacement.lowerBound
+                if source != part.source.lowerBound || output != end {
+                    let copies = (edit.copies ?? []).filter { $0.replacement.lowerBound >= output && $0.replacement.upperBound <= end }.map {
+                        WorkspaceSourceLineage(source:$0.source,replacement:($0.replacement.lowerBound-output)..<($0.replacement.upperBound-output))
+                    }
+                    result.append(.init(utf8Range:source..<part.source.lowerBound,replacement:String(data:bytes.subdata(in:output..<end),encoding:.utf8)!,copies:copies.isEmpty ? nil : copies))
+                }
+                source = part.source.upperBound; output = part.replacement.upperBound
+            }
+            return result
+        }
     }
 
     private static func invalid(_ message: String) -> ArborWireValidationError { .invalidValue(message) }

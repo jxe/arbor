@@ -235,26 +235,38 @@ public enum ArborMarkdownCodec {
         )
     }
 
-    static func admission(blocks: [Block], ledger: ArborSourceLedger) -> (ArborMarkdownAdmission, ArborSourceLedger) {
+    static func admission(blocks: [Block], ledger: ArborSourceLedger, copies: [BlockID: BlockID] = [:]) -> (ArborMarkdownAdmission, ArborSourceLedger) {
         var chunks: [String] = [ledger.envelope]
         var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
         var nextRecords: [BlockID: SourceRecord] = [:]
+        var copiedSpans: [BlockID: (record: SourceRecord, offset: Int)] = [:]
         var position = ledger.envelope.utf8.count
         var emittedAuthoredBlock = false
         let flattened = flattenedBlocks(blocks)
         var remainingNonemptyBlocks = flattened.reduce(into: 0) { count, block in
             if !isEmptyParagraph(block) { count += 1 }
         }
+        func copiedRecord(_ id: BlockID) -> SourceRecord? {
+            guard ledger.records[id] == nil else { return nil }
+            var current = id, visited = Set<BlockID>()
+            while let source = copies[current], visited.insert(current).inserted {
+                if let record = ledger.records[source] { return record }
+                current = source
+            }
+            return nil
+        }
         func append(_ block: Block, depth: Int, containerDepth: Int) {
             guard !isProjectedChild(block) else { return }
             let emptyParagraph = isEmptyParagraph(block)
             if !emptyParagraph { remainingNonemptyBlocks -= 1 }
             var raw: String
-            if let record = ledger.records[block.id],
+            var copied: SourceRecord?
+            if let record = ledger.records[block.id] ?? copiedRecord(block.id),
                record.block.kind == block.kind,
                record.depth == depth,
                record.indent == containerDepth {
                 raw = record.raw
+                if ledger.records[block.id] == nil { copied = record }
             } else {
                 let needsExplicitEmptyMarker = emptyParagraph
                     && (!emittedAuthoredBlock || remainingNonemptyBlocks == 0)
@@ -273,7 +285,21 @@ public enum ArborMarkdownCodec {
                     // Keep no-op source exact, but separate a newly appended
                     // non-list block so Markdown does not fold its text into
                     // the preceding paragraph.
-                    raw = ledger.newline + raw
+                    raw = (emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline) + raw
+                }
+            }
+            if let copied {
+                var prefix = ""
+                if containerDepth == 0, !emittedTail.isEmpty,
+                   !emittedTail.hasSuffix(ledger.newline + ledger.newline), !raw.hasPrefix(ledger.newline) {
+                    prefix = emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline
+                }
+                copiedSpans[block.id] = (copied, prefix.utf8.count)
+                raw = prefix + raw
+                // A copied unterminated block must remain distinct from the
+                // following original. Added separators have new source identity.
+                if containerDepth == 0, !raw.hasSuffix(ledger.newline + ledger.newline) {
+                    raw += raw.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline
                 }
             }
             chunks.append(raw)
@@ -303,6 +329,11 @@ public enum ArborMarkdownCodec {
         for block in blocks { append(block, depth: 0, containerDepth: 0) }
         let source = chunks.joined()
         var edit = minimalEdit(from: ledger.source, to: source)
+        // Include the actual destination occurrences even when equal-byte prefix
+        // matching would otherwise place the insertion at a different occurrence.
+        if nextRecords.keys.contains(where: { copiedRecord($0) != nil }) {
+            edit = WorkspaceSourceEdit(utf8Range:0..<ledger.source.utf8.count,replacement:source,expected:ledger.source)
+        }
         if edit == nil, nextRecords.contains(where: { id, next in
             guard let old = ledger.records[id] else { return false }
             return old.range != next.range && old.raw.utf8.elementsEqual(next.raw.utf8)
@@ -311,7 +342,7 @@ public enum ArborMarkdownCodec {
         }
         if var value = edit {
             let replacementRange = value.utf8Range.lowerBound..<(value.utf8Range.lowerBound + value.replacement.utf8.count)
-            let lineage = nextRecords.compactMap { id, next -> WorkspaceSourceLineage? in
+            var lineage = nextRecords.compactMap { id, next -> WorkspaceSourceLineage? in
                 guard let old = ledger.records[id], old.raw.utf8.elementsEqual(next.raw.utf8) else { return nil }
                 let start = max(0, value.utf8Range.lowerBound - old.range.lowerBound, replacementRange.lowerBound - next.range.lowerBound)
                 let end = min(old.raw.utf8.count, value.utf8Range.upperBound - old.range.lowerBound, replacementRange.upperBound - next.range.lowerBound)
@@ -319,7 +350,20 @@ public enum ArborMarkdownCodec {
                 return WorkspaceSourceLineage(source: (old.range.lowerBound + start)..<(old.range.lowerBound + end),
                     replacement: (next.range.lowerBound + start - replacementRange.lowerBound)..<(next.range.lowerBound + end - replacementRange.lowerBound))
             }.sorted { $0.replacement.lowerBound < $1.replacement.lowerBound }
+            if value.utf8Range.lowerBound == 0, !ledger.envelope.isEmpty,
+               value.utf8Range.upperBound >= ledger.envelope.utf8.count,
+               value.replacement.utf8.starts(with: ledger.envelope.utf8) {
+                lineage.insert(.init(source:0..<ledger.envelope.utf8.count,replacement:0..<ledger.envelope.utf8.count),at:0)
+            }
             if !lineage.isEmpty { value.lineage = lineage }
+            let copied = nextRecords.compactMap { id, next -> WorkspaceSourceLineage? in
+                guard let captured = copiedSpans[id], !captured.record.raw.isEmpty else { return nil }
+                let old = captured.record, prefix = captured.offset
+                let lower = next.range.lowerBound + prefix - replacementRange.lowerBound
+                guard lower >= 0, lower + old.raw.utf8.count <= value.replacement.utf8.count else { return nil }
+                return WorkspaceSourceLineage(source:old.range,replacement:lower..<(lower+old.raw.utf8.count))
+            }.sorted { $0.replacement.lowerBound < $1.replacement.lowerBound }
+            if !copied.isEmpty { value.copies = copied }
             edit = value
         }
         let patch = WorkspaceDocumentPatch(

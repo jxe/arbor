@@ -125,12 +125,15 @@ public struct WorkspaceSourceEdit: Hashable, Codable, Sendable {
     public var replacement: String
     public var expected: String?
     public var lineage: [WorkspaceSourceLineage]?
+    /// Explicit duplication: unlike lineage, the source occurrence is not consumed.
+    public var copies: [WorkspaceSourceLineage]?
 
-    public init(utf8Range: Range<Int>, replacement: String, expected: String? = nil, lineage: [WorkspaceSourceLineage]? = nil) {
+    public init(utf8Range: Range<Int>, replacement: String, expected: String? = nil, lineage: [WorkspaceSourceLineage]? = nil, copies: [WorkspaceSourceLineage]? = nil) {
         self.utf8Range = utf8Range
         self.replacement = replacement
         self.expected = expected
         self.lineage = lineage
+        self.copies = copies
     }
 }
 
@@ -174,6 +177,19 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
                     throw WorkspacePatchError.invalidRange(part.source)
                 }
                 preserved.append(part.source); outputEnd = part.replacement.upperBound
+            }
+            var copiedEnd = 0
+            for part in edit.copies ?? [] {
+                guard part.source.lowerBound >= 0, part.source.upperBound <= original.count,
+                      !part.source.isEmpty, part.source.count == part.replacement.count,
+                      part.replacement.lowerBound >= copiedEnd, part.replacement.upperBound <= replacement.count,
+                      !(edit.lineage ?? []).contains(where: { $0.replacement.overlaps(part.replacement) }),
+                      [part.source.lowerBound,part.source.upperBound].allSatisfy({ $0 == original.count || original[$0] & 0xc0 != 0x80 }),
+                      [part.replacement.lowerBound,part.replacement.upperBound].allSatisfy({ $0 == replacement.count || replacement[$0] & 0xc0 != 0x80 }),
+                      original.subdata(in:part.source) == replacement.subdata(in:part.replacement) else {
+                    throw WorkspacePatchError.invalidRange(part.source)
+                }
+                copiedEnd = part.replacement.upperBound
             }
             priorEnd = edit.utf8Range.upperBound
         }

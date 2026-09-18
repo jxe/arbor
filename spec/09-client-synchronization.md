@@ -218,7 +218,11 @@ A client that captures an explicit move, copy, or preservation claim MUST retain
 that claim with the exact authored basis and candidate before acknowledging it.
 Preservation lineage MUST select scalar-aligned UTF-8 ranges with identical bytes,
 without duplicating a source occurrence. Copying material is distinct from
-preserving it. Equal candidate bytes MUST NOT erase captured operation identity.
+preserving it. A captured source-copy span MAY reuse the same source occurrence
+more than once, but each destination span MUST be distinct, scalar-aligned and
+byte-identical to the observed source. It MUST NOT also claim that destination as
+preserved lineage. A client MUST derive copy intent from an explicit authoring
+action, never from equal bytes alone. Equal candidate bytes MUST NOT erase captured operation identity.
 Editor recovery and publication retries MUST retain these claims unchanged.
 Clients MUST emit operation kinds only after the destination supports their
 execution; an authoritative operation cannot be recorded as an unvalidated hint.

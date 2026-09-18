@@ -38,6 +38,28 @@ function snapshotJSON(snapshot: TreeSnapshot): TreeSnapshotJSON {
   return encodeTreeSnapshotJSON({ root: snapshot.root, objects: new Map([...snapshot.objects].sort(([a], [b]) => a.localeCompare(b))) });
 }
 
+/** Keep preserved occurrences out of an edit's authored footprint. For ordered
+ * lineage, compile only the gaps; copies cannot overlap preserved spans. */
+function operationEdits(edits: SourceEdit[]): SourceEdit[] {
+  return edits.flatMap(edit=>{
+    const lineage=edit.lineage??[];
+    if(!edit.copies?.length || !lineage.length)return [edit];
+    let previous=edit.offset;
+    for(const part of lineage){if(part.source[0]<previous)return [edit];previous=part.source[1];}
+    const bytes=encoder.encode(edit.replacement),result:SourceEdit[]=[];
+    let source=edit.offset,output=0;
+    for(const part of [...lineage,{source:[edit.offset+edit.length,edit.offset+edit.length] as [number,number],replacement:[bytes.length,bytes.length] as [number,number]}]) {
+      const end=part.replacement[0];
+      if(source!==part.source[0]||output!==end) {
+        const copies=edit.copies.filter(c=>c.replacement[0]>=output&&c.replacement[1]<=end).map(c=>({...c,replacement:[c.replacement[0]-output,c.replacement[1]-output] as [number,number]}));
+        result.push({offset:source,length:part.source[0]-source,replacement:new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(bytes.subarray(output,end)),...(copies.length?{copies}:{})});
+      }
+      source=part.source[1];output=part.replacement[1];
+    }
+    return result;
+  });
+}
+
 /** Builds only the exact authored candidate, never a merge with the current tree. */
 export function prepareSourceAdmission(input: {
   change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot;
@@ -91,11 +113,22 @@ export function prepareSourceAdmission(input: {
   visit(root, "directory");
   const candidate = verifyTreeSnapshotGraph({ root, objects: new Map([...objects].filter(([hash]) => reachable.has(hash))) }, "sparse-files");
   const sourceBytes = encoder.encode(intent.basis.source);
-  const operations: SourceOperation[] = intent.edits.map((edit, i) => {
-    for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
-    return { kind: "editSource", key: `edit-${i}`, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement, ...(edit.lineage ? {lineage: edit.lineage.map(part => ({source: {material: {kind: "basis" as const, path: sourcePath, object: file}, range: part.source}, range: part.replacement}))} : {}) };
-  });
   const change = input.change ?? crypto.randomUUID();
+  const operations: SourceOperation[] = operationEdits(intent.edits).flatMap((edit, i) => {
+    for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
+    if(edit.length===0 && edit.copies?.length===1 && edit.copies[0]!.replacement[0]===0 && edit.copies[0]!.replacement[1]===encoder.encode(edit.replacement).length) {
+      return [{key:`copy-${i}-0`,kind:"copySource",source:{material:{kind:"basis",path:sourcePath,object:file},range:edit.copies[0]!.source},at:{material:{kind:"basis",path:sourcePath,object:file},range:[edit.offset,edit.offset]},side:"before"} as SourceOperation];
+    }
+    const operation:SourceOperation = { kind: "editSource", key: `edit-${i}`, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement, ...(edit.lineage ? {lineage: edit.lineage.map(part => ({source: {material: {kind: "basis" as const, path: sourcePath, object: file}, range: part.source}, range: part.replacement}))} : {}) };
+    const result:SourceOperation[]=[operation];
+    for(const [j,copy] of (edit.copies??[]).entries()) {
+      const target={material:{kind:"operation" as const,change,operation:`edit-${i}`},range:copy.replacement};
+      result.push({key:`copy-${i}-${j}`,kind:"copySource",source:{material:{kind:"basis",path:sourcePath,object:file},range:copy.source},at:target,side:"before"});
+      result.push({key:`copy-placeholder-${i}-${j}`,kind:"editSource",source:target,text:""});
+    }
+    return result;
+  });
+
   const update = encodeCandidateUpdateJSON({ candidate: root, change, operations: file ? operations : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   decodeCandidateUpdateJSON(update);

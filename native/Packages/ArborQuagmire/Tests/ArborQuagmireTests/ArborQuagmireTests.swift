@@ -1767,3 +1767,44 @@ func boundEqualByteReorder() async throws {
     #expect(binding.lastError == nil)
     await binding.close()
 }
+
+@MainActor
+@Test("Explicit duplication retains copy spans through debounce and editor recovery", arguments:[0,2])
+func boundSourceCopy(position: Int) async throws {
+    let reference = WorkspaceReference(tree:"tr_copy",path:"/note")
+    let source = "Café\r\n\r\nsame\r\n\r\n"
+    let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:source,contentRevision:"r1"))
+    let binding = try await ArborDocumentBinding.open(reference:reference,session:session,debounce:.seconds(60))
+    binding.document.didCommitTransaction = { _ in binding.admitCurrentGeneration() }
+    let original = binding.document.children[0]
+    _ = binding.document.insertCopies(of:[original],at:.init(parent:nil,position:position))
+    // A later commit must not lose the pending copy evidence during debounce.
+    binding.document.transaction(name:"unrelated append") {
+        _ = binding.document.insertSubtree(.paragraph(text:AttributedString("later")),at:.init(parent:nil,position:binding.document.children.count))
+    }
+    await binding.flush()
+    let patches = await session.admittedPatches()
+    #expect(patches.count == 1)
+    #expect(patches[0].edits.flatMap { $0.copies ?? [] }.count == 1)
+    let copy = try #require(patches[0].edits.first?.copies?.first)
+    #expect(Data(source.utf8).subdata(in:copy.source) == Data("Café\r\n\r\n".utf8))
+    let directory = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:directory) }
+    let store = try EditorRecoveryStore(root:directory,reference:reference)
+    let result = try patches[0].applying(to:source)
+    let revision = try store.record(reference:reference,source:result,base:.init(reference:reference,source:source,contentRevision:"r1"),patch:patches[0])
+    #expect(try EditorRecoveryStore(root:directory,reference:reference).intent(revision)?.patch == patches[0])
+    #expect(binding.lastError == nil)
+    await binding.close()
+}
+
+@Test("Copying unterminated Markdown keeps distinct blocks and exact copied bytes",arguments:[0,1])
+func unterminatedSourceCopy(position:Int) throws {
+    let opened = ArborMarkdownCodec.open(source:"Café",revision:"r",identitySeed:"copy")
+    let original = try #require(opened.blocks.first), copy = original.withFreshIDs()
+    var blocks = opened.blocks; blocks.insert(copy,at:position)
+    let admission = ArborMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger,copies:[copy.id:original.id]).0
+    #expect(ArborMarkdownCodec.open(source:admission.source,revision:"r",identitySeed:"result").blocks.count == 2)
+    #expect(admission.patch.edits.first?.copies?.first?.source == 0..<"Café".utf8.count)
+    #expect(try admission.patch.applying(to:"Café") == admission.source)
+}

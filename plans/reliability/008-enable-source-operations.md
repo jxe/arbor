@@ -40,9 +40,11 @@ field, local conflict hold, or coordinated per-operation cutover is required.
   Restore intentionally remains snapshot creation from private retained material;
   do not invent server-side Trash identity or causal undo. Preserve TreeID boundaries
   and destination scope.
-- Extend source capture with explicit block-copy and transaction evidence for
-  source move/copy and split/join. Stable-block reorders already retain verified
-  lineage, including equal-byte reorders. Do not infer copies from matching text.
+- Extend source copy capture to newly authored/transformed material and
+  cross-document transfer, then source moves and split/join. Source-backed,
+  unchanged same-document block duplicates now carry explicit Quagmire evidence
+  through recovery into `copySource`; stable-block reorders retain verified lineage,
+  including equal-byte reorders. Do not infer copies from matching text.
 - Carry operation-result and alternative references where the authoring action
   identifies them. Keep edits to hidden alternatives distinct from resolution.
 - Preserve causal targets for undo/redo. Do not represent selective undo as restoring

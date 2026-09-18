@@ -134,3 +134,62 @@ struct LiveEditorAdmissionTests {
         await binding?.close(); await coordinator.close(); await tree.close()
     }
 }
+
+extension LiveEditorAdmissionTests {
+    @Test("Explicit editor copy survives draft loss, client restart and Canopy publication",arguments:[false,true])
+    func sourceCopyPublication(recoverDraft: Bool) async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let address = env["ARBOR_SOURCE_TEST_URL"], let url = URL(string:address),
+              let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path:"copy-editor-\(UUID())")
+        defer { try? FileManager.default.removeItem(at:root) }
+        let client = ArborWireClient(origin:url,credential:token), transport = ArborWireReplicaTransport(client:ArborWireClient(origin:url,credential:token))
+        let initial = try await client.descriptor(tree:treeID)
+        var tree = try await place(initial,client:client)
+        var coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
+            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        let reference = WorkspaceReference(tree:TreeID(rawValue:treeID),path:"/page")
+        var session = try await WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator).openDocument(reference)
+        let original = try await session.snapshot()
+        let recovery = root.appending(path:"editor")
+        var binding: ArborDocumentBinding? = try await .open(reference:reference,session:session,debounce:.seconds(3600),recoveryRoot:recovery)
+        let document = try #require(binding?.document)
+        document.didCommitTransaction = { [weak binding] _ in binding?.admitCurrentGeneration() }
+        _ = document.insertCopies(of:[document.children[0]],at:.init(parent:nil,position:0))
+        let authored = try #require(binding?.lastEnqueuedSource)
+        var expected = authored
+        if recoverDraft {
+            binding?.stopObserving(); binding = nil
+            await session.close(); await coordinator.close(); await tree.close()
+            tree = try await place(initial,client:client)
+            coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
+                sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+            session = try await WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator).openDocument(reference)
+            binding = try await .open(reference:reference,session:session,debounce:.seconds(3600),recoveryRoot:recovery)
+            let restored = try #require(binding)
+            restored.document.transaction(name:"Edit immediately after recovery") {
+                _ = restored.document.insertSubtree(.paragraph(text:AttributedString("After recovery")),at:.init(parent:nil,position:restored.document.children.count))
+            }
+            restored.admitCurrentGeneration()
+            expected = try #require(restored.lastEnqueuedSource)
+        }
+        await binding?.flush()
+        #expect(binding?.lastError == nil)
+        let records = try await SourceAdmissionQueue(tree:treeID,stateRoot:root).retained()
+        let record = try #require(records.first)
+        let final = try #require(records.last)
+        #expect(record.intent?.basis.source == original.source)
+        #expect(record.intent?.source == authored)
+        #expect(record.update.operations?.contains { $0.kind == "copySource" } == true)
+        await binding?.close(); binding = nil; await coordinator.close(); await tree.close()
+        tree = try await place(initial,client:client)
+        coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
+            sourceOperationEmission:true,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
+        _ = try await coordinator.syncOnce()
+        #expect(try await coordinator.presentation().state == .current)
+        #expect(try await client.descriptor(tree:treeID).tree.root == final.candidate.root)
+        let source = try await WorkingTreeProvider(workingTree:tree,sourceCoordinator:coordinator).openDocument(reference).snapshot().source
+        #expect(source == expected)
+        await coordinator.close(); await tree.close()
+    }
+}

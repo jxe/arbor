@@ -26,3 +26,12 @@ milestone is [013](../_done/reliability/013-merge-operations-and-formats.md).
 
 Keep the portable spec ahead of implementation. Record implementation restrictions
 in status/docs, not by weakening the contract. Unknown operations remain invalid; server execution support precedes new client emission.
+
+## Source-transfer policy follow-up
+
+The client copy-capture tests demonstrate that plain-text copies reconcile with
+independent edits to their source. The current Markdown rule can retain a review
+choice because copying changes host structure even when transfer replay succeeds.
+Evaluate explicit source-transfer evidence when refining that format rule; retain
+review for coupled host/embedded structure and ambiguous destinations. The client
+capture slice intentionally does not bypass this policy.

@@ -28,6 +28,8 @@ public final class ArborDocumentBinding {
     private var accepted: WorkspaceDocumentSnapshot
     private var basisLedgers: [String: ArborSourceLedger] = [:]
     private var authoredBlocks: [Int: [Block]] = [:]
+    private var copySources: [BlockID: BlockID] = [:]
+    private var authoredCopies: [Int: [BlockID: BlockID]] = [:]
     private var ledger: ArborSourceLedger
     private var machine: DocumentAdmissionMachine.State
     private var debounceTask: Task<Void, Never>?
@@ -107,7 +109,7 @@ public final class ArborDocumentBinding {
         do {
             var captured: WorkspaceDocumentPatch?
             if let basis = basisLedgers[accepted.contentRevision] {
-                let admission = ArborMarkdownCodec.admission(blocks: document.children, ledger: basis).0
+                let admission = ArborMarkdownCodec.admission(blocks: document.children, ledger: basis, copies: copySources).0
                 if admission.source.utf8.elementsEqual(source.utf8) { captured = admission.patch }
             }
             if let recoveryRevision, try recoveryStore.source(recoveryRevision) == source,
@@ -130,6 +132,7 @@ public final class ArborDocumentBinding {
     }
 
     private var recoveredIntent: WorkspaceDocumentIntent?
+    private var recoveredLedger: ArborSourceLedger?
 
     private func restoreDraft(from store: EditorRecoveryStore, retainsBasis: Bool) throws {
         guard let record = try store.revisions().first, !store.isSaved(record) else { return }
@@ -152,9 +155,15 @@ public final class ArborDocumentBinding {
         let restored = ArborMarkdownCodec.open(source: source, revision: accepted.contentRevision,
                                                identitySeed: String(describing: reference.identity))
         ledger = restored.ledger
+        if retainsBasis { recoveredLedger = restored.ledger }
         _ = document.replaceChildrenReconciled(restored.blocks)
         lastEnqueuedSource = source
-        dispatch(.edit(source: source, preservesIntent: recoveredIntent?.patch.edits.contains { !($0.lineage ?? []).isEmpty } ?? false))
+        dispatch(.edit(source: source, preservesIntent: recoveredIntent?.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty } ?? false))
+        if retainsBasis, retainedIntent?.patch.edits.contains(where: { !($0.copies ?? []).isEmpty }) == true {
+            // Retain the recovered copy before a new editor transaction can
+            // coalesce its exact source evidence into a different generation.
+            dispatch(.flush)
+        }
         if !retainsBasis, baseSource != current.source {
             // A remote edit cannot silently replace a recovered local draft.
             // Reuse the existing conflict review with both exact alternatives.
@@ -233,13 +242,19 @@ public final class ArborDocumentBinding {
 
     // MARK: Editor commits
 
+    func captureTransactionEvidence() {
+        copySources.merge(document.blockCopiesForCurrentCommit) { _, newest in newest }
+    }
+
     func admitCurrentGeneration() {
         if basisLedgers[accepted.contentRevision] == nil, ledger.source.utf8.elementsEqual(accepted.source.utf8) {
             var basis = ledger; basis.revision = accepted.contentRevision
             basisLedgers[accepted.contentRevision] = basis
         }
+        captureTransactionEvidence()
+        authoredCopies[machine.generation + 1] = copySources
         authoredBlocks[machine.generation + 1] = document.children
-        let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger)
+        let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
         lastEnqueuedSource = admission.source
         ledger = nextLedger
         // Editing does not resolve a blocked admission. Keep the warning and
@@ -251,14 +266,14 @@ public final class ArborDocumentBinding {
             pendingConflict = conflict
         }
         checkpoint(source: admission.source)
-        dispatch(.edit(source: admission.source, preservesIntent: admission.patch.edits.contains { !($0.lineage ?? []).isEmpty }))
+        dispatch(.edit(source: admission.source, preservesIntent: admission.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }))
     }
 
     /// Force the latest authored generation through and await local durability.
     public func flush() async {
         // Capture a final keystroke even if the editor's commit callback has
         // not run yet (navigation, backgrounding, or process termination).
-        let source = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0.source
+        let source = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0.source
         if source != (lastEnqueuedSource ?? machine.accepted.source) { admitCurrentGeneration() }
         dispatch(.flush)
         await settle()
@@ -320,7 +335,7 @@ public final class ArborDocumentBinding {
             let current = try await session.snapshot()
             // Preserve the current editor too. Recovery creates an ordinary
             // new edit and never removes the original evidence.
-            checkpoint(source: ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0.source)
+            checkpoint(source: ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0.source)
             let restored = WorkspaceDocumentSnapshot(reference: reference, source: source, contentRevision: current.contentRevision)
             applyAcceptedReplacementNow(restored)
             accepted = current
@@ -437,7 +452,7 @@ public final class ArborDocumentBinding {
         // Quagmire can contain a keystroke or newly inserted block before its
         // commit callback has entered the machine. An incoming transition must
         // not replace that dirty tree: the machine has no generation for it yet.
-        let currentAdmission = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0
+        let currentAdmission = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0
         guard currentAdmission.source == machine.accepted.source else { return }
         let anchor = machine.anchor
         // Read through the provider so read-your-writes holds; suspending
@@ -458,7 +473,7 @@ public final class ArborDocumentBinding {
         var authoredLedger: ArborSourceLedger?
         if let basis = basisLedgers[baseRevision], basis.source.utf8.elementsEqual(baseSource.utf8),
            let blocks = authoredBlocks[generation] {
-            let (captured, next) = ArborMarkdownCodec.admission(blocks: blocks, ledger: basis)
+            let (captured, next) = ArborMarkdownCodec.admission(blocks: blocks, ledger: basis, copies: authoredCopies[generation] ?? [:])
             guard captured.source.utf8.elementsEqual(source.utf8) else {
                 pendingFailure = WorkspaceProviderError.invalidAction("Captured editor intent changed")
                 dispatch(.admissionFailed(generation: generation, error: .init(message: "Captured editor intent changed", retryable: false)))
@@ -467,7 +482,7 @@ public final class ArborDocumentBinding {
             patch = captured.patch; authoredLedger = next
         } else if let intent = recoveredIntent, intent.basis.contentRevision == baseRevision,
            intent.basis.source.utf8.elementsEqual(baseSource.utf8), intent.source.utf8.elementsEqual(source.utf8) {
-            patch = intent.patch
+            patch = intent.patch; authoredLedger = recoveredLedger
         } else {
             patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
         }
@@ -493,6 +508,7 @@ public final class ArborDocumentBinding {
                 basisLedgers[confirmed.contentRevision] = next
             }
             authoredBlocks = authoredBlocks.filter { $0.key > generation }
+            authoredCopies = authoredCopies.filter { $0.key > generation }
             finishAdmission(generation: generation, snapshot: confirmed)
         } catch let value as WorkspaceDocumentConflict {
             if admissionPolicy == .retainedBasis {
@@ -554,7 +570,7 @@ public final class ArborDocumentBinding {
         // A keystroke can precede Quagmire's commit callback while a save is
         // suspended. Register it as a successor before an older acknowledgement
         // is allowed to reconcile the editor.
-        let mounted = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0.source
+        let mounted = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0.source
         if mounted != (lastEnqueuedSource ?? machine.accepted.source) { admitCurrentGeneration() }
         dispatch(.admitted(generation: generation, result: Self.result(snapshot)))
     }
@@ -574,7 +590,7 @@ public final class ArborDocumentBinding {
         var newerRetained = false
         if case .submitting = machine.phase { newerRetained = true }
         if !newerRetained {
-            let mounted = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0
+            let mounted = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources).0
             if confirmed.source == mounted.source {
                 // Self-confirmation: advance without reparsing or replacing so
                 // focus, selection, typing, and undo coalescing are undisturbed.
@@ -600,6 +616,8 @@ public final class ArborDocumentBinding {
         pendingFailure = nil
         if machine.isSettled {
             authoredBlocks.removeAll()
+            authoredCopies.removeAll()
+            copySources.removeAll()
             basisLedgers = basisLedgers.filter { $0.key == confirmed.contentRevision }
         }
     }
