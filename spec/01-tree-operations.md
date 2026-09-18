@@ -290,10 +290,8 @@ GET /.arbor/trees/{TreeID}/watch?after={cursor}
 
 The request carries `Accept: text/event-stream` and may carry
 `Last-Event-ID: {cursor}`. `after` and `Last-Event-ID` are equivalent.
-Clients supporting net transitions send `catchup=net` by default. The parameter
-allows the server to emit an explicit `from` spanning intermediate accepted
-updates; without it, the server sends adjacent transitions for compatibility.
-A server may still send adjacent transitions to a net-capable client.
+Servers may emit an explicit `from` spanning intermediate accepted updates
+without client negotiation. Adjacent transitions remain valid.
 
 Successful state-change frames are `tree.update` events. Each represents one
 or more accepted updates; derived hosting and device status does not appear on

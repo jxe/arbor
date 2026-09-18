@@ -547,7 +547,6 @@ export async function serveCanopy(options: {
           };
           let closed = false;
           let delivered = 0;
-          const netCatchup = url.searchParams.get("catchup") === "net";
           let frames: string[] = [];
           let wake: (() => void) | undefined;
           let stop = () => {};
@@ -600,8 +599,8 @@ export async function serveCanopy(options: {
                     await new Promise<void>(resolve => { wake = resolve; });
                     continue;
                   }
-                  const encoded = netCatchup && records.length > 1 ? null : refFrames(records);
-                  if (netCatchup && !encoded) {
+                  const encoded = records.length > 1 ? null : refFrames(records);
+                  if (!encoded) {
                     const net = await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject).catch(() => null);
                     if (closed) return;
                     if (!authorized()) return resync("Authorization was revoked");
@@ -611,7 +610,6 @@ export async function serveCanopy(options: {
                       data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [net.transition], access, net.record.cursor)})];
                     continue;
                   }
-                  if (!encoded) return resync("Retained accepted history has no replayable transition batch");
                   delivered = records.at(-1)!.ordinal;
                   frames = encoded;
                 }

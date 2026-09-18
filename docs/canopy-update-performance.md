@@ -19,23 +19,17 @@ roots fell from 920 object reads / 77,461,548 bytes / 111 ms to 19 directory rea
 A synthetic 1,000-file directory needs one directory read for membership, and
 100 roots sharing a directory visit that shared directory once.
 
-Legacy watch replay uses cursors already present in observation records. It attempts
-one frame per 64-transition batch and splits only oversized frames, avoiding
-serialization of every growing prefix. Frame byte/count bounds, transition
-ordering, exact observation cursors, caller-specific digests, and authorization
-checks remain intact. A fitting 64-transition batch is encoded once. Delivery now
-pulls pages of 64 records from the durable observation log under stream
-backpressure, instead of loading all history or buffering live notifications.
-
-Updated TypeScript and Swift clients request `catchup=net` by default. A backlog
+Watch delivery reads bounded pages from the durable observation log under
+stream backpressure, rather than loading all history or buffering notifications.
+Adjacent live updates reuse stored payloads and observation cursors. A backlog
 becomes one sparse transition directly from its retained accepted basis to the
 captured destination. Intermediate payloads are neither read nor transmitted;
 the destination's actual predecessor remains unchanged. A 513-update same-root
 backlog is tested to deliver one empty payload without loading stored transitions.
 Concurrent appends follow the captured cursor. Net frames may exceed the ordinary
 1 MiB frame target; Native's byte-level SSE parser scans only new bytes instead
-of copying and rescanning the entire accumulated frame on every byte. Older
-installed clients retain adjacent replay until replaced with the updated build.
+of copying and rescanning the entire accumulated frame on every byte. Net
+catch-up no longer requires a query parameter now that the apps are upgraded.
 See the [transport contract](update-wire-contract.md#net-watch-catch-up).
 On the fresh production copy, a 100-update Todos span produced four deltas,
 7,699 encoded bytes, in 6.1 ms; reconstruction matched every destination object.

@@ -11,7 +11,7 @@ records verification and remaining cutover gates. This is one unversioned contra
 ## Net watch catch-up
 
 TypeScript and Swift clients now request
-`GET /.arbor/trees/{tree}/watch?catchup=net` automatically, with their confirmed
+`GET /.arbor/trees/{tree}/watch` automatically, with their confirmed
 observation cursor. Canopy captures the accepted state at that cursor and the
 current destination, then builds one sparse payload directly between their
 roots. `from: { id, root }` identifies the transport basis; `update.previous`
@@ -19,9 +19,8 @@ remains the destination's actual historical predecessor. Intermediate payloads
 are neither decoded nor transmitted. Appends during construction remain after
 the captured destination cursor and are delivered next.
 
-Adjacent live updates reuse stored payloads. Clients without `catchup=net`
-receive bounded pages of ordinary transitions, so deploying Canopy does not
-require simultaneously replacing installed apps. Missing retained basis data
+Adjacent live updates reuse stored payloads. Net catch-up is unconditional;
+clients must support the explicit transport basis. Missing retained basis data
 uses `resync-required`. Pending requests retain their exact retry procedure:
 absence of a matching digest in a coalesced event is not proof of non-acceptance.
 Net frames can exceed the ordinary 1 MiB frame target. The Native SSE parser

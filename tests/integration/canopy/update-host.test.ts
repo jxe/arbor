@@ -371,7 +371,7 @@ describe("governed account-configuration Canopy server", () => {
     expect((await fetch(objectURL, { headers: authenticated })).status).toBe(404);
   });
 
-  test("replays consecutive accepted updates as one ordered transition batch", async () => {
+  test("coalesces consecutive accepted updates without a capability parameter", async () => {
     const baseline = await currentConfig();
     const administrator = baseline.graph.account.admins[0]!;
     const firstGraph = {
@@ -423,11 +423,12 @@ describe("governed account-configuration Canopy server", () => {
       cursor: string;
       change: { descriptor: { update: string; ref: string }; transitions: Array<{
         update: { id: string; previous: { id: string; root: string }; root: string };
+        from: { id: string; root: string };
       }> };
     };
-    expect(event.change.transitions.map(({ update }) => update.id)).toEqual([first.update.id, second.update.id]);
-    expect(event.change.transitions[1]!.update.previous.id).toBe(event.change.transitions[0]!.update.id);
-    expect(event.change.transitions[1]!.update.previous?.root).toBe(event.change.transitions[0]!.update.root);
+    expect(event.change.transitions.map(({ update }) => update.id)).toEqual([second.update.id]);
+    expect(event.change.transitions[0]!.from).toEqual({id: baseline.current.tree.update, root: baseline.current.tree.root});
+    expect(event.change.transitions[0]!.update.previous).toEqual({id: first.update.id, root: first.update.root});
     expect(event.cursor).toBe("observation-batch");
     expect(event.cursor).not.toBe(second.update.id);
     const replayAbort = new AbortController();
@@ -643,7 +644,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(account.observedThrough).not.toBe(accepted.update.id);
   });
 
-  test("replays accepted updates in order across tree activation", async () => {
+  test("coalesces accepted updates across another tree activation", async () => {
     const baseline = await currentConfig();
     const administrator = baseline.graph.account.admins[0]!;
     const relabel = (graph: typeof baseline.graph, label: string) => ({
@@ -692,8 +693,6 @@ describe("governed account-configuration Canopy server", () => {
     expect(frames.map((frame) => frame.event)).toEqual(["tree.update"]);
     expect(frames.every((frame) => frame.id === frame.data.cursor)).toBe(true);
     expect(frames[0]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([
-      first.update.id,
-      declared.update.id,
       third.update.id,
     ]);
     expect(frames[0]!.id).toBe(third.update.id);
@@ -760,7 +759,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: "invalid-request", retryable: false });
   });
-  test("large watch backlogs are paged and include appends during replay", async () => {
+  test("large watch backlogs use bounded reads and coalesce appends before capture", async () => {
     const baseline = await currentConfig();
     const tree = baseline.current.tree.id;
     const root = baseline.current.tree.root;
@@ -780,9 +779,10 @@ describe("governed account-configuration Canopy server", () => {
       return page;
     };
     try {
-      const frames=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,3);
-      expect(frames.flatMap(frame=>frame.data.change.transitions!.map(t=>t.update.id))).toEqual(ids);
-      expect(frames.map(frame=>frame.data.change.transitions!.length)).toEqual([64,64,3]);
+      const frames=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
+      expect(frames.flatMap(frame=>frame.data.change.transitions!.map(t=>t.update.id))).toEqual([ids.at(-1)!]);
+      expect(frames[0]!.data.change.transitions![0]!.from?.id).toBe(baseline.current.tree.update);
+      expect(frames.map(frame=>frame.data.change.transitions!.length)).toEqual([1]);
       expect(sizes.every(size=>size<=64)).toBe(true);
       expect(frames.at(-1)!.id).toBe(running.canopy.observedThrough(tree));
     } finally {running.canopy.observationPage=original; db.close();}
@@ -827,7 +827,7 @@ describe("governed account-configuration Canopy server", () => {
       return net;
     };
     try {
-      const frames = await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?catchup=net&after=${baseline.current.observedThrough}`,2);
+      const frames = await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,2);
       const first = decodeAcceptedTransitionJSON(frames[0]!.data.change.transitions![0]);
       const second = decodeAcceptedTransitionJSON(frames[1]!.data.change.transitions![0]);
       expect(first.from?.id).toBe(baseline.current.tree.update);
@@ -845,7 +845,7 @@ describe("governed account-configuration Canopy server", () => {
     let loaded=0;
     running.canopy.acceptedTransition=(...args)=>{loaded++;return original(...args);};
     try {
-      const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?catchup=net&after=${baseline.current.observedThrough}`,1);
+      const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
       expect(frame!.event).toBe("tree.update");
       expect(frame!.data.change.transitions).toHaveLength(1);
       expect(frame!.data.change.transitions![0]!.update.previous!.id).not.toBe(baseline.current.tree.update);
@@ -864,7 +864,7 @@ describe("governed account-configuration Canopy server", () => {
     const hash=`sha256:${sha256(bytes)}`;
     try {
       for(let i=0;i<16;i++) store.insert({tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[{hash,bytes}],deltas:[]}});
-      const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?catchup=net&after=${baseline.current.observedThrough}`,1);
+      const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
       expect(frame!.event).toBe("tree.update");
       expect(frame!.data.change.transitions).toHaveLength(1);
       expect(frame!.data.change.transitions![0]!.objects).toEqual([]);

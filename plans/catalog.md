@@ -102,8 +102,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported Canopy and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
 - [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
 
-- **Remove net-watch negotiation after client rollout.** Once supported Native and TypeScript installations understand `AcceptedTransition.from`, remove `catchup=net` from both clients, make net catch-up unconditional in Canopy, and remove the compatibility clause from the [watch contract](../spec/01-tree-operations.md). Preserve adjacent live transitions, exact pending-request retries, and the missing-basis resynchronization path. Run the shared transport vectors and live TS/Swift protocol gate.
-
 ## Product Completion
 
 The numbered product work is grouped by owner above. These additional outcomes need design
