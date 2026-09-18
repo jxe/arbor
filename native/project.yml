@@ -29,7 +29,7 @@ packages:
     path: Packages/ArborQuagmire
   Quagmire:
     url: https://github.com/jxe/quagmire.git
-    exactVersion: 0.7.1
+    exactVersion: 0.8.0
   ArborSyncClient:
     path: Packages/ArborSyncClient
 

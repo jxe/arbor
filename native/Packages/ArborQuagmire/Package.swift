@@ -10,7 +10,7 @@ let package = Package(
         .package(path: "../ArborKit"),
         .package(path: "../ArborWorkingTree"),
         .package(path: "../ArborWire"),
-        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.7.1")
+        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.8.0")
     ],
     targets: [
         .target(
