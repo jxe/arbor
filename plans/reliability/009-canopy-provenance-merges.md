@@ -27,11 +27,13 @@ milestone is [013](../_done/reliability/013-merge-operations-and-formats.md).
 Keep the portable spec ahead of implementation. Record implementation restrictions
 in status/docs, not by weakening the contract. Unknown operations remain invalid; server execution support precedes new client emission.
 
-## Source-transfer policy follow-up
+## Remaining source-transfer policy work
 
-The client copy-capture tests demonstrate that plain-text copies reconcile with
-independent edits to their source. The current Markdown rule can retain a review
-choice because copying changes host structure even when transfer replay succeeds.
-Evaluate explicit source-transfer evidence when refining that format rule; retain
-review for coupled host/embedded structure and ambiguous destinations. The client
-capture slice intentionally does not bypass this policy.
+- Extend the [prose-transfer rule](../../docs/merge-operation-evaluation.md#format-and-embedded-policy)
+  to list/table transfers and document-relative/reference links only with explicit structural/binding proofs.
+- Evaluate same-anchor transfer ordering separately from plain edit insertions;
+  do not silently order ambiguous destinations or competing moves.
+- Add format-specific transfer proofs for keyed JSON/YAML and code declarations;
+  source identity and valid syntax alone do not prove those operations commute.
+- Rehearse and deploy the Markdown transfer and insertion refinements when
+  authorized. No wire/schema change or coordinated client update is required.

@@ -1,4 +1,8 @@
-import { markdownLayout, markdownProseInsertion } from "./markdown-format.ts";
+import {
+  markdownLayout,
+  markdownProseInsertion,
+  markdownTransferShape,
+} from "./markdown-format.ts";
 import { xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
@@ -66,11 +70,11 @@ async function parse(language: string, source: string): Promise<Parser.Tree> {
     grammar = Parser.Language.load(
       join(
         dirname(
-          fileURLToPath(import.meta.resolve("tree-sitter-wasms/package.json")),
+          fileURLToPath(import.meta.resolve("tree-sitter-wasms/package.json"))
         ),
         "out",
-        `tree-sitter-${language}.wasm`,
-      ),
+        `tree-sitter-${language}.wasm`
+      )
     );
     languages.set(language, grammar);
   }
@@ -110,7 +114,7 @@ function touched(units: Unit[], edits: PieceEdit[]): Set<string> | null {
   const keys = new Set<string>();
   for (const e of edits) {
     const owners = units.filter(
-      (u) => e.range[0] >= u.start && e.range[1] <= u.end,
+      (u) => e.range[0] >= u.start && e.range[1] <= u.end
     );
     if (owners.length !== 1) return null;
     keys.add(owners[0]!.key);
@@ -125,7 +129,7 @@ function independent(units: Unit[], a: PieceEdit[], b: PieceEdit[]): boolean {
 function jsonUnits(
   source: string,
   root: Parser.SyntaxNode,
-  prefix = "",
+  prefix = ""
 ): Unit[] | null {
   const out: Unit[] = [];
   function visit(node: Parser.SyntaxNode, path: string): boolean {
@@ -152,7 +156,7 @@ function jsonUnits(
 function mappingUnits(
   source: string,
   root: Parser.SyntaxNode,
-  format: "yaml" | "toml",
+  format: "yaml" | "toml"
 ): Unit[] | null {
   if (format === "yaml") {
     const doc = parseDocument(source, { uniqueKeys: true });
@@ -160,8 +164,8 @@ function mappingUnits(
     if (
       descendants(root).some((n) =>
         /anchor|alias|tag|block_scalar|flow_sequence|block_sequence/.test(
-          n.type,
-        ),
+          n.type
+        )
       )
     )
       return null;
@@ -173,8 +177,8 @@ function mappingUnits(
     text.startsWith('"')
       ? JSON.parse(text)
       : text.startsWith("'")
-        ? text.slice(1, -1)
-        : text;
+      ? text.slice(1, -1)
+      : text;
   const units: Unit[] = [];
   function visit(node: Parser.SyntaxNode, path: string) {
     if (
@@ -194,7 +198,7 @@ function mappingUnits(
       const id = path + "/" + JSON.stringify(canonicalKey(key.text));
       if (
         descendants(value).some(
-          (n) => n.type === "block_mapping_pair" || n.type === "flow_pair",
+          (n) => n.type === "block_mapping_pair" || n.type === "flow_pair"
         )
       )
         visit(value, id);
@@ -216,7 +220,7 @@ function codeUnits(source: string, root: Parser.SyntaxNode): Unit[] | null {
   const all = descendants(root);
   if (
     all.some((n) =>
-      /decorator|macro|attribute|preproc|directive|extension/.test(n.type),
+      /decorator|macro|attribute|preproc|directive|extension/.test(n.type)
     )
   )
     return null;
@@ -230,7 +234,7 @@ function codeUnits(source: string, root: Parser.SyntaxNode): Unit[] | null {
       if (node.type === "export_statement") return false;
       const container =
         /^(class_declaration|class_definition|struct_declaration|interface_declaration)$/.test(
-          node.type,
+          node.type
         );
       if (container) {
         const name = node.childForFieldName("name"),
@@ -288,7 +292,7 @@ function codeShape(root: Parser.SyntaxNode): string {
 function tableUnits(
   source: string,
   delimiter: string,
-  key: string | undefined,
+  key: string | undefined
 ): Unit[] | null {
   if (!key) return null;
   const rows: Array<Array<{ text: string; start: number; end: number }>> = [];
@@ -375,7 +379,7 @@ export async function evaluateFormat(
   proposed: Uint8Array,
   a: PieceEdit[],
   b: PieceEdit[],
-  config: FormatConfig = {},
+  config: FormatConfig = {}
 ): Promise<FormatEvidence> {
   const format =
     config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
@@ -391,7 +395,7 @@ export async function evaluateFormat(
   let sources: string[];
   try {
     sources = [base, current, incoming, proposed].map((bytes) =>
-      decoder.decode(bytes),
+      decoder.decode(bytes)
     );
   } catch {
     return result(false, "Invalid UTF-8 for selected text format");
@@ -409,7 +413,7 @@ export async function evaluateFormat(
     )
       return result(
         false,
-        "Markdown host structure or unsupported source scope changed",
+        "Markdown host structure or unsupported source scope changed"
       );
     const aliases: Record<string, Format> = {
       js: "javascript",
@@ -430,20 +434,20 @@ export async function evaluateFormat(
     };
     for (const [index, embedded] of layouts[0]!.embedded.entries()) {
       const local = a.filter(
-          (e) => e.range[0] >= embedded.start && e.range[1] <= embedded.end,
+          (e) => e.range[0] >= embedded.start && e.range[1] <= embedded.end
         ),
         remote = b.filter(
-          (e) => e.range[0] >= embedded.start && e.range[1] <= embedded.end,
+          (e) => e.range[0] >= embedded.start && e.range[1] <= embedded.end
         );
       const format = aliases[embedded.language];
       if (local.length && remote.length) {
         if (!format)
           return result(
             false,
-            "Unknown embedded language has concurrent changes",
+            "Unknown embedded language has concurrent changes"
           );
         const bytes = layouts.map((l) =>
-          new TextEncoder().encode(l!.embedded[index]!.source),
+          new TextEncoder().encode(l!.embedded[index]!.source)
         );
         const translate = (edits: PieceEdit[]) =>
           edits.map((e) => ({
@@ -461,33 +465,33 @@ export async function evaluateFormat(
           bytes[3]!,
           translate(local),
           translate(remote),
-          { format },
+          { format }
         );
         if (nested.outcome !== "resolved")
           return result(
             false,
-            "Embedded language requires review: " + nested.reason,
+            "Embedded language requires review: " + nested.reason
           );
       }
     }
     return result(
       true,
-      "Independent source scopes with stable Markdown host structure; concurrent embedded changes delegate to their format policy",
+      "Independent source scopes with stable Markdown host structure; concurrent embedded changes delegate to their format policy"
     );
   }
   if (format === "csv" || format === "tsv") {
     const units = sources.map((s) =>
-      tableUnits(s, format === "csv" ? "," : "\t", config.recordKey),
+      tableUnits(s, format === "csv" ? "," : "\t", config.recordKey)
     );
     return result(
       units.every(Boolean) &&
         units.every(
           (u) =>
             JSON.stringify(u!.map((x) => x.key)) ===
-            JSON.stringify(units[0]!.map((x) => x.key)),
+            JSON.stringify(units[0]!.map((x) => x.key))
         ) &&
         independent(units[0]!, a, b),
-      "Distinct fields with unchanged unique record keys, schema and order",
+      "Distinct fields with unchanged unique record keys, schema and order"
     );
   }
   if (format === "xml") {
@@ -497,10 +501,10 @@ export async function evaluateFormat(
         units.every(
           (u) =>
             JSON.stringify(u!.map((x) => x.key)) ===
-            JSON.stringify(units[0]!.map((x) => x.key)),
+            JSON.stringify(units[0]!.map((x) => x.key))
         ) &&
         independent(units[0]!, a, b),
-      "Distinct XML values with unchanged unambiguous namespace-free structure",
+      "Distinct XML values with unchanged unambiguous namespace-free structure"
     );
   }
   const trees: Parser.Tree[] = [];
@@ -509,8 +513,8 @@ export async function evaluateFormat(
       format === "jsonl"
         ? "json"
         : format === "typescript" && extname(path) === ".tsx"
-          ? "tsx"
-          : format;
+        ? "tsx"
+        : format;
     if (format === "jsonl") {
       if (!config.recordKey)
         return result(false, "JSONL requires an explicit record key");
@@ -540,13 +544,13 @@ export async function evaluateFormat(
           units.push(
             ...fields
               .filter(
-                (u) => !u.key.endsWith("/" + JSON.stringify(config.recordKey)),
+                (u) => !u.key.endsWith("/" + JSON.stringify(config.recordKey))
               )
               .map((u) => ({
                 ...u,
                 start: u.start + offset,
                 end: u.end + offset,
-              })),
+              }))
           );
           offset += Buffer.byteLength(line);
         }
@@ -556,9 +560,9 @@ export async function evaluateFormat(
         sets.every(
           (u) =>
             JSON.stringify(u.map((x) => x.key)) ===
-            JSON.stringify(sets[0]!.map((x) => x.key)),
+            JSON.stringify(sets[0]!.map((x) => x.key))
         ) && independent(sets[0]!, a, b),
-        "Independent keyed record fields with stable order",
+        "Independent keyed record fields with stable order"
       );
     }
     for (const source of sources) trees.push(await parse(language, source));
@@ -568,19 +572,19 @@ export async function evaluateFormat(
       const units = trees.map((t, i) =>
         format === "json"
           ? jsonUnits(sources[i]!, t.rootNode)
-          : mappingUnits(sources[i]!, t.rootNode, format),
+          : mappingUnits(sources[i]!, t.rootNode, format)
       );
       const safe =
         units.every(Boolean) &&
         units.every(
           (u) =>
             JSON.stringify(u!.map((x) => x.key)) ===
-            JSON.stringify(units[0]!.map((x) => x.key)),
+            JSON.stringify(units[0]!.map((x) => x.key))
         ) &&
         independent(units[0]!, a, b);
       return result(
         safe,
-        "Distinct mapping values with unchanged unambiguous key structure",
+        "Distinct mapping values with unchanged unambiguous key structure"
       );
     }
     if (codeLanguages.has(format)) {
@@ -588,27 +592,27 @@ export async function evaluateFormat(
       const safe =
         units.every(Boolean) &&
         trees.every(
-          (t) => codeShape(t.rootNode) === codeShape(trees[0]!.rootNode),
+          (t) => codeShape(t.rootNode) === codeShape(trees[0]!.rootNode)
         ) &&
         independent(units[0]!, a, b);
       return result(
         safe,
-        "Independent declaration literal edits with unchanged syntax and binding topology",
+        "Independent declaration literal edits with unchanged syntax and binding topology"
       );
     }
     if (format === "html" || format === "css") {
       const units = trees.map((t, i) =>
-        webUnits(sources[i]!, t.rootNode, format),
+        webUnits(sources[i]!, t.rootNode, format)
       );
       return result(
         units.every(Boolean) &&
           units.every(
             (u) =>
               JSON.stringify(u!.map((x) => x.key)) ===
-              JSON.stringify(units[0]!.map((x) => x.key)),
+              JSON.stringify(units[0]!.map((x) => x.key))
           ) &&
           independent(units[0]!, a, b),
-        "Distinct values with unchanged unique structure and declaration order",
+        "Distinct values with unchanged unique structure and declaration order"
       );
     }
     return result(false, "Format requires explicit alternatives");
@@ -625,7 +629,7 @@ export function evaluateProseInsertions(
   base: Uint8Array,
   offset: number,
   additions: Uint8Array[],
-  config: FormatConfig = {},
+  config: FormatConfig = {}
 ): FormatEvidence {
   const format =
     config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
@@ -649,13 +653,56 @@ export function evaluateProseInsertions(
     return format === "text" || markdownProseInsertion(source, offset, texts)
       ? result(
           true,
-          "Preserve independent prose insertions in contribution order",
+          "Preserve independent prose insertions in contribution order"
         )
       : result(
           false,
-          "Insertion affects structured or unsupported Markdown syntax",
+          "Insertion affects structured or unsupported Markdown syntax"
         );
   } catch {
     return result(false, "Invalid UTF-8 for prose insertion");
   }
+}
+
+/** A separate rule for identity-verified transfer replay. Ordinary independence
+ * checks assume unchanged host structure; paragraph copies intentionally alter it. */
+export function evaluateSourceTransfer(
+  path: string,
+  versions: Uint8Array[],
+  config: FormatConfig = {}
+): FormatEvidence {
+  const format =
+    config.format ?? formats[extname(path).toLowerCase()] ?? "binary";
+  const result = (safe: boolean, reason: string): FormatEvidence => ({
+    id: `${format}-source-transfer`,
+    revision: 1,
+    outcome: safe ? "resolved" : "unresolved",
+    reason,
+    config,
+  });
+  if (!["text", "markdown"].includes(format))
+    return result(
+      false,
+      "Source transfer requires format-specific structural evidence"
+    );
+  if (versions.some((bytes) => bytes.length > 256 * 1024))
+    return result(false, "Source exceeds transfer analysis budget");
+  let sources: string[];
+  try {
+    sources = versions.map((bytes) => decoder.decode(bytes));
+  } catch {
+    return result(false, "Invalid UTF-8 for source transfer");
+  }
+  if (format === "text") return result(true, "Identity-verified text transfer");
+  const shapes = sources.map(markdownTransferShape);
+  const safe =
+    shapes.length === 4 &&
+    shapes[0] !== null &&
+    shapes.every((shape) => shape === shapes[0]);
+  return result(
+    safe,
+    safe
+      ? "Identity-verified prose transfer preserves Markdown host and embedded structure"
+      : "Transfer changes protected Markdown structure or embedded content"
+  );
 }

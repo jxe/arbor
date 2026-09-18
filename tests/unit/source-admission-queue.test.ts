@@ -290,17 +290,8 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
   const {decodeWireDirectory}=await import("@arbor/wire");
   const hash=decodeWireDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
   if(!("decisions" in result.response))throw Error("Expected evaluated intent response");
-  if(name.endsWith(".txt")) {
-    expect(result.response.decisions).toEqual([]);
-    expect(Buffer.from(objects.get(hash)!).toString()).toBe("Xbc\n\nabc\n\n");
-  } else {
-    // The deployed Markdown policy reviews changed host structure. Both inputs
-    // remain accepted evidence; client capture does not bypass format policy.
-    expect(result.response.decisions.length).toBeGreaterThan(0);
-    const alternatives=result.response.decisions.flatMap(d=>"alternatives" in d ? d.alternatives.map(a=>a.object) : []);
-    expect(alternatives).toContain(current.root);
-    expect(alternatives).toContain(incoming.root);
-  }
+  expect(result.response.decisions).toEqual([]);
+  expect(Buffer.from(objects.get(hash)!).toString()).toBe("Xbc\n\nabc\n\n");
 }));
 
 

@@ -4,6 +4,94 @@ import type { FormatConfig } from "../../../packages/merge/src/format-rules.ts";
 
 const cases = [
   {
+    name: "formatted list items",
+    source: "- Existing\n",
+    at: 11,
+    a: "- **First** and `code`\n",
+    b: "- [Second](https://example.org)\n",
+    safe: true,
+  },
+  {
+    name: "nested list items",
+    source: "- Parent\n  - Existing\n",
+    at: 22,
+    a: "  - **First**\n",
+    b: "  - Second\n",
+    safe: true,
+  },
+  {
+    name: "ordered items",
+    source: "1. Existing\n",
+    at: 12,
+    a: "2. **First**\n",
+    b: "2. Second\n",
+    safe: true,
+  },
+  {
+    name: "complete inline spans",
+    source: "Hello ",
+    at: 6,
+    a: "**Alice**",
+    b: "[Bob](https://example.org)",
+    safe: true,
+  },
+  {
+    name: "prose after HTML",
+    source: "<div>opaque</div>\n\nHello",
+    at: 24,
+    a: " Alice",
+    b: " Bob",
+    safe: true,
+  },
+  {
+    name: "prose before unclosed HTML",
+    source: "Hello\n\n<div>\nunknown",
+    at: 5,
+    a: " Alice",
+    b: " Bob",
+    safe: true,
+  },
+  {
+    name: "unclosed HTML at EOF",
+    source: "<div>\nHello",
+    at: 11,
+    a: " Alice",
+    b: " Bob",
+    safe: false,
+  },
+  {
+    name: "HTML without closing separator",
+    source: "<div>opaque</div>\nHello",
+    at: 22,
+    a: " Alice",
+    b: " Bob",
+    safe: false,
+  },
+  {
+    name: "nested HTML scope",
+    source: "<div>\n<div>inner</div>\nHello\n</div>\n",
+    at: 27,
+    a: " Alice",
+    b: " Bob",
+    safe: false,
+  },
+  {
+    name: "reference spans",
+    source: "Hello ",
+    at: 6,
+    a: "[Alice][ref]",
+    b: "[Bob][ref]",
+    safe: false,
+  },
+  {
+    name: "partial emphasis",
+    source: "Hello ",
+    at: 6,
+    a: "**Alice",
+    b: "Bob**",
+    safe: false,
+  },
+  {
     name: "inline prose",
     source: "Hello",
     at: 5,
@@ -172,7 +260,7 @@ for (const c of cases)
               text,
             },
           ],
-          change,
+          change
         );
       const a = request("a", c.a),
         b = request("b", c.b),
@@ -183,14 +271,14 @@ for (const c of cases)
       if (c.safe) {
         expect(result.decisions).toEqual([]);
         expect(result.result.object).toBe(
-          f.tree({ "note.md": apply(c.a + c.b) }),
+          f.tree({ "note.md": apply(c.a + c.b) })
         );
         expect(
           result.evidence.formats.some(
             (e) =>
               e.id === "markdown-insertions" &&
-              e.config.proseInsertions === "preserve-both",
-          ),
+              e.config.proseInsertions === "preserve-both"
+          )
         ).toBe(true);
       } else expect(result.decisions.length).toBeGreaterThan(0);
     }
@@ -203,7 +291,9 @@ for (const [path, config, safe] of [
   ["note.data", { format: "markdown" }, true],
   ["note.md", { format: "json", proseInsertions: "preserve-both" }, false],
 ] as Array<[string, FormatConfig, boolean]>)
-  test(`insertion policy respects ${path} ${JSON.stringify(config)}`, async () => {
+  test(`insertion policy respects ${path} ${JSON.stringify(
+    config
+  )}`, async () => {
     const f = new Fixture(),
       base = f.tree({ [path]: "hello" });
     const request = (change: string, text: string) => {
@@ -218,7 +308,7 @@ for (const [path, config, safe] of [
             text,
           },
         ],
-        change,
+        change
       );
       r.rules.config = { formats: { ["/" + path]: config } };
       return r;

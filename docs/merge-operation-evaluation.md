@@ -133,17 +133,39 @@ policy restrictions.
 | CSS | Different unique declaration values with stable selectors/properties/order | Duplicate declarations, variables, unsupported selectors and cascade-changing structure |
 | Binary/media | Entry move/copy and independent tree changes | Competing opaque content; no byte concatenation |
 
+The `markdown-source-transfer` rule evaluates identity-verified move/copy replay
+separately from ordinary edit independence. It permits plain and self-contained formatted paragraph transfers
+alongside independent prose edits, including cross-document transfers, when all
+four versions (basis, current, authored, replayed) preserve protected host blocks
+and embedded content. It preserves the existing raw bytes; the policy signature
+is only a safety check, never a correspondence or identity heuristic. Unchanged
+headings, frontmatter and fenced code can remain beside transferred paragraphs.
+Complete emphasis, inline code and absolute HTTP(S)/mailto link spans may travel
+with paragraphs. Reference and relative links still require binding evidence.
+Changing protected blocks or transferring list/table structure still requires review.
+HTML and incomplete opaque syntax protect their local region (or unclosed suffix),
+so unaffected prose elsewhere can merge. Invalid UTF-8 remains unsupported. JSON/YAML/code/binary
+source transfers remain conservative until their own structural proofs exist.
+
+Successful replay does not order competing destinations: same-anchor source
+transfers and competing moves still require review. This is distinct from the
+ordinary prose-insertion policy below. File-format overrides apply to both rules;
+Canopy-wide/per-tree configuration remains future work. This transfer refinement
+has not been deployed.
+
 Markdown defaults to `proseInsertions: "preserve-both"`: competing additions of
-ordinary prose, new paragraphs and simple list/task items are preserved in stable
+ordinary prose, new paragraphs and list/task items (including formatted items and
+shallow nested lists) are preserved in stable
 contribution order, independent of arrival order. Exact authored bytes are retained;
 the tool does not add separators, deduplicate equal text or clear existing choices.
 The insertion rule records the effective policy in its evidence. Set
 `proseInsertions: "review"` to require review instead. Plain text retains the review
 default and can opt into preserve-both.
 
-This insertion policy excludes frontmatter, fences (including unlabelled fences),
-inline code, links, tables, indented code and unsupported Markdown syntax. Documents
-with raw HTML remain conservative until its enclosing scopes are analyzed. Structured
+Complete self-contained inline spans may be inserted, but insertion inside a code
+span or link remains conservative. The policy excludes frontmatter, fences, tables,
+indented code, reference links and unsupported Markdown syntax. Opaque HTML regions
+are bounded locally; unclosed regions protect the remaining suffix. Structured
 formats cannot opt into prose concatenation. Replacement conflicts and mixed changes
 whose structural independence is unproved still retain choices. Configuration is
 validated in the tool; future per-tree/default selection belongs to Canopy.

@@ -27,6 +27,7 @@ import {
 
 import {
   evaluateFormat,
+  evaluateSourceTransfer,
   evaluateProseInsertions,
   type FormatEvidence,
 } from "./format-rules.ts";
@@ -1753,8 +1754,8 @@ class Engine {
               request.incoming.change
             );
           }
-          // Transfer policy is deliberately restricted to ordinary prose/text;
-          // code/data need structural and binding evidence, not mere byte success.
+          // Format rules inspect all branches and the replay result. Successful
+          // source location alone does not establish semantic independence.
           for (const id of Object.keys(base.nodes)) {
             const b = base.nodes[id]!,
               next = attempt.nodes[id];
@@ -1766,22 +1767,14 @@ class Engine {
               continue;
             const path = this.path(base, id),
               config = request.rules.config?.formats?.[path];
-            const bytes = await this.bytes(next.pieces ?? []);
-            const evidence = await evaluateFormat(
-              path,
+            const evidence = evaluateSourceTransfer(path, [
               await this.bytes(b.pieces ?? []),
-              bytes,
-              bytes,
-              bytes,
-              [],
-              [],
-              config
-            );
+              await this.bytes(current.nodes[id]?.pieces ?? []),
+              await this.bytes(authored.nodes[id]?.pieces ?? []),
+              await this.bytes(next.pieces ?? []),
+            ], config);
             this.formatEvidence.push(evidence);
-            if (
-              evidence.outcome !== "resolved" ||
-              !evidence.id.match(/^(text|markdown)-/)
-            )
+            if (evidence.outcome !== "resolved")
               throw new Error("Transfer requires format review");
           }
           for (const operation of request.incoming.operations) {

@@ -1006,3 +1006,23 @@ test("historical grouped undo and redo preserve equal-byte round trips", async (
   const current = await client.descriptor(tree);
   expect((await client.submitUpdates(tree,{base:current.tree.update,updates:[next]})).results[0]!.update.root).toBe(next.candidate);
 });
+
+test.each([false,true])("Markdown source copy accepts an independent edit and survives restart (copy first: %s)", async (copyFirst) => {
+  const {prepareSourceAdmission}=await import("@arbor/canopy-client");
+  const {decodeCandidateUpdateJSON}=await import("@arbor/wire");
+  const graph=await client.snapshot(tree,root);
+  const record=prepareSourceAdmission({tree,change:"markdown-copy",basis:{kind:"accepted",root,update:base},graph,sourcePath:"/note.md",
+    intent:{basis:{tree,path:"/note",revision:base,source:"abc\r\n"},source:"abc\r\nabc\r\n",edits:[{offset:5,length:0,replacement:"abc\r\n",copies:[{source:[0,5],replacement:[0,5]}]}]}});
+  const copied=decodeCandidateUpdateJSON(record.update), peer=await edit("ABC");
+  await client.submitUpdates(tree,{base,updates:[copyFirst?copied:peer]});
+  const request={base,updates:[copyFirst?peer:copied]};
+  const accepted=await client.submitUpdates(tree,request);
+  const result=accepted.results[0]!.update;
+  expect(result.conflicted).toBe(false);
+  await stop();await start();
+  expect((await client.submitUpdates(tree,request)).results[0]!.update.id).toBe(result.id);
+  const snapshot=await client.snapshot(tree,result.root);
+  const file=decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries.find(e=>e.name==="note.md")!.file!;
+  expect(Buffer.from(snapshot.objects.get(file)!).toString()).toBe("ABC\r\nabc\r\n");
+  await running.canopy.verifyIntegrity();
+});

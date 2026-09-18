@@ -90,9 +90,9 @@ export function markdownLayout(source: string): MarkdownLayout | null {
         skeleton.push(
           cells
             .map((c) =>
-              /^\s*:?-+:?\s*$/.test(c) ? c : c.trim() ? "<cell>" : c,
+              /^\s*:?-+:?\s*$/.test(c) ? c : c.trim() ? "<cell>" : c
             )
-            .join("|") + ending,
+            .join("|") + ending
         );
       }
       offset += Buffer.byteLength(line);
@@ -101,7 +101,7 @@ export function markdownLayout(source: string): MarkdownLayout | null {
     }
     const prefix =
       /^(?:#{1,6}\s+|\s*(?:[-+*]|\d+[.)])\s+(?:\[[ xX]\]\s+)?|>\s*)/.exec(
-        body,
+        body
       )?.[0] ?? "";
     const checkbox = /\[[ xX]\]/.exec(prefix);
     if (checkbox)
@@ -115,7 +115,7 @@ export function markdownLayout(source: string): MarkdownLayout | null {
     skeleton.push(
       prefix.replace(/\[[ xX]\]/, "[ ]") +
         body.slice(prefix.length).replace(/[^`*_\[\]<>\\]/g, "") +
-        ending,
+        ending
     );
     units.push({ key: String(index), start, end });
     offset += Buffer.byteLength(line);
@@ -124,22 +124,90 @@ export function markdownLayout(source: string): MarkdownLayout | null {
   return block ? null : { units, embedded, skeleton: skeleton.join("") };
 }
 
+/** Recognize complete, self-contained inline spans without rewriting source.
+ * Reference links and relative destinations need document context and stay opaque. */
+function inlineProse(source: string): boolean {
+  const rest = source
+    .replace(/(`+)([^`\r\n]+)\1/g, "span")
+    .replace(/!?\[[^\[\]\r\n]*\]\((?:https?:\/\/|mailto:)[^\s()]+\)/g, "span")
+    .replace(/(\*\*|__)(?=\S)([^*_\r\n]*?\S)\1/g, "span")
+    .replace(/(\*|_)(?=\S)([^*_\r\n]*?\S)\1/g, "span");
+  return !/[`*_~<>|\[\]\\]/.test(rest);
+}
+
+/** Opaque source regions have local boundaries. Unknown/unclosed HTML protects
+ * the remaining suffix, never unrelated prose before it. Offsets are characters. */
+function opaqueRegions(source: string): Array<[number, number]> {
+  const regions: Array<[number, number]> = [];
+  const lines = source.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!,
+      start = offset;
+    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    const frontmatter = i === 0 && line.trim() === "---";
+    const html = /^ {0,3}<([A-Za-z][\w-]*)\b/.exec(line);
+    const comment = /^ {0,3}<!--/.test(line);
+    if (fence || frontmatter || /^\s*</.test(line)) {
+      let end = i;
+      let htmlDepth = 0;
+      const closes = (value: string) =>
+        fence
+          ? new RegExp(
+              "^ {0,3}" + fence[1]![0] + "{" + fence[1]!.length + ",}\\s*$"
+            ).test(value)
+          : frontmatter
+          ? value.trim() === "---"
+          : comment
+          ? value.includes("-->")
+          : html
+          ? (() => {
+              for (const tag of value.matchAll(
+                new RegExp("</?" + html[1] + "\\b[^>]*>", "gi")
+              )) {
+                if (tag[0].startsWith("</")) htmlDepth--;
+                else if (!tag[0].endsWith("/>")) htmlDepth++;
+              }
+              return htmlDepth === 0;
+            })()
+          : false;
+      if (fence || frontmatter || !closes(line)) {
+        end = i + 1;
+        while (end < lines.length && !closes(lines[end]!)) end++;
+        end = Math.min(end, lines.length - 1);
+      }
+      // HTML block syntax can continue through the closing tag until a blank line.
+      if (!fence && !frontmatter)
+        while (end + 1 < lines.length && lines[end + 1]!.trim()) end++;
+      // Include the following blank separator: changing it can change scope.
+      if (end + 1 < lines.length && !lines[end + 1]!.trim()) end++;
+      for (; i <= end; i++) offset += lines[i]!.length;
+      i--;
+      regions.push([start, offset]);
+    } else offset += line.length;
+  }
+  return regions;
+}
+
 /** Deliberately modest prose policy: retain authored insertions without inventing
  * separators or treating code/data/link syntax as ordinary paragraph text. */
 export function markdownProseInsertion(
   source: string,
   offset: number,
-  additions: string[],
+  additions: string[]
 ): boolean {
-  const layout = markdownLayout(source);
+  const characterOffset = Buffer.from(source)
+    .subarray(0, offset)
+    .toString("utf8").length;
   if (
-    !layout ||
-    layout.embedded.some((e) => offset >= e.start && offset <= e.end)
+    opaqueRegions(source).some(
+      ([start, end]) =>
+        characterOffset >= start &&
+        (characterOffset < end ||
+          (end === source.length && characterOffset === end))
+    )
   )
     return false;
-  // Raw HTML can span otherwise ordinary-looking lines. This analyzer does not
-  // yet establish those boundaries, so leave such documents to review.
-  if (/^\s*</m.test(source)) return false;
   const bytes = Buffer.from(source),
     prefix = bytes.subarray(0, offset).toString("utf8"),
     suffix = bytes.subarray(offset).toString("utf8");
@@ -150,17 +218,22 @@ export function markdownProseInsertion(
     if (/^\s{4}|^\t|^\s*(?:[-=*_]\s*){3,}$/.test(line)) return false;
     const body = line.replace(
       /^(?:#{1,6}\s+| {0,3}[-+*]\s+(?:\[[ xX]\]\s+)?| {0,3}\d+[.)]\s+)/,
-      "",
+      ""
     );
-    return !/[`~|\[\]<>\\*_]/.test(body);
+    return inlineProse(body);
   };
   if (!safeLine(line)) return false;
   // Do not insert into a heading/list marker or task checkbox.
   const marker =
     /^(?:#{1,6}\s+| {0,3}[-+*]\s+(?:\[[ xX]\]\s+)?| {0,3}\d+[.)]\s+)/.exec(
-      line,
+      line
     )?.[0] ?? "";
   if (before.length > 0 && before.length < marker.length) return false;
+  if (
+    before.length &&
+    (!inlineProse(before.slice(marker.length)) || !inlineProse(after))
+  )
+    return false;
   if (before.endsWith("\r") && suffix.startsWith("\n")) return false;
   const following = suffix.slice(suffix.indexOf("\n") + 1).split("\n", 1)[0]!;
   if (suffix.includes("\n") && /^\s*(?:=+|-+)\s*$/.test(following))
@@ -180,4 +253,36 @@ export function markdownProseInsertion(
     additions.every((text) => !/^(?:#{1,6}\s|[-+*]\s|\d+[.)]\s)/.test(text)) &&
     safeLine(before + additions.join("") + after)
   );
+}
+
+/** Transfer replay already proves source identity and destination. This signature
+ * permits plain paragraph insertion/removal without treating changed host syntax
+ * or embedded programs as prose. It is a policy guard, never an identity map. */
+export function markdownTransferShape(source: string): string | null {
+  const protectedBlocks: string[] = [];
+  let cursor = 0;
+  const protectProse = (text: string) => {
+    for (const block of text.split(/(?:\r?\n){2,}/)) {
+      if (!block.trim()) continue;
+      if (
+        block
+          .split(/\r?\n/)
+          .some(
+            (line) =>
+              !inlineProse(line) ||
+              /^(?:[ \t]| {0,3}(?:#{1,6}(?:\s|$)|>|[-+]\s|\d+[.)]\s|[-=]+\s*$))/.test(
+                line
+              )
+          )
+      )
+        protectedBlocks.push(block);
+    }
+  };
+  for (const [start, end] of opaqueRegions(source)) {
+    protectProse(source.slice(cursor, start));
+    protectedBlocks.push(source.slice(start, end));
+    cursor = end;
+  }
+  protectProse(source.slice(cursor));
+  return JSON.stringify(protectedBlocks);
 }
