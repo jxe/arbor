@@ -3,8 +3,8 @@
 This records the completed tool-only scope of
 [Reliability 013](../plans/_done/reliability/013-merge-operations-and-formats.md).
 It runs in `codex/merge-tool`; it is not deployed. Canopy integration is described in the [authority checkpoint](merge-authority-integration.md);
-future retention extensions remain in [009](../plans/reliability/009-canopy-provenance-merges.md), and editor capture is
-[008](../plans/reliability/008-enable-source-operations.md). No public Wire or client
+future retention extensions remain in [009](../plans/canopy/009-canopy-provenance-merges.md), and editor capture is
+[008](../plans/native/008-complete-native-move-copy-undo-capture.md). No public Wire or client
 state-machine change accompanies this implementation.
 
 ## One evaluator

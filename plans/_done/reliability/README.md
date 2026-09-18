@@ -8,3 +8,18 @@
 
 Completed reliability plans retain their original identifiers here. Active
 reliability work remains indexed in [`plans/README.md`](../../README.md).
+
+## September 18 plan reconciliation
+
+- [003](003-untracked-collection-file-transactions.md) — superseded: its
+  `FilesystemService` target was removed. Future non-tree editing belongs to Native 024.
+- [004](004-contextual-canopy-conflict-resolution.md) — superseded: accepted-conflict
+  review, contextual mapping and crash-safety scenarios belong to active Reliability 010.
+- [012](012-native-sync-progress.md) — implemented with coordinator regression evidence;
+  installation/publication/restart evidence is in the native source cutover. Extended
+  merge/reconnect observation remains in [release verification](../../verification/release-and-soak.md).
+- [013](013-merge-operations-and-formats.md) — completed merge-operation/language
+  implementation, integrated into the deployed schema-12 authority.
+
+Archival is not a claim that transferred manual gates have passed. See each dated
+archive note and its linked checkpoint; the original executor text remains historical.

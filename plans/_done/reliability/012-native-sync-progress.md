@@ -1,10 +1,13 @@
 # Native automatic synchronization makes progress
 
+> **Archived 2026-09-18.** IMPLEMENTED; follow-up verification transferred. The coordinator regressions and fix are recorded in `docs/native-sync-progress.md`; installed source-mode publication and restart are recorded in `docs/native-source-cutover.md`. Extended automatic merge/reconnect observation is not claimed complete: it is retained in the active release checklist.
+> See [remaining release and verification work](../../verification/release-and-soak.md) and the [active outcome menu](../../README.md).
+
 Priority: P1. Status: progress and offline durability fixes implemented; live verification remains.
 
 ## Evidence and scope
 
-The [September 15 cutover preflight](../../migrations/006-accepted-state-links/live-cutover.md)
+The [September 15 cutover preflight](../../../migrations/006-accepted-state-links/live-cutover.md)
 found a durable Mac Native head at generation 50, based on accepted update 1856,
 with no prepared attempt or daemon pending request. The UI showed local changes
 but retained detail text from the previous successful auto-merge. Manual Sync Now
@@ -15,11 +18,11 @@ recorded in the cutover report. Do not put authored content or credentials in te
 
 ## Remaining work
 
-The [investigation and regression evidence](../../docs/native-sync-progress.md)
+The [investigation and regression evidence](../../../docs/native-sync-progress.md)
 records no-work preparation and preparation-error failures. These reproduce the
 symptom but do not prove the exact timing of the original incident.
 
-1. Install the tested native fix, including [local editor recovery](../../docs/native-editor-recovery.md), and verify automatic server acceptance and peer
+1. Install the tested native fix, including [local editor recovery](../../../docs/native-editor-recovery.md), and verify automatic server acceptance and peer
    convergence without Sync Now through subsequent edits, merges and reconnect.
 2. If the stall recurs, capture the in-memory machine phase and preparation error
    before retrying. Diagnose remaining causes with synthetic interleavings.

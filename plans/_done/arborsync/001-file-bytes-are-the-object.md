@@ -1,11 +1,14 @@
 # Arbor Sync 001: File bytes are the object
 
+> **Archived 2026-09-18.** IMPLEMENTED AND CUT OVER; soak closeout transferred. Migration 005 records the raw-byte transition and both client upgrades. No new cutover or history reset is requested. The remaining dated ordinary-use observation receipt lives in the active release checklist; it is not silently marked passed.
+> See [remaining release and verification work](../../verification/release-and-soak.md) and the [active outcome menu](../../README.md).
+
 ## Status and scope
 
 - **Status:** SOAKING, 2026-09-13. Implementation, production-copy rehearsal,
   synchronized-client cutover, and both client upgrades are complete.
 - **Priority:** first, alongside the minimal Wire contract in
-  [Reliability 007](../_done/reliability/007-reify-composable-canopy-conflicts.md).
+  [Reliability 007](../reliability/007-reify-composable-canopy-conflicts.md).
 - Joe authorized implementation and resetting accepted history, conditional on
   every participating client being synchronized. Do not reset unverified data.
 
@@ -15,7 +18,7 @@ Conflict exploration and resolution remain optional, versioned extensions.
 
 ## Implemented contract under verification
 
-The portable source of truth is [tree operations](../../spec/01-tree-operations.md).
+The portable source of truth is [tree operations](../../../spec/01-tree-operations.md).
 A file object is exactly its payload bytes; its SHA-256 is the file hash.
 Directories are canonical CBOR. Each entry has `name` and exactly one of `file`,
 `directory`, or `tree`. A root is a directory. Kind comes from the reference,
@@ -47,7 +50,7 @@ traversal no longer decodes files to classify them.
 
 ## Verification completed
 
-Completed the relevant gates in [DEVELOPMENT.md](../../DEVELOPMENT.md), including:
+Completed the relevant gates in [DEVELOPMENT.md](../../../DEVELOPMENT.md), including:
 
 - TypeScript typecheck, product tests, protocol tests, build, performance gate.
 - Swift ArborWire, ArborWorkingTree, ArborObjectStore, ArborSyncClient and
@@ -64,7 +67,7 @@ baseline distinction rather than changing unrelated behavior in this migration.
 
 ## Cutover completed; soak remains
 
-Follow [Migration 005](../../migrations/005-file-bytes-are-the-object/README.md).
+Follow [Migration 005](../../../migrations/005-file-bytes-are-the-object/README.md).
 
 1. Verify every client, including the phone, has flushed durable admissions,
    has no pending requests or conflict evidence, and agrees with Canopy on exact

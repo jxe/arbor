@@ -1,6 +1,6 @@
 # Smaller project 009 — Shape the Local Arbor REST API around document admission
 
-- **State:** SUPERSEDED by [Native 022](../../native/022-run-the-mac-app-as-a-working-tree-client.md); retired in its Phase 7 (2026-09-09). No editor REST exists: the daemon's node, mutation, and document-admission routes were deleted, and editors run the document admission and update machines against their own working tree.
+- **State:** SUPERSEDED by [Native 022](../native/022-run-the-mac-app-as-a-working-tree-client.md); retired in its Phase 7 (2026-09-09). No editor REST exists: the daemon's node, mutation, and document-admission routes were deleted, and editors run the document admission and update machines against their own working tree.
 - **Priority:** was P2; after Reliability 005 had run on both platforms
 - **Depends on:** [Reliability 005](../reliability/005-client-synchronization-state-machines.md)
   (the admission machine this API serves) and the

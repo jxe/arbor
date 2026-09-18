@@ -1,5 +1,8 @@
 # Reliability 003: Make untracked collection-file mutations restart-safe
 
+> **Archived 2026-09-18.** SUPERSEDED. The targeted `FilesystemService` and its daemon editor mutation path no longer exist. Native 022 removed that architecture. Future non-tree disk editing belongs to Native 024; any collection-write requirement must be designed against that actual backend, not revive this service. No claim is made that the old checklist was implemented.
+> See [remaining release and verification work](../../verification/release-and-soak.md) and the [active outcome menu](../../README.md).
+
 > **Drift check:** inspect `FilesystemService.executeMutation`,
 > `ProjectionProviderHost` prepared property writes,
 > `MutationJournal`, and the managed `Workspace` mutation path. Stop if

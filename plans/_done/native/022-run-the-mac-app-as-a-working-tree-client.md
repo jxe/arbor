@@ -1,5 +1,8 @@
 # Plan 022: Run the Mac app as a working-tree client
 
+> **Archived 2026-09-18.** IMPLEMENTED AND LIVE; soak closeout transferred. Swift working-tree ownership and the removed daemon editor path are implemented. The September 17 native source cutover records both installed clients and cross-device restart evidence. The original steps below are historical; outstanding soak closeout before Native 023 lives in the active release checklist.
+> See [remaining release and verification work](../../verification/release-and-soak.md) and the [active outcome menu](../../README.md).
+
 > **Executor instructions**: Make every editor a direct Canopy client of the same update machine, and make the arborsync daemon the placed folder's client plus three loopback services: accepted-root bootstrap, credential, and a content-addressed object cache backed by disk or Canopy. Nobody edits through the daemon or imports the daemon's pending/conflict state. This plan (Plan A) covers the daemon services and the Canopy object-route widening, the Swift split into WorkingTree and ObjectStore, the Mac switch with a shared daemon credential, the CLI's configuration edit on disk, and the deletion of the daemon's editor path. The web editor is unavailable from Phase 7 until Plan B rebuilds it on the working tree. Clean breaks over compatibility shims; nothing live flips without Joe's go-ahead.
 >
 > **Drift check**: `git diff --stat 32799e8..HEAD -- packages/arborsync packages/canopy packages/canopy-client packages/stores packages/fs packages/wire packages/cli packages/arborsync-client native/Packages native/ArborApp spec docs conformance tests tools`

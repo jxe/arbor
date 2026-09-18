@@ -1,4 +1,6 @@
-# Smaller project 007: Surface accepted document history from Canopy
+# Surface accepted document history from Canopy
+
+Historical identifier: **Smaller project 007**. The filename number is preserved; this plan now belongs to canopy.
 
 > **Executor instructions:** Read this plan completely before editing. Preserve
 > unrelated working-tree changes. Run every verification gate before moving on.
@@ -7,7 +9,7 @@
 >
 > **Drift check (run first):** This plan was refreshed against commit
 > `670a240`, after local replica history removal landed in `b610d40` and the
-> retained-root object-read decision was recorded in Reliability 006. Before
+> retained-root object-read decision was recorded in Native 006. Before
 > implementation run:
 >
 > ```sh
@@ -16,13 +18,13 @@
 >   native/Packages/ArborWire native/Packages/ArborKit \
 >   native/Packages/ArborReplica native/Packages/ArborSyncClient \
 >   native/Packages/ArborQuagmire native/ArborApp native/ArborAppTests \
->   spec docs conformance tests migrations plans/smaller-projects
+>   spec docs conformance tests migrations plans/canopy plans/postgres plans/cleanups plans/cli plans/native plans/web
 > git status --short -- \
 >   packages/canopy packages/wire packages/arborsync packages/fs \
 >   native/Packages/ArborWire native/Packages/ArborKit \
 >   native/Packages/ArborReplica native/Packages/ArborSyncClient \
 >   native/Packages/ArborQuagmire native/ArborApp native/ArborAppTests \
->   spec docs conformance tests migrations plans/smaller-projects
+>   spec docs conformance tests migrations plans/canopy plans/postgres plans/cleanups plans/cli plans/native plans/web
 > ```
 >
 > Reconcile every pre-existing edit before touching an overlapping file. The
@@ -38,8 +40,8 @@
   authority and meaning of a visible restore action
 - **State:** PLANNED
 - **Depends on:** no implementation milestone; execute before
-  [Smaller project 006](006-line-provenance.md), and coordinate retained-root
-  policy with [Canopy storage 001](../canopy-storage/001-pack-object-storage.md)
+  [Canopy 006](006-line-provenance.md), and coordinate retained-root
+  policy with [Canopy 001](001-pack-object-storage.md)
 - **Category:** performance, product, protocol, migration
 - **Planned at:** `670a240`, 2026-09-07
 
@@ -84,7 +86,7 @@ roots and therefore must own document history and recovery.
   internal, and `snapshotForRoot` accepts a known retained root. No Wire route
   currently enumerates history.
 - `spec/05-access-control.md` defines historical snapshots as known-root and
-  non-enumerable. Reliability 006 records the separate decision that a caller
+  non-enumerable. Native 006 records the separate decision that a caller
   with current read access may fetch a known object reachable from any retained
   accepted root of that same tree. That does not authorize history enumeration:
   this plan adds only document-scoped listing under a write-capable credential.
@@ -190,7 +192,7 @@ representation.
 Do not copy Markdown source into SQLite. The index stores the existing file
 object hash; the detail route resolves and verifies that immutable object when
 requested. Coordinate the retained-root/object requirement with Canopy storage
-001. Smaller project 006 must reuse this accepted document-version index for
+001. Canopy 006 must reuse this accepted document-version index for
 line provenance rather than add a competing historical scan or schema.
 
 ## Native and Arbor Sync ownership
@@ -376,7 +378,7 @@ Manual acceptance on iPhone and macOS:
   macOS and iOS.
 - [ ] All focused and maintained gates, platform builds, relative-link audit,
   and `git diff --check` pass.
-- [ ] `plans/README.md` and Smaller project 006 reflect the final dependency and
+- [ ] `plans/README.md` and Canopy 006 reflect the final dependency and
   shared history-index ownership; completed evidence is moved to `_done`.
 
 ## STOP conditions
@@ -391,7 +393,7 @@ Stop and report rather than improvising if:
   migration cannot be identified;
 - document-history enumeration would be available to public, access-link,
   read-only, or unauthenticated callers without a new explicit product/security
-  decision; known-hash retained-object access from Reliability 006 is not
+  decision; known-hash retained-object access from Native 006 is not
   enumeration;
 - direct native history access would require duplicating credential ownership,
   or the Arbor Sync proxy would begin storing a second history archive;

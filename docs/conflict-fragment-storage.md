@@ -85,7 +85,7 @@ need inspection locations and dependencies before clients can review them. The
 experiment's ancestor context is private and must not be copied into Wire ad hoc.
 
 Packing remains a separate physical optimization governed by
-[storage plan 001](../plans/canopy-storage/001-pack-object-storage.md). No per-character
+[storage plan 001](../plans/canopy/001-pack-object-storage.md). No per-character
 patch graph or packfile implementation was needed to pass this corpus.
 
 Verification: nine focused storage tests pass; the full product suite passes

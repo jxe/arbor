@@ -83,7 +83,7 @@ existing deployed-format compatibility tests.
 
 ## One foundational cutover
 
-[Plan 011](../plans/reliability/011-compatible-accepted-ambiguity.md) owns the sequence.
+[Plan 011](../plans/verification/011-client-compatibility.md) owns the sequence.
 The request-side implementation is complete in this worktree. Snapshot constructors
 emit `operations: null` and `resolves: []`; optional `ifCurrent` binds accepted
 identity. Canopy checks replay before the guard and uses the guarded accepted ID

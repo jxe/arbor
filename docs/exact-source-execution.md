@@ -102,7 +102,7 @@ changes to the portable specification.
 Before enabling client emission, finish and verify the intended emitted operation subset against the supported causal and accepted-ambiguity paths.
 Retain creation material and required roots through
 compaction and backup; define resynchronization before exposing retained outputs. Consult
-[storage 001](../plans/canopy-storage/001-pack-object-storage.md); packing itself is
+[storage 001](../plans/canopy/001-pack-object-storage.md); packing itself is
 not required.
 
 Extend correspondence beyond one shared accepted basis. The [whole-entry lifecycle](accepted-entry-conflicts.md) now connects durable alternatives, inspection and ordinary snapshot attribution. It also retains coupled ancestor changes. Extend it to independent range decisions without losing hidden work. Keep ordinary filesystem snapshot clients
@@ -111,7 +111,7 @@ cases, then deploy and verify server support before editor emission. The current
 [migration 009](../migrations/009-nested-conflict-locations/README.md) also covers
 older provenance storage. No coordinated client cutover is needed.
 
-The [operation plan](../plans/reliability/008-enable-source-operations.md) owns this
+The [operation plan](../plans/native/008-complete-native-move-copy-undo-capture.md) owns this
 remaining work. The old experiment remains useful for causal runs and arrival-order
 cases, but its earlier reference vocabulary must not be promoted unchanged.
 

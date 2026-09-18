@@ -7,7 +7,7 @@
 > every current TypeScript and Swift path named below. Do not create a third
 > synchronization model, port Canopy's merge algorithm into a client, or
 > silently reinterpret every UI transaction as an accepted-history boundary.
-> [Reliability 006](../../reliability/006-progressive-replica-bootstrap.md) owns the resumable
+> [Reliability 006](../../native/006-progressive-replica-bootstrap.md) owns the resumable
 > initial replica bootstrap which precedes the direct Canopy machine; treat its
 > handoff as an input to this plan, not as a third synchronization model.
 > If anything in “STOP conditions” occurs, stop and report rather than

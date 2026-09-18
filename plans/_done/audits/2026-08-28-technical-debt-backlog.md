@@ -40,7 +40,7 @@ These are implementation violations of the aspirational specification. They are 
    a provider-owned codec. Keep the owner index behavior behind the generic
    identity rule; do not remove rename healing itself.
 2. **Complete
-   [Smaller project 003](../../smaller-projects/003-native-offline-collection-file-projection.md).** The
+   [Smaller project 003](../../native/003-native-offline-collection-file-projection.md).** The
    local daemon's unplaced remote-tree adapter now pages descriptor-derived rows directly and
    the old `remoteChildren` physical cache is deleted. Swift independently
    validates, retains, materializes, and re-encodes rollup descriptors so an
@@ -51,7 +51,7 @@ These are implementation violations of the aspirational specification. They are 
 3. **Complete [Postgres 001](../../postgres/001-child-provider.md).** That plan now
    owns removal of Postgres virtual nodes, `external:postgres`, provisional
    offset cursors, and all associated deletion conditions.
-4. **Complete [Smaller project 001](../../smaller-projects/001-representation-equivalence.md).** That plan
+4. **Complete [Smaller project 001](../../postgres/005-representation-equivalence.md).** That plan
    now owns the reviewed logical-path rule/converter and the proof that expanded
    Markdown and key-derived rollups preserve refs and ordinary relative links.
 5. **Finish bounded exact-source snapshots for file providers.** File-backed

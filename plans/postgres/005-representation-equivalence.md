@@ -1,11 +1,13 @@
-# Smaller project 001: Preserve node identity across representations
+# Preserve node identity across representations
+
+Current identifier: **Postgres 005**. Former identifiers: **Smaller project 001 / Data model 001**.
 
 ## Status
 
 - **Priority:** P1
 - **Effort:** L
-- **State:** PLANNED — extracted from Data 002; implementation begins after
-  Data 011 lands the collection-file Wire shape and `childName` rule.
+- **State:** PLANNED — the Data 002 and Data 011 foundations are historical
+  prerequisites already delivered; this plan owns the remaining cross-representation behavior.
 - **Depends on:** Data 002 stable keys, Data 011 collection-file descriptors
   and path rules, bounded placement, semantic update merge, and generic locator
   healing.

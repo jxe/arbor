@@ -1,4 +1,6 @@
-# Reliability 002: Serialize write-journal appends so counters cannot collide
+# Serialize write-journal appends so counters cannot collide
+
+Historical identifier: **Reliability 002**. The filename number is preserved; this plan now belongs to filesystem.
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -9,6 +11,9 @@
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/fs/src/journal.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
 > state" do not match the live code, treat it as a STOP condition.
+
+> **Scheduling:** DEFERRED. The historical P1 label below is not a near-term commitment.
+> Resume when this correctness work is explicitly selected.
 
 ## Status
 
@@ -278,7 +283,7 @@ ALL must hold:
 - [ ] `grep -n "private tails" packages/fs/src/journal.ts` returns a match
 - [ ] `packages/fs/src/workspace-fs.ts` is unmodified (`git status --short`)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plans/README.md` entry for Reliability 002 updated
+- [ ] `plans/README.md` entry for Filesystem 002 updated
 
 ## STOP conditions
 

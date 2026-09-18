@@ -249,7 +249,7 @@
   deferred [security boundary](../../README.md#hardening-efficiency-polish-etc) shared with
   SSR/query/mutation execution. Native
   offline row projection is deliberately deferred to
-  [Smaller project 003](../../smaller-projects/003-native-offline-collection-file-projection.md). The reference
+  [Smaller project 003](../../native/003-native-offline-collection-file-projection.md). The reference
   merge currently writes one canonical encoding after semantic reconciliation;
   preserving untouched source formatting is tracked as explicit continuation
   debt rather than weakening the logical merge contract.
@@ -267,12 +267,12 @@
   integration continue in
   [Apps 003](../../apps/003-development-compiler-and-editor-tooling.md);
   representation-path conversion, including cross-representation search and
-  backlink proof, continues in [Smaller project 001](../../smaller-projects/001-representation-equivalence.md);
+  backlink proof, continues in [Smaller project 001](../../postgres/005-representation-equivalence.md);
   Postgres continues in [Postgres 001](../../postgres/001-child-provider.md); database
   observation/synchronization continues in
   [Postgres 002](../../postgres/002-observation-and-semantic-sync.md); and native offline
   rollup-row projection is deliberately deferred to
-  [Smaller project 003](../../smaller-projects/003-native-offline-collection-file-projection.md). The closure gate
+  [Smaller project 003](../../native/003-native-offline-collection-file-projection.md). The closure gate
   passed TypeScript checking, the production build, 313 Bun tests, the live
   TypeScript/Swift protocol harness, all seven Swift package suites, and the
   macOS 27 Arbor application build.

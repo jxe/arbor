@@ -1,7 +1,10 @@
 # Reliability 004: Resolve Canopy conflicts at their authored locations
 
+> **Archived 2026-09-18.** SUPERSEDED. Reliability 010 owns the remaining accepted-conflict review, contextual source mapping and crash-safety work. The rejected-update workflow below is historical and must not be rebuilt. Current implementation and test evidence is in `docs/native-conflict-review.md`.
+> See [remaining release and verification work](../../verification/release-and-soak.md) and the [active outcome menu](../../README.md).
+
 > **Superseded execution guidance, 2026-09-17:** remaining contextual review and
-> crash-safety work is now owned by [Reliability 010](010-client-conflict-review.md),
+> crash-safety work is now owned by [Reliability 010](../../native/010-client-conflict-review.md),
 > with basic accepted-conflict review first and inline editor integration later.
 > Use that plan for execution. The rejected-update workflow described below has
 > been retired; preserve its relevant safety scenarios without rebuilding it.

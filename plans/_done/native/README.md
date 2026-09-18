@@ -72,3 +72,12 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - **Add content-addressed revision/DAG objects:** rejected because the authority already has the client's explicit base and a linear accepted-root history; making every client reproduce ancestry and merge logic adds wire and cross-language complexity without improving v1 recovery.
 - **Automatically duplicate conflicted files:** rejected because it obscures intent and pollutes authored trees; preserve explicit local/remote branches instead.
 - **Turn Hunch into Arbor in place:** rejected because Hunch's flat Clamshell ontology, persisted identity, and live workspace must remain independently recoverable.
+
+## September 18 reconciliation: Native 022
+
+[022](022-run-the-mac-app-as-a-working-tree-client.md) records the implemented
+working-tree transition and Phase 7 verification. The September 17
+[source cutover](../../../docs/native-source-cutover.md) establishes the later installed
+Mac/iPhone clients and cross-device publication/restart evidence. The original soak
+closeout is transferred to [release verification](../../verification/release-and-soak.md), not
+marked passed. Native 023 and 024 remain active follow-ons.

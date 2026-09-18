@@ -12,7 +12,7 @@
 
 ## Status
 
-- **State**: SUPERSEDED by [Native 022](../../native/022-run-the-mac-app-as-a-working-tree-client.md); retired in its Phase 7 (2026-09-09). The daemon's search and backlink index (`files`, `docs`, `links`) was removed with the editor path; only the `objects` table remains as `ObjectIndex` in `packages/stores/src/object-index.ts`, revalidated by stat tuples rather than rebuilt.
+- **State**: SUPERSEDED by [Native 022](../native/022-run-the-mac-app-as-a-working-tree-client.md); retired in its Phase 7 (2026-09-09). The daemon's search and backlink index (`files`, `docs`, `links`) was removed with the editor path; only the `objects` table remains as `ObjectIndex` in `packages/stores/src/object-index.ts`, revalidated by stat tuples rather than rebuilt.
 - **Priority**: was P2
 - **Effort**: M
 - **Risk**: MED — the FTS5 table is an external-content table, so index rows
@@ -154,7 +154,7 @@ anything — run it before and after and record both numbers.
 
 **Out of scope** (do NOT touch):
 
-- The `search()` method and the excerpt shape. If [Security 001](../security/001-search-excerpts.md)
+- The `search()` method and the excerpt shape. If [Security 001](../../security/001-search-excerpts.md)
   has landed, `search()` returns structured segments; if it has not, it returns
   an HTML string. Either way, **do not modify `search()` in this plan.** If both
   plans are in flight, land 001 first to avoid a conflict in the same file.
@@ -350,7 +350,7 @@ Stop and report back (do not improvise) if:
   index has drifted — report the symptom rather than adding a `'rebuild'` call
   to paper over it. A `'rebuild'` in the incremental path defeats the entire
   purpose of this plan.
-- [Security 001](../security/001-search-excerpts.md) is mid-flight and has uncommitted
+- [Security 001](../../security/001-search-excerpts.md) is mid-flight and has uncommitted
   changes to `packages/stores/src/indexer.ts`.
 
 ## Maintenance notes

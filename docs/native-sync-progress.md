@@ -1,6 +1,8 @@
 # Native publication progress investigation
 
-September 15, 2026. Fix on main; not installed or deployed.
+September 15, 2026 investigation; status reconciled September 18. The fix is installed
+as part of the later [Native source cutover](native-source-cutover.md). Extended
+merge/reconnect observation remains in the [release checklist](../plans/verification/release-and-soak.md#observation-and-soak-closeout).
 
 Cutover preflight preserved a durable Mac Native head with no prepared request,
 while its status detail still described a previous successful merge. Sync Now
@@ -42,8 +44,9 @@ checks introduce no new broken references, and `git diff --check` passes.
 Keep the incident backups. After installing the fix, verify ordinary automatic
 Mac edit publication and subsequent edits after merge/reconnect without Sync Now.
 If the incident repeats, capture the machine phase and actual preparation error
-before a manual retry. [Reliability 012](../plans/reliability/012-native-sync-progress.md)
-tracks that remaining verification; phone background syncing is outside scope.
+before a manual retry. The [release checklist](../plans/verification/release-and-soak.md#observation-and-soak-closeout)
+now owns that remaining observation; [Reliability 012](../plans/_done/reliability/012-native-sync-progress.md)
+preserves the historical plan. Phone background syncing is outside scope.
 
 ## September 16 durability follow-up
 

@@ -1,4 +1,6 @@
-# Reliability 010: Native accepted-conflict review
+# Native accepted-conflict review
+
+Historical identifier: **Reliability 010**. The filename number is preserved; this plan now belongs to native.
 
 Status: IN PROGRESS. Priority: P1. Native grouped review and generic editor accessories are
 implemented and integrated with main; they are not installed or manually
@@ -13,12 +15,12 @@ an explicit resolution through Canopy. Review is optional work within the tree,
 not a failed-save dialog or a synchronization hold.
 
 This plan owns Native review, including the remaining contextual work previously
-specified in [004](004-contextual-canopy-conflict-resolution.md). Its old
+specified in [004](../_done/reliability/004-contextual-canopy-conflict-resolution.md). Its old
 rejected-candidate workflow is not the implementation model. Preserve relevant
 source-fidelity and crash-safety scenarios, not its retired client conflict machine.
-[008](008-enable-source-operations.md) owns operation support and client emission;
-[009](009-canopy-provenance-merges.md) owns better server reconciliation.
-[011](011-compatible-accepted-ambiguity.md) owns compatible adoption. Filesystem
+[008](008-complete-native-move-copy-undo-capture.md) owns operation support and client emission;
+[009](../canopy/009-canopy-provenance-merges.md) owns better server reconciliation.
+[011](../verification/011-client-compatibility.md) owns compatible adoption. Filesystem
 review remains separate from the Native working tree.
 
 Before implementation inspect git status, current source and tests, especially
@@ -44,9 +46,8 @@ draft persistence, source-range resolution, grouped structural resolution and ge
 [checkpoint](../../docs/native-conflict-review.md). Keep their supported scope and
 conservative accepted-state freshness checks explicit while completing this phase.
 
-- Manually verify macOS and iPhone layout, normal editor typing, focus, selection,
-  scroll, keyboard routing, VoiceOver and large text. App builds do not establish
-  these behaviors. Verify installed restart recovery after Joe's manual app gate.
+- Complete the [Native hands-on release gate](../verification/release-and-soak.md#native-release-and-hands-on-review)
+  for macOS/iPhone interaction and installed draft recovery. Builds alone do not pass it.
 - Add safe binary previews/export and richer directory browsing beyond the exact
   recursive path/metadata preview. Add format-specific collection reconstruction. Keep
   explicit unavailable states for unsupported renderers or missing material.

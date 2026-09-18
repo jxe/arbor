@@ -31,9 +31,9 @@ are documented in [the process API](../../../docs/merge-tool.md) and
 [operation evaluation](../../../docs/merge-operation-evaluation.md).
 The implementation is one executable/API; installation does not require parallel
 old/new semantic engines. Client capture remains
-[008](../../reliability/008-enable-source-operations.md); production Canopy retention,
+[008](../../native/008-complete-native-move-copy-undo-capture.md); production Canopy retention,
 forwarding, authorization and activation remain
-[009](../../reliability/009-canopy-provenance-merges.md). Private tool state is not a
+[009](../../canopy/009-canopy-provenance-merges.md). Private tool state is not a
 promise about the final Canopy storage schema or compactness.
 
 ## Original executor scope

@@ -1,4 +1,6 @@
-# Security 005: Keep ignored filesystem content outside Arbor trees
+# Keep ignored filesystem content outside Arbor trees
+
+Historical identifier: **Security 005**. The filename number is preserved; this plan now belongs to filesystem.
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the

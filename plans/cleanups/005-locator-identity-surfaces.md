@@ -1,13 +1,15 @@
-# Smaller project 002: One grammar for locator identity surfaces
+# One grammar for locator identity surfaces
+
+Current identifier: **Cleanup 005**. Former identifiers: **Smaller project 002 / Data model 002**.
 
 ## Status
 
 - **Priority:** P2
 - **Effort:** M
-- **State:** PLANNED — grammar decisions first, then TypeScript and Swift parsers, vectors,
+- **State:** NEEDS DESIGN — grammar decisions first, then TypeScript and Swift parsers, vectors,
   renderers, and spec text in one change.
 - **Depends on:** the `arbor://<TreeID>` authority and `;arbor-rev=` segment parameter
-  (landed 2026-09-02); [Cleanup 001](../cleanups/001-pageid-stable-key-cutoff.md)
+  (landed 2026-09-02); [Cleanup 001](001-pageid-stable-key-cutoff.md)
   for the legacy `#<PageID>` input bridge.
 
 ## Target result
@@ -47,7 +49,7 @@ and the `~row-` segment rule.
    rule needs a reversibility proof: a raw key equal to a literal `~row-…` string is already
    excluded, but a raw key that collides with an expanded Markdown record's filename in a
    mixed collection is not addressed. Either prove the rule or make the segment uniform.
-   Smaller project 001 owns the related expanded-file path question; decide the two together.
+   Postgres 005 owns the related expanded-file path question; decide the two together.
 3. **When does `#<PageID>` / `#row=` input acceptance end?** Cleanup 001 gates the PageID
    bridge on an owner-index uniqueness proof. Once it closes, `legacyStableKeyCandidate`
    leaves `ResolvedLocatorState` in both parsers and the `url-resolution.json` cases that

@@ -1,4 +1,6 @@
-# Plan 024: Disk editors for non-tree folders
+# Disk editors for non-tree folders
+
+Historical identifier: **Native 024**. The filename number is preserved; this plan now belongs to filesystem.
 
 > **Executor instructions**: Give the Mac app and Arbor web a plain disk editor for folders that are not placed Arbor trees. No update machine, no admission fence, no journal, no recovery: read, write with an etag check, list, watch. Keep it visibly separate from tree synchronization in code and docs. Refuse to open a path inside a placed tree; route it to the tree session instead.
 >
@@ -9,7 +11,7 @@
 - **Priority**: P2 — restores non-tree browsing
 - **Effort**: M
 - **Risk**: LOW
-- **Depends on**: Native 022 (for the Mac editor); Native 023 (for the web editor)
+- **Depends on**: Native 022 (for the Mac editor); Web 023 (for the web editor)
 - **Category**: product completion
 - **Planned at**: Arbor `c134a85`, 2026-09-09
 

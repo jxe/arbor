@@ -1,5 +1,12 @@
 # Security 004: Complete access-link sharing without leaking secrets
 
+> **Gate refresh (2026-09-18):** `test:e2e` is currently absent. Use maintained
+> gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
+> required where this plan changes browser behavior: establish focused coverage
+> for available surfaces, and coordinate restored editor E2E with
+> [Web 023](../web/023-rebuild-the-web-editor-on-the-working-tree.md). Do not claim
+> browser verification from a passing build alone.
+
 > **Drift check:** inspect `packages/cli/src/index.ts`,
 > `packages/render/src/App.tsx`,
 > `packages/arborsync/src/service.ts`, `packages/stores/src/visits.ts`, the Wire
@@ -145,10 +152,9 @@ Run:
 ```sh
 bun test tests/integration/canopy/update-host.test.ts tests/integration/system-trees.test.ts
 bun run typecheck
-bun run test:e2e
 swift test --package-path native/Packages/CanopyClient
-xcodebuild -project native/Arbor.xcodeproj -scheme Arbor -destination 'generic/platform=iOS Simulator' build
-xcodebuild -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=macOS' build
+xcodebuild -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' build
+xcodebuild -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' build
 git diff --check
 ```
 

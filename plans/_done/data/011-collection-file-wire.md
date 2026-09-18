@@ -21,7 +21,7 @@
   update reconciliation; migration 001 must remain unchanged and its cutover
   must be verified complete on every relevant client before migration 002 runs.
 - **Unblocks:** Data 003 representation equivalence and
-  [Smaller project 003](../../smaller-projects/003-native-offline-collection-file-projection.md) native offline
+  [Smaller project 003](../../native/003-native-offline-collection-file-projection.md) native offline
   collection-file child projection.
 
 ## Scheduled retention cleanup

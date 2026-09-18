@@ -22,9 +22,9 @@ There is one current Wire request shape and digest contract. The singular reques
 
 ## Remaining milestones
 
-- [008: operation execution and editor emission](../plans/reliability/008-enable-source-operations.md), enabled one operation family at a time.
-- [009: Canopy correspondence, provenance, and accepted conflicts](../plans/reliability/009-canopy-provenance-merges.md).
-- [010: contextual conflict review](../plans/reliability/010-client-conflict-review.md), including stale-review and crash safety.
+- [008: operation execution and editor emission](../plans/native/008-complete-native-move-copy-undo-capture.md), enabled one operation family at a time.
+- [009: Canopy correspondence, provenance, and accepted conflicts](../plans/canopy/009-canopy-provenance-merges.md).
+- [010: contextual conflict review](../plans/native/010-client-conflict-review.md), including stale-review and crash safety.
 
 Cross-language fixtures live in `conformance/wire-operations.json` and `conformance/wire-update-intent.json`. The semantic examples are grammar/digest vectors; they do not assert that their effects execute today. `status.md` remains authoritative for the implemented subset.
 

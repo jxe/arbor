@@ -41,4 +41,4 @@ continues through the compatibility path until settled; source-mode journals
 cannot downgrade. The subsequent [installed-client cutover](native-source-cutover.md)
 passed source publication and restart checks on both devices. Remove legacy
 recovery code and UI after that gate, as recorded in
-[008](../plans/reliability/008-enable-source-operations.md).
+[008](../plans/native/008-complete-native-move-copy-undo-capture.md).

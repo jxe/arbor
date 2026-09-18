@@ -10,7 +10,7 @@
 - **Priority:** P1
 - **Effort:** M
 - **Risk:** LOW
-- **Progress:** TODO
+- **Progress:** DEFERRED — low priority; resume if recurring shared-state failures block maintained gates or CI
 - **Written against:** `450d2a4`
 
 ## Problem
@@ -48,11 +48,11 @@ makes Testing 001 an unreliable required CI gate.
 
 Start with:
 
-- `Tests/integration/workspace.test.ts`;
-- `Tests/integration/self-sync.test.ts`;
+- `tests/integration/workspace.test.ts`;
+- `tests/integration/self-sync.test.ts`;
 - other integration files returned by searches for `ARBOR_DATA_HOME`,
   `globalThis.fetch`, fixed `setTimeout`/`Bun.sleep`, and fixed ports;
-- shared test helpers under `Tests/helpers/`; and
+- shared test helpers under `tests/helpers/`; and
 - `package.json` only for the named stress command.
 
 Product code changes are allowed only when a narrow constructor/configuration
@@ -65,7 +65,7 @@ Establish the baseline failure rate before editing, then run the final parallel
 stress command repeatedly. At minimum verify:
 
 ```sh
-bun test --parallel=4 Tests/unit Tests/integration
+bun test --parallel=4 tests/unit tests/integration
 bun run test:sync-merge
 bun run typecheck
 git diff --check

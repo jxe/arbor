@@ -133,7 +133,7 @@ when upgrading older storage; old snapshot identities remain explicitly unknown.
 Disposable migration tests and the [fresh schema 8 → 11 live-copy rehearsal](../migrations/009-nested-conflict-locations/rehearsal.md) pass; the [live server cutover](../migrations/009-nested-conflict-locations/live-cutover.md) is complete. Do not downgrade an authority
 to a binary that can discard accepted alternatives. Storage snapshots are deliberately
 simple; packing and compaction must preserve these dependencies and remain separate
-work under [storage 001](../plans/canopy-storage/001-pack-object-storage.md).
+work under [storage 001](../plans/canopy/001-pack-object-storage.md).
 
 ## Validation and remaining work
 

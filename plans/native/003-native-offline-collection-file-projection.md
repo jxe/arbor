@@ -1,4 +1,6 @@
-# Smaller project 003: Project synchronized collection-file rows in native offline replicas
+# Project synchronized collection-file rows in native offline replicas
+
+Historical identifier: **Smaller project 003**. The filename number is preserved; this plan now belongs to native.
 
 ## Status
 

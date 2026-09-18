@@ -1,4 +1,6 @@
-# Canopy storage 001: Pack retained objects and accepted history efficiently
+# Pack retained objects and accepted history efficiently
+
+Historical identifier: **Canopy storage 001**. The filename number is preserved; this plan now belongs to canopy.
 
 ## Status
 

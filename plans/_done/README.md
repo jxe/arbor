@@ -7,6 +7,8 @@ leaving them among active projects and themes.
   intentional limits, and verification evidence.
 - [`native/`](native/README.md) preserves the original native plan identifiers,
   execution history, superseded TreeHopper direction, and completed migration.
+- [`arborsync/`](arborsync/README.md) preserves implemented protocol/cutover evidence;
+  remaining observation gates live in the active release checklist.
 - [`data/`](data/README.md) preserves completed node-model and data plans.
 - [`hardening/`](hardening/README.md) preserves completed cross-cutting
   handoffs under their historical taxonomy and identifiers.

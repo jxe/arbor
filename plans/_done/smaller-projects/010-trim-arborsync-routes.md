@@ -2,7 +2,7 @@
 
 - **State:** DONE 2026-09-08
 - **Priority:** P2; independent of, and smaller than,
-  [Smaller project 009](../../smaller-projects/009-admission-shaped-rest-api.md); done first
+  [Smaller project 009](009-admission-shaped-rest-api.md); done first
 - **Depends on:** nothing. Coordinates with 009 only where both touch
   `packages/arborsync/src/server.ts`.
 

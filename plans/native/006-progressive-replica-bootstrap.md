@@ -1,6 +1,8 @@
-# Reliability 006: Preview and resume initial working-tree bootstrap
+# Preview and resume initial working-tree bootstrap
 
-> **Rescoped by [Native 022](../native/022-run-the-mac-app-as-a-working-tree-client.md)**:
+Historical identifier: **Reliability 006**. The filename number is preserved; this plan now belongs to native.
+
+> **Rescoped by [Native 022](../_done/native/022-run-the-mac-app-as-a-working-tree-client.md)**:
 > the client is `WorkingTree` (package `ArborWorkingTree`), placement is
 > `WorkingTreePlacementService.place`, and steady-state synchronization is
 > `UpdateCoordinator`. This plan applies to iOS placement and to visits, where
@@ -260,7 +262,7 @@ Measure snapshot preparation time separately from response transfer time. Add
 structured timing/size fields without tree content or credentials so a slow
 server encoding phase is distinguishable from a slow hotspot download. Do not
 claim that Range avoids the current encoding cost; cache or packed-storage work
-remains Canopy storage 001 unless measurement proves a small bounded cache is
+remains Canopy 001 unless measurement proves a small bounded cache is
 needed here.
 
 **Verify**: focused Canopy host tests cover all fixture cases, authorization,

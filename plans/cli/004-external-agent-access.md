@@ -1,4 +1,6 @@
-# Smaller project 004: External agent access through the Arbor CLI
+# External agent access through the Arbor CLI
+
+Historical identifier: **Smaller project 004**. The filename number is preserved; this plan now belongs to cli.
 
 **Status:** In progress. General `arbor status [<locator>] [--json]` and cloud-session discovery are implemented; the composable read, mutation, skill, and workflow surfaces below remain. This is an independent enabling plan, not the Canopy-hosted agent milestone. Compiled executable-document handle invocation follows the live-data document work.
 

@@ -1,5 +1,12 @@
 # Cleanup 002: Retire v1 account and legacy local-state adapters
 
+> **Gate refresh (2026-09-18):** `test:e2e` is currently absent. Use maintained
+> gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
+> required where this plan changes browser behavior: establish focused coverage
+> for available surfaces, and coordinate restored editor E2E with
+> [Web 023](../web/023-rebuild-the-web-editor-on-the-working-tree.md). Do not claim
+> browser verification from a passing build alone.
+
 > **Drift check:** reconcile this plan against Migration 003, the current
 > Canopy schema stamp, every Arbor data home, account bootstrap routes, native
 > client methods, person-profile identity work, and the v1/v2 policy branches
@@ -82,7 +89,8 @@ the old string/missing-field readers.
 
 After the observation window, collect one read-only private receipt covering:
 
-1. The live Canopy is at schema 5, contains no tree whose policy is
+1. The live Canopy schema matches the current deployed code (record the exact stamp;
+   do not require or restore Migration 003's historical schema 5), contains no tree whose policy is
    `account-config-v1`, and every account points to a decodable v2 configuration
    tree.
 2. Every active local Arbor data home has the current private-state stamp,
@@ -189,18 +197,17 @@ bun run typecheck
 bun run test:protocol
 bun test
 bun run build
-bun run test:e2e
 swift test --package-path native/Packages/ArborSyncClient
 swift test --package-path native/Packages/ArborWire
-xcodebuild build -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=iOS Simulator,id=C76DE979-27D7-4BE5-AD11-3FC223402AB9' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
+xcodebuild build -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 
 Build macOS and iOS sequentially. Before committing the Canopy deletion, serve
 a restored copy of the post-Migration-003 data with the candidate build and run
 the existing migration verification tool against it. The copy must remain
-schema 5 and every account, tree, access rule, device, root, and placement
+at its recorded current schema and every account, tree, access rule, device, root, and placement
 reported by the safe receipt must agree.
 
 Final searches:

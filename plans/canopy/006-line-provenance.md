@@ -1,4 +1,13 @@
-# Smaller project 006: Attribute accepted updates and show line provenance
+# Attribute accepted updates and show line provenance
+
+> **Gate refresh (2026-09-18):** `test:e2e` is currently absent. Use maintained
+> gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
+> required where this plan changes browser behavior: establish focused coverage
+> for available surfaces, and coordinate restored editor E2E with
+> [Web 023](../web/023-rebuild-the-web-editor-on-the-working-tree.md). Do not claim
+> browser verification from a passing build alone.
+
+Historical identifier: **Smaller project 006**. The filename number is preserved; this plan now belongs to canopy.
 
 > **Executor instructions:** Read this plan completely before editing. Preserve
 > unrelated working-tree changes. Run each verification gate before moving on,
@@ -13,11 +22,11 @@
 > git diff --stat 0ea0f31..HEAD -- \
 >   packages/canopy packages/wire packages/arborsync \
 >   native/Packages/ArborWire native/Packages/CanopyClient native/Packages/ArborKit \
->   native/ArborApp spec conformance tests migrations plans/canopy-storage
+>   native/ArborApp spec conformance tests migrations plans/canopy
 > git status --short -- \
 >   packages/canopy packages/wire packages/arborsync \
 >   native/Packages/ArborWire native/Packages/CanopyClient native/Packages/ArborKit \
->   native/ArborApp spec conformance tests migrations plans/canopy-storage
+>   native/ArborApp spec conformance tests migrations plans/canopy
 > ```
 >
 > Reconcile any changes to accepted-update shapes, schema version, update
@@ -32,9 +41,9 @@
   migration, bounded access to private history, and cross-language protocol
   surface
 - **State:** PLANNED
-- **Depends on:** [Smaller project 007](007-canopy-document-history.md), whose
+- **Depends on:** [Canopy 007](007-canopy-document-history.md), whose
   accepted document-version index this plan reuses; coordinate retention with
-  [Canopy storage 001](../canopy-storage/001-pack-object-storage.md), which must
+  [Canopy 001](001-pack-object-storage.md), which must
   not prune history required by either feature without an equivalent checkpoint
 - **Planned at:** `0ea0f31`, 2026-09-05
 
@@ -95,7 +104,7 @@ while those rows retain their original meaning, but the accepted row itself
 does not freeze the Profile TreeID used at acceptance.
 
 Accepted document history is owned by
-[Smaller project 007](007-canopy-document-history.md). It remains
+[Canopy 007](007-canopy-document-history.md). It remains
 document-scoped and write-credential-authorized rather than a generic accepted
 history collection. This plan computes provenance inside Canopy and returns
 only metadata for lines in the currently readable source; it reuses project
@@ -212,7 +221,7 @@ adding `actor`; otherwise an access-link writer's private digest or a device ID
 could be mistaken for safe attribution. Compatibility, TypeScript, Swift, and
 fixture changes must land atomically with the server change.
 
-Extend the schema established by Smaller project 007 and create the next
+Extend the schema established by Canopy 007 and create the next
 available disposable migration directory under `migrations/` following
 `migrations/001-if-match-and-model-hash/` and `migrations/README.md`. Do not
 rebuild or duplicate its `document_versions` index. At execution time take the
@@ -284,7 +293,7 @@ couple blame correctness to transition JSON after that window.
 Until a blame checkpoint format is implemented, every accepted root and object
 needed by supported provenance remains retained. Packing may change physical
 representation but not actor metadata, roots, update order, or reconstructable
-source. Canopy storage 001 must treat blame-required roots as retained roots;
+source. Canopy 001 must treat blame-required roots as retained roots;
 it may not silently shorten provenance to meet a storage target.
 
 Do not invent cross-Canopy federation in this plan. A future cross-Canopy tree
@@ -317,11 +326,11 @@ Out of scope even if it looks adjacent:
 - changing object hashes, canonical CBOR, root identity, update ordering,
   merge acceptance, or request-digest replay;
 - a generic tree history/snapshot API or historical editing; accepted
-  document restore is owned by Smaller project 007;
+  document restore is owned by Canopy 007;
 - database-row, generated-result, binary, arbitrary-text, or copy provenance;
 - profile-key signing of every device update, profile succession/recovery, or
   cross-Canopy history federation; and
-- implementing Canopy storage 001's pack format as part of this feature.
+- implementing Canopy 001's pack format as part of this feature.
 
 Use branch `codex/line-provenance` unless the operator supplies another name.
 Make focused commits for the contract/schema, migration, blame engine, protocol
@@ -427,10 +436,10 @@ history or returns non-current source.
 swift test --package-path native/Packages/ArborWire
 swift test --package-path native/Packages/CanopyClient
 swift test --package-path native/Packages/ArborKit
-xcodebuild build -project native/Arbor.xcodeproj -scheme Arbor \
+xcodebuild build -workspace native/Arbor.local.xcworkspace -scheme Arbor \
   -destination 'platform=macOS' \
   -derivedDataPath /tmp/arbor-line-provenance-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -project native/Arbor.xcodeproj -scheme Arbor \
+xcodebuild build-for-testing -workspace native/Arbor.local.xcworkspace -scheme Arbor \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath /tmp/arbor-line-provenance-ios CODE_SIGNING_ALLOWED=NO
 ```
@@ -446,7 +455,7 @@ current. Leave final hands-on visual acceptance to Joe.
 2. Update `packages/canopy/README.md`, `docs/arborsync-api.md`, and
    `docs/reference-implementation.md` with the implemented current-only
    boundary.
-3. Amend Canopy storage 001 so pruning either preserves blame-required roots or
+3. Amend Canopy 001 so pruning either preserves blame-required roots or
    first lands a separately reviewed checkpoint design.
 4. Prepare and rehearse the disposable migration, but stop before live backup,
    deployment, migration, app launch, or process control for Joe's explicit
@@ -489,7 +498,6 @@ bun run typecheck
 bun run test
 bun run test:protocol
 bun run build
-bun run test:e2e
 bun run test:performance
 swift test --package-path native/Packages/ArborSyncClient
 git diff --check
@@ -553,7 +561,7 @@ Stop and report rather than improvising if:
   the first version.
 - No copy detection across unrelated documents or deleted history.
 - No generic tree-wide accepted-history browser. Document-scoped accepted
-  history and restore-as-new-change are owned by Smaller project 007.
+  history and restore-as-new-change are owned by Canopy 007.
 - No promise that a submitting profile was the human who typed a line; the
   record identifies the profile account whose device submitted the accepted
   change.

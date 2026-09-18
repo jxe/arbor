@@ -1,5 +1,12 @@
 # Cleanup 001: Retire the PageID-shaped stable-key bridge
 
+> **Gate refresh (2026-09-18):** `test:e2e` is currently absent. Use maintained
+> gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
+> required where this plan changes browser behavior: establish focused coverage
+> for available surfaces, and coordinate restored editor E2E with
+> [Web 023](../web/023-rebuild-the-web-editor-on-the-working-tree.md). Do not claim
+> browser verification from a passing build alone.
+
 > **Drift check:** reconcile this plan against the active TypeScript and Swift
 > locator contracts, Markdown identity codec, workspace owner indexes, private
 > backlink index, deployed data roots, and current-device configuration before
@@ -165,7 +172,7 @@ include:
 - `packages/fs/src/discovery.ts` and `workspace-fs.ts`;
 - `packages/arborsync-client/src/index.ts`;
 - `native/Packages/ArborKit/Sources/ArborKit/LogicalURL.swift`;
-- `native/Packages/ArborReplica/Sources/ArborReplica/ReplicaSemantics.swift`;
+- `native/Packages/ArborWorkingTree/Sources/ArborWorkingTree/WorkingTreeSemantics.swift`;
 - shared conformance fixtures and focused TypeScript/Swift tests.
 
 Out of scope: changing TreeID, NodeRef, wire-object, row-key, or Markdown
@@ -193,12 +200,11 @@ bun test tests/unit/logical-url.test.ts tests/unit/directory-document.test.ts te
 bun run typecheck
 bun run test:protocol
 swift test --package-path native/Packages/ArborSyncClient
-swift test --package-path native/Packages/ArborReplica
+swift test --package-path native/Packages/ArborWorkingTree
 bun test
 bun run build
-bun run test:e2e
-xcodebuild build -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -project native/Arbor.xcodeproj -scheme Arbor -destination 'platform=iOS Simulator,id=C76DE979-27D7-4BE5-AD11-3FC223402AB9' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
+xcodebuild build -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 

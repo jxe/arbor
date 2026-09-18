@@ -25,9 +25,9 @@ workstream, not a required execution sequence. Completed work moves to
 |------|-------|----------|--------|------|------------|--------|
 | [Security 001](../../security/001-search-excerpts.md) | Stop rendering search excerpts as raw HTML | P1 | S | LOW | — | TODO |
 | [Reliability 001](../reliability/001-link-healing.md) | Fix the escaped-backslash bug in the link-healing regex | P1 | S | LOW | — | TODO |
-| [Reliability 002](../../reliability/002-journal-append.md) | Serialize write-journal appends so counters cannot collide | P1 | S | LOW | — | TODO |
+| [Reliability 002](../../filesystem/002-journal-append.md) | Serialize write-journal appends so counters cannot collide | P1 | S | LOW | — | TODO |
 | [Security 002](../../security/002-path-decoding.md) | Decode percent-encoding once, at the HTTP boundary | P1 | M | MED | — | TODO |
-| [Speed 001](../../speed/001-index-updates.md) | Stop rebuilding the whole index on every move or delete | P2 | M | MED | soft: Insecure 001 | TODO |
+| [Speed 001](../speed/001-index-updates.md) | Stop rebuilding the whole index on every move or delete | P2 | M | MED | soft: Insecure 001 | TODO |
 | [Security 003](../../security/003-canopy-host-responses.md) | Harden Canopy responses and the rate-limit key | P2 | S | LOW | — | TODO |
 | [Testing 001](../../testing/001-ci.md) | Put the existing verification gates under CI | P2 | M | LOW | cross-cutting fixes | TODO |
 
@@ -61,7 +61,7 @@ several were reproduced by executing the real functions.
 **Not audited**: the Swift client under `native/Packages/ArborClient` beyond
 protocol-parity implications; `packages/render`'s BlockNote integration at the
 component level; the Postgres collection path (needs a live DSN); and anything
-already recorded in [`backlog.md`](2026-08-28-technical-debt-backlog.md) or [Smaller project 005](../../smaller-projects/005-web-editor.md), which were read
+already recorded in [`backlog.md`](2026-08-28-technical-debt-backlog.md) or [Smaller project 005](../../web/005-web-editor.md), which were read
 first and treated as settled.
 
 ## Findings ranked but not planned
@@ -151,7 +151,7 @@ any of these.
   today. Effort M for the first tranche.
 - **`blocks.tsx` round-trip has no unit test.** 839 lines of Markdown↔BlockNote
   conversion — the source-fidelity boundary — holding 18 of the repo's 23 `any`
-  annotations, covered only by two browser tests. [Smaller project 005](../../smaller-projects/005-web-editor.md) plans to
+  annotations, covered only by two browser tests. [Smaller project 005](../../web/005-web-editor.md) plans to
   expand exactly this code; a table-driven round-trip suite should land first.
   Effort M.
 - **Three flake sources.** Fixed `setTimeout` sleeps in `tests/unit/fs.test.ts:311-323`;
@@ -219,7 +219,7 @@ maintainer to weigh, not defects to fix.
 - **Surface the broken-link data the indexer already collects.**
   `packages/stores/src/indexer.ts:26-59` already records every Markdown link and
   already distinguishes unresolved fragments from unresolvable hrefs, but only
-  the inbound direction is exposed (`/v1/backlinks`). [Smaller project 005](../../smaller-projects/005-web-editor.md) asks
+  the inbound direction is exposed (`/v1/backlinks`). [Smaller project 005](../../web/005-web-editor.md) asks
   for exactly this: "distinguish stale paths from missing identities, and
   provide useful orphan diagnostics without forcing eager rewrites." Link rot is
   the failure mode of a filesystem-shaped hypertext where pages move constantly.
@@ -231,7 +231,7 @@ maintainer to weigh, not defects to fix.
 
 So nobody re-audits them:
 
-- **Everything in [`backlog.md`](2026-08-28-technical-debt-backlog.md) and [Smaller project 005](../../smaller-projects/005-web-editor.md)** — read first and
+- **Everything in [`backlog.md`](2026-08-28-technical-debt-backlog.md) and [Smaller project 005](../../web/005-web-editor.md)** — read first and
   treated as settled. Spot-checked and confirmed the docs have **not** drifted
   from the code: the `PageEditor`-scoped undo stack, the `/Trash` path
   convention for inverse derivation, and the handwritten arborsync validators all

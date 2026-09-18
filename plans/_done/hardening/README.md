@@ -7,5 +7,5 @@
 | Background synchronization versus local mutation (unnumbered reliability item) | Superseded by Native 022: the daemon's local mutation path (`/v1/mutations`, editor admission) was deleted in Phase 7; the folder is the daemon's only local source and materialization runs inside the per-tree workspace I/O boundary | 2026-09-09 |
 
 Completed hardening plans retain their original identifiers here. The active
-taxonomy now uses separate [cross-cutting themes](../../README.md#cross-cutting-themes)
+taxonomy now uses separate [cross-cutting themes](../../catalog.md#hardening-efficiency-polish-etc)
 with local identifiers; those numbers do not change this historical reference.

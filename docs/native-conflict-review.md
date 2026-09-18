@@ -1,7 +1,7 @@
 # Native accepted-choice review
 
 This checkpoint describes the implementation of
-[Reliability 010](../plans/reliability/010-client-conflict-review.md), developed on
+[Reliability 010](../plans/native/010-client-conflict-review.md), developed on
 `codex/native-conflict-review` and integrated with main's causal undo and source
 admission changes at `3a3d694`. It has not been installed or interactively verified.
 

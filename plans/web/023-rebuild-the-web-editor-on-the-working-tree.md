@@ -1,4 +1,6 @@
-# Plan 023: Rebuild the web editor on the working tree
+# Rebuild the web editor on the working tree
+
+Historical identifier: **Native 023**. The filename number is preserved; this plan now belongs to web.
 
 > **Executor instructions**: Give TypeScript the same two halves Swift has, `@arbor/working-tree` and `@arbor/object-store`, browser-safe and passing the same conformance fixture, and rebuild Arbor web on them so the browser is a direct Canopy client exactly like the Mac app. Bootstrap only from the accepted Canopy root; never import or wait on the daemon's mutable head, pending request, conflict, or availability state. The daemon's editor path is already gone (Native 022 Phase 7); do not bring any of it back. Start only after the Native 022 soak on the Mac.
 >
@@ -9,7 +11,8 @@
 - **Priority**: P1 — restores the web editor
 - **Effort**: L
 - **Risk**: MEDIUM
-- **Depends on**: Native 022 (implemented; soak pending)
+- **Depends on**: historical Native 022 (implemented and live);
+  [soak closeout](../verification/release-and-soak.md#observation-and-soak-closeout) remains pending
 - **Category**: parity/architecture
 - **Planned at**: Arbor `c134a85`, 2026-09-09
 - **Endpoint-removal scope refreshed at**: Arbor `2d04384`, 2026-09-13. Run `git diff --stat 2d04384..HEAD -- packages/arborsync packages/arborsync-client packages/cli packages/render native/Packages/ArborSyncClient tests docs conformance` before executing the removal steps below. This refresh does not certify the older working-tree design against every intervening Wire change.
@@ -66,6 +69,18 @@ These are accepted scope decisions, not optional cleanup candidates. Remove call
 - If direct CLI resolution cannot preserve tree-boundary or account-selection semantics without another protocol/design decision, stop and report that concrete gap; do not silently simplify the semantics or retain `/v1/resolve` as an undocumented shim.
 - If an additional production caller of a removal target is discovered, inventory and migrate it in this plan before deleting the route. Do not broaden scope into unrelated client or Wire refactors.
 
+## Editor-operation integration
+
+Use the existing TypeScript source-admission session consumer in the browser editor host.
+Connect real editor transactions to original source/basis capture, durable admission, exact
+retry and receipt settlement; do not infer move/copy intent from matching final text. Preserve
+newer browser work during remote updates and recovery, and prove offline/restart behavior
+against disposable Canopy. Support only operation forms for which the browser has real capture
+and the server has verified execution support. Browser command parity can follow incrementally.
+
+This is the browser integration formerly listed in [Native 008](../native/008-complete-native-move-copy-undo-capture.md).
+That plan now owns additional command capture rather than rebuilding this editor host.
+
 ## Verification
 
 ```sh
@@ -84,7 +99,7 @@ End-to-end with a local Canopy, `arborsync --control`, and one placed tree: edit
 
 - Arbor web installs the accepted-root bootstrap, edits through its own `UpdateCoordinator` against Canopy, never imports daemon client state, and never calls a daemon editor route.
 - `@arbor/working-tree` and `ArborWorkingTree` pass the same `conformance/client-state-machines.json`.
-- Known gaps recorded in `status.md`: collection-file rows in the browser (Smaller project 003) and accepted history (Smaller project 007).
+- Known gaps recorded in `status.md`: collection-file rows in the browser (Native 003) and accepted history (Canopy 007).
 - `POST /v1/me`, `POST /v1/local/forget`, and `GET /v1/resolve` answer `405 unsupported-operation`; no production client calls them. Negative tests and historical evidence may name them.
 - Browser identity creation and installation-disconnect actions are gone; claiming through `POST /v1/bootstrap/accounts` remains functional with an existing identity.
 - Filesystem-path URLs and `?raw` never return placed-file bytes. App navigation and explicit built assets work; authored assets and pending uploads resolve through the working tree/object store without source normalization.

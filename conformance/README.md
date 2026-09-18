@@ -62,7 +62,7 @@ fixed count cap without duplicating fixture text. The previous deployed-format
 
 `accepted-ambiguity.json` records planned semantic scenarios, not executable claims
 that Canopy supports those effects. See the [target contract and adoption boundary](../docs/update-wire-contract.md)
-and [Plan 011](../plans/reliability/011-compatible-accepted-ambiguity.md).
+and [Plan 011](../plans/verification/011-client-compatibility.md).
 
 
 `causal-undo.json` binds the Swift/TypeScript source-admission transaction trace:

@@ -4,7 +4,7 @@
 
 **DONE, 2026-09-13.** Core contract implemented and verified following design review. External
 clients need a stable Wire API before Canopy chooses its conflict backend.
-Coordinate the core contract with [Arbor Sync 001](../../arborsync/001-file-bytes-are-the-object.md)
+Coordinate the core contract with [Arbor Sync 001](../arborsync/001-file-bytes-are-the-object.md)
 and its one-time object-format migration. The object-directory extraction is later.
 
 This replaces the previous protocol-first plan: conflict exploration, regions,
@@ -53,7 +53,7 @@ ordinary root. Its exploration/resolution extension may depend on its model;
 its ordinary update/projection behavior must preserve the core contract.
 
 Existing rejected-update and local-divergence review remains owned by
-[Reliability 004](../../reliability/004-contextual-canopy-conflict-resolution.md).
+[Reliability 004](004-contextual-canopy-conflict-resolution.md).
 
 ## Verification
 

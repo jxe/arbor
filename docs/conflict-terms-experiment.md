@@ -44,7 +44,7 @@ test reproduces that case too. The guard rejects ambiguous movement or
 coalescing of those regions. This is a conservative
 implementation of the existing permission to reject changes that cannot safely
 preserve unresolved state, not a change to the
-[portable contract](../spec/01-tree-operations.md#accepted-unresolved-state-and-optional-extensions).
+[portable contract](../spec/01-tree-operations.md#accepted-unresolved-state).
 
 ## Intent preservation is the next acceptance criterion
 
@@ -278,7 +278,7 @@ to snapshots.
    are settled, updating TypeScript, Swift, normative text, reference API, and
    language-neutral fixtures together. Then connect working-tree continuation
    and the inline review work in
-   [Reliability 004](../plans/reliability/004-contextual-canopy-conflict-resolution.md).
+   [Reliability 004](../plans/_done/reliability/004-contextual-canopy-conflict-resolution.md).
 
 The comparison is informed by Jujutsu's
 [conflict algebra](https://docs.jj-vcs.dev/latest/technical/conflicts/) and Pijul's

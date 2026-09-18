@@ -1,12 +1,14 @@
 ---
 id: wnp4kq
 ---
-# Smaller project 008: Bring Arbor web to native interface parity
+# Bring Arbor web to native interface parity
+
+Historical identifier: **Smaller project 008**. The filename number is preserved; this plan now belongs to web.
 
 - **Priority:** P2 product polish
-- **State:** PLANNED
+- **State:** WAITING on [Web 023](023-rebuild-the-web-editor-on-the-working-tree.md)
 - **Reference:** native Arbor at `5a45847`
-- **Depends on:** no implementation milestone; coordinate unsafe search excerpts
+- **Depends on:** the restored web working-tree client; coordinate unsafe search excerpts
   with [Security 001](../security/001-search-excerpts.md) and synchronization
   meaning with [Reliability 005](../_done/reliability/005-client-synchronization-state-machines.md)
 
@@ -293,7 +295,7 @@ calling the plan complete.
 - pixel-copying macOS controls, application menus, toolbar placement, or sheet
   decoration into HTML;
 - the persistent hierarchical sidebar and sidebar drag/drop still owned by
-  Smaller project 005;
+  Web 005;
 - changing Markdown title/icon semantics, TreeID, locator, stable-key, access,
   or synchronization contracts merely to simplify React state;
 - exposing a generic accepted-history browser, conflict auto-resolution, raw
