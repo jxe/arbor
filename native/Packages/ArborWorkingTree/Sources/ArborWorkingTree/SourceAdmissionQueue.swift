@@ -466,11 +466,18 @@ public actor SourceAdmissionQueue {
 
     /// Replays the original candidate chain, including an already accepted prefix.
     /// A selected peer projection never becomes a substitute for a local predecessor.
-    public func request(through change: String) async throws -> (base: WireUpdateBase, request: WireUpdateRequest) {
+    public func request(through change: String, accepted: Set<String> = []) async throws -> (base: WireUpdateBase, request: WireUpdateRequest) {
         try await reloadIfChanged()
         var current = change, updates: [WireCandidateUpdate] = []
         while let record = records.first(where: { $0.change == current }) {
-            updates.insert(record.update, at: 0)
+            var update = record.update
+            // Durable receipts prove these objects already reached Canopy.
+            // Keep the authored chain and its digests; only omit transport aids.
+            if accepted.contains(record.change) {
+                update.objects = []
+                update.deltas = []
+            }
+            updates.insert(update, at: 0)
             switch record.basis {
             case let .accepted(base): return (base, WireUpdateRequest(base: base.update, updates: updates))
             case let .authored(parent): current = parent

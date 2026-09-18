@@ -1778,7 +1778,9 @@ private actor SourceModeTransport: UpdateTransport {
         var results: [WireUpdateElementResult] = []
         for (index, element) in request.updates.enumerated() {
             #expect(element.operations?.allSatisfy { $0.kind == "editSource" } == true)
-            candidate = try completeCandidate(WireUpdateRequest(base: request.base, updates: [element]), retained: candidate)
+            // Like Canopy's immutable store, retain earlier authored candidates
+            // even when their accepted projection selected the peer's bytes.
+            candidate = try snapshots[element.candidate] ?? completeCandidate(WireUpdateRequest(base: request.base, updates: [element]), retained: candidate)
             snapshots[candidate.root] = candidate
             let digest = prepared.requestDigests[index]
             if let receipt = receipts[digest] { results.append(receipt); continue }
@@ -1847,6 +1849,9 @@ struct SourceSessionPublicationTests {
             #expect(requests[0].requestDigests.first == requests[1].requestDigests.first)
             let second = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
             #expect(second.updates.count == 2)
+            #expect(second.updates[0].objects.isEmpty)
+            #expect(second.updates[0].deltas.isEmpty)
+            #expect(!second.updates[1].objects.isEmpty)
             #expect(try await tree.heads().acceptedRoot == second.updates.last?.candidate)
             await coordinator.close(); await session.close(); await secondSession.close(); await tree.close()
         }

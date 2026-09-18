@@ -1217,6 +1217,20 @@ export class CanopyDaemon implements AsyncDisposable {
       );
       for (const [index, update] of request.updates.entries()) {
         for (const object of update.objects) objects.set(object.hash, object.bytes);
+        if (index <= recordedThrough) {
+          const tree = this.get(treeID)!;
+          const subject = this.ordinaryPolicy(tree, update, account, linkDigest, credentialSubject).subject;
+          const receipt = this.acceptedRequest(treeID, subject, digests[index]!);
+          const retained = receipt && this.semantic.store.get(receipt.result.update.id);
+          // A receipt binds this exact prefix to its credential. Continue from
+          // the author's candidate, not the possibly merged accepted projection.
+          // Unchanged receipts can point at another change's state; those and
+          // legacy rows without authored state still need normal evaluation.
+          if (retained?.request.change === update.change && retained.request.candidate === update.candidate) {
+            basis = { object: update.candidate, state: retained.authored };
+            continue;
+          }
+        }
         for (const object of await this.objects.reconstructDeltas(
           basis.object,
           update.deltas,

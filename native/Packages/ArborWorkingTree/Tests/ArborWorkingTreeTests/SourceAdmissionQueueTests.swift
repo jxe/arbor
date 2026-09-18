@@ -177,6 +177,15 @@ struct SourceAdmissionQueueTests {
         }
         #expect(try await reopened.request(through: "change-b").request.updates.map(\.change) == ["change-a", "change-b"])
         #expect(try await reopened.request(through: "change-c").base.update == "up_r2")
+        let full = try await reopened.request(through: "change-b")
+        let compact = try await reopened.request(through: "change-b", accepted: ["change-a"])
+        #expect(compact.base == full.base)
+        #expect(compact.request.updates[0].objects.isEmpty)
+        #expect(compact.request.updates[0].deltas.isEmpty)
+        #expect(compact.request.updates[1] == full.request.updates[1])
+        #expect(updateRequestDigests(tree: f.tree, base: full.base, updates: full.request.updates)
+            == updateRequestDigests(tree: f.tree, base: compact.base, updates: compact.request.updates))
+        #expect(try await reopened.retained() == all)
     }
 
     @Test("An R1 capture survives a newer watch and process loss without relabeling the edit")

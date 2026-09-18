@@ -735,9 +735,20 @@ test.each([false, true])("a source successor preserves an independently created 
   const prefix = await client.submitUpdates(tree, { base, updates: [first] });
   expect(prefix.results[0]!.update.root).not.toBe(first.candidate);
   await stop(); await start();
-  const request = { base, updates: [first, second] };
+  const tool = (running.canopy as unknown as { mergeTool: import("../../../packages/canopy/src/merge-tool.ts").MergeTool }).mergeTool;
+  const evaluate = tool.evaluate.bind(tool);
+  const evaluatedChanges: string[] = [];
+  tool.evaluate = (async (request: any, inputs: ReadonlyMap<string, Uint8Array>) => {
+    if (request.incoming?.change) evaluatedChanges.push(request.incoming.change);
+    if (!snapshotPredecessor && (request.incoming?.change === first.change || request.change === first.change))
+      throw new Error("An accepted prefix must not execute again");
+    return evaluate(request, inputs);
+  }) as typeof tool.evaluate;
+  const request = { base, updates: [{ ...first, objects: [], deltas: [] }, second] };
   const response = await client.submitUpdates(tree, request), accepted = response.results[1]!.update;
   expect(response.results[0]!.update.id).toBe(prefix.results[0]!.update.id);
+  expect(evaluatedChanges).not.toContain(first.change);
+  expect(evaluatedChanges).toContain(second.change);
   expect(accepted.conflicted).toBe(false);
   const snapshot = await client.snapshot(tree, accepted.root);
   expect(decodeWireDirectory(snapshot.objects.get(snapshot.root)!).entries).toEqual(expect.arrayContaining([

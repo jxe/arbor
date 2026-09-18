@@ -382,9 +382,22 @@ public extension WorkspaceProvider {
     }
 }
 
-public enum WorkspaceProviderError: Error, Equatable, Sendable {
+public enum WorkspaceProviderError: LocalizedError, Equatable, Sendable {
     case notFound(WorkspaceReference)
     case notDocument(WorkspaceReference)
     case readOnly(WorkspaceReference)
     case invalidAction(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notFound(let reference):
+            return "The item at \(reference.path) could not be found."
+        case .notDocument(let reference):
+            return "The item at \(reference.path) is not a document."
+        case .readOnly(let reference):
+            return "The item at \(reference.path) is read-only."
+        case .invalidAction(let reason):
+            return reason
+        }
+    }
 }

@@ -16,6 +16,19 @@ func markdownDisplayTitle() {
 
 @Suite("Workspace coordination")
 struct WorkspaceCoordinatorTests {
+    @Test("Rejected source intents retain their reason in localized diagnostics")
+    func rejectedIntentLocalizedReason() throws {
+        let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_one", path: "/page"), source: "Before", contentRevision: "r1")
+        let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [])
+        do {
+            _ = try WorkspaceDocumentIntent(basis: basis, patch: patch, source: "After")
+            Issue.record("Invalid intent was accepted")
+        } catch {
+            #expect(error.localizedDescription == "Source intent does not produce its declared candidate")
+            #expect((error as NSError).localizedDescription == error.localizedDescription)
+        }
+    }
+
     @Test("Source intent validation uses exact UTF-8, not Unicode canonical equivalence")
     func sourceIntentUnicodeFidelity() throws {
         let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_one", path: "/page"), source: "x", contentRevision: "r1")

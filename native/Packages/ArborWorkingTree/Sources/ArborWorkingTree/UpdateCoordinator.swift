@@ -2,6 +2,7 @@ import ArborKit
 import ArborWire
 import ArborObjectStore
 import Foundation
+import OSLog
 
 /// Effect runner for `UpdateMachine` over a `WorkingTree` and a Wire
 /// transport. The working tree holds the node index; `UpdateControl` retains
@@ -1260,7 +1261,16 @@ public actor UpdateCoordinator {
             return try await self.retainSourceIntent(intent)
         }
         admissionTail = Task { _ = try? await task.value }
-        return try await task.value
+        let log = Logger(subsystem: "org.arbor.native", category: "SourceAdmission")
+        log.notice("retain begin edits=\(intent.patch.edits.count) transactions=\(intent.patch.transactions?.count ?? 0) bytes=\(intent.source.utf8.count)")
+        do {
+            let result = try await task.value
+            log.notice("retain succeeded")
+            return result
+        } catch {
+            log.error("retain failed: \(String(describing: error), privacy: .public)")
+            throw error
+        }
     }
 
     private func retainSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
@@ -1389,7 +1399,7 @@ public actor UpdateCoordinator {
                 attempt = existing
             } else {
                 guard let pending = try await pendingSourceRecords().first else { return try await presentation() }
-                let prepared = try await queue.request(through: pending.change)
+                let prepared = try await queue.request(through: pending.change, accepted: Set(control.sourceAcceptedChanges ?? []))
                 attempt = try Self.attempt(tree: pending.tree, base: prepared.base, generation: 0, request: prepared.request)
                 try faultInjector.reached(.beforeRequestPersistence)
                 control.attempt = attempt
@@ -1402,7 +1412,17 @@ public actor UpdateCoordinator {
             if case .offline = machine.phase { dispatch(.transportAvailable(true)) }
             dispatch(.submitStarted(id: attempt.digest))
             try faultInjector.reached(.duringUpload)
-            let response = try await transport.submit(PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
+            let publicationLog = Logger(subsystem: "org.arbor.native", category: "SourcePublication")
+            let started = Date()
+            publicationLog.notice("submit begin base=\(attempt.base.update, privacy: .public) updates=\(attempt.allRequestDigests.count) bytes=\(attempt.body.count)")
+            let response: WireUpdateResponse
+            do {
+                response = try await transport.submit(PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
+                publicationLog.notice("submit succeeded seconds=\(Date().timeIntervalSince(started)) results=\(response.results.count)")
+            } catch {
+                publicationLog.error("submit failed seconds=\(Date().timeIntervalSince(started)): \(String(describing: error), privacy: .public)")
+                throw error
+            }
             try faultInjector.reached(.afterServerAcceptance)
             guard response.results.map(\.requestDigest) == attempt.allRequestDigests,
                   let change = control.sourceAttemptChange,

@@ -1,6 +1,8 @@
 import ArborKit
 import Foundation
 import Observation
+import OSLog
+import CryptoKit
 import Quagmire
 
 /// Editor adapter for the Arbor Sync document admission machine.
@@ -12,6 +14,14 @@ import Quagmire
 @MainActor
 @Observable
 public final class ArborDocumentBinding {
+    private static let diagnosticLog = Logger(subsystem: "org.arbor.native", category: "EditorAdmission")
+    private func trace(_ message: String) {
+        Self.diagnosticLog.notice("tree=\(self.reference.tree.rawValue, privacy: .public) generation=\(self.machine.generation) phase=\(self.machine.kind, privacy: .public) \(message, privacy: .public)")
+    }
+    private static func sourceID(_ source: String) -> String {
+        SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     public let document: Document
     public let editorState: EditorState
     public private(set) var reference: WorkspaceReference
@@ -71,6 +81,7 @@ public final class ArborDocumentBinding {
             binding.recoveryStore = store
             try binding.restoreDraft(from: store, retainsBasis: policy == .retainedBasis)
         }
+        binding.trace("opened policy=\(policy) source=\(Self.sourceID(snapshot.source))")
         await binding.observeAuthoritativeUpdates()
         return binding
     }
@@ -128,7 +139,7 @@ public final class ArborDocumentBinding {
                !recoveryStore.isSaved(recoveryRevision) || source == accepted.source { return }
             recoveryRevision = try recoveryStore.record(reference: reference, source: source, base: accepted, patch: captured)
             recoveryError = nil
-        } catch { recoveryError = error }
+        } catch { trace("recovery checkpoint failed: \(String(describing: error))"); recoveryError = error }
     }
 
     private func markRecoverySaved(source: String) {
@@ -150,6 +161,7 @@ public final class ArborDocumentBinding {
         // Validate retained patches against their original basis before any recovery action.
         let retainedIntent = try store.intent(record)
         let source = try store.source(record)
+        trace("restore draft=\(record.id) source=\(Self.sourceID(source)) bytes=\(source.utf8.count) retainsBasis=\(retainsBasis)")
         recoveryRevision = record
         if !retainsBasis, source == accepted.source {
             try store.markSaved(record)
@@ -198,6 +210,7 @@ public final class ArborDocumentBinding {
         let (next, effects) = DocumentAdmissionMachine.reduce(machine, event, debounce: debounce, admissionPolicy: admissionPolicy)
         let priorPhase = machine.kind
         machine = next
+        trace("transition \(priorPhase) -> \(machine.kind) pendingTransactions=\(pendingTransactions.count)")
         if machine.kind != priorPhase {
             do { try recoveryStore?.log(phase: machine.kind, generation: machine.generation, revision: recoveryRevision) }
             catch { recoveryError = error }
@@ -517,12 +530,14 @@ public final class ArborDocumentBinding {
     // MARK: Admission transport
 
     private func persist(source: String, generation: Int, baseRevision: String, baseSource: String) async {
+        trace("persist generation=\(generation) base=\(Self.sourceID(baseSource)) source=\(Self.sourceID(source)) bytes=\(source.utf8.count)")
         var patch: WorkspaceDocumentPatch
         var authoredLedger: ArborSourceLedger?
         if let basis = basisLedgers[baseRevision], basis.source.utf8.elementsEqual(baseSource.utf8),
            let blocks = authoredBlocks[generation] {
             let (captured, next) = ArborMarkdownCodec.admission(blocks: blocks, ledger: basis, copies: authoredCopies[generation] ?? [:])
             guard captured.source.utf8.elementsEqual(source.utf8) else {
+                trace("captured intent mismatch captured=\(Self.sourceID(captured.source)) expected=\(Self.sourceID(source))")
                 pendingFailure = WorkspaceProviderError.invalidAction("Captured editor intent changed")
                 dispatch(.admissionFailed(generation: generation, error: .init(message: "Captured editor intent changed", retryable: false)))
                 return
@@ -548,10 +563,13 @@ public final class ArborDocumentBinding {
             return
         }
         do {
+            trace("validate edits=\(patch.edits.count) transactions=\(patch.transactions?.count ?? 0) recovered=\(recoveredIntent != nil)")
             let intent = try WorkspaceDocumentIntent(
                 basis: .init(reference: reference, source: baseSource, contentRevision: baseRevision),
                 patch: patch, source: source)
+            trace("provider admit begin")
             let confirmed = try await session.admit(intent: intent)
+            trace("provider admit succeeded source=\(Self.sourceID(confirmed.source))")
             snapshots[confirmed.contentRevision] = confirmed
             if var next = authoredLedger, next.source.utf8.elementsEqual(confirmed.source.utf8) {
                 next.revision = confirmed.contentRevision
@@ -618,6 +636,7 @@ public final class ArborDocumentBinding {
                 dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: error), retryable: true)))
             }
         } catch {
+            trace("provider admission failed: \(String(describing: error))")
             pendingFailure = error
             dispatch(.admissionFailed(generation: generation, error: .init(message: String(describing: error), retryable: true)))
         }
