@@ -63,11 +63,13 @@ try {
     const device = graph.account.admins[0]!;
     const tree = generateArborID("tr");
     const sourceTree = generateArborID("tr");
+    const crossDocumentTree = generateArborID("tr");
     await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
       account: graph.account,
       trees: { version: 1, trees: { ...graph.trees.trees,
         [tree]: { canonicalPath: "/~owner/protocol", access: [] },
         [sourceTree]: { canonicalPath: "/~owner/source-admissions", access: [] },
+        [crossDocumentTree]: { canonicalPath: "/~owner/cross-document", access: [] },
       } },
       devices: {
         ...graph.devices,
@@ -75,11 +77,13 @@ try {
           ...graph.devices[device]!.placements,
           [tree]: { server: new URL(canopy.url).origin, path: treeDir },
           [sourceTree]: { server: new URL(canopy.url).origin },
+          [crossDocumentTree]: { server: new URL(canopy.url).origin },
         } },
       },
     }));
     await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
     await owner.submitUpdate(sourceTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
+    await owner.submitUpdate(crossDocumentTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
 
     // Materialize the accepted configuration checkout into the data home and
     // record the device and community credential the daemon reads at start.
@@ -154,11 +158,11 @@ try {
     await run(["swift", "test", "--package-path", "native/Packages/ArborWire"], { ...fixtures, ...wire });
     await run(["swift", "test", "--package-path", "native/Packages/CanopyClient"], { ...fixtures, ...wire });
     await run(["swift", "test", "--package-path", "native/Packages/ArborWorkingTree"], {
-      ...fixtures, ARBOR_SOURCE_TEST_URL: canopy.url,
+      ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
     });
     await run(["tools/test-arbor-quagmire-local.sh", "--filter", "LiveEditorAdmissionTests"], {
-      ...fixtures, ARBOR_SOURCE_TEST_URL: canopy.url,
+      ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
     });
   } finally {

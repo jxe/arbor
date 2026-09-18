@@ -1,0 +1,28 @@
+{
+  "tree": "tr_crosscopy",
+  "sourcePath": "/source.md",
+  "destinationPath": "/destination.md",
+  "original": "# Origin\n\nExact café\n",
+  "destination": "# Destination\n\n",
+  "edit": {
+    "offset": 15,
+    "length": 0,
+    "replacement": "Exact café\n",
+    "copies": [
+      {
+        "source": [
+          10,
+          22
+        ],
+        "replacement": [
+          0,
+          12
+        ],
+        "document": {
+          "path": "/source.md",
+          "source": "# Origin\n\nExact café\n"
+        }
+      }
+    ]
+  }
+}

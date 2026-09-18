@@ -227,6 +227,33 @@ Editor recovery and publication retries MUST retain these claims unchanged.
 Clients MUST emit operation kinds only after the destination supports their
 execution; an authoritative operation cannot be recorded as an unvalidated hint.
 
+A client capturing causal undo MUST retain the identities of the operations being
+inverted. Undo grouping MAY combine several editor transactions; every member
+MUST remain distinguishable through debounce, admission, retries and recovery.
+Redo MAY invert the accepted undo operations. Restoring old bytes alone is not a
+causal undo claim. When causal evidence is unavailable, a client MAY capture the
+actual source edit without asserting operation inversion.
+
+Clients MAY collect settled undo history after proving it is unreachable from
+live undo/redo entries, retained recovery drafts, pending submissions and their
+dependencies. Collection MUST preserve any authored basis still exposed to an
+editor. Missing horizon information is not proof that a target can be discarded.
+An expired target retained solely by a pending dependency MAY be collected once
+that dependency is settled and no longer reachable.
+
+A compound editor action MAY include source edits and structural effects. Undo
+MUST preserve their captured scope and ownership: linking an existing page does
+not authorize deleting that page. Reversal of a snapshot-created entry MAY be
+expressed as a removal against its captured historical material, without claiming
+that the original snapshot supplied an operation identity. Concurrent changes
+remain subject to Canopy reconciliation.
+
+A historical inverse candidate describes its authored basis, not necessarily the
+current projection. Clients MUST NOT install it as Canopy's reconciled state.
+They MAY await Canopy reconciliation before exposing a successor basis that they
+cannot otherwise validly express. Waiting for that basis MUST NOT discard the
+durably retained inverse, change its targets, or pause other queued publication.
+
 ### Structural admissions and mixed generations
 
 Durable acknowledgement applies to structural actions, imports and assets as well

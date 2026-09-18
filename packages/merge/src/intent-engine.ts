@@ -1345,8 +1345,23 @@ class Engine {
             for (const [key, value] of Object.entries(authored[map]))
               if (!same(base[map][key], value))
                 (context[map] as Record<string, unknown>)[key] = clone(value);
-          const oldState = branch.state,
-            result = await this.record(context);
+          // Continuing one fragment can displace an overlapping sibling.
+          // Keep that sibling in the prior valid context instead of storing a
+          // live placement that a later edit or redo cannot read.
+          const oldState = branch.state;
+          for (const child of context.decisions) {
+            if (child.context || !child.placement) continue;
+            const target = context.nodes[child.placement.node];
+            try {
+              if (!target?.active || !target.pieces) throw new Error("Placement disappeared");
+              const at = this.locate(target.pieces, child.placement.pieces, [0, length(child.placement.pieces)]);
+              child.placement.anchor = at[0];
+            } catch (error) {
+              if (error instanceof IntentError && error.code === "limit") throw error;
+              child.context = oldState;
+            }
+          }
+          const result = await this.record(context);
           branch.state = result.state;
           if (
             parent.kind === "content" &&

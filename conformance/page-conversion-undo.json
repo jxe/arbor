@@ -1,0 +1,10 @@
+{
+  "tree": "tr_pageundo",
+  "document": "/nested/note",
+  "source": "Base\n",
+  "createdSource": "New page\n",
+  "createdPath": "/created.md",
+  "transaction": "convert",
+  "undo": {"id": "undo-create", "basisSource": "link", "source": "blocks", "inverses": ["convert"]},
+  "redo": {"id": "redo-create", "basisSource": "blocks", "source": "link", "inverses": ["undo-create"]}
+}

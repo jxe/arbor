@@ -40,16 +40,22 @@ field, local conflict hold, or coordinated per-operation cutover is required.
   Restore intentionally remains snapshot creation from private retained material;
   do not invent server-side Trash identity or causal undo. Preserve TreeID boundaries
   and destination scope.
-- Extend source copy capture to newly authored/transformed material and
-  cross-document transfer, then source moves and split/join. Source-backed,
-  unchanged same-document block duplicates now carry explicit Quagmire evidence
-  through recovery into `copySource`; stable-block reorders retain verified lineage,
-  including equal-byte reorders. Do not infer copies from matching text.
+- Extend explicit source copies to transformed material that cannot yet be mapped
+  to a byte-exact basis span, and source moves. Same-tree cross-document copies
+  now preserve captured source spans through shared-client validation; cross-tree
+  transfers remain ordinary appends. Do not infer copies from matching text.
+  Split/join is deferred at the user's request.
 - Carry operation-result and alternative references where the authoring action
   identifies them. Keep edits to hidden alternatives distinct from resolution.
-- Preserve causal targets for undo/redo. Do not represent selective undo as restoring
-  an old tree snapshot; if causal evidence is unavailable, retain the actual edit
-  without inventing an undo claim.
+- For additional undo coverage, inventory only existing user actions (such as
+  Move to Document and inline-and-retire), then capture their real compound
+  effects. Do not build speculative structural undo APIs. Turning blocks into a
+  newly created page now retains creation ownership and supports undo/redo;
+  source typing groups and explicit copy undo are also implemented.
+- OS undo-stack restoration remains separate. Unknown horizons after process
+  loss stay conservatively retained; live/closed editor horizons and durable
+  release-driven queue/object collection are implemented. If causal evidence is
+  unavailable, retain the actual edit without inventing a claim.
 - Start with Native/Quagmire and the maintained Swift/TS client APIs. Integrate the
   TS session consumer into its eventual editor host. Do not invent confident editor
   intent from filesystem observations; genuine snapshots remain first-class.

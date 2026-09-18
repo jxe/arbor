@@ -275,8 +275,13 @@ extension LiveSourceAdmissionTests {
         _ = try await reopened.syncOnce()
         #expect(try await resumed.resolve(renamed.reference).reference.path == renamed.reference.path)
         let compacted = try await queue.retained()
-        #expect(compacted.count == 1)
-        #expect(!records.map(\.change).contains(compacted[0].change))
+        // Other open document bases remain valid even when the newest action
+        // belongs to a different page. Compaction keeps each document's tail.
+        #expect(!records.map(\.change).contains(try #require(compacted.last).change))
+        for record in records where record.intent != nil {
+            let latest = records.last { $0.intent?.basis.reference.identity == record.intent?.basis.reference.identity }
+            if record.change == latest?.change { #expect(compacted.contains { $0.change == record.change }) }
+        }
         await reopened.close(); await recoveredTree.close()
     }
 

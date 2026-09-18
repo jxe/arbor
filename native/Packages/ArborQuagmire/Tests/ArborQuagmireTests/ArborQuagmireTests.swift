@@ -1808,3 +1808,23 @@ func unterminatedSourceCopy(position:Int) throws {
     #expect(admission.patch.edits.first?.copies?.first?.source == 0..<"Café".utf8.count)
     #expect(try admission.patch.applying(to:"Café") == admission.source)
 }
+
+extension ArborQuagmireTests {
+    @Test("Foreign copies preserve original Markdown spelling and CRLF")
+    func foreignCopySourceFidelity() throws {
+        let source = "# Origin\r\n\r\n*  Exact café\r\n"
+        let origin = ArborMarkdownCodec.open(source: source, revision: "origin", identitySeed: "origin")
+        let block = try #require(origin.blocks.first?.children.first)
+        let copied = block.withFreshIDs()
+        let destination = ArborMarkdownCodec.open(source: "# Destination\r\n\r\n", revision: "destination", identitySeed: "destination")
+        let record = try #require(origin.ledger.records[block.id])
+        let (result, _) = ArborMarkdownCodec.admission(blocks: destination.blocks + [copied], ledger: destination.ledger,
+            foreignCopies: [copied.id: (record, WorkspaceCopyDocument(path: "/origin.md", source: source))])
+        #expect(result.source.contains("*  Exact café\r\n"))
+        #expect(try result.patch.applying(to: destination.ledger.source) == result.source)
+        let spans = result.patch.edits.flatMap { $0.copies ?? [] }
+        #expect(spans.count == 1)
+        #expect(spans.first?.source == record.range)
+        #expect(spans.first?.document?.path == "/origin.md")
+    }
+}

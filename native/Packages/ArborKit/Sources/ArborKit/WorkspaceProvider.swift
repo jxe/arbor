@@ -112,11 +112,19 @@ public struct WorkspaceDocumentConflict: Hashable, Codable, Sendable, Error {
     }
 }
 
+/// Exact same-tree source material captured for a cross-document copy.
+public struct WorkspaceCopyDocument: Hashable, Codable, Sendable {
+    public var path: String
+    public var source: String
+    public init(path: String, source: String) { self.path = path; self.source = source }
+}
+
 public struct WorkspaceSourceLineage: Hashable, Codable, Sendable {
     public var source: Range<Int>
     public var replacement: Range<Int>
-    public init(source: Range<Int>, replacement: Range<Int>) {
-        self.source = source; self.replacement = replacement
+    public var document: WorkspaceCopyDocument?
+    public init(source: Range<Int>, replacement: Range<Int>, document: WorkspaceCopyDocument? = nil) {
+        self.source = source; self.replacement = replacement; self.document = document
     }
 }
 
@@ -137,13 +145,29 @@ public struct WorkspaceSourceEdit: Hashable, Codable, Sendable {
     }
 }
 
+/// Host-neutral transaction evidence retained before debounce can erase the
+/// boundaries needed by undo. Inverses name earlier transaction IDs, newest first.
+public struct WorkspaceSourceTransaction: Hashable, Codable, Sendable {
+    public var id: String
+    public var basisSource: String
+    public var source: String
+    public var edits: [WorkspaceSourceEdit]
+    public var inverses: [String]
+    public init(id: String, basisSource: String, source: String, edits: [WorkspaceSourceEdit], inverses: [String] = []) {
+        self.id = id; self.basisSource = basisSource; self.source = source
+        self.edits = edits; self.inverses = inverses
+    }
+}
+
 public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
     public var baseContentRevision: String
     public var edits: [WorkspaceSourceEdit]
+    public var transactions: [WorkspaceSourceTransaction]?
 
-    public init(baseContentRevision: String, edits: [WorkspaceSourceEdit]) {
+    public init(baseContentRevision: String, edits: [WorkspaceSourceEdit], transactions: [WorkspaceSourceTransaction]? = nil) {
         self.baseContentRevision = baseContentRevision
         self.edits = edits
+        self.transactions = transactions
     }
 
     public func applying(to source: String) throws -> String {
@@ -164,7 +188,7 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
             var outputEnd = 0
             var preserved: [Range<Int>] = []
             for part in edit.lineage ?? [] {
-                guard part.source.lowerBound >= edit.utf8Range.lowerBound,
+                guard part.document == nil, part.source.lowerBound >= edit.utf8Range.lowerBound,
                       part.source.upperBound <= edit.utf8Range.upperBound,
                       part.replacement.lowerBound >= outputEnd,
                       part.replacement.upperBound <= replacement.count,
@@ -180,6 +204,7 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
             }
             var copiedEnd = 0
             for part in edit.copies ?? [] {
+                let original = part.document.map { Data($0.source.utf8) } ?? original
                 guard part.source.lowerBound >= 0, part.source.upperBound <= original.count,
                       !part.source.isEmpty, part.source.count == part.replacement.count,
                       part.replacement.lowerBound >= copiedEnd, part.replacement.upperBound <= replacement.count,
@@ -237,6 +262,21 @@ public struct WorkspaceDocumentIntent: Hashable, Codable, Sendable {
         guard patch.baseContentRevision == basis.contentRevision else {
             throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: basis.contentRevision)
         }
+        if let transactions = patch.transactions {
+            var current = basis.source, ids = Set<String>()
+            guard !transactions.isEmpty else { throw WorkspaceProviderError.invalidAction("Empty transaction trace") }
+            for transaction in transactions {
+                guard !transaction.id.isEmpty, ids.insert(transaction.id).inserted,
+                      !transaction.inverses.contains(transaction.id),
+                      Set(transaction.inverses).count == transaction.inverses.count,
+                      Data(current.utf8) == Data(transaction.basisSource.utf8),
+                      try WorkspaceDocumentPatch(baseContentRevision:"transaction",edits:transaction.edits).applying(to:current).utf8.elementsEqual(transaction.source.utf8) else {
+                    throw WorkspaceProviderError.invalidAction("Invalid source transaction trace")
+                }
+                current = transaction.source
+            }
+            guard current.utf8.elementsEqual(source.utf8) else { throw WorkspaceProviderError.invalidAction("Incomplete source transaction trace") }
+        }
         guard try Data(patch.applying(to: basis.source).utf8) == Data(source.utf8) else {
             throw WorkspaceProviderError.invalidAction("Source intent does not produce its declared candidate")
         }
@@ -264,12 +304,18 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
     func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot
     func admit(intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot
     func flush() async throws
+    func createForEditor(parent: WorkspaceReference, name: String, source: String, transaction: String) async throws -> WorkspaceNode?
+    func copyDocument() async throws -> WorkspaceCopyDocument?
+    func releaseUndoTransactions(_ ids: Set<String>) async throws
     func history() async throws -> [WorkspaceHistoryEntry]
     func recover(revision: String) async throws -> WorkspaceDocumentSnapshot
     func close() async
 }
 
 public extension WorkspaceDocumentSession {
+    func createForEditor(parent: WorkspaceReference, name: String, source: String, transaction: String) async throws -> WorkspaceNode? { nil }
+    func copyDocument() async throws -> WorkspaceCopyDocument? { nil }
+    func releaseUndoTransactions(_ ids: Set<String>) async throws {}
     var admissionPolicy: WorkspaceAdmissionPolicy { .compareAndSwap }
     /// Compatibility bridge for existing providers. It preserves their rejection/recovery
     /// behavior until their publication queues support independently retained bases.

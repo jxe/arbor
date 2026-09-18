@@ -297,7 +297,7 @@ export interface SnapshotEnvelope<T> {
 export interface SourceEdit {
   /** Verified preserved spans; source offsets are absolute, replacement offsets relative. */
   lineage?: Array<{source: [number, number]; replacement: [number, number]}>;
-  copies?: Array<{source: [number, number]; replacement: [number, number]}>;
+  copies?: Array<{source: [number, number]; replacement: [number, number]; document?: {path: string; source: string}}>;
   offset: number;
   length: number;
   replacement: string;
@@ -355,12 +355,13 @@ export function applySourceEdits(source: string, edits: readonly SourceEdit[]): 
     }
     let copiedEnd=0;
     for(const part of edit.copies ?? []) {
+      const copiedSource = part.document ? new TextEncoder().encode(part.document.source) : original;
       const [start,end]=part.source,[from,to]=part.replacement;
-      if(![start,end,from,to].every(Number.isSafeInteger)||start<0||end<=start||end>original.length||from<copiedEnd||to>replacement.length||end-start!==to-from||
+      if(![start,end,from,to].every(Number.isSafeInteger)||start<0||end<=start||end>copiedSource.length||from<copiedEnd||to>replacement.length||end-start!==to-from||
          (edit.lineage??[]).some(p=>from<p.replacement[1]&&p.replacement[0]<to)||
-         [start,end].some(n=>n<original.length&&(original[n]!&0xc0)===0x80)||
+         [start,end].some(n=>n<copiedSource.length&&(copiedSource[n]!&0xc0)===0x80)||
          [from,to].some(n=>n<replacement.length&&(replacement[n]!&0xc0)===0x80)||
-         original.subarray(start,end).some((byte,i)=>byte!==replacement[from+i]))throw new SourceEditError("Invalid explicit source copy");
+         copiedSource.subarray(start,end).some((byte,i)=>byte!==replacement[from+i]))throw new SourceEditError("Invalid explicit source copy");
       copiedEnd=to;
     }
     chunks.push(replacement);

@@ -63,3 +63,17 @@ fixed count cap without duplicating fixture text. The previous deployed-format
 `accepted-ambiguity.json` records planned semantic scenarios, not executable claims
 that Canopy supports those effects. See the [target contract and adoption boundary](../docs/update-wire-contract.md)
 and [Plan 011](../plans/reliability/011-compatible-accepted-ambiguity.md).
+
+
+`causal-undo.json` binds the Swift/TypeScript source-admission transaction trace:
+coalesced undo names the original transactions in reverse order, and redo names
+the inverse group. Both queues verify the historical operation targets and retain
+them through settlement and restart. Its edit offsets and lengths are UTF-8 byte
+coordinates; the trace is client admission metadata, not an additional Wire format.
+
+- `cross-document-copy.json` supplies the same exact UTF-8 source span, destination
+  and foreign-document capture to Swift and TypeScript admission tests. Both must
+  bind the declared path and captured bytes to the authored graph before emitting
+  `copySource`; ordinary text equality is not provenance.
+- `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
+  receipts, historical removal and redo target identities through queue restart.

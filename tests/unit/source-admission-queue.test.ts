@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionRecord } from "@arbor/canopy-client";
+import { prepareSourceInverse, type SourceTransaction, prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionRecord } from "@arbor/canopy-client";
 import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type TreeSnapshot } from "@arbor/wire";
 import { executeExactSourceEdits } from "../../packages/canopy/src/updates/source-edits.ts";
 import { decodeCandidateUpdateJSON } from "@arbor/wire";
@@ -302,3 +302,98 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
     expect(alternatives).toContain(incoming.root);
   }
 }));
+
+
+test("causal undo and redo retain historical targets across settlement and restart", async () => {
+  const f = JSON.parse(await readFile(new URL("../../conformance/causal-undo.json", import.meta.url), "utf8"));
+  const root = await mkdtemp(join(tmpdir(), "causal-undo-"));
+  try {
+    const queue = new SourceAdmissionQueue(f.tree, root), all: SourceAdmissionRecord[] = [];
+    const file = Buffer.from(f.transactions[0].basisSource), hash = hashObject(file);
+    const nested = encodeWireDirectory({type:"directory",entries:[{name:"note.md",file:hash}]}), dir = hashObject(nested);
+    const bytes = encodeWireDirectory({type:"directory",entries:[{name:"nested",directory:dir}]}), rootHash = hashObject(bytes);
+    let graph = {root:rootHash,objects:new Map([[hash,file],[dir,nested],[rootHash,bytes]])} as TreeSnapshot;
+    for (const frame of f.transactions as SourceTransaction[]) {
+      if (frame.inverses.length) {
+        const targets = frame.inverses.flatMap(id => all.filter(record => record.transaction?.id === id).reverse());
+        all.push(...targets.map((target, index) => prepareSourceInverse(target, `${frame.id}-${index}`, frame)));
+      } else {
+        const parent = all.at(-1);
+        const record = prepareSourceAdmission({change:frame.id,tree:f.tree,sourcePath:f.sourcePath,graph,transaction:frame,
+          basis:parent?{kind:"authored",change:parent.change}:{kind:"accepted",root:graph.root,update:"r1"},
+          intent:{basis:{tree:f.tree,path:"/nested/note",revision:frame.id,source:frame.basisSource},source:frame.source,edits:frame.edits}});
+        all.push(record); graph = decodeTreeSnapshotJSON(record.candidate);
+      }
+    }
+    await queue.retain(all);
+    expect(all.slice(2).map(record=>record.undoOf)).toEqual(f.targets);
+    expect(all.slice(2).every(record=>record.update.operations?.every(op=>op.kind==="undoOperation"))).toBe(true);
+    await queue.compact(new Set(all.map(record=>record.change)), false);
+    expect(await new SourceAdmissionQueue(f.tree,root).retained()).toEqual(all);
+    const altered = structuredClone(all); altered[2]!.undoOf = "missing";
+    await expect(queue.retain(altered)).rejects.toThrow();
+    expect(await queue.retained()).toEqual(all);
+  } finally { await rm(root,{recursive:true,force:true}); }
+});
+
+test("cross-document copies bind the captured source path and reject changed source bytes", () => {
+  const graph = initial(), original = fixture.source as string;
+  const target = Buffer.from("Destination\n"), targetHash = hashObject(target);
+  const directory = encodeWireDirectory({type:"directory",entries:[{name:"dest.md",file:targetHash},{name:"source.md",file:hashObject(Buffer.from(original))}]});
+  graph.root=hashObject(directory); graph.objects=new Map([[graph.root,directory],[targetHash,target],[hashObject(Buffer.from(original)),Buffer.from(original)]]);
+  const build=(source:string)=>prepareSourceAdmission({tree:fixture.tree,change:"cross-copy",graph,sourcePath:"/dest.md",basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:fixture.tree,path:"/dest",revision:"r1",source:target.toString()},source:target.toString()+original,edits:[{offset:target.length,length:0,replacement:original,copies:[{source:[0,Buffer.byteLength(original)],replacement:[0,Buffer.byteLength(original)],document:{path:"/source.md",source}}]}]}});
+  const record=build(original);
+  expect(record.update.operations?.[0]).toMatchObject({kind:"copySource",source:{material:{path:"/source.md"}},at:{material:{path:"/dest.md"}}});
+  expect(()=>build("Changed")).toThrow();
+});
+
+test("undo collection releases expired groups but retains pending inverse dependencies", async () => withQueue(async (queue, root) => {
+  const graph=initial(), text=fixture.source;
+  const frame:SourceTransaction={id:"collect-a",basisSource:text,source:text+"x",edits:[{offset:Buffer.byteLength(text),length:0,replacement:"x"}],inverses:[]};
+  const a=prepareSourceAdmission({change:frame.id,tree:fixture.tree,graph,sourcePath:fixture.sourcePath,basis:{kind:"accepted",root:graph.root,update:"r1"},transaction:frame,intent:{basis:{tree:fixture.tree,path:"/nested/note",revision:"r1",source:text},edits:frame.edits,source:frame.source}});
+  const inverse=prepareSourceInverse(a,"collect-undo",{id:"collect-undo",basisSource:frame.source,source:text,edits:[{offset:Buffer.byteLength(text),length:1,replacement:""}],inverses:[frame.id]});
+  await queue.retain([a,inverse]);
+  const expired=new Set([frame.id,"collect-undo"]);
+  await queue.compact(new Set([a.change]),false,new Set([frame.id]));
+  expect(await queue.retained()).toHaveLength(2);
+  await queue.compact(new Set([a.change,inverse.change]),false,new Set([frame.id]));
+  expect(await queue.retained()).toHaveLength(2);
+  await queue.compact(new Set([a.change]),false,expired);
+  const reopened = new SourceAdmissionQueue(fixture.tree,root);
+  expect(await reopened.compact(new Set([a.change,inverse.change]),false)).toBe(true);
+  expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([]);
+}));
+
+test("shared cross-document fixture validates exact UTF-8 material", async () => {
+  const f=await Bun.file(new URL("../../conformance/cross-document-copy.json",import.meta.url)).json();
+  const source=Buffer.from(f.original), destination=Buffer.from(f.destination);
+  const directory=encodeWireDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination)},{name:"source.md",file:hashObject(source)}]});
+  const graph={root:hashObject(directory),objects:new Map([[hashObject(directory),directory],[hashObject(source),source],[hashObject(destination),destination]])};
+  const record=prepareSourceAdmission({tree:f.tree,change:"shared-cross-copy",graph,sourcePath:f.destinationPath,basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:f.tree,path:"/destination",source:f.destination,revision:"r1"},source:f.destination+f.edit.replacement,edits:[f.edit]}});
+  expect(record.update.operations?.[0]).toMatchObject({kind:"copySource",source:{material:{path:f.sourcePath},range:f.edit.copies[0].source}});
+});
+
+test("page creation undo and redo validate and recover exact entry targets",async()=>{
+  const f=await Bun.file(new URL("../../conformance/page-conversion-undo.json",import.meta.url)).json();
+  const {preparePageCreation}=await import("@arbor/canopy-client");
+  const source=Buffer.from(f.source),fileSource=hashObject(source);
+  const nested=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);
+  const rootBytes=encodeWireDirectory({type:"directory",entries:[{name:"nested",directory:nestedHash}]});
+  const graph={root:hashObject(rootBytes),objects:new Map([[fileSource,source],[nestedHash,nested],[hashObject(rootBytes),rootBytes]])};
+  const bytes=Buffer.from(f.createdSource),file=hashObject(bytes);
+  const directory=encodeWireDirectory({type:"directory",entries:[{name:f.createdPath.slice(1),file},{name:"nested",directory:nestedHash}]});
+  const candidate={root:hashObject(directory),objects:new Map([...graph.objects].filter(([h])=>h!==graph.root))};
+  candidate.objects.set(file,bytes);candidate.objects.set(candidate.root,directory);
+  const created=preparePageCreation({change:"creation",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{transaction:f.transaction,document:{tree:f.tree,path:f.document},removals:[f.createdPath]}});
+  const frame=(v:any):SourceTransaction=>({...v,edits:[{offset:0,length:Buffer.byteLength(v.basisSource),replacement:v.source}]});
+  const undo=prepareSourceInverse(created,f.undo.id,frame(f.undo));
+  const redo=prepareSourceInverse(undo,f.redo.id,frame(f.redo));
+  const root=await mkdtemp(join(tmpdir(),"page-undo-"));
+  try {
+    const queue=new SourceAdmissionQueue(f.tree,root);
+    await queue.retain([created,undo,redo]);
+    expect(undo.update.operations?.[0]).toMatchObject({kind:"removeEntry",source:{material:{path:f.createdPath}}});
+    expect(redo.update.operations?.[0]).toMatchObject({kind:"undoOperation",target:{change:undo.change}});
+    expect(await new SourceAdmissionQueue(f.tree,root).retained()).toEqual([created,undo,redo]);
+  } finally {await rm(root,{recursive:true,force:true});}
+});

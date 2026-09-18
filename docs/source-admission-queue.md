@@ -389,3 +389,102 @@ and four-target build verification. One CLI reconnect test failed in an earlier
 parallel run; its complete test file and a subsequent complete suite both passed.
 Release and exact dependency pinning remain pending; no live service or app was
 changed by this checkpoint.
+
+
+## Causal editor undo and redo
+
+Quagmire exposes an ephemeral transaction ID and the IDs it inverts during the
+commit callback. A coalesced typing undo lists all grouped transactions in reverse
+order; redo names the undo transaction. Quagmire does not know Canopy identities.
+The Native binding captures an ordered exact-source transaction trace immediately,
+including deferred host commits, and saves it in editor recovery. Debouncing may
+combine transport work but cannot erase that trace, even when its net bytes match
+the starting document.
+
+Swift `WorkspaceDocumentPatch.transactions` and TS `SourceAdmissionIntent.transactions`
+carry `id`, `basisSource`, `source`, `edits` and `inverses`. The enclosing source proof
+and every trace step are checked. Shared clients split the trace into immutable
+admissions and bind transaction IDs to change/operation identities. Queue retention
+of each prepared batch is atomic. Reusing a transaction ID with different meaning
+or another document fails rather than retargeting it.
+
+An inverse record names its target's authored candidate as its basis and the
+target's original graph as its candidate. Its operations are `undoOperation`, in
+reverse target-operation order. Canopy reconciles that historical inverse with
+later work. A grouped undo can therefore publish several historical branches;
+redo inverts those inverse records. Existing Wire operations suffice: this adds
+no endpoint, operation kind, server schema or capability negotiation.
+
+The queues retain live transaction targets and their ancestors after settlement
+and restart. Quagmire exposes the transaction IDs still reachable from its weak
+undo/redo snapshots. Native releases acknowledged IDs only after they leave that
+horizon and all pending/recovery frames. Close releases the closed editor's history
+when recovery is healthy. The queue durably records releases, retains pending
+admissions and their ancestors, and collects only settled, unreferenced records
+and objects. The latest source basis for each document remains pinned; it cannot
+be invalidated merely because another page publishes. Unknown horizons after a
+crash remain conservative until explicitly released.
+The OS UndoManager stack itself is not restored across application restart, but a
+queued inverse and its editor draft are recoverable.
+
+A historical inverse is not exposed as the current accepted document. The session
+retains it before requesting reconciliation; while offline the editor keeps its
+draft and reports that undo is retained and awaiting Canopy. Reconnect/retry uses
+the same targets. Follow-on editing that needs a reconciled basis waits for that
+basis; the client does not run a second merge engine. If no named effects exist
+(for example a snapshot-only first body creation or older editor history), the
+client retains the actual displayed edit using ordinary source semantics instead
+of inventing a causal claim.
+
+`conformance/causal-undo.json` is consumed by Swift and TS queue tests. Live Native
+protocol tests cover coalesced typing, undo/redo with an independent peer paragraph,
+copy undo, equal-byte round trips, continued editing through accepted alternatives,
+and reconnect/process loss while an offline undo is durably pending. The merge tool
+also preserves an overlapping sibling decision in its prior context when a hidden
+fragment continuation displaces its location; later edits must not encounter an
+unreadable retained placement. These changes remain local and use the unreleased
+sibling Quagmire checkout.
+
+
+## Cross-document copies and page-conversion undo
+
+Native's explicit cross-document block-copy action now passes original block IDs
+through Quagmire's `copyToDocument` host callback. The bridge flushes the captured
+source, maps it through its ledger and preserves exact raw spans (including CRLF)
+when their destination indentation is compatible. Destination formatting is new
+text. Each foreign copy span carries its physical source path and exact captured
+source bytes in the local client contract; the Swift and TypeScript builders check
+those bytes against the same-tree authored graph before emitting `copySource`.
+The wire reference remains ordinary `basis` material. Copied text is never used
+to search for or infer a source identity. A stale or unavailable source cannot
+silently retarget the copy. Cross-tree transfers and providers without source
+capture retain ordinary append semantics.
+
+Turning a block/subtree into a page shares one editor transaction ID with the
+page-creation receipt. Creation remains a snapshot update. Its receipt records
+the newly introduced physical branch and proves that removing it restores the
+exact pre-creation graph. Undo groups the source-edit inverse with removal of
+that captured branch, each against its own historical basis. This is an explicit
+`removeEntry`, not an invented `undoOperation` for a snapshot. Redo inverts those
+actual removal/source operations. Existing pages returned by title lookup have
+no creation receipt and must never be deleted by this undo.
+
+The shared clients retain and validate these receipts, inverse candidates and
+owner-document scopes through restart. Canopy reconciles later changes to the
+created page; peer edits may produce accepted alternatives rather than being
+silently erased. Other structural commands do not acquire a generic guessed undo.
+
+`conformance/cross-document-copy.json` covers exact UTF-8 foreign material in both
+client implementations. Queue tests cover durable horizon release and dependency
+pinning. Native's disposable-server test exercises real cross-document copy,
+page conversion, undo, redo and reopening the retained queue. These changes are
+local and require no wire operation, endpoint, server schema or published
+Quagmire dependency change.
+
+Local verification for this slice: TypeScript typecheck and all 984 product tests
+passed; the full protocol gate passed, including page-conversion undo with a peer
+edit and continued publication. All 66 standalone editor-bridge tests passed,
+including exact CRLF copy fidelity. Quagmire's package tests and four platform
+builds passed, as did Arbor's local-workspace macOS and iOS Simulator builds.
+Published dependency pins are unchanged. Relative-link and whitespace checks
+reported no new failures. Nothing was released, installed or deployed.

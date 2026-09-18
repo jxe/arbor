@@ -1,0 +1,70 @@
+{
+  "tree": "tr_causal",
+  "sourcePath": "/nested/note.md",
+  "transactions": [
+    {
+      "id": "typing-a",
+      "basisSource": "Before\n",
+      "source": "After\n",
+      "edits": [
+        {
+          "offset": 0,
+          "length": 6,
+          "replacement": "After",
+          "expected": "Before"
+        }
+      ],
+      "inverses": []
+    },
+    {
+      "id": "typing-b",
+      "basisSource": "After\n",
+      "source": "After!\n",
+      "edits": [
+        {
+          "offset": 5,
+          "length": 0,
+          "replacement": "!"
+        }
+      ],
+      "inverses": []
+    },
+    {
+      "id": "undo-group",
+      "basisSource": "After!\n",
+      "source": "Before\n",
+      "edits": [
+        {
+          "offset": 0,
+          "length": 7,
+          "replacement": "Before\n"
+        }
+      ],
+      "inverses": [
+        "typing-b",
+        "typing-a"
+      ]
+    },
+    {
+      "id": "redo-group",
+      "basisSource": "Before\n",
+      "source": "After!\n",
+      "edits": [
+        {
+          "offset": 0,
+          "length": 7,
+          "replacement": "After!\n"
+        }
+      ],
+      "inverses": [
+        "undo-group"
+      ]
+    }
+  ],
+  "targets": [
+    "typing-b",
+    "typing-a",
+    "undo-group-1",
+    "undo-group-0"
+  ]
+}

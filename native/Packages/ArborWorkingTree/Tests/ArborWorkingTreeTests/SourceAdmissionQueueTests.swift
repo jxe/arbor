@@ -49,6 +49,118 @@ struct SourceAdmissionQueueTests {
         return records
     }
 
+    @Test("Shared causal undo targets survive settlement and restart")
+    func causalUndo() async throws {
+        struct UndoFixture: Decodable {
+            struct Frame: Decodable {
+                struct Edit: Decodable { var offset: Int; var length: Int; var replacement: String; var expected: String? }
+                var id: String; var basisSource: String; var source: String; var edits: [Edit]; var inverses: [String]
+                var transaction: WorkspaceSourceTransaction {
+                    .init(id: id, basisSource: basisSource, source: source,
+                          edits: edits.map { .init(utf8Range: $0.offset..<($0.offset + $0.length), replacement: $0.replacement, expected: $0.expected) }, inverses: inverses)
+                }
+            }
+            var tree: String; var sourcePath: String; var transactions: [Frame]; var targets: [String]
+        }
+        let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../conformance")
+        let f = try JSONDecoder().decode(UndoFixture.self, from: Data(contentsOf: directory.appending(path: "causal-undo.json")))
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        var all: [SourceAdmissionRecord] = []
+        for frame in f.transactions.map(\.transaction) {
+            if frame.inverses.isEmpty {
+                let graph = try all.last?.candidate ?? graph(frame.basisSource)
+                let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/nested/note"), source: frame.basisSource, contentRevision: frame.id)
+                all.append(try SourceAdmissionRecord(change: frame.id, tree: f.tree,
+                    basis: all.last.map { .authored(change: $0.change) } ?? .accepted(.init(root: graph.root, update: "r1")),
+                    graph: graph, sourcePath: f.sourcePath,
+                    intent: .init(basis: basis, patch: .init(baseContentRevision: frame.id, edits: frame.edits), source: frame.source), transaction: frame))
+            } else {
+                let targets = frame.inverses.flatMap { id in all.filter { $0.transaction?.id == id }.reversed() }
+                all.append(contentsOf: try targets.enumerated().map { index, target in
+                    try target.inverse(change: frame.id + "-" + String(index), transaction: frame)
+                })
+            }
+        }
+        try await queue.retain(all)
+        #expect(all.dropFirst(2).compactMap(\.undoOf) == f.targets)
+        #expect(all.dropFirst(2).allSatisfy { $0.update.operations?.allSatisfy { $0.kind == "undoOperation" } == true })
+        let settled = Set(all.map(\.change))
+        _ = try await queue.compact(settled: settled, preservingSettledTail: false)
+        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, settled: settled)
+        #expect(try await reopened.retained() == all)
+        var altered = all; altered[2].undoOf = "missing"
+        await #expect(throws: (any Error).self) { try await reopened.retain(altered) }
+        #expect(try await reopened.retained() == all)
+        let expired = Set(all.compactMap { $0.transaction?.id })
+        _ = try await reopened.compact(settled: [], preservingSettledTail: false, releasingTransactions: expired)
+        #expect(try await reopened.retained() == all)
+        let afterRestart = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        #expect(try await afterRestart.compact(settled: settled, preservingSettledTail: false))
+        #expect(try await afterRestart.retained().isEmpty)
+    }
+
+    @Test("Shared page creation receipts recover scoped undo and redo")
+    func sharedPageConversionUndo() async throws {
+        struct Fixture: Decodable {
+            struct Frame: Decodable {
+                let id: String; let basisSource: String; let source: String; let inverses: [String]
+                var transaction: WorkspaceSourceTransaction { .init(id: id, basisSource: basisSource, source: source,
+                    edits: [.init(utf8Range: 0..<basisSource.utf8.count, replacement: source)], inverses: inverses) }
+            }
+            let tree: String; let document: String; let source: String; let createdSource: String; let createdPath: String; let transaction: String
+            let undo: Frame; let redo: Frame
+        }
+        let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../conformance")
+        let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "page-conversion-undo.json")))
+        let graph = try graph(f.source), file = Data(f.createdSource.utf8)
+        let rootObject = try #require(graph.objects.first { $0.hash == graph.root })
+        guard case let .directory(entries, _) = try WireObjectCodec.decode(rootObject.bytes, kind: .directory) else { return }
+        let bytes = try WireObjectCodec.encode(.directory([.init(name: String(f.createdPath.dropFirst()), file: WireObjectCodec.hash(file))] + entries))
+        let candidate = WireSnapshot(root: WireObjectCodec.hash(bytes), objects: graph.objects.filter { $0.hash != graph.root } + [file, bytes].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
+        let created = try SourceAdmissionRecord(change: "creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
+            creation: .init(transaction: f.transaction, document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
+        let undo = try created.inverse(change: f.undo.id, transaction: f.undo.transaction)
+        let redo = try undo.inverse(change: f.redo.id, transaction: f.redo.transaction)
+        #expect(undo.update.operations?.first?.kind == "removeEntry")
+        #expect(redo.update.operations?.first?.kind == "undoOperation")
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        try await queue.retain([created, undo, redo])
+        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
+        #expect(try await reopened.retained() == [created, undo, redo])
+    }
+
+    @Test("Shared cross-document copy fixture binds exact foreign source bytes")
+    func sharedCrossDocumentCopy() throws {
+        struct Fixture: Decodable {
+            struct Edit: Decodable { let offset: Int; let length: Int; let replacement: String; let copies: [Copy] }
+            struct Copy: Decodable { let source: [Int]; let replacement: [Int]; let document: WorkspaceCopyDocument }
+            let tree: String; let original: String; let destination: String; let sourcePath: String; let destinationPath: String; let edit: Edit
+        }
+        let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../conformance")
+        let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "cross-document-copy.json")))
+        let origin = Data(f.original.utf8), destination = Data(f.destination.utf8)
+        let root = try WireObjectCodec.encode(.directory([.init(name: "destination.md", file: WireObjectCodec.hash(destination)), .init(name: "source.md", file: WireObjectCodec.hash(origin))]))
+        let graph = WireSnapshot(root: WireObjectCodec.hash(root), objects: [root, origin, destination].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
+        let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/destination"), source: f.destination, contentRevision: "r1")
+        let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: f.edit.offset..<(f.edit.offset + f.edit.length), replacement: f.edit.replacement,
+            copies: f.edit.copies.map { .init(source: $0.source[0]..<$0.source[1], replacement: $0.replacement[0]..<$0.replacement[1], document: $0.document) })])
+        let record = try SourceAdmissionRecord(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.destinationPath,
+            intent: .init(basis: basis, patch: patch, source: f.destination + f.edit.replacement))
+        #expect(record.update.operations?.first?.kind == "copySource")
+        guard case let .object(source)? = record.update.operations?.first?.fields["source"], case let .object(material)? = source["material"] else { Issue.record("Missing material"); return }
+        #expect(material["path"] == .string(f.sourcePath))
+        var wrong = patch; wrong.edits[0].copies?[0].document?.path = "/missing.md"
+        #expect(throws: (any Error).self) {
+            try SourceAdmissionRecord(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.destinationPath,
+                intent: .init(basis: basis, patch: wrong, source: f.destination + f.edit.replacement))
+        }
+    }
+
     @Test("Shared requests retain same-root dependencies and restart with original operation identities")
     func sharedRequests() async throws {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }

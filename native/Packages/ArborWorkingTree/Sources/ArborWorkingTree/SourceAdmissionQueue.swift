@@ -9,6 +9,17 @@ public enum SourceAdmissionBasis: Codable, Equatable, Sendable {
     case authored(change: String)
 }
 
+/// Captured page creation belonging to an editor transaction. Removal paths
+/// are proved to restore the exact pre-creation graph, never guessed at undo time.
+public struct SourcePageCreation: Codable, Equatable, Sendable {
+    public var transaction: String
+    public var document: WorkspaceReference
+    public var removals: [String]
+    public init(transaction: String, document: WorkspaceReference, removals: [String]) {
+        self.transaction = transaction; self.document = document; self.removals = removals
+    }
+}
+
 /// One immutable source admission. Construction is separate from persistence so
 /// a failed/uncertain write is retried with the same change and operation identities.
 public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
@@ -22,16 +33,40 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     public let update: WireCandidateUpdate
     public var entryTransfer: EntryTransfer?
     public var entryActions: EntryActions?
+    public var transaction: WorkspaceSourceTransaction?
+    public var undoOf: String?
+    public var creation: SourcePageCreation?
+    public var editorTransactionID: String? { transaction?.id ?? creation?.transaction }
+    public var editorReference: WorkspaceReference? { intent?.basis.reference ?? creation?.document }
     var localTrash: WorkingTreeLocalTrash?
 
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
-                graph: WireSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent) throws {
+                graph: WireSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent, transaction: WorkspaceSourceTransaction? = nil, undoOf: SourceAdmissionRecord? = nil) throws {
         try intent.validate()
+        guard intent.patch.transactions == nil else { throw Self.invalid("Transaction traces must be admitted as individual records") }
+        if let transaction {
+            guard !transaction.id.isEmpty, !transaction.inverses.contains(transaction.id),
+                  Set(transaction.inverses).count == transaction.inverses.count,
+                  try WorkspaceDocumentPatch(baseContentRevision: "transaction", edits: transaction.edits).applying(to: transaction.basisSource).utf8.elementsEqual(transaction.source.utf8) else {
+                throw Self.invalid("Invalid editor transaction")
+            }
+            if let target = undoOf {
+                guard let targetID = target.transaction?.id, transaction.inverses.contains(targetID),
+                      target.tree == tree, target.intent?.basis.reference.identity == intent.basis.reference.identity else {
+                    throw Self.invalid("Undo transaction targets another document or transaction")
+                }
+            } else {
+                guard transaction.basisSource.utf8.elementsEqual(intent.basis.source.utf8),
+                      transaction.source.utf8.elementsEqual(intent.source.utf8), transaction.edits == intent.patch.edits else {
+                    throw Self.invalid("Transaction does not match source intent")
+                }
+            }
+        } else if undoOf != nil { throw Self.invalid("Missing undo transaction") }
         guard intent.basis.reference.tree.rawValue == tree else { throw Self.invalid("Wrong tree") }
         let parts = sourcePath.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard sourcePath.hasPrefix("/"), !parts.isEmpty,
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") && Data($0.utf8) == Data($0.precomposedStringWithCanonicalMapping.utf8) }),
-              !intent.patch.edits.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
+              (!intent.patch.edits.isEmpty || transaction != nil) else { throw Self.invalid("Invalid source path or empty intent") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw Self.invalid("Duplicate basis object") }
         let decoded = try WireObjectGraph.validate(graph, mode: .sparseFiles)
         var bytes = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
@@ -76,7 +111,25 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         try visit(root, .directory)
         let candidate = WireSnapshot(root: root, objects: reachable.sorted().compactMap { hash in bytes[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } })
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
-        let operations = try Self.operationEdits(intent.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
+        func copyMaterial(_ copy: WorkspaceSourceLineage) throws -> WireSemanticValue {
+            guard let document = copy.document else {
+                return .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file!)])
+            }
+            let parts = document.path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            guard document.path.hasPrefix("/"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { throw Self.invalid("Invalid copy path") }
+            var hash = graph.root
+            for (index, part) in parts.enumerated() {
+                guard case let .directory(entries, _)? = decoded[hash], let entry = entries.first(where: { $0.name == part }) else { throw Self.invalid("Copy source missing from basis") }
+                if index == parts.count - 1 {
+                    guard let value = entry.file, case let .file(bytes)? = decoded[value], bytes == Data(document.source.utf8) else { throw Self.invalid("Copy source changed or crosses a tree boundary") }
+                    return .object(["kind":.string("basis"),"path":.string(document.path),"object":.string(value)])
+                }
+                guard let directory = entry.directory else { throw Self.invalid("Copy source crosses a tree boundary") }
+                hash = directory
+            }
+            throw Self.invalid("Invalid copy source")
+        }
+        var operations = try Self.operationEdits(intent.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
             // Byte-valid output alone does not prove scalar-aligned selection.
             let source = Array(intent.basis.source.utf8)
             for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
@@ -87,7 +140,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                copies[0].replacement == 0..<edit.replacement.utf8.count {
                 let material: WireSemanticValue = .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
                 return [try WireSourceOperation(["key":.string("copy-\(index)-0"),"kind":.string("copySource"),
-                    "source":.object(["material":material,"range":.array([.integer(copies[0].source.lowerBound),.integer(copies[0].source.upperBound)])]),
+                    "source":.object(["material":try copyMaterial(copies[0]),"range":.array([.integer(copies[0].source.lowerBound),.integer(copies[0].source.upperBound)])]),
                     "at":.object(["material":material,"range":.array([.integer(edit.utf8Range.lowerBound),.integer(edit.utf8Range.lowerBound)])]),"side":.string("before")])]
             }
             var fields: [String: WireSemanticValue] = [
@@ -109,15 +162,25 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                     "material":.object(["kind":.string("operation"),"change":.string(change),"operation":.string("edit-\(index)")]),
                     "range":.array([.integer(copy.replacement.lowerBound),.integer(copy.replacement.upperBound)])])
                 let source: WireSemanticValue = .object([
-                    "material":.object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)]),
+                    "material":try copyMaterial(copy),
                     "range":.array([.integer(copy.source.lowerBound),.integer(copy.source.upperBound)])])
                 operations.append(try WireSourceOperation(["key":.string("copy-\(index)-\(copyIndex)"),"kind":.string("copySource"),"source":source,"at":target,"side":.string("before")]))
                 operations.append(try WireSourceOperation(["key":.string("copy-placeholder-\(index)-\(copyIndex)"),"kind":.string("editSource"),"source":target,"text":.string("")]))
             }
             return operations
         }
+        if let target = undoOf {
+            guard graph.root == target.candidate.root, candidate.root == target.graph.root,
+                  basis == .authored(change:target.change) else { throw Self.invalid("Undo does not name its historical target basis") }
+            operations = try (target.update.operations ?? []).reversed().enumerated().map { index, operation in
+                guard case let .string(key)? = operation.fields["key"] else { throw Self.invalid("Missing target operation key") }
+                return try WireSourceOperation(["key":.string("undo-\(index)"),"kind":.string("undoOperation"),"target":.object(["change":.string(target.change),"operation":.string(key)])])
+            }
+            guard target.update.operations != nil || target.graph.root == target.candidate.root else { throw Self.invalid("Snapshot effects have no causal undo target") }
+        }
+        self.transaction = transaction; self.undoOf = undoOf?.change
         let known = Set(graph.objects.map(\.hash))
-        let update = WireCandidateUpdate(candidate: root, change: change, operations: file == nil ? nil : operations,
+        let update = WireCandidateUpdate(candidate: root, change: change, operations: file == nil || operations.isEmpty ? nil : operations,
                                          objects: candidate.objects.filter { !known.contains($0.hash) })
         // Validate the complete Wire grammar, including change and operation identities.
         _ = try JSONEncoder().encode(update)
@@ -129,7 +192,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     /// Structural actions retain captured operations when available, otherwise
     /// genuine snapshot semantics. Never infer provenance from resulting bytes.
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
-                graph: WireSnapshot, candidate: WireSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil) throws {
+                graph: WireSnapshot, candidate: WireSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil, transaction: WorkspaceSourceTransaction? = nil, undoOf: SourceAdmissionRecord? = nil) throws {
         _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
@@ -140,21 +203,65 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         self.sourcePath = nil; self.intent = nil
         guard entryTransfer == nil || entryActions == nil else { throw Self.invalid("Multiple entry intent representations") }
         self.entryTransfer = entryTransfer; self.entryActions = entryActions
+        self.creation = creation; self.transaction = transaction; self.undoOf = undoOf?.change
+        var inverseOperations: [WireSourceOperation]?
+        if let target = undoOf {
+            guard let transaction, !transaction.id.isEmpty, let targetID = target.editorTransactionID,
+                  Set(transaction.inverses).count == transaction.inverses.count,
+                  try WorkspaceDocumentPatch(baseContentRevision: "transaction", edits: transaction.edits).applying(to: transaction.basisSource).utf8.elementsEqual(transaction.source.utf8),
+                  transaction.inverses.contains(targetID), !transaction.inverses.contains(transaction.id),
+                  graph.root == target.candidate.root, candidate.root == target.graph.root,
+                  basis == .authored(change: target.change), tree == target.tree,
+                  creation == target.creation, creation != nil, entryActions == nil, entryTransfer == nil else { throw Self.invalid("Invalid structural inverse") }
+            if let operations = target.update.operations {
+                inverseOperations = try operations.reversed().enumerated().map { index, op in
+                    guard case let .string(key)? = op.fields["key"] else { throw Self.invalid("Missing undo key") }
+                    return try WireSourceOperation(["key":.string("undo-\(index)"),"kind":.string("undoOperation"),"target":.object(["change":.string(target.change),"operation":.string(key)])])
+                }
+            } else if let creation = target.creation {
+                let removed = try EntryActions(removals: creation.removals).prepare(graph: graph, changeID: change)
+                guard removed.candidate.root == candidate.root else { throw Self.invalid("Page creation inverse changed") }
+                inverseOperations = removed.operations
+            }
+        } else if let creation {
+            guard transaction == nil, !creation.transaction.isEmpty, creation.document.tree.rawValue == tree,
+                  entryActions == nil, entryTransfer == nil else { throw Self.invalid("Invalid page creation") }
+            let removed = try EntryActions(removals: creation.removals).prepare(graph: candidate, changeID: change)
+            guard removed.candidate.root == graph.root else { throw Self.invalid("Creation does not reproduce its original graph") }
+        } else if transaction != nil { throw Self.invalid("Structural transaction without captured creation") }
         let prepared = try entryActions?.prepare(graph:graph, candidate:candidate, changeID:change) ?? entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change)
         if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
-        self.update = WireCandidateUpdate(candidate: candidate.root, change: change, operations: prepared?.operations,
+        self.update = WireCandidateUpdate(candidate: candidate.root, change: change, operations: inverseOperations ?? prepared?.operations,
                                           objects: self.candidate.objects.filter { !known.contains($0.hash) })
         _ = try JSONEncoder().encode(update)
     }
 
-    public func validate() throws {
+    /// Author the inverse against the original candidate. Canopy, rather than
+    /// this client, reconciles that historical inverse with subsequent work.
+    public func inverse(change: String, transaction: WorkspaceSourceTransaction) throws -> Self {
+        if creation != nil {
+            return try Self(change: change, tree: tree, basis: .authored(change: self.change), graph: candidate, candidate: graph,
+                            creation: creation, transaction: transaction, undoOf: self)
+        }
+        guard let intent, let sourcePath else { throw Self.invalid("Undo target is not a source admission") }
+        let basis = WorkspaceDocumentSnapshot(reference: intent.basis.reference, source: intent.source,
+                                              contentRevision: "undo-target:" + self.change)
+        let patch = WorkspaceDocumentPatch(baseContentRevision: basis.contentRevision,
+            edits: [.init(utf8Range: 0..<basis.source.utf8.count, replacement: intent.basis.source, expected: basis.source)])
+        return try Self(change: change, tree: tree, basis: .authored(change: self.change), graph: candidate,
+                        sourcePath: sourcePath, intent: .init(basis: basis, patch: patch, source: intent.basis.source),
+                        transaction: transaction, undoOf: self)
+    }
+
+    public func validate(undoTarget: SourceAdmissionRecord? = nil) throws {
+        guard undoOf == undoTarget?.change else { throw Self.invalid("Missing retained undo target") }
         var rebuilt: Self
         if let intent, let sourcePath {
-            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, sourcePath: sourcePath, intent: intent)
+            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, sourcePath: sourcePath, intent: intent, transaction: transaction, undoOf: undoTarget)
         } else {
             guard intent == nil, sourcePath == nil else { throw Self.invalid("Incomplete source intent") }
-            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, candidate: candidate, entryTransfer: entryTransfer, entryActions: entryActions)
+            rebuilt = try Self(change: change, tree: tree, basis: basis, graph: graph, candidate: candidate, entryTransfer: entryTransfer, entryActions: entryActions, creation: creation, transaction: transaction, undoOf: undoTarget)
         }
         try localTrash?.validate()
         rebuilt.localTrash = localTrash
@@ -180,7 +287,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                 let end = part.replacement.lowerBound
                 if source != part.source.lowerBound || output != end {
                     let copies = (edit.copies ?? []).filter { $0.replacement.lowerBound >= output && $0.replacement.upperBound <= end }.map {
-                        WorkspaceSourceLineage(source:$0.source,replacement:($0.replacement.lowerBound-output)..<($0.replacement.upperBound-output))
+                        WorkspaceSourceLineage(source:$0.source,replacement:($0.replacement.lowerBound-output)..<($0.replacement.upperBound-output),document:$0.document)
                     }
                     result.append(.init(utf8Range:source..<part.source.lowerBound,replacement:String(data:bytes.subdata(in:output..<end),encoding:.utf8)!,copies:copies.isEmpty ? nil : copies))
                 }
@@ -218,6 +325,9 @@ private struct StoredSourceAdmission: Codable {
     var localTrash: StoredSourceTrash?
     var entryTransfer: EntryTransfer?
     var entryActions: EntryActions?
+    var transaction: WorkspaceSourceTransaction?
+    var undoOf: String?
+    var creation: SourcePageCreation?
 }
 
 private struct SourceAdmissionJournal: Codable {
@@ -225,6 +335,7 @@ private struct SourceAdmissionJournal: Codable {
     var schema = currentSchema
     var tree: String
     var records: [StoredSourceAdmission]
+    var releasedTransactions: [String]?
 }
 
 private struct SourceAdmissionFingerprint: Equatable {
@@ -243,6 +354,7 @@ public actor SourceAdmissionQueue {
     private let platform: (any ObjectStore)?
     private var records: [SourceAdmissionRecord]
     private var fingerprint: SourceAdmissionFingerprint?
+    private var releasedTransactions = Set<String>()
     private var objectCache: [String: Data] = [:]
 
     public init(
@@ -269,6 +381,11 @@ public actor SourceAdmissionQueue {
 
     /// Acknowledges only after the complete record and its basis are fsynced.
     public func retain(_ record: SourceAdmissionRecord) async throws {
+        try await retain([record])
+    }
+
+    /// One durable boundary for a coalesced undo group or a captured transaction trace.
+    public func retain(_ batch: [SourceAdmissionRecord]) async throws {
         while true {
             // Resolve platform objects before locking. Actor reentrancy must
             // never leave another call synchronously waiting on our own flock.
@@ -280,14 +397,12 @@ public actor SourceAdmissionQueue {
                     files.unlockSourceAdmissions(descriptor)
                     continue
                 }
-                if let prior = records.first(where: { $0.change == record.change }) {
-                    guard prior == record else { throw ArborWireValidationError.invalidValue("Authored identity was reused") }
-                    // A prior rename may have succeeded before its directory sync failed.
-                    try persist(records)
-                    files.unlockSourceAdmissions(descriptor)
-                    return
+                var next = records
+                for record in batch {
+                    if let prior = next.first(where: { $0.change == record.change }) {
+                        guard prior == record else { throw ArborWireValidationError.invalidValue("Authored identity was reused") }
+                    } else { next.append(record) }
                 }
-                let next = records + [record]
                 try Self.validate(next, tree: tree)
                 try persist(next)
                 files.unlockSourceAdmissions(descriptor)
@@ -303,7 +418,7 @@ public actor SourceAdmissionQueue {
     /// Object collection follows the journal rename, so a crash can leak cache
     /// bytes but can never strand retained intent without its basis.
     @discardableResult
-    public func compact(settled: Set<String>, preservingSettledTail: Bool = true) async throws -> Bool {
+    public func compact(settled: Set<String>, preservingSettledTail: Bool = true, releasingTransactions: Set<String> = []) async throws -> Bool {
         while true {
             try await reloadIfChanged()
             let expected = fingerprint
@@ -313,12 +428,20 @@ public actor SourceAdmissionQueue {
                     files.unlockSourceAdmissions(descriptor)
                     continue
                 }
-                var required = Set(records.filter { !settled.contains($0.change) }.map(\.change))
+                let previousReleased = releasedTransactions
+                releasedTransactions.formUnion(releasingTransactions)
+                var required = Set(records.filter { !settled.contains($0.change) || $0.editorTransactionID.map { !releasedTransactions.contains($0) } == true }.map(\.change))
                 // An open editor may still name the latest local revision after
                 // its projection settled (including a hidden candidate). Keep
                 // that replay chain until process restart proves no live view.
-                if preservingSettledTail, required.isEmpty, let latest = records.last {
-                    required.insert(latest.change)
+                if preservingSettledTail {
+                    if let latest = records.last { required.insert(latest.change) }
+                    var documents = Set<WorkspaceIdentity>()
+                    for record in records.reversed() {
+                        if let identity = record.intent?.basis.reference.identity, documents.insert(identity).inserted {
+                            required.insert(record.change)
+                        }
+                    }
                 }
                 var changed = true
                 while changed {
@@ -328,7 +451,9 @@ public actor SourceAdmissionQueue {
                     }
                 }
                 let next = records.filter { required.contains($0.change) }
-                if next.count != records.count { try persist(next) }
+                if next.count != records.count || previousReleased != releasedTransactions {
+                    do { try persist(next) } catch { releasedTransactions = previousReleased; throw error }
+                }
                 let empty = records.isEmpty
                 files.unlockSourceAdmissions(descriptor)
                 return empty
@@ -369,16 +494,18 @@ public actor SourceAdmissionQueue {
             guard journal.schema == SourceAdmissionJournal.currentSchema, journal.tree == tree else {
                 throw ArborWireValidationError.invalidValue("Invalid source journal schema or tree")
             }
-            if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) }) {
+            if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) && $0.transaction == nil && $0.creation == nil }) {
                 try writeJournal([])
                 try objects.retain(reachableFrom: [], files: [])
                 return ([], [:])
             }
+            releasedTransactions = Set(journal.releasedTransactions ?? [])
             let hashes = Set(journal.records.flatMap { $0.graph.objects + $0.candidate.objects + $0.updateObjects + ($0.localTrash?.objects ?? []) })
             var loaded: [String: Data] = [:]
             loaded.reserveCapacity(hashes.count)
             for hash in hashes { loaded[hash] = try await bytes(hash) }
-            let values = try journal.records.map { try materialize($0, from: loaded) }
+            var values: [SourceAdmissionRecord] = []
+            for stored in journal.records { values.append(try materialize(stored, from:loaded, prior:values)) }
             try Self.validate(values, tree: tree)
             return (values, loaded)
         }
@@ -429,7 +556,7 @@ public actor SourceAdmissionQueue {
         }
         try objects.store(presented)
         let stored = next.map(stored)
-        try files.writeSourceAdmissions(SourceAdmissionJournal(tree: tree, records: stored))
+        try files.writeSourceAdmissions(SourceAdmissionJournal(tree: tree, records: stored, releasedTransactions: releasedTransactions.intersection(Set(next.compactMap(\.editorTransactionID))).sorted()))
         let retained = Set(stored.flatMap { $0.graph.objects + $0.candidate.objects + $0.updateObjects + ($0.localTrash?.objects ?? []) })
         try objects.retain(reachableFrom: [], files: retained)
         records = next
@@ -445,7 +572,7 @@ public actor SourceAdmissionQueue {
     }
 
     private func writeJournal(_ records: [StoredSourceAdmission]) throws {
-        try files.writeSourceAdmissions(SourceAdmissionJournal(tree: tree, records: records))
+        try files.writeSourceAdmissions(SourceAdmissionJournal(tree: tree, records: records, releasedTransactions: releasedTransactions.sorted()))
     }
 
     private func stored(_ record: SourceAdmissionRecord) -> StoredSourceAdmission {
@@ -463,11 +590,11 @@ public actor SourceAdmissionQueue {
             update: update,
             updateObjects: updateObjects,
             localTrash: record.localTrash.map { .init(nodes: $0.nodes, objects: $0.objects.map(\.hash).sorted()) },
-            entryTransfer: record.entryTransfer, entryActions: record.entryActions
+            entryTransfer: record.entryTransfer, entryActions: record.entryActions, transaction: record.transaction, undoOf: record.undoOf, creation: record.creation
         )
     }
 
-    private func materialize(_ record: StoredSourceAdmission, from bytes: [String: Data]) throws -> SourceAdmissionRecord {
+    private func materialize(_ record: StoredSourceAdmission, from bytes: [String: Data], prior: [SourceAdmissionRecord] = []) throws -> SourceAdmissionRecord {
         func snapshot(_ stored: StoredSourceSnapshot) throws -> WireSnapshot {
             WireSnapshot(root: stored.root, objects: try stored.objects.map { hash in
                 guard let value = bytes[hash] else { throw ObjectStoreError.missing(hash) }
@@ -479,16 +606,19 @@ public actor SourceAdmissionQueue {
             guard let value = bytes[hash] else { throw ObjectStoreError.missing(hash) }
             return WireObjectEnvelope(hash: hash, bytes: value)
         }
+        guard record.undoOf == prior.first(where: { $0.change == record.undoOf })?.change else {
+            throw ArborWireValidationError.invalidValue("Missing stored undo target")
+        }
         var value: SourceAdmissionRecord
         if let intent = record.intent, let sourcePath = record.sourcePath {
             value = try SourceAdmissionRecord(change: record.change, tree: record.tree, basis: record.basis,
-                graph: snapshot(record.graph), sourcePath: sourcePath, intent: intent)
+                graph: snapshot(record.graph), sourcePath: sourcePath, intent: intent, transaction: record.transaction, undoOf: prior.first { $0.change == record.undoOf })
         } else {
             guard record.intent == nil, record.sourcePath == nil else {
                 throw ArborWireValidationError.invalidValue("Incomplete stored source admission")
             }
             value = try SourceAdmissionRecord(change: record.change, tree: record.tree, basis: record.basis,
-                graph: snapshot(record.graph), candidate: snapshot(record.candidate), entryTransfer: record.entryTransfer, entryActions: record.entryActions)
+                graph: snapshot(record.graph), candidate: snapshot(record.candidate), entryTransfer: record.entryTransfer, entryActions: record.entryActions, creation: record.creation, transaction: record.transaction, undoOf: prior.first { $0.change == record.undoOf })
         }
         if let trash = record.localTrash {
             value.localTrash = WorkingTreeLocalTrash(nodes: trash.nodes, objects: try trash.objects.map { hash in
@@ -604,7 +734,7 @@ public actor SourceAdmissionQueue {
     private static func validate(_ records: [SourceAdmissionRecord], tree: String) throws {
         var prior: [String: SourceAdmissionRecord] = [:]
         for record in records {
-            try record.validate()
+            try record.validate(undoTarget: record.undoOf.flatMap { prior[$0] })
             guard record.tree == tree, prior[record.change] == nil else { throw ArborWireValidationError.invalidValue("Invalid queue scope or duplicate identity") }
             switch record.basis {
             case let .accepted(base):

@@ -988,3 +988,21 @@ test("source choice alternatives replace only their range and preserve an indepe
   expect(remaining.decisions[0]!.affected[0]!.range).toEqual([2,5]);
   await running.canopy.verifyIntegrity();
 });
+
+test("historical grouped undo and redo preserve equal-byte round trips", async () => {
+  const a = await edit("ABC"), b = await edit("abc", a.candidate);
+  const inverse = (target: CandidateUpdate, candidate: ObjectHash): CandidateUpdate => ({
+    change: crypto.randomUUID(), candidate, operations: target.operations!.slice().reverse().map((op,index)=>({
+      kind:"undoOperation",key:`undo-${index}`,target:{change:target.change,operation:op.key}
+    })), resolves:[], objects:[], deltas:[]
+  });
+  const ub = inverse(b, a.candidate), ua = inverse(a, root), ra = inverse(ua, a.candidate), rb = inverse(ub, root);
+  for (const updates of [[a],[a,b],[a,b,ub],[a,ua],[a,ua,ra],[a,b,ub,rb]]) {
+    const response = await client.submitUpdates(tree,{base,updates});
+    expect(response.results.at(-1)!.update.root).toBe(updates.at(-1)!.candidate);
+    expect(response.results.at(-1)!.update.conflicted).toBe(false);
+  }
+  const next = await edit("fresh",root);
+  const current = await client.descriptor(tree);
+  expect((await client.submitUpdates(tree,{base:current.tree.update,updates:[next]})).results[0]!.update.root).toBe(next.candidate);
+});

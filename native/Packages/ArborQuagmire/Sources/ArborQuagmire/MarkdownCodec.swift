@@ -235,7 +235,7 @@ public enum ArborMarkdownCodec {
         )
     }
 
-    static func admission(blocks: [Block], ledger: ArborSourceLedger, copies: [BlockID: BlockID] = [:]) -> (ArborMarkdownAdmission, ArborSourceLedger) {
+    static func admission(blocks: [Block], ledger: ArborSourceLedger, copies: [BlockID: BlockID] = [:], foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]) -> (ArborMarkdownAdmission, ArborSourceLedger) {
         var chunks: [String] = [ledger.envelope]
         var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
         var nextRecords: [BlockID: SourceRecord] = [:]
@@ -248,6 +248,7 @@ public enum ArborMarkdownCodec {
         }
         func copiedRecord(_ id: BlockID) -> SourceRecord? {
             guard ledger.records[id] == nil else { return nil }
+            if let foreign = foreignCopies[id] { return foreign.record }
             var current = id, visited = Set<BlockID>()
             while let source = copies[current], visited.insert(current).inserted {
                 if let record = ledger.records[source] { return record }
@@ -263,7 +264,7 @@ public enum ArborMarkdownCodec {
             var copied: SourceRecord?
             if let record = ledger.records[block.id] ?? copiedRecord(block.id),
                record.block.kind == block.kind,
-               record.depth == depth,
+               (record.depth == depth || foreignCopies[block.id] != nil),
                record.indent == containerDepth {
                 raw = record.raw
                 if ledger.records[block.id] == nil { copied = record }
@@ -361,7 +362,7 @@ public enum ArborMarkdownCodec {
                 let old = captured.record, prefix = captured.offset
                 let lower = next.range.lowerBound + prefix - replacementRange.lowerBound
                 guard lower >= 0, lower + old.raw.utf8.count <= value.replacement.utf8.count else { return nil }
-                return WorkspaceSourceLineage(source:old.range,replacement:lower..<(lower+old.raw.utf8.count))
+                return WorkspaceSourceLineage(source:old.range,replacement:lower..<(lower+old.raw.utf8.count),document:foreignCopies[id]?.document)
             }.sorted { $0.replacement.lowerBound < $1.replacement.lowerBound }
             if !copied.isEmpty { value.copies = copied }
             edit = value

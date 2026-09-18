@@ -2044,3 +2044,30 @@ test("copying an empty selected alternative preserves the hidden value", async (
     f.put(""),
   ]);
 });
+
+test("undo authored states remain readable when a selected conflict fragment disappears", async () => {
+  const f = new Fixture(), base = f.tree({"a.txt":"abc tail"});
+  const a = await f.run(f.request(base,f.tree({"a.txt":"AAA tail"}),[
+    {kind:"editSource",key:"edit",source:f.ref("/a.txt","abc tail",[0,3]),text:"AAA"}
+  ],"a"));
+  const conflict = await f.run(f.request(base,f.tree({"a.txt":"BBB tail"}),[
+    {kind:"editSource",key:"edit",source:f.ref("/a.txt","abc tail",[0,3]),text:"BBB"}
+  ],"b",a.result));
+  let prior = conflict.result.object;
+  let last = await f.run(f.request(conflict.result,f.tree({"a.txt":"CCC tail"}),[
+    {kind:"editSource",key:"op",source:f.ref("/a.txt","BBB tail",[0,3]),text:"CCC"}
+  ],"c"));
+  let change = "c";
+  for (let index=0;index<4;index++) {
+    const next = `inverse-${index}`;
+    const inverse = await f.run(f.request(last.authored,prior,[
+      {kind:"undoOperation",key:"op",target:{change,operation:"op"}}
+    ],next,last.result));
+    // Load both retained states, as Canopy does for a later historical branch.
+    for(const state of [inverse.authored,inverse.result]) {
+      const text = f.content(state.object,"a.txt");
+      await f.run(f.request(state,state.object,[{kind:"editSource",key:"same",source:f.ref("/a.txt",text),text}],`${next}-${state === inverse.authored ? "authored" : "result"}`));
+    }
+    prior = last.authored.object; last = inverse; change = next;
+  }
+});

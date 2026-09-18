@@ -948,6 +948,7 @@ public actor UpdateCoordinator {
 
     enum StructuralAdmission: Codable, Sendable {
         case action(WorkspaceStructuralAction)
+        case pageCreation(parent: WorkspaceReference, name: String, source: String, transaction: String, document: WorkspaceReference)
         case asset(WorkspaceAsset, parent: WorkspaceReference)
         case imported(name: String, bytes: Data, mediaType: String?, parent: WorkspaceReference)
     }
@@ -1003,6 +1004,9 @@ public actor UpdateCoordinator {
                 case let .action(action):
                     guard let result = try await provider.perform(action) else { throw ArborWireValidationError.invalidValue("Structural action returned no node") }
                     node = result
+                case let .pageCreation(parent, name, source, _, _):
+                    guard let result = try await provider.perform(.createMarkdown(parent: parent, name: name, source: source)) else { throw ArborWireValidationError.invalidValue("Page creation returned no node") }
+                    node = result
                 case let .asset(asset, parent):
                     let stored = try await provider.store(asset: asset, in: parent)
                     node = try await provider.resolve(stored.reference)
@@ -1029,8 +1033,24 @@ public actor UpdateCoordinator {
                         actions = EntryActions(transfers:transfers)
                     }
                 }
+                var creation: SourcePageCreation?
+                if case let .pageCreation(_, _, _, transaction, document) = admission {
+                    // Remove the first branch introduced by creation. A promoted
+                    // Markdown parent's sibling body stays exactly where it was.
+                    let parts = (node.reference.path + ".md").dropFirst().split(separator: "/").map(String.init)
+                    let objects = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+                    var hash = graph.root, prefix: [String] = []
+                    for part in parts {
+                        prefix.append(part)
+                        guard case let .directory(entries, _)? = objects[hash] else { throw ArborWireValidationError.invalidValue("Invalid creation parent") }
+                        guard let entry = entries.first(where: { $0.name == part }) else { break }
+                        guard let next = entry.directory else { throw ArborWireValidationError.invalidValue("Creation overwrote an existing entry") }
+                        hash = next
+                    }
+                    creation = .init(transaction: transaction, document: document, removals: ["/" + prefix.joined(separator: "/")])
+                }
                 var record = try SourceAdmissionRecord(tree: await workingTree.treeID().rawValue, basis: basis,
-                    graph: graph, candidate:candidate, entryActions:actions)
+                    graph: graph, candidate:candidate, entryActions:actions, creation:creation)
                 record.localTrash = try await staging.captureLocalTrash()
                 prepared = (record, node)
                 preparedStructures[key] = prepared
@@ -1050,6 +1070,26 @@ public actor UpdateCoordinator {
         var base: WireUpdateBase
         var reference: WorkspaceReference
         var path: String
+    }
+
+    public func copyDocument(_ snapshot: WorkspaceDocumentSnapshot) async throws -> WorkspaceCopyDocument {
+        let intent = try WorkspaceDocumentIntent(basis: snapshot, patch: .init(baseContentRevision: snapshot.contentRevision, edits: []), source: snapshot.source)
+        let view = try await sourceView(for: intent)
+        return WorkspaceCopyDocument(path: view.sourcePath, source: view.document.source)
+    }
+
+    // Explicitly expired editor transactions remain collectible on later publication.
+    private var releasedUndoTransactions = Set<String>()
+
+    public func releaseUndoTransactions(_ ids: Set<String>, reference: WorkspaceReference) async throws {
+        try requireOpen()
+        let queue = try await admissions()
+        guard try await queue.retained().filter({ $0.editorTransactionID.map(ids.contains) == true }).allSatisfy({ $0.editorReference?.identity == reference.identity }) else {
+            throw ArborWireValidationError.invalidValue("Undo release belongs to another document")
+        }
+        releasedUndoTransactions.formUnion(ids)
+        _ = try await queue.compact(settled: Set(control.sourceAcceptedChanges ?? []),
+                                    releasingTransactions: releasedUndoTransactions)
     }
 
     private func admissions() async throws -> SourceAdmissionQueue {
@@ -1082,7 +1122,7 @@ public actor UpdateCoordinator {
         let linear = zip(records, records.dropFirst()).allSatisfy { previous, next in
             next.basis == .authored(change: previous.change)
         }
-        if linear && first.graph.root == accepted { return (records.last, true) }
+        if linear && !records.contains(where: { $0.undoOf != nil }) && first.graph.root == accepted { return (records.last, true) }
 
         // Keep pending creations/moves visible while Canopy reconciles branches.
         // Document sessions independently read their own retained source intent.
@@ -1090,7 +1130,7 @@ public actor UpdateCoordinator {
         guard let index = records.lastIndex(where: { $0.intent == nil }) else { return (nil, false) }
         var navigation = records[index]
         for record in records.dropFirst(index + 1) {
-            guard record.basis == .authored(change: navigation.change) else { break }
+            guard record.undoOf == nil, record.basis == .authored(change: navigation.change) else { break }
             navigation = record
         }
         return (navigation, false)
@@ -1152,13 +1192,13 @@ public actor UpdateCoordinator {
     public func sourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
-        if let latest = try await pendingSourceRecords().last(where: { $0.intent == nil || $0.intent?.basis.reference.identity == reference.identity }) {
+        if let latest = try await pendingSourceRecords().last(where: { $0.intent == nil || $0.intent?.basis.reference.identity == reference.identity }), latest.undoOf == nil {
             let view = try await localSourceView(latest, reference: reference)
             sourceViews[view.document.contentRevision] = view
             return view.document
         }
         let captured = try await workingTree.captureSourceAdmissionBasis(reference)
-        if let latest = try await pendingSourceRecords().last(where: { $0.intent == nil || $0.intent?.basis.reference.identity == reference.identity }) {
+        if let latest = try await pendingSourceRecords().last(where: { $0.intent == nil || $0.intent?.basis.reference.identity == reference.identity }), latest.undoOf == nil {
             let view = try await localSourceView(latest, reference: reference)
             sourceViews[view.document.contentRevision] = view
             return view.document
@@ -1223,6 +1263,7 @@ public actor UpdateCoordinator {
     private func retainSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         try intent.validate()
+        if let transactions = intent.patch.transactions { return try await retainSourceTransactions(intent, transactions: transactions) }
         let queue = try await admissions()
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let intentBytes = try encoder.encode(intent)
@@ -1248,6 +1289,89 @@ public actor UpdateCoordinator {
         if syncActive { syncAgain = true }
         await workingTree.invalidateDocumentViews()
         return local.document
+    }
+
+    private func transactionBasis(_ view: CapturedSourceAdmissionBasis, parent: String?) throws -> SourceAdmissionBasis {
+        if let accepted = view.accepted { return .accepted(accepted) }
+        guard let parent else { throw ArborWireValidationError.invalidValue("Missing transaction predecessor") }
+        return .authored(change: parent)
+    }
+
+    private func retainSourceTransactions(_ intent: WorkspaceDocumentIntent,
+                                          transactions: [WorkspaceSourceTransaction]) async throws -> WorkspaceDocumentSnapshot {
+        let queue = try await admissions()
+        var records = try await queue.retained()
+        var view = try await sourceView(for: intent)
+        var parent = try localPredecessor(intent.basis.contentRevision)
+        var added: [SourceAdmissionRecord] = []
+        for transaction in transactions {
+            let existing = records.filter { $0.editorTransactionID == transaction.id && $0.transaction != nil }
+            if !existing.isEmpty {
+                guard existing.allSatisfy({ $0.transaction == transaction && $0.editorReference?.identity == intent.basis.reference.identity }) else {
+                    throw ArborWireValidationError.invalidValue("Editor transaction identity was reused")
+                }
+                if let last = existing.last { view = try await localSourceView(last, reference: intent.basis.reference); parent = last.change }
+                continue
+            }
+            var targets: [SourceAdmissionRecord] = []
+            var causal = !transaction.inverses.isEmpty
+            for id in transaction.inverses {
+                let group = records.filter { $0.editorTransactionID == id }
+                guard group.allSatisfy({ $0.editorReference?.identity == intent.basis.reference.identity }) else {
+                    throw ArborWireValidationError.invalidValue("Undo target belongs to another document")
+                }
+                if group.isEmpty || group.contains(where: { $0.update.operations == nil && $0.creation == nil && $0.graph.root != $0.candidate.root }) { causal = false }
+                targets.append(contentsOf: group.reversed())
+            }
+            let prepared: [SourceAdmissionRecord]
+            if causal {
+                prepared = try targets.enumerated().map { index, target in
+                    try target.inverse(change: transaction.id + "-" + String(index), transaction: transaction)
+                }
+            } else {
+                // Old editor history or a snapshot-only creation has no named
+                // effect to invert. Retain the exact displayed edit honestly.
+                if !view.document.source.utf8.elementsEqual(transaction.basisSource.utf8),
+                   let parent, records.first(where: { $0.change == parent })?.undoOf != nil {
+                    try await queue.retain(added)
+                    _ = try await syncOnce()
+                    let pending = try await pendingSourceRecords()
+                    guard !pending.contains(where: { $0.undoOf != nil }) else {
+                        throw ArborWireValidationError.invalidValue("Undo retained; awaiting Canopy reconciliation")
+                    }
+                    let snapshot = try await sourceSnapshot(intent.basis.reference)
+                    let patch = WorkspaceDocumentPatch(baseContentRevision: snapshot.contentRevision, edits: [])
+                    view = try await sourceView(for: .init(basis: snapshot, patch: patch, source: snapshot.source))
+                }
+                guard view.document.source.utf8.elementsEqual(transaction.basisSource.utf8) else {
+                    throw ArborWireValidationError.invalidValue("Editor transaction needs Canopy reconciliation before further editing")
+                }
+                let patch = WorkspaceDocumentPatch(baseContentRevision: view.document.contentRevision, edits: transaction.edits)
+                let frame = try WorkspaceDocumentIntent(basis: view.document, patch: patch, source: transaction.source)
+                prepared = [try SourceAdmissionRecord(change: transaction.id, tree: intent.basis.reference.tree.rawValue,
+                    basis: try transactionBasis(view, parent: parent), graph: view.graph,
+                    sourcePath: view.sourcePath, intent: frame, transaction: transaction)]
+            }
+            records.append(contentsOf: prepared); added.append(contentsOf: prepared)
+            if let last = prepared.last { view = try await localSourceView(last, reference: intent.basis.reference); parent = last.change }
+        }
+        try await queue.retain(added)
+        sourceViews[view.document.contentRevision] = view
+        await ensureMachineEntered()
+        dispatch(.localHead(root: view.graph.root, origin: .editor))
+        if syncActive { syncAgain = true }
+        await workingTree.invalidateDocumentViews()
+        if records.contains(where: { record in record.undoOf != nil && transactions.contains(where: { $0.id == record.transaction?.id }) }) {
+            // A historical inverse is not a projection of the current tree.
+            // Keep the draft until Canopy has reconciled every member of the group.
+            _ = try await syncOnce()
+            let pending = Set(try await pendingSourceRecords().map(\.change))
+            guard !records.contains(where: { record in pending.contains(record.change) && transactions.contains(where: { $0.id == record.transaction?.id }) }) else {
+                throw ArborWireValidationError.invalidValue("Undo retained; awaiting Canopy reconciliation")
+            }
+            return try await sourceSnapshot(intent.basis.reference)
+        }
+        return view.document
     }
 
     private func syncSourcePass() async throws -> WorkspaceSyncPresentation {
@@ -1325,7 +1449,7 @@ public actor UpdateCoordinator {
                 acceptedRoot: installation.root, localRoot: installation.root)
             control.presentation.acceptedConflicted = current.tree.conflicted
             try files.write(control)
-            let queueEmpty = try await queue.compact(settled: Set(control.sourceAcceptedChanges ?? []))
+            let queueEmpty = try await queue.compact(settled: Set(control.sourceAcceptedChanges ?? []), releasingTransactions: releasedUndoTransactions)
             if queueEmpty {
                 control.sourceAcceptedChanges = []
                 try files.write(control)

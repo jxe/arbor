@@ -348,6 +348,22 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         if pendingAdmission?.generation == admission.generation { pendingAdmission = nil }
     }
 
+    public func createForEditor(parent: WorkspaceReference, name: String, source: String, transaction: String) async throws -> WorkspaceNode? {
+        try requireOpen()
+        guard !readOnly, parent.tree == initialReference.tree else { throw WorkspaceProviderError.invalidAction("Creation crosses a tree boundary") }
+        return try await sourceCoordinator?.admitStructure(.pageCreation(parent: parent, name: name, source: source, transaction: transaction, document: initialReference))
+    }
+
+    public func copyDocument() async throws -> WorkspaceCopyDocument? {
+        guard let sourceCoordinator else { return nil }
+        return try await sourceCoordinator.copyDocument(snapshot())
+    }
+
+    public func releaseUndoTransactions(_ ids: Set<String>) async throws {
+        try requireOpen()
+        try await sourceCoordinator?.releaseUndoTransactions(ids, reference: initialReference)
+    }
+
     public func history() async throws -> [WorkspaceHistoryEntry] {
         try requireOpen()
         throw WorkspaceProviderError.invalidAction("Canopy history is not available yet")

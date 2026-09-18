@@ -377,10 +377,19 @@ public final class ArborEditorHost: EditorHost {
         return URL(string: link)
     }
 
-    public func createDocument(
+    public func createDocument(title: String, requestedReference: DocumentReference?, initialContent: [Block]?, transaction: UUID) async -> DocumentReference? {
+        await createDocument(title: title, requestedReference: requestedReference, initialContent: initialContent, editorTransaction: transaction.uuidString)
+    }
+
+    public func createDocument(title: String, requestedReference: DocumentReference?, initialContent: [Block]?) async -> DocumentReference? {
+        await createDocument(title: title, requestedReference: requestedReference, initialContent: initialContent, editorTransaction: nil)
+    }
+
+    private func createDocument(
         title: String,
         requestedReference: DocumentReference?,
-        initialContent: [Block]?
+        initialContent: [Block]?,
+        editorTransaction: String?
     ) async -> DocumentReference? {
         let requested = requestedReference.flatMap(workspaceReference(for:))
         let parent = requested?.parent ?? binding.reference
@@ -397,7 +406,7 @@ public final class ArborEditorHost: EditorHost {
                 name: name,
                 title: title,
                 source: source,
-                acceptAnyExisting: true
+                acceptAnyExisting: true, editorTransaction: editorTransaction
             )
         }
 
@@ -427,7 +436,7 @@ public final class ArborEditorHost: EditorHost {
                 name: name,
                 title: title,
                 source: source,
-                acceptAnyExisting: false
+                acceptAnyExisting: false, editorTransaction: editorTransaction
             ) {
                 return created
             }
@@ -449,9 +458,16 @@ public final class ArborEditorHost: EditorHost {
         name: String,
         title: String,
         source: String,
-        acceptAnyExisting: Bool
+        acceptAnyExisting: Bool, editorTransaction: String?
     ) async -> DocumentReference? {
         do {
+            if let editorTransaction, await binding.session.admissionPolicy == .retainedBasis {
+                await binding.flush()
+                guard binding.lastError == nil else { return nil }
+                if let created = try await binding.session.createForEditor(parent: parent, name: name, source: source, transaction: editorTransaction) {
+                    return await durableDocumentReference(for: created)
+                }
+            }
             if let created = try await performStructuralAction(.createMarkdown(parent: parent, name: name, source: source)) {
                 return await durableDocumentReference(for: created)
             }
@@ -549,6 +565,49 @@ public final class ArborEditorHost: EditorHost {
         guard let decoded = workspaceReference(for: reference) else { return false }
         await binding.flush()
         return (try? await performStructuralAction(.trash(reference: decoded))) != nil
+    }
+
+    public func copyToDocument(_ reference: DocumentReference, blocks: [Block], from document: Document) async -> Bool {
+        guard document === binding.document, let destination = workspaceReference(for: reference) else { return false }
+        // Freeze identity and source before suspension. Never infer a copy from
+        // matching text in another page after the user changes the selection.
+        await binding.flush()
+        guard binding.lastError == nil else { return false }
+        let ledger = binding.ledger
+        guard destination.tree == binding.reference.tree else {
+            return await appendToDocument(reference, blocks.map { $0.withFreshIDs() })
+        }
+        do {
+            guard let origin = try await binding.session.copyDocument() else {
+                return await appendToDocument(reference, blocks.map { $0.withFreshIDs() })
+            }
+            guard origin.source == ledger.source else { return false }
+            let session = try await provider.openDocument(destination)
+            do {
+                let snapshot = try await session.snapshot()
+                let opened = ArborMarkdownCodec.open(source: snapshot.source, revision: snapshot.contentRevision, identitySeed: String(describing: snapshot.reference.identity))
+                let copies = blocks.map { $0.withFreshIDs() }
+                var mapping: [BlockID: BlockID] = [:]
+                func map(_ source: Block, _ copy: Block) {
+                    mapping[copy.id] = source.id
+                    for (a, b) in zip(source.children, copy.children) { map(a, b) }
+                }
+                for (a, b) in zip(blocks, copies) { map(a, b) }
+                var foreign: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]
+                for (id, sourceID) in mapping {
+                    if let record = ledger.records[sourceID] { foreign[id] = (record, origin) }
+                }
+                let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks + copies,
+                    ledger: opened.ledger, foreignCopies: foreign)
+                _ = try await session.admit(patch: admission.patch)
+                try await session.flush()
+                await session.close()
+                return true
+            } catch { await session.close(); throw error }
+        } catch {
+            errorAction("Couldn't copy blocks: \(error.localizedDescription)")
+            return false
+        }
     }
 
     public func appendToDocument(_ reference: DocumentReference, _ blocks: [Block]) async -> Bool {

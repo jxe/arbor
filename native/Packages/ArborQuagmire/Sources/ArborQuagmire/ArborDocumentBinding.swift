@@ -30,7 +30,13 @@ public final class ArborDocumentBinding {
     private var authoredBlocks: [Int: [Block]] = [:]
     private var copySources: [BlockID: BlockID] = [:]
     private var authoredCopies: [Int: [BlockID: BlockID]] = [:]
-    private var ledger: ArborSourceLedger
+    private var transactionLedger: ArborSourceLedger?
+    private var pendingTransactions: [WorkspaceSourceTransaction] = []
+    private var authoredTransactions: [Int: [WorkspaceSourceTransaction]] = [:]
+    private var admittedTransactionIDs: Set<String> = []
+    private var releasedTransactionIDs = Set<String>()
+    private var retriedUndoRevision: String?
+    private(set) var ledger: ArborSourceLedger
     private var machine: DocumentAdmissionMachine.State
     private var debounceTask: Task<Void, Never>?
     private var admissionTask: Task<Void, Never>?
@@ -110,7 +116,10 @@ public final class ArborDocumentBinding {
             var captured: WorkspaceDocumentPatch?
             if let basis = basisLedgers[accepted.contentRevision] {
                 let admission = ArborMarkdownCodec.admission(blocks: document.children, ledger: basis, copies: copySources).0
-                if admission.source.utf8.elementsEqual(source.utf8) { captured = admission.patch }
+                if admission.source.utf8.elementsEqual(source.utf8) {
+                    captured = admission.patch
+                    if !pendingTransactions.isEmpty { captured?.transactions = pendingTransactions }
+                }
             }
             if let recoveryRevision, try recoveryStore.source(recoveryRevision) == source,
                recoveryRevision.baseRevision == accepted.contentRevision,
@@ -126,6 +135,8 @@ public final class ArborDocumentBinding {
         guard let recoveryStore, let recoveryRevision else { return }
         do {
             guard try recoveryStore.source(recoveryRevision) == source else { return }
+            if let transactions = try recoveryStore.intent(recoveryRevision)?.patch.transactions,
+               !transactions.allSatisfy({ admittedTransactionIDs.contains($0.id) }) { return }
             try recoveryStore.markSaved(recoveryRevision)
             recoveryError = nil
         } catch { recoveryError = error }
@@ -148,6 +159,7 @@ public final class ArborDocumentBinding {
         let current = accepted
         if retainsBasis {
             recoveredIntent = retainedIntent
+            pendingTransactions = retainedIntent?.patch.transactions ?? []
             accepted = .init(reference: record.reference, source: baseSource, contentRevision: record.baseRevision)
             machine.accepted = .init(source: baseSource, revision: record.baseRevision)
             snapshots[record.baseRevision] = accepted
@@ -158,9 +170,9 @@ public final class ArborDocumentBinding {
         if retainsBasis { recoveredLedger = restored.ledger }
         _ = document.replaceChildrenReconciled(restored.blocks)
         lastEnqueuedSource = source
-        dispatch(.edit(source: source, preservesIntent: recoveredIntent?.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty } ?? false))
-        if retainsBasis, retainedIntent?.patch.edits.contains(where: { !($0.copies ?? []).isEmpty }) == true {
-            // Retain the recovered copy before a new editor transaction can
+        dispatch(.edit(source: source, preservesIntent: !(recoveredIntent?.patch.transactions ?? []).isEmpty || (recoveredIntent?.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty } ?? false)))
+        if retainsBasis, !(retainedIntent?.patch.transactions ?? []).isEmpty || retainedIntent?.patch.edits.contains(where: { !($0.copies ?? []).isEmpty }) == true {
+            // Retain recovered operation evidence before a new transaction can
             // coalesce its exact source evidence into a different generation.
             dispatch(.flush)
         }
@@ -244,6 +256,14 @@ public final class ArborDocumentBinding {
 
     func captureTransactionEvidence() {
         copySources.merge(document.blockCopiesForCurrentCommit) { _, newest in newest }
+        guard admissionPolicy == .retainedBasis, let evidence = document.transactionForCurrentCommit else { return }
+        let id = evidence.id.uuidString
+        guard !admittedTransactionIDs.contains(id), !pendingTransactions.contains(where: { $0.id == id }) else { return }
+        let basis = transactionLedger ?? ledger
+        let (admission, next) = ArborMarkdownCodec.admission(blocks: document.children, ledger: basis, copies: document.blockCopiesForCurrentCommit)
+        pendingTransactions.append(.init(id: id, basisSource: basis.source, source: admission.source,
+            edits: admission.patch.edits, inverses: evidence.inverses.map(\.uuidString)))
+        transactionLedger = next
     }
 
     func admitCurrentGeneration() {
@@ -252,6 +272,7 @@ public final class ArborDocumentBinding {
             basisLedgers[accepted.contentRevision] = basis
         }
         captureTransactionEvidence()
+        authoredTransactions[machine.generation + 1] = pendingTransactions
         authoredCopies[machine.generation + 1] = copySources
         authoredBlocks[machine.generation + 1] = document.children
         let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
@@ -266,7 +287,7 @@ public final class ArborDocumentBinding {
             pendingConflict = conflict
         }
         checkpoint(source: admission.source)
-        dispatch(.edit(source: admission.source, preservesIntent: admission.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }))
+        dispatch(.edit(source: admission.source, preservesIntent: !pendingTransactions.isEmpty || admission.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }))
     }
 
     /// Force the latest authored generation through and await local durability.
@@ -414,9 +435,26 @@ public final class ArborDocumentBinding {
         saveError = nil
     }
 
+    private func collectUndoHistory(closing: Bool = false) async {
+        // A failed recovery checkpoint must keep all targets. Pending inverses
+        // and authored predecessors are additionally pinned by the queue itself.
+        guard recoveryError == nil else { return }
+        var live = closing ? Set<String>() : Set(document.retainedUndoTransactionIDs.map(\.uuidString))
+        for frame in pendingTransactions + authoredTransactions.values.flatMap({ $0 }) {
+            live.insert(frame.id); live.formUnion(frame.inverses)
+        }
+        let expired = admittedTransactionIDs.subtracting(live).subtracting(releasedTransactionIDs)
+        guard !expired.isEmpty else { return }
+        do {
+            try await session.releaseUndoTransactions(expired)
+            releasedTransactionIDs.formUnion(expired)
+        } catch { /* Collection is optional; a failed attempt leaves durable work intact. */ }
+    }
+
     public func close() async {
         stopObserving()
         await flush()
+        await collectUndoHistory(closing: true)
         dispatch(.close)
         await session.close()
     }
@@ -444,6 +482,16 @@ public final class ArborDocumentBinding {
     }
 
     private func receiveAuthoritativeUpdate(_ snapshot: WorkspaceDocumentSnapshot) async {
+        if case let .failed(_, error, _) = machine.phase, error.retryable,
+           pendingTransactions.contains(where: { !$0.inverses.isEmpty }),
+           snapshot.contentRevision != accepted.contentRevision,
+           snapshot.contentRevision != retriedUndoRevision {
+            // Publication can finish after an offline undo returned its waiting
+            // state. Retry the retained identities once per new observation.
+            retriedUndoRevision = snapshot.contentRevision
+            dispatch(.retry)
+            return
+        }
         if snapshot.contentRevision == accepted.contentRevision {
             // Same revision: nothing to reconcile.
             snapshots[snapshot.contentRevision] = snapshot
@@ -469,7 +517,7 @@ public final class ArborDocumentBinding {
     // MARK: Admission transport
 
     private func persist(source: String, generation: Int, baseRevision: String, baseSource: String) async {
-        let patch: WorkspaceDocumentPatch
+        var patch: WorkspaceDocumentPatch
         var authoredLedger: ArborSourceLedger?
         if let basis = basisLedgers[baseRevision], basis.source.utf8.elementsEqual(baseSource.utf8),
            let blocks = authoredBlocks[generation] {
@@ -486,7 +534,9 @@ public final class ArborDocumentBinding {
         } else {
             patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
         }
-        guard !patch.edits.isEmpty else {
+        let transactions = (authoredTransactions[generation] ?? patch.transactions ?? []).filter { !admittedTransactionIDs.contains($0.id) }
+        if !transactions.isEmpty { patch.transactions = transactions }
+        guard !patch.edits.isEmpty || !transactions.isEmpty else {
             // Quagmire may report a follow-up commit after the authored source
             // is already current. It is saved by definition.
             do { try await session.flush() } catch {
@@ -507,9 +557,16 @@ public final class ArborDocumentBinding {
                 next.revision = confirmed.contentRevision
                 basisLedgers[confirmed.contentRevision] = next
             }
+            admittedTransactionIDs.formUnion(transactions.map(\.id))
+            // A reconciled projection may differ from the admitted draft. Its
+            // receipt still settles these exact transaction identities.
+            if !transactions.isEmpty { markRecoverySaved(source: source) }
+            pendingTransactions.removeAll { admittedTransactionIDs.contains($0.id) }
+            authoredTransactions = authoredTransactions.filter { $0.key > generation }
             authoredBlocks = authoredBlocks.filter { $0.key > generation }
             authoredCopies = authoredCopies.filter { $0.key > generation }
             finishAdmission(generation: generation, snapshot: confirmed)
+            await collectUndoHistory()
         } catch let value as WorkspaceDocumentConflict {
             if admissionPolicy == .retainedBasis {
                 // A provider violating the retained-basis contract must neither
@@ -617,6 +674,8 @@ public final class ArborDocumentBinding {
         if machine.isSettled {
             authoredBlocks.removeAll()
             authoredCopies.removeAll()
+            authoredTransactions.removeAll()
+            transactionLedger = nil
             copySources.removeAll()
             basisLedgers = basisLedgers.filter { $0.key == confirmed.contentRevision }
         }
