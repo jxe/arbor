@@ -2,7 +2,7 @@
 
 This is the target reference implementation boundary, not a claim of deployed
 support. [Apps 005](../plans/apps/005-source-resolution-and-sidecar.md) owns its
-implementation. Portable contracts live in [locators](../spec/03-locators.md#7-source-resolution),
+implementation. Portable contracts live in [locator resolution](../spec/03-locators.md#4-resolution-rules),
 [execution authority](../spec/05-access-control.md#21-execution-tokens), and
 [executable documents](../spec/07-executable-documents.md#8-host-and-server-boundaries).
 
@@ -32,8 +32,8 @@ portable semantics and finite execution bounds.
 
 
 The trusted host issues execution tokens over its authenticated runtime channel.
-The sidecar uses `Authorization: Bearer <execution-token>` for Canopy source
-resolution, reads, watches and updates. Public headers cannot select the caller,
+The sidecar uses `Authorization: Bearer <execution-token>` for Canopy current-tree
+reads, object reads, watches and updates. Public headers cannot select the caller,
 sponsor or `via` identity. Token issuance/encoding, local transport, process
 supervision and health checks are implementation details to settle in Apps 005.
 
@@ -49,3 +49,25 @@ must document that process isolation alone is not a hostile-code sandbox.
 The same binding and provider interfaces support local execution beside Arbor Sync.
 Cross-server discovery/delegation/routing remain separate work; a remote locator
 must fail explicitly when the host cannot establish the required authority.
+
+## Provider bindings
+
+Locators resolve client-side by the spec's resolution rules against the pinned
+defining-module root; a Canopy-backed source's `(root, update, observedThrough)`
+and access summary come from the ordinary current-tree read under the execution
+token. Nothing else is asked of Canopy. A provider-backed source (SQLite,
+Postgres) is mapped to a connection by private host configuration, never by an
+authored filename, DSN or credential, and is published to the runtime as an
+opaque backing descriptor plus schema fingerprint.
+
+A binding version identifies the resolved resource, its backing identity and its
+schema contract; it excludes ordinary row/content updates. Code version, binding
+version and data observation cursor are independent. Changing a resource target
+requires fresh grant coverage; an incompatible schema or provider change
+invalidates the compiled plan. Running mutations retain their original concrete
+bindings. Tree watches invalidate dependent Canopy bindings; provider
+configuration publishes schema changes, and the host cannot infer changes inside
+an unmanaged database. Reconnect and cursor expiry trigger fresh resolution and
+authorization; stale cached metadata never becomes authority. There is no
+same-name fallback, and an unsupported or remote source fails explicitly.
+Bindings convey metadata, not access: every provider use rechecks authority.

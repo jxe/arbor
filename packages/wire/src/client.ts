@@ -23,7 +23,6 @@ import {
   type AccountChallenge,
 } from "@arbor/core";
 import {
-  hashObject,
   type ObjectHash,
   type TreeSnapshot,
 } from "./objects.ts";
@@ -266,19 +265,6 @@ export class WireClient {
     const query = new URLSearchParams({ state, ...options });
     const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/conflicts?${query}`, { headers: this.headers() }));
     return decodeDecisionPage(await response.json(), { tree, state, root });
-  }
-
-  /** Read preserved hidden material under a pinned decision's authorization. */
-  async conflictObject(tree: string, state: string, conflict: string, alternative: string, hash: string): Promise<Uint8Array> {
-    if (!/^sha256:[a-f0-9]{64}$/.test(hash)) throw new Error("Alternative object hash is invalid");
-    const query = new URLSearchParams({ state });
-    const response = await this.checked(await this.request(
-      `/.arbor/trees/${encodeURIComponent(tree)}/conflicts/${encodeURIComponent(conflict)}/alternatives/${encodeURIComponent(alternative)}/objects/${hash}?${query}`,
-      { headers: this.headers() },
-    ));
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (hashObject(bytes) !== hash) throw new Error("Alternative object hash mismatch");
-    return bytes;
   }
 
   async snapshot(tree: string, root: string): Promise<TreeSnapshot> {

@@ -514,36 +514,6 @@ export class CanopyDaemon implements AsyncDisposable {
     };
   }
 
-  async conflictObject(
-    tree: string,
-    state: string,
-    conflict: string,
-    alternative: string,
-    hash: ObjectHash
-  ): Promise<Uint8Array | null> {
-    if (this.update(state)?.tree !== tree) return null;
-    const toolValue = this.semantic.store
-      .get(state)
-      ?.decisions.find((d) => d.inspection.id === conflict)
-      ?.inspection.alternatives.find((a) => a.id === alternative)?.value;
-    if (toolValue) {
-      if (
-        "file" in toolValue
-          ? toolValue.file === hash
-          : "directory" in toolValue
-          ? await this.objects.contains(toolValue.directory, hash)
-          : false
-      )
-        return this.objects.load(hash);
-      return null;
-    }
-    const value = new ConflictStore(this.db).get(state)?.decisions.find((d) => d.id === conflict)
-      ?.alternatives.find((a) => a.id === alternative)?.value;
-    if (!value) return null;
-    if ("file" in value ? value.file === hash : "directory" in value ? await this.objects.contains(value.directory, hash) : false) return this.objects.load(hash);
-    return null;
-  }
-
   /** Complete graph for one retained accepted root, without exposing history metadata. */
   async snapshotForRoot(treeID: string, root: ObjectHash): Promise<TreeSnapshot | null> {
     if (!this.acceptedStore.hasRoot(treeID, root)) return null;
@@ -2326,16 +2296,18 @@ export class CanopyDaemon implements AsyncDisposable {
    * Security "Bound unauthenticated object reachability checks" and Speed
    * "Canopy object reachability index" (plans/README.md) will later bound.
    */
-  async isReadableObject(treeID: string, hash: ObjectHash, account: CanopyAccount | null, linkDigest?: string): Promise<boolean> {
-    const tree = this.get(treeID);
-    if (!tree || !this.canRead(account, treeID, linkDigest)) return false;
-    const accepted = this.acceptedStore;
-    function* roots() {
-      yield tree!.ref;
-      // Ordinary current-object reads need no historical-root query at all.
-      for (const root of accepted.roots(treeID)) if (root !== tree!.ref) yield root;
-    }
-    return this.objects.containsAny(roots(), hash);
+  /** The object route is gated on tree read access only. Objects are
+   * content-addressed and shared across trees, so a caller who can read any
+   * tree may fetch any retained object whose hash they know; the route does not
+   * prove reachability from that tree's roots or alternatives. */
+  isReadableObject(treeID: string, account: CanopyAccount | null, linkDigest?: string): boolean {
+    return this.get(treeID) !== null && this.canRead(account, treeID, linkDigest);
+  }
+
+  /** Retained object bytes, or null when no object has this hash. */
+  async retainedObject(hash: ObjectHash): Promise<Uint8Array | null> {
+    try { return await this.objects.read(hash); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
   }
 
   private async insertTree(

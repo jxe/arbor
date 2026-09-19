@@ -81,7 +81,7 @@ export const savePractice = mutation({
 })
 ```
 
-Runtime handles choose their provider through [source resolution](03-locators.md#7-source-resolution).
+Runtime handles choose their provider through the host's provider bindings, after their locators resolve by the ordinary [resolution rules](03-locators.md#4-resolution-rules).
 Single-domain handlers retain an implicit runner-owned transaction where declared;
 multi-domain handlers use explicit transaction blocks and stable durable steps.
 Straight-line handle calls may receive compiler-generated stable steps; loops,

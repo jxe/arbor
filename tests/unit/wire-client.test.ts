@@ -64,25 +64,3 @@ describe("Wire snapshot transfer", () => {
     }
   });
 });
-
-describe("Wire alternative material", () => {
-  test("pins authorization to state, decision and alternative and verifies exact bytes", async () => {
-    const bytes = new TextEncoder().encode("Hidden alternative\r\n  exact spaces  \r\n");
-    const hash = hashObject(bytes);
-    const urls: URL[] = [];
-    let corrupt = false;
-    const server = Bun.serve({ port: 0, fetch(request) {
-      urls.push(new URL(request.url));
-      expect(request.headers.get("authorization")).toBe("Bearer review-test");
-      return new Response(corrupt ? new TextEncoder().encode("changed") : bytes);
-    } });
-    try {
-      const client = new WireClient(`http://127.0.0.1:${server.port}`, "review-test");
-      expect(await client.conflictObject("tr_review", "state with spaces", "decision", "alternative", hash)).toEqual(bytes);
-      expect(urls[0]!.pathname).toBe(`/.arbor/trees/tr_review/conflicts/decision/alternatives/alternative/objects/${hash}`);
-      expect(urls[0]!.searchParams.get("state")).toBe("state with spaces");
-      corrupt = true;
-      await expect(client.conflictObject("tr_review", "state", "decision", "alternative", hash)).rejects.toThrow("hash mismatch");
-    } finally { server.stop(true); }
-  });
-});

@@ -11,7 +11,7 @@ and the permissions portion of [Apps 006](006-durable-authoring.md).
 
 Normative contracts: [access control](../../spec/05-access-control.md),
 [account configuration](../../spec/04-accounts-and-devices.md), and
-[source resolution](../../spec/03-locators.md#7-source-resolution). Current source, tests,
+[locator resolution](../../spec/03-locators.md#4-resolution-rules). Current source, tests,
 `git status`, and schema constants are authoritative implementation evidence.
 This plan schedules Joe's coordinated live upgrade; writing this plan is not a
 live deployment. Preserve dirty editors and unrelated work throughout execution.

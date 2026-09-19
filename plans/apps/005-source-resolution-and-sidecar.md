@@ -9,7 +9,7 @@ required. Preserve correctness, not obsolete signatures. [Apps 006](006-durable-
 then replaces authoring/runtime semantics. Apps 003 supplies full compiler tooling;
 its unfinished editor integration does not block a headless extraction fixture.
 
-Normative owner: [source resolution](../../spec/03-locators.md#7-source-resolution).
+Normative owners: [locator resolution](../../spec/03-locators.md#4-resolution-rules), the [current-tree read](../../spec/01-tree-operations.md#111-reading-the-current-tree), and [provider bindings](../../docs/execution-sidecar.md#provider-bindings).
 Canopy owns tree authority/resolution; the HTTP sidecar owns query planning,
 evaluation and mutation execution; SQLite remains a direct scoped provider.
 React hosting is the next bridge gate, not a prerequisite to headless extraction.
@@ -42,17 +42,20 @@ query evaluator import remains in the Canopy runtime dependency graph. Browser
 credentials are not forwarded as general sidecar credentials. Test forged context,
 spoofed `via`, response cookie/header injection, disconnect and timeout behavior.
 
-## Phase 2: Authorized source resolution
+## Phase 2: Authorized source binding
 
-Implement the spec route and TS/Swift/shared fixtures together. Resolve relative
-locators from pinned defining-module roots; preserve TreeID/path and nested/mounted
-boundaries, imported helper context and explicit user resource selections. There is
-one resolution request without a purpose field. Consent UI authenticates as the
-grantor; runtime resolution uses an execution token. Return only authorized binding
-metadata; fetch private schemas/data separately under current authority.
-No paths, DSNs, raw SQLite or private schema reach browser responses.
+There is no Canopy resolution route. Resolve relative locators in the runtime
+from pinned defining-module roots by the spec's resolution rules; preserve
+TreeID/path and nested/mounted boundaries, imported helper context and explicit
+user resource selections. For a Canopy-backed source, take `(root, update,
+observedThrough)` and the access summary from the ordinary current-tree read under
+the execution token; consent UI performs the same read as the grantor. Fetch
+private schemas/data separately under current authority. No paths, DSNs, raw
+SQLite or private schema reach browser responses.
 
-Add trusted provider-descriptor publication/configuration for opaque SQLite bindings;
+Replace the filesystem-based `resolveArborSource` in `packages/data/src/schema.ts`
+with logical resolution over retained objects. Add trusted provider-descriptor
+publication/configuration for opaque SQLite bindings in sidecar host configuration;
 validate schema ownership and invalidate on change. Bindings convey no authority.
 Implement binding invalidation from tree changes and provider metadata changes;
 cache versions separately from data cursors and code hashes. No stale same-name

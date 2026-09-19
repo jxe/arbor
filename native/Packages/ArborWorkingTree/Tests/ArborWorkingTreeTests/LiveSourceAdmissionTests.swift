@@ -498,7 +498,7 @@ extension LiveSourceAdmissionTests {
                         var pending = [(directory, WireEntryKind.directory)], visited = Set<String>()
                         while let (hash, kind) = pending.popLast() {
                             guard visited.insert(hash).inserted else { continue }
-                            let bytes = try await client.conflictObject(tree: treeID, state: latest.state, conflict: choice.id, alternative: alternative.id, hash: hash)
+                            let bytes = try await client.object(tree: treeID, hash: hash)
                             if kind == .file, bytes == Data(later.utf8) { preserved = true }
                             if kind == .directory, case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: kind) {
                                 for entry in entries { if let hash = entry.hash, let kind = entry.kind { pending.append((hash, kind)) } }
@@ -612,7 +612,5 @@ private actor ReviewResponseLossTransport: UpdateTransport {
     func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
         try await client.conflicts(tree: tree, state: state, root: root, after: after)
     }
-    func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data {
-        try await client.conflictObject(tree: tree, state: state, conflict: conflict, alternative: alternative, hash: hash)
-    }
+    func object(tree: String, hash: String) async throws -> Data { try await client.object(tree: tree, hash: hash) }
 }

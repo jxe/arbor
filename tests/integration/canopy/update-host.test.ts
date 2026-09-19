@@ -275,8 +275,12 @@ describe("governed account-configuration Canopy server", () => {
     const snapshot = await client.snapshot(configuration.tree.id, configuration.tree.root);
     const bytes = await client.object(account.account.configuration.id, snapshot.root);
     expect(bytes.byteLength).toBeGreaterThan(0);
-    const unrelated = account.account.community.root;
-    await expect(client.object(account.account.configuration.id, unrelated)).rejects.toThrow("not-found");
+    // The object route is gated on tree read alone: a retained object from
+    // another readable tree is served by hash, while an unknown hash is not.
+    const otherTree = account.account.community.root;
+    expect((await client.object(account.account.configuration.id, otherTree)).byteLength).toBeGreaterThan(0);
+    const unknown = `sha256:${sha256(new TextEncoder().encode(`never stored ${crypto.randomUUID()}`))}`;
+    await expect(client.object(account.account.configuration.id, unknown)).rejects.toThrow("not-found");
     expect((await client.descriptor(account.account.configuration.id)).observedThrough).toBeTruthy();
   });
 
@@ -345,7 +349,8 @@ describe("governed account-configuration Canopy server", () => {
     expect(Array.from(historicalBytes)).toEqual(Array.from(advancedSnapshot.objects.get(historicalOnly)!));
     expect((await fetch(objectURL)).status).toBe(404);
     expect((await fetch(objectURL, { headers: { authorization: "Bearer revoked-or-unknown" } })).status).toBe(404);
-    expect((await fetch(`${running.url}/.arbor/trees/${communityTree}/objects/${historicalOnly}`, { headers: authenticated })).status).toBe(404);
+    // Read access to any tree serves any retained object by hash.
+    expect((await fetch(`${running.url}/.arbor/trees/${communityTree}/objects/${historicalOnly}`, { headers: authenticated })).status).toBe(200);
 
     const publicTree = baseline.account.account.community.id;
     const publicRoot = (await client.descriptor(publicTree)).tree.root;
@@ -372,7 +377,9 @@ describe("governed account-configuration Canopy server", () => {
     const pruned = await fetch(snapshotURL(advanced.update.root), { headers: authenticated });
     expect(pruned.status).toBe(404);
     expect(await pruned.text()).toBe("Not found");
-    expect((await fetch(objectURL, { headers: authenticated })).status).toBe(404);
+    // The object itself stays readable until the object store compacts it away:
+    // the object route is gated on tree read, not on accepted-update retention.
+    expect((await fetch(objectURL, { headers: authenticated })).status).toBe(200);
   });
 
   test("coalesces consecutive accepted updates without a capability parameter", async () => {

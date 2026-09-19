@@ -175,6 +175,11 @@ The same root may be accepted again by a later update. Its graph remains the
 same content-addressed snapshot, while the later descriptor's `update` identifies
 the new accepted state and the enclosing `observedThrough` gives its read/watch boundary.
 
+An execution runtime presenting an [execution token](05-access-control.md#21-execution-tokens)
+obtains a Canopy-backed source's authority summary and coherent `(root, update,
+observedThrough)` from this same read. There is no separate source-binding route;
+provider-backed sources are host configuration, not tree state.
+
 #### 1.1.2 Reading an accepted snapshot
 
 ```text
@@ -462,10 +467,16 @@ the URL and repeated as the quoted ETag. The response uses `application/octet-st
 must hash to the requested value, and uses the same access-sensitive `Vary` and
 `Cache-Control` policy as an accepted snapshot.
 
-A new origin fetch remains authorized only when the object is reachable from
-any retained accepted root of the named readable tree; objects reachable from
-no retained root of that tree are `404`, so this route is not a global object
-oracle. A client may use it to refetch one missing or corrupt object of a
+A new origin fetch is authorized by read access to the named tree. Objects are
+content-addressed and shared across a Canopy, so the route does not prove that
+the hash is reachable from that tree: any retained object whose hash the caller
+knows is returned, and an unknown hash or an unreadable tree is `404`. Knowing a
+hash is therefore treated as knowing its content; this route is a per-Canopy
+existence oracle gated by any tree read, and a Canopy that must not confirm
+content across trees needs a stricter deployment policy. Root hashes of
+unreadable trees are never disclosed by any read, and a tree-boundary entry
+carries only the nested TreeID.
+A client may use it to refetch one missing or corrupt object of a
 retained root instead of downloading a complete snapshot. Because objects are immutable and addressed by their bytes,
 successful responses can be cached and reused after verification.
 
@@ -613,13 +624,10 @@ UTF-8 range. A directory/file kind is never guessed from bytes. Unknown decision
 kinds or actions may be displayed as unavailable, but cannot authorize invented
 mutation behavior. Core read fields may be extended without changing their meaning.
 
-For entry-valued alternatives, authorized object reads are scoped to that alternative:
-`GET /.arbor/trees/{tree}/conflicts/{conflict}/alternatives/{alternative}/objects/{hash}?state={acceptedUpdate}`.
-The hash must be reachable from the explicitly typed alternative at that exact retained
-state; arbitrary historical or unrelated objects are `404`. The response is immutable
-object bytes and must hash to the requested hash. Tree-boundary entries do not grant
-access to the nested tree's interior. This route supplements ordinary projected-root
-object reads without broadening their authorization. Inline text requires no extra read.
+Entry-valued alternatives are read through the ordinary
+[object route](#121-reading-an-object-at-a-time) by the hashes the decision page
+discloses; the authority retains them for as long as the state is retained.
+Inline text requires no extra read.
 
 Known review actions remain `editAlternative` and `resolveConflict`: capability
 labels rather than mutation opcodes. They produce ordinary operations and resolution

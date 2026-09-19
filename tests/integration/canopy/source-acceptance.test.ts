@@ -307,9 +307,7 @@ test("whole-file alternatives survive snapshot edits, restart, and guarded resol
   expect(decision.alternatives).toHaveLength(2);
   const hidden = decision.alternatives.find(a => a.id !== decision.selected)!;
   if (!("file" in hidden.value)) throw new Error("Expected file alternative");
-  const hiddenURL = `${running.url}/.arbor/trees/${tree}/conflicts/${decision.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${update.id}`;
-  const response = await fetch(hiddenURL, { headers: { authorization: `Bearer ${token}` } });
-  expect(await response.text()).toBe("second\r\n");
+  expect(new TextDecoder().decode(await client.object(tree, hidden.value.file))).toBe("second\r\n");
   const visible = await edit("continued", update.root, [0,5]);
   const next = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...visible, trace: null }] })).results[0]!.update;
   expect(next.conflicted).toBe(true);
@@ -422,8 +420,7 @@ test.each(["first", "second"])("a batch suffix continues its hidden candidate an
   const page = await client.conflicts(tree, head.id, head.root), decision = page.decisions[0]!;
   const hidden = decision.alternatives.find(a => a.id !== decision.selected)!;
   if (!("file" in hidden.value)) throw new Error("Expected file");
-  const response = await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${decision.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${head.id}`, { headers: { authorization: `Bearer ${token}` } });
-  expect(await response.text()).toBe("continued hidden\r\n");
+  expect(new TextDecoder().decode(await client.object(tree, hidden.value.file))).toBe("continued hidden\r\n");
   const replay = await client.submitUpdates(tree, request);
   expect(replay.results.map(r => r.update.id)).toEqual(result.results.map(r => r.update.id));
   expect(await client.conflicts(tree, head.id, head.root)).toEqual(page);
@@ -505,8 +502,7 @@ test("nested decisions stay independent across histories, hidden successors, res
   expect(hidden.value).toEqual({ file: hashObject(new TextEncoder().encode("continued\r\n")) });
   expect(continuedPage.decisions.find(d => d.id === r.id)!.alternatives).toEqual(r.alternatives);
   if (!("file" in hidden.value)) throw new Error("Expected file");
-  const response = await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${l.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${continued.id}`, { headers: { authorization: `Bearer ${token}` } });
-  expect(response.status).toBe(200); expect(await response.text()).toBe("continued\r\n");
+  expect(new TextDecoder().decode(await client.object(tree, hidden.value.file))).toBe("continued\r\n");
   const resolved = (await client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate: continued.root,
     trace: [], resolves: [{ state: continued.id, conflict: l.id, alternatives: l.alternatives.map(v => v.id) }], objects: [], deltas: [] }] })).results[0]!.update;
   expect(resolved.conflicted).toBe(true);
@@ -1009,8 +1005,7 @@ test("source choice alternatives replace only their range and preserve an indepe
   expect(page.decisions.every(d=>d.affected[0]!.material.kind==="basis" && d.affected[0]!.material.object===file)).toBe(true);
   const decision=page.decisions[0]!, hidden=decision.alternatives.find(a=>a.id!==decision.selected)!;
   if (!("file" in hidden.value)) throw Error("Expected retained source bytes");
-  const response=await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${decision.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${accepted.id}`,{headers:{authorization:`Bearer ${token}`}});
-  expect(await response.text()).toBe("X");
+  expect(new TextDecoder().decode(await client.object(tree,hidden.value.file))).toBe("X");
   const bytes=new TextEncoder().encode("XbCCC\r\n"),hash=hashObject(bytes);
   const directory=decodeWireDirectory(snap.objects.get(snap.root)!);
   directory.entries.find(e=>e.name==="note.md")!.file=hash;

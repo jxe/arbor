@@ -1548,15 +1548,14 @@ extension UpdateCoordinator {
     public func reviewContent(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> Data? {
         if let text = alternative.value.text { return Data(text.utf8) }
         guard let hash = alternative.value.file else { return nil }
-        let bytes = try await transport.conflictObject(tree: workingTree.treeID().rawValue, state: state, conflict: decision, alternative: alternative.id, hash: hash)
+        let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
         guard WireObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
         return bytes
     }
 
     public func reviewDirectory(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> [WireDirectoryEntry]? {
         guard let hash = alternative.value.directory else { return nil }
-        let bytes = try await transport.conflictObject(tree: workingTree.treeID().rawValue, state: state,
-            conflict: decision, alternative: alternative.id, hash: hash)
+        let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
         guard WireObjectCodec.hash(bytes) == hash,
               case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else {
             throw UpdateError.returnedSnapshotMismatch
@@ -1617,8 +1616,7 @@ extension UpdateCoordinator {
                 let bytes: Data
                 if let retained = material[hash] ?? known[hash] { bytes = retained }
                 else {
-                    bytes = try await transport.conflictObject(tree: current.tree, state: draft.snapshot.state,
-                        conflict: decision.id, alternative: alternative.id, hash: hash)
+                    bytes = try await transport.object(tree: current.tree, hash: hash)
                 }
                 guard WireObjectCodec.hash(bytes) == hash else { throw UpdateError.returnedSnapshotMismatch }
                 material[hash] = bytes

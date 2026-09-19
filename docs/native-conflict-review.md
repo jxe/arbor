@@ -112,8 +112,8 @@ local draft is not removed by an older accepted submission: retirement compares
 a hash of the complete, byte-preserving draft, including secondary compositions. Review may finish
 with additional unresolved decisions from concurrent work.
 
-The Swift and TypeScript Wire clients both expose `conflictObject` over the
-existing endpoint; no server or portable Wire grammar changed. A TypeScript
+Alternative material is read through the ordinary `object(tree, hash)` read on
+both Wire clients; the object route serves any retained object to a tree reader. A TypeScript
 review controller is not implemented in this Native slice.
 
 ## Verification

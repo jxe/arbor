@@ -93,7 +93,6 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | `GET /.arbor/trees/{TreeID}/watch` | [watching §1.1.3](spec/01-tree-operations.md#113-watching) |
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/07-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/07-executable-documents.md#122-execute-named-mutations) |
-| `POST /.arbor/trees/{SourceTreeID}/resolve-source` | [locators §7](spec/03-locators.md#7-source-resolution) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/05-access-control.md#4-reading-access) |
 | `POST /.arbor/account-challenges`, `PUT /.arbor/accounts` | [accounts §1.1–1.2](spec/04-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §5](spec/04-accounts-and-devices.md#5-device-pairing) |
@@ -118,12 +117,14 @@ Authentication headers apply to every route ([access control §2](spec/05-access
 
 The wire carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [configuration](spec/04-accounts-and-devices.md).
 
-## Source resolution and execution hosts
+## Execution hosts
 
-[Source resolution](spec/03-locators.md#7-source-resolution) defines authorized logical bindings,
-provider metadata and invalidation. [Executable documents](spec/07-executable-documents.md#8-host-and-server-boundaries)
+An execution runtime resolves authored source locators by the ordinary
+[resolution rules](spec/03-locators.md#4-resolution-rules) and obtains each Canopy-backed
+source's accepted state through the ordinary [current-tree read](spec/01-tree-operations.md#111-reading-the-current-tree)
+under its execution token; there is no separate binding route. [Executable documents](spec/07-executable-documents.md#8-host-and-server-boundaries)
 defines execution authority use; [reference sidecar documentation](docs/execution-sidecar.md)
-owns HTTP forwarding. Implementations
+owns HTTP forwarding and provider bindings. Implementations
 may extract the runtime without preserving the unused legacy query/mutation APIs.
 
 ## Deferred

@@ -131,10 +131,12 @@ test("root directory metadata has an inspectable whole-directory choice, continu
   expect(decision.kind).toBe("directory"); expect(decision.alternatives.every(a => a.placement === undefined)).toBe(true);
   expect(decision.alternatives.map(a => a.value)).toEqual(expect.arrayContaining([{ directory: left.candidate }, { directory: right.candidate }]));
   const hidden = decision.alternatives.find(a => "directory" in a.value && a.value.directory === right.candidate)!;
-  await expect(client.object(tree, right.candidate)).rejects.toThrow();
-  const hiddenRead = await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${decision.id}/alternatives/${hidden.id}/objects/${right.candidate}?state=${accepted.id}`,
-    { headers: { authorization: `Bearer ${token}` } });
-  expect(hiddenRead.status).toBe(200); expect(hashObject(new Uint8Array(await hiddenRead.arrayBuffer()))).toBe(right.candidate);
+  expect(hidden.id).not.toBe(decision.selected);
+  // Hidden alternative material is accepted-state material: it reads through the ordinary object route.
+  expect(hashObject(await client.object(tree, right.candidate))).toBe(right.candidate);
+  const unrelated = hashObject(new TextEncoder().encode(`never accepted ${crypto.randomUUID()}`));
+  const unreachable = await fetch(`${running.url}/.arbor/trees/${tree}/objects/${unrelated}`, { headers: { authorization: `Bearer ${token}` } });
+  expect(unreachable.status).toBe(404);
   const body = new TextDecoder().decode(objects.get(at(accepted.root, "_index.md")!.file!)) + "Continued\n";
   const continued = await submit(snapshot(change(accepted.root, { "_index.md": { file: file(body) } })), accepted.id);
   expect(continued.conflicted).toBe(true); await remember(continued.root);

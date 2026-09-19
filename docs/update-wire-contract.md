@@ -61,14 +61,14 @@ must preserve unnamed decisions, and stale dependent evidence invalidates resolu
 
 ## Active conflict inspection subset
 
-Both Wire clients expose `conflictObject(tree, state, conflict, alternative, hash)`
-over the existing
-`GET /.arbor/trees/{tree}/conflicts/{conflict}/alternatives/{alternative}/objects/{hash}?state={state}`
-route. The read is pinned to historical decision authority and verifies the returned
-hash. Native's first consumer is the [accepted-choice review](native-conflict-review.md).
+Entry-valued alternative material is read through the ordinary
+`GET /.arbor/trees/{tree}/objects/{hash}` route, which is gated on tree read
+access alone and serves any retained object by hash. Both Wire clients use their existing `object(tree, hash)` read and
+verify the returned hash. Native's first consumer is the
+[accepted-choice review](native-conflict-review.md).
 
 The [whole-entry accepted-conflict implementation](accepted-entry-conflicts.md) now
-serves the specified conflict page and alternative-object routes. TypeScript and
+serves the specified conflict page route. TypeScript and
 Swift readers use the existing `DecisionPage` encoding and validate accepted context.
 Current operation-mode resolution supports complete current-state guards, keeping
 the projection or replacing a whole text file. This is an additive implementation
