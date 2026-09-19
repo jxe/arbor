@@ -18,9 +18,38 @@ test("every authored field and the tree bind the active digest", () => {
     {change:"other-change"}, {candidate:fixtures.basis.root}, {base:"other-base"},
     {ifCurrent:"same-root-different-accepted-state"},
     {resolves:[{state:"reviewed",conflict:"d",alternatives:["a","b"]}]},
-    {operations:[{key:"undo",kind:"undoOperation" as const,target:{change:"prior",operation:"edit"}}]},
+    {trace:[frame(fixtures.basis.root,intent.candidate,"first","Mon")]},
   ]) expect(updateRequestDigest(fixtures.tree,{...intent,...patch})).not.toBe(original);
   expect(updateRequestDigest("another-tree",intent)).not.toBe(original);
+});
+const other = "sha256:" + "a".repeat(64);
+function frame(before: string, after: string, key: string, text: string) {
+  return {before,after,operations:[{key,kind:"editSource" as const,
+    source:{material:{kind:"basis" as const,path:"/page.md",object:before},range:[0,0] as [number,number]},text}]};
+}
+test("every frame's before, after and operations bind the digest", () => {
+  const request = decodeUpdateRequestJSON(fixtures.cases[0]!.value);
+  const candidate = request.updates[0]!.candidate;
+  const trace = [frame(fixtures.basis.root,other,"first","Mon"), frame(other,candidate,"second","Tue")];
+  const intent = {...request.updates[0]!,base:request.base,trace};
+  const original = updateRequestDigest(fixtures.tree,intent);
+  // Each frame is evidence in its own right, so no field of any frame — nor the
+  // number of frames — can change without changing what the change claims.
+  for (const variant of [
+    [frame(other,other,"first","Mon"), trace[1]!],
+    [{...trace[0]!,after:candidate}, trace[1]!],
+    [frame(fixtures.basis.root,other,"first","Tue"), trace[1]!],
+    [trace[0]!, frame(other,candidate,"renamed","Tue")],
+    [trace[0]!, {...trace[1]!,before:candidate}],
+    [{...trace[0]!,operations:[...trace[0]!.operations,...trace[1]!.operations]}, trace[1]!],
+    [{...trace[0]!,after:candidate}],
+  ]) expect(updateRequestDigest(fixtures.tree,{...intent,trace:variant})).not.toBe(original);
+  // The same operations in one frame are a different claim from two.
+  expect(updateRequestDigest(fixtures.tree,{...intent,trace:[
+    {before:fixtures.basis.root,after:candidate,operations:[...trace[0]!.operations,...trace[1]!.operations]},
+  ]})).not.toBe(original);
+  expect(updateRequestDigest(fixtures.tree,{...intent,trace:null})).not.toBe(original);
+  expect(updateRequestDigest(fixtures.tree,{...intent,trace:[]})).not.toBe(original);
 });
 test("active prefix identities survive appending and repacking transport", () => {
   const full = decodeUpdateRequestJSON(fixtures.cases[5]!.value);

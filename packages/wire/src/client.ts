@@ -351,7 +351,7 @@ export class WireClient {
   ): Promise<UpdateResult> {
     const update: CandidateUpdate = {
       change: options.change ?? crypto.randomUUID(),
-      operations: null,
+      trace: null,
       candidate: snapshot.root,
       resolves: options.resolves ?? [],
       ...(options.ifCurrent !== undefined ? { ifCurrent: options.ifCurrent } : {}),

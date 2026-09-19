@@ -3,13 +3,15 @@ import type { ObjectHash } from "../objects.ts";
 import type { CandidateUpdate, UpdateRequest } from "./types.ts";
 
 export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash };
-export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "operations"> & { base: UpdateIntentBase };
+export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "trace"> & { base: UpdateIntentBase };
 
 function intent(tree: string, request: UpdateIntent) {
   return {
-    domain: "arbor-update",
+    // `arbor-update/2` carries the trace. Receipts under the previous domain
+    // hashed a flat operation list and cannot collide with these.
+    domain: "arbor-update/2",
     change: request.change,
-    operations: request.operations,
+    trace: request.trace,
     tree,
     base: request.base,
     candidate: request.candidate,

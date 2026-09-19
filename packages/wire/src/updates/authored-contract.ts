@@ -15,10 +15,18 @@ export type AuthoredOperation = { key: string } & (
   | { kind: "moveEntry" | "copyEntry"; source: MaterialRef; destination: EntryDestination }
   | { kind: "removeEntry"; source: MaterialRef }
   | { kind: "replaceEntry"; source: MaterialRef; value: { file: string } | { directory: string } | MaterialRef }
-  | { kind: "undoOperation"; target: { change: string; operation: string } }
 );
+/** One tree-root to tree-root step of a change's authored evidence. Basis
+ * references inside a frame name objects in that frame's `before` tree, and
+ * operation references name an earlier key in the same change, so two traces
+ * concatenate without rebasing. */
+export interface AuthoredFrame { before: string; after: string; operations: AuthoredOperation[] }
+/** `trace: null` is a snapshot: exact bytes with no authored evidence. A trace
+ * is evidence the authority checks, never a hint it may skip: every frame must
+ * reproduce its own `after`, and the last frame ends at the candidate. An empty
+ * trace carries no evidence but is not a snapshot; only a resolution uses it. */
 export interface AuthoredUpdateIntent {
-  change: string; candidate: string; operations: AuthoredOperation[] | null;
+  change: string; candidate: string; trace: AuthoredFrame[] | null;
   resolves: ResolutionDeclaration[]; ifCurrent?: string;
 }
 export interface AuthoredRequestIntent { base: string | null; updates: AuthoredUpdateIntent[] }
@@ -83,7 +91,6 @@ function operation(raw: unknown): AuthoredOperation {
       else { reference(value, true); }
       break;
     }
-    case "undoOperation": { keys(v, ["key", "kind", "target"]); const t = obj(v.target); keys(t, ["change", "operation"]); id(t.change); id(t.operation); break; }
     default: require(false);
   }
   return v as AuthoredOperation;
@@ -102,8 +109,8 @@ export function authoredRequestIdentities(tree: string, request: AuthoredRequest
   token(tree); decodeAuthoredRequestIntent(request);
   let base: unknown = request.base;
   return request.updates.map(u => {
-    const intent = { domain: "arbor-update", tree, base, change: u.change, candidate: u.candidate,
-      operations: u.operations, resolves: u.resolves, ifCurrent: u.ifCurrent ?? null };
+    const intent = { domain: "arbor-update/2", tree, base, change: u.change, candidate: u.candidate,
+      trace: u.trace, resolves: u.resolves, ifCurrent: u.ifCurrent ?? null };
     const bytes = encodeCanonicalCBOR(intent), digest = canonicalCBORHash(intent);
     base = { requestDigest: digest, candidate: u.candidate };
     return { bytes, digest };
@@ -113,7 +120,7 @@ export function authoredRequestIdentities(tree: string, request: AuthoredRequest
 export { reference as decodeMaterialRef };
 
 export function decodeAuthoredCandidateIntent(raw: unknown): AuthoredUpdateIntent {
-  const u = obj(raw); keys(u, ["change", "candidate", "operations", "resolves"], ["ifCurrent"]);
+  const u = obj(raw); keys(u, ["change", "candidate", "trace", "resolves"], ["ifCurrent"]);
   id(u.change); hash(u.candidate);
   if (Object.hasOwn(u, "ifCurrent")) token(u.ifCurrent);
   require(Array.isArray(u.resolves)); const decisions = new Set();
@@ -122,9 +129,22 @@ export function decodeAuthoredCandidateIntent(raw: unknown): AuthoredUpdateInten
     require(!decisions.has(r.conflict)); decisions.add(r.conflict);
     require(Array.isArray(r.alternatives) && r.alternatives.length > 0 && new Set(r.alternatives).size === r.alternatives.length); r.alternatives.forEach(id);
   }
-  if (u.operations !== null) {
-    require(Array.isArray(u.operations) && u.operations.length <= 1024 && (u.operations.length > 0 || u.resolves.length > 0));
-    const ops = u.operations.map(operation); require(new Set(ops.map((o: AuthoredOperation) => o.key)).size === ops.length);
+  if (u.trace !== null) {
+    require(Array.isArray(u.trace) && u.trace.length <= 64 && (u.trace.length > 0 || u.resolves.length > 0));
+    // The chain is checked here only where the request itself proves it: each
+    // frame continues the previous one and the last reaches the candidate. The
+    // authority binds `trace[0].before` to the basis it holds.
+    const seen = new Set<string>(); let previous: string | null = null, total = 0;
+    for (const raw of u.trace) {
+      const f = obj(raw); keys(f, ["before", "after", "operations"]); hash(f.before); hash(f.after);
+      require(Array.isArray(f.operations) && f.operations.length > 0);
+      total += f.operations.length; require(total <= 1024);
+      require(previous === null || previous === f.before); previous = f.after;
+      // One key names one authored contribution of this change, so it is unique
+      // across the whole trace and a later frame may reference an earlier one.
+      for (const op of f.operations.map(operation)) { require(!seen.has(op.key)); seen.add(op.key); }
+    }
+    require(previous === null || previous === u.candidate);
   }
   return u as AuthoredUpdateIntent;
 }

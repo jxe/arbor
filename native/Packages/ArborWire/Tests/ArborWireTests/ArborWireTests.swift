@@ -295,7 +295,7 @@ struct UpdateProtocolTests {
             #expect(updateRequestDigests(tree:tree,base:request.base,updates:request.updates) == expected.map { $0["digest"]! })
             if let base = request.base {
                 let u = request.updates[0]
-                let encoded = canonicalUpdateIntent(tree:tree,base:.init(root:u.candidate,update:base),candidate:u.candidate,change:u.change,operations:u.operations,resolves:u.resolves,ifCurrent:u.ifCurrent)
+                let encoded = canonicalUpdateIntent(tree:tree,base:.init(root:u.candidate,update:base),candidate:u.candidate,change:u.change,trace:u.trace,resolves:u.resolves,ifCurrent:u.ifCurrent)
                 #expect(encoded.base64EncodedString() == expected[0]["canonicalCBORBase64"])
             }
         }
@@ -594,8 +594,13 @@ struct UpdateProtocolTests {
         }
         let client = ArborWireClient(origin: URL(string: "https://canopy.test")!, credential: "token", session: wireStubSession(), retryDelay: { _ in })
         let snapshot = try wireTestSnapshot("text")
-        let operation = try WireSourceOperation(["kind": .string("undoOperation"), "key": .string("undo"), "target": .object(["change": .string("prior"), "operation": .string("edit")])])
-        let update = WireCandidateUpdate(candidate: snapshot.root, change: "durable-change", operations: [operation], objects: snapshot.objects)
+        let operation = try WireSourceOperation(["kind": .string("editSource"), "key": .string("edit"),
+            "source": .object(["material": .object(["kind": .string("basis"), "path": .string("/page.md"), "object": .string(snapshot.root)]),
+                               "range": .array([.integer(0), .integer(0)])]),
+            "text": .string("x")])
+        let update = WireCandidateUpdate(candidate: snapshot.root, change: "durable-change",
+            trace: [WireTraceFrame(before: snapshot.root, after: snapshot.root, operations: [operation])],
+            objects: snapshot.objects)
         let prepared = try await client.prepareUpdates(tree: "tr_test", base: .init(root: snapshot.root, update: "up_base"), updates: [update])
         do {
             _ = try await client.submitUpdate(prepared)

@@ -531,7 +531,7 @@ public func canonicalUpdateIntent(
     base: WireUpdateBase,
     candidate: String,
     change: String,
-    operations: [WireSourceOperation]? = nil,
+    trace: [WireTraceFrame]? = nil,
     resolves: [WireResolutionDeclaration] = [],
     ifCurrent: String? = nil
 ) -> Data {
@@ -540,7 +540,7 @@ public func canonicalUpdateIntent(
         base: .text(base.update),
         candidate: candidate,
         change: change,
-        operations: operations,
+        trace: trace,
         resolves: resolves,
         ifCurrent: ifCurrent
     )
@@ -551,14 +551,14 @@ private func canonicalUpdateIntent(
     base: CanonicalCBORValue,
     candidate: String,
     change: String,
-    operations: [WireSourceOperation]? = nil,
+    trace: [WireTraceFrame]? = nil,
     resolves: [WireResolutionDeclaration],
     ifCurrent: String?
 ) -> Data {
     CanonicalCBOR.encode(.map([
-        ("domain", .text("arbor-update")),
+        ("domain", .text("arbor-update/2")),
         ("change", .text(change)),
-        ("operations", operations.map { .array($0.map(\.cbor)) } ?? .null),
+        ("trace", trace.map { .array($0.map(\.semantic.cbor)) } ?? .null),
         ("tree", .text(tree)),
         ("base", base),
         ("candidate", .text(candidate)),
@@ -572,11 +572,11 @@ public func updateRequestDigest(
     base: WireUpdateBase,
     candidate: String,
     change: String,
-    operations: [WireSourceOperation]? = nil,
+    trace: [WireTraceFrame]? = nil,
     resolves: [WireResolutionDeclaration] = [],
     ifCurrent: String? = nil
 ) -> String {
-    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, change: change, operations: operations, resolves: resolves, ifCurrent: ifCurrent))
+    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, change: change, trace: trace, resolves: resolves, ifCurrent: ifCurrent))
 }
 
 public func updateRequestDigests(
@@ -596,7 +596,7 @@ public func updateRequestDigests(tree: String, base: String?, updates: [WireCand
             base: basis,
             candidate: update.candidate,
             change: update.change,
-            operations: update.operations,
+            trace: update.trace,
             resolves: update.resolves,
             ifCurrent: update.ifCurrent
         ))

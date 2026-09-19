@@ -11,15 +11,15 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": []
           }
         ]
       },
       "identities": [
         {
-          "digest": "sha256:3055474734d94649f9d18a16a6f8b952cb6eb35b36cc51020188c0b72ab59f3b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+          "digest": "sha256:b47c76292b80c9b6c46cd11b9147b7b521228a23505cc57ddad5ba34ad7a8de1",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZfZmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
         }
       ]
     },
@@ -32,15 +32,15 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": []
           }
         ]
       },
       "identities": [
         {
-          "digest": "sha256:ad76f7ba3002d604bfc907fe200d2f764e4a461668d7d89fb3774a6ae87a4c49",
-          "canonicalCBORBase64": "qGRiYXNl9mR0cmVlanRyX2ZpeHR1cmVmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubGFyYm9yLXVwZGF0ZWhyZXNvbHZlc4BpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnP2"
+          "digest": "sha256:46a9d662123c1452a1f2f0912c2eb5c4ea5ec997704007c956f50551d005eaab",
+          "canonicalCBORBase64": "qGRiYXNl9mR0cmVlanRyX2ZpeHR1cmVldHJhY2X2ZmNoYW5nZWpjaGFuZ2Utb25lZmRvbWFpbm5hcmJvci11cGRhdGUvMmhyZXNvbHZlc4BpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2"
         }
       ]
     },
@@ -53,7 +53,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": [],
             "ifCurrent": "accepted-é"
           }
@@ -61,8 +61,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:65f7e486079b16045fd04f9216d9e704131e7c5f554f003945240ec0fc51302b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudGthY2NlcHRlZC3DqWpvcGVyYXRpb25z9g=="
+          "digest": "sha256:914461c35ffa00887cf7957807d75e9689901e70701855885152255ea8e3b593",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZfZmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudGthY2NlcHRlZC3DqQ=="
         }
       ]
     },
@@ -75,19 +75,25 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "edit",
-                "kind": "editSource",
-                "source": {
-                  "material": {
-                    "kind": "alternative",
-                    "state": "reviewed",
-                    "conflict": "deadline",
-                    "alternative": "b"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "edit",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "alternative",
+                        "state": "reviewed",
+                        "conflict": "deadline",
+                        "alternative": "b"
+                      }
+                    },
+                    "text": "Thursday\r\n"
                   }
-                },
-                "text": "Thursday\r\n"
+                ]
               }
             ],
             "resolves": []
@@ -96,8 +102,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:a5a00815a1ccab0942436a498025909a7fcea32b8723a785e9b9d0eceef51263",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GkY2tleWRlZGl0ZGtpbmRqZWRpdFNvdXJjZWR0ZXh0alRodXJzZGF5DQpmc291cmNloWhtYXRlcmlhbKRka2luZGthbHRlcm5hdGl2ZWVzdGF0ZWhyZXZpZXdlZGhjb25mbGljdGhkZWFkbGluZWthbHRlcm5hdGl2ZWFi"
+          "digest": "sha256:5d49bd891cffdc3c51a5c0e16d2bc6b785f7d5f5c807d0c43b26b0d5e8434b71",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBpGNrZXlkZWRpdGRraW5kamVkaXRTb3VyY2VkdGV4dGpUaHVyc2RheQ0KZnNvdXJjZaFobWF0ZXJpYWykZGtpbmRrYWx0ZXJuYXRpdmVlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVrYWx0ZXJuYXRpdmVhYmZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -110,7 +116,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [],
+            "trace": [],
             "resolves": [
               {
                 "state": "reviewed",
@@ -126,8 +132,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:7250d91b9c480200cae2b61510b623cdcfa6e3d976582b04a624724e79f9e3e3",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOA"
+          "digest": "sha256:d2684596cdc630d54d561cd4853126f3686939f85e291d93d75b2ca1508c9ef9",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYBmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2"
         }
       ]
     },
@@ -140,7 +146,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": [
               {
                 "state": "reviewed",
@@ -156,8 +162,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:5adccd69fc036c584e93acb063989b66d0ad0370d7c2b7eb7581a376e24a829f",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnP2"
+          "digest": "sha256:df2017b94bad14c1f31d480fa0861441ca287720e5e1890f3c8fea3334b2ac8c",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZfZmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2"
         }
       ]
     },
@@ -170,51 +176,57 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "copy"
+                    }
+                  },
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": [
+                        "chapter.md"
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
+                    }
                   }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "copy"
-                }
-              },
-              {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": [
-                    "chapter.md"
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "chapter.md"
-                }
+                ]
               }
             ],
             "resolves": []
@@ -223,8 +235,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:bbd97805e185dff0cc1d6ac6fba04d21284aab52e409666252228d77688d7643",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4KkY2tleWRjb3B5ZGtpbmRpY29weUVudHJ5ZnNvdXJjZaFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGYvZHJhZnRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWtkZXN0aW5hdGlvbqJkbmFtZWRjb3B5ZnBhcmVudKFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGEvZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTGkY2tleWRtb3ZlZGtpbmRpbW92ZUVudHJ5ZnNvdXJjZaJmd2l0aGlugWpjaGFwdGVyLm1kaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25kY29weWtkZXN0aW5hdGlvbqJkbmFtZWpjaGFwdGVyLm1kZnBhcmVudKFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvYXJjaGl2ZWZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEx"
+          "digest": "sha256:6ccb266f7b82c2dac38e6cfd86d7276555ab1c4c142fe7e3f8c85aacd0752ee2",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOCpGNrZXlkY29weWRraW5kaWNvcHlFbnRyeWZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL2RyYWZ0Zm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFrZGVzdGluYXRpb26iZG5hbWVkY29weWZwYXJlbnShaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhhL2ZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExpGNrZXlkbW92ZWRraW5kaW1vdmVFbnRyeWZzb3VyY2WiZndpdGhpboFqY2hhcHRlci5tZGhtYXRlcmlhbKNka2luZGlvcGVyYXRpb25mY2hhbmdlamNoYW5nZS1vbmVpb3BlcmF0aW9uZGNvcHlrZGVzdGluYXRpb26iZG5hbWVqY2hhcHRlci5tZGZwYXJlbnShaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL2FyY2hpdmVmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -237,39 +249,45 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "note.md"
                     }
                   },
-                  "name": "note.md"
-                }
-              },
-              {
-                "key": "edit",
-                "kind": "editSource",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "move"
+                  {
+                    "key": "edit",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "move"
+                      }
+                    },
+                    "text": "Tuesday\n"
                   }
-                },
-                "text": "Tuesday\n"
+                ]
               }
             ],
             "resolves": [
@@ -295,8 +313,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:b57beda479f19213caf1992b74dbc6cbd0c957948d0b556b739ca89025c8723b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgqNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWKjZXN0YXRlaHJldmlld2VkaGNvbmZsaWN0aXBsYWNlbWVudGxhbHRlcm5hdGl2ZXOCZGhlcmVldGhlcmVpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOCpGNrZXlkbW92ZWRraW5kaW1vdmVFbnRyeWZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL25vdGUubWRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWtkZXN0aW5hdGlvbqJkbmFtZWdub3RlLm1kZnBhcmVudKFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvYXJjaGl2ZWZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExpGNrZXlkZWRpdGRraW5kamVkaXRTb3VyY2VkdGV4dGhUdWVzZGF5CmZzb3VyY2WhaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25kbW92ZQ=="
+          "digest": "sha256:757bc206c1f114226a351ce32be2c4e552038f91d29e6f2d3edfe203db1bd755",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOCpGNrZXlkbW92ZWRraW5kaW1vdmVFbnRyeWZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL25vdGUubWRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWtkZXN0aW5hdGlvbqJkbmFtZWdub3RlLm1kZnBhcmVudKFobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvYXJjaGl2ZWZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExpGNrZXlkZWRpdGRraW5kamVkaXRTb3VyY2VkdGV4dGhUdWVzZGF5CmZzb3VyY2WhaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25kbW92ZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOCo2VzdGF0ZWhyZXZpZXdlZGhjb25mbGljdGhkZWFkbGluZWxhbHRlcm5hdGl2ZXOCYWFhYqNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RpcGxhY2VtZW50bGFsdGVybmF0aXZlc4JkaGVyZWV0aGVyZWljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
         }
       ]
     },
@@ -309,25 +327,31 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "replace",
-                "kind": "replaceEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/photo.png",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "replace",
+                    "kind": "replaceEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/photo.png",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "value": {
+                      "material": {
+                        "kind": "alternative",
+                        "state": "reviewed",
+                        "conflict": "deadline",
+                        "alternative": "b"
+                      }
+                    }
                   }
-                },
-                "value": {
-                  "material": {
-                    "kind": "alternative",
-                    "state": "reviewed",
-                    "conflict": "deadline",
-                    "alternative": "b"
-                  }
-                }
+                ]
               }
             ],
             "resolves": [
@@ -345,8 +369,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:1ba72384496cd7f0790f8f3665ab9232bcf400d4e4692c528b78486110d5afb3",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOBpGNrZXlncmVwbGFjZWRraW5kbHJlcGxhY2VFbnRyeWV2YWx1ZaFobWF0ZXJpYWykZGtpbmRrYWx0ZXJuYXRpdmVlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVrYWx0ZXJuYXRpdmVhYmZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhqL3Bob3RvLnBuZ2ZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEx"
+          "digest": "sha256:1092de86bd29269741d908ede0582b403234bd840624bfbf1886b450233b9c10",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBpGNrZXlncmVwbGFjZWRraW5kbHJlcGxhY2VFbnRyeWV2YWx1ZaFobWF0ZXJpYWykZGtpbmRrYWx0ZXJuYXRpdmVlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVrYWx0ZXJuYXRpdmVhYmZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhqL3Bob3RvLnBuZ2ZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExZmNoYW5nZWpjaGFuZ2Utb25lZmRvbWFpbm5hcmJvci11cGRhdGUvMmhyZXNvbHZlc4GjZXN0YXRlaHJldmlld2VkaGNvbmZsaWN0aGRlYWRsaW5lbGFsdGVybmF0aXZlc4JhYWFiaWNhbmRpZGF0ZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -359,20 +383,26 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "replace",
-                "kind": "replaceEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/photo.png",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "replace",
+                    "kind": "replaceEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/photo.png",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "value": {
+                      "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
                   }
-                },
-                "value": {
-                  "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                }
+                ]
               }
             ],
             "resolves": []
@@ -381,8 +411,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:319fdef2404f3aec9c69283314c02d26ce7acc3710ac85930faf99ddb7aea80b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GkY2tleWdyZXBsYWNlZGtpbmRscmVwbGFjZUVudHJ5ZXZhbHVloWRmaWxleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZzb3VyY2WhaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhqL3Bob3RvLnBuZ2ZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEx"
+          "digest": "sha256:e1e42aaffeb46857c69b8c909b53764968d3f9b95b8c1b2bc8b3760a75f3b83d",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBpGNrZXlncmVwbGFjZWRraW5kbHJlcGxhY2VFbnRyeWV2YWx1ZaFkZmlsZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFmc291cmNloWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoai9waG90by5wbmdmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -395,17 +425,23 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "remove",
-                "kind": "removeEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "remove",
+                    "kind": "removeEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    }
                   }
-                }
+                ]
               }
             ],
             "resolves": [
@@ -423,8 +459,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:51a6f458aeb074bf2778d00fb6f58112d8e7b10f65b67504563c9328ac6eb33d",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2am9wZXJhdGlvbnOBo2NrZXlmcmVtb3ZlZGtpbmRrcmVtb3ZlRW50cnlmc291cmNloWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE="
+          "digest": "sha256:7850b33ff1c7e80801e254bd13923116e9af90ce3fb8e2dcae04c4be9419cb08",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBo2NrZXlmcmVtb3ZlZGtpbmRrcmVtb3ZlRW50cnlmc291cmNloWhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgaNlc3RhdGVocmV2aWV3ZWRoY29uZmxpY3RoZGVhZGxpbmVsYWx0ZXJuYXRpdmVzgmFhYWJpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2"
         }
       ]
     },
@@ -437,56 +473,62 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copySource",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copySource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        0,
+                        4
+                      ]
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        8,
+                        8
+                      ]
+                    },
+                    "side": "after"
                   },
-                  "range": [
-                    0,
-                    4
-                  ]
-                },
-                "at": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    8,
-                    8
-                  ]
-                },
-                "side": "after"
-              },
-              {
-                "key": "move",
-                "kind": "moveSource",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
+                  {
+                    "key": "move",
+                    "kind": "moveSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      }
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        10,
+                        10
+                      ]
+                    },
+                    "side": "before"
                   }
-                },
-                "at": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    10,
-                    10
-                  ]
-                },
-                "side": "before"
+                ]
               }
             ],
             "resolves": []
@@ -495,8 +537,8 @@
       },
       "identities": [
         {
-          "digest": "sha256:d52a1a46fe5dbd1ac3ea6f7781477d8ccb7085dbf4754c35ef3d925e9f4fb8bc",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4KlYmF0omVyYW5nZYIICGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFja2V5ZGNvcHlka2luZGpjb3B5U291cmNlZHNpZGVlYWZ0ZXJmc291cmNlomVyYW5nZYIABGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTGlYmF0omVyYW5nZYIKCmhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFja2V5ZG1vdmVka2luZGptb3ZlU291cmNlZHNpZGVmYmVmb3JlZnNvdXJjZaFobWF0ZXJpYWyjZGtpbmRpb3BlcmF0aW9uZmNoYW5nZWpjaGFuZ2Utb25laW9wZXJhdGlvbmRjb3B5"
+          "digest": "sha256:e3416c3a350beab6b73f9431058c3d1ef54a2bab5555b39745d4b5c92885299e",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOCpWJhdKJlcmFuZ2WCCAhobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvbm90ZS5tZGZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExY2tleWRjb3B5ZGtpbmRqY29weVNvdXJjZWRzaWRlZWFmdGVyZnNvdXJjZaJlcmFuZ2WCAARobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvbm90ZS5tZGZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExpWJhdKJlcmFuZ2WCCgpobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvbm90ZS5tZGZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExY2tleWRtb3ZlZGtpbmRqbW92ZVNvdXJjZWRzaWRlZmJlZm9yZWZzb3VyY2WhaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25kY29weWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5uYXJib3ItdXBkYXRlLzJocmVzb2x2ZXOAaWNhbmRpZGF0ZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFpaWZDdXJyZW509g=="
         }
       ]
     },
@@ -509,24 +551,14 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "edit",
-                "kind": "editSource",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    0,
-                    4
-                  ]
-                },
-                "text": "[😀]",
-                "lineage": [
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
                   {
+                    "key": "edit",
+                    "kind": "editSource",
                     "source": {
                       "material": {
                         "kind": "basis",
@@ -538,9 +570,25 @@
                         4
                       ]
                     },
-                    "range": [
-                      1,
-                      5
+                    "text": "[😀]",
+                    "lineage": [
+                      {
+                        "source": {
+                          "material": {
+                            "kind": "basis",
+                            "path": "/note.md",
+                            "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                          },
+                          "range": [
+                            0,
+                            4
+                          ]
+                        },
+                        "range": [
+                          1,
+                          5
+                        ]
+                      }
                     ]
                   }
                 ]
@@ -552,40 +600,40 @@
       },
       "identities": [
         {
-          "digest": "sha256:5e60b60069eef6241c0e91966e2030bf7ee5df6ad9821d156223e3d8392e2226",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GlY2tleWRlZGl0ZGtpbmRqZWRpdFNvdXJjZWR0ZXh0Zlvwn5iAXWZzb3VyY2WiZXJhbmdlggAEaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL25vdGUubWRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWdsaW5lYWdlgaJlcmFuZ2WCAQVmc291cmNlomVyYW5nZYIABGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE="
+          "digest": "sha256:3d15450607e929f9c2100b1b363a5114a7b31655b8f271aad09ceb51d7dad7ad",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBpWNrZXlkZWRpdGRraW5kamVkaXRTb3VyY2VkdGV4dGZb8J+YgF1mc291cmNlomVyYW5nZYIABGhtYXRlcmlhbKNka2luZGViYXNpc2RwYXRoaC9ub3RlLm1kZm9iamVjdHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFnbGluZWFnZYGiZXJhbmdlggEFZnNvdXJjZaJlcmFuZ2WCAARobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvbm90ZS5tZGZvYmplY3R4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExZmNoYW5nZWpjaGFuZ2Utb25lZmRvbWFpbm5hcmJvci11cGRhdGUvMmhyZXNvbHZlc4BpY2FuZGlkYXRleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWlpZkN1cnJlbnT2"
         }
       ]
     },
     {
-      "name": "undo has causal target only",
-      "valid": true,
+      "name": "undo has left the authored grammar",
+      "valid": false,
       "value": {
         "base": "accepted-é",
         "updates": [
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "undo",
-                "kind": "undoOperation",
-                "target": {
-                  "change": "earlier",
-                  "operation": "delete"
-                }
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "undo",
+                    "kind": "undoOperation",
+                    "target": {
+                      "change": "earlier",
+                      "operation": "delete"
+                    }
+                  }
+                ]
               }
             ],
             "resolves": []
           }
         ]
-      },
-      "identities": [
-        {
-          "digest": "sha256:5b3bd3380a374dc278df7f9c70cf925ca852e750aef30a57b10321dce070b9fd",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc4GjY2tleWR1bmRvZGtpbmRtdW5kb09wZXJhdGlvbmZ0YXJnZXSiZmNoYW5nZWdlYXJsaWVyaW9wZXJhdGlvbmZkZWxldGU="
-        }
-      ]
+      }
     },
     {
       "name": "ordered append-only prefix",
@@ -596,25 +644,25 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": []
           },
           {
             "change": "change-two",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": []
           }
         ]
       },
       "identities": [
         {
-          "digest": "sha256:3055474734d94649f9d18a16a6f8b952cb6eb35b36cc51020188c0b72ab59f3b",
-          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLW9uZWZkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+          "digest": "sha256:b47c76292b80c9b6c46cd11b9147b7b521228a23505cc57ddad5ba34ad7a8de1",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZfZmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
         },
         {
-          "digest": "sha256:fe479bd56086b4fb6f17531c85e6223b41573252c6844f73d8486332b3541eee",
-          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExbXJlcXVlc3REaWdlc3R4R3NoYTI1NjozMDU1NDc0NzM0ZDk0NjQ5ZjlkMThhMTZhNmY4Yjk1MmNiNmViMzViMzZjYzUxMDIwMTg4YzBiNzJhYjU5ZjNiZHRyZWVqdHJfZml4dHVyZWZjaGFuZ2VqY2hhbmdlLXR3b2Zkb21haW5sYXJib3ItdXBkYXRlaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPZqb3BlcmF0aW9uc/Y="
+          "digest": "sha256:30e26640245cfeb0d2262aef61d419d1b8f947ff29a77f4a682b7c77b7ba065b",
+          "canonicalCBORBase64": "qGRiYXNlomljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExbXJlcXVlc3REaWdlc3R4R3NoYTI1NjpiNDdjNzYyOTJiODBjOWI2YzQ2Y2QxMWI5MTQ3YjdiNTIxMjI4YTIzNTA1Y2M1N2RkYWQ1YmEzNGFkN2E4ZGUxZHRyZWVqdHJfZml4dHVyZWV0cmFjZfZmY2hhbmdlamNoYW5nZS10d29mZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
         }
       ]
     },
@@ -627,7 +675,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": [],
             "ifMatch": "modelHash"
           }
@@ -643,7 +691,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": [],
             "onConflict": "reject"
           }
@@ -659,7 +707,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null
+            "trace": null
           }
         ]
       }
@@ -687,7 +735,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [],
+            "trace": [],
             "resolves": []
           }
         ]
@@ -702,7 +750,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": [],
             "ifCurrent": null
           }
@@ -718,7 +766,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": [],
             "ifCurrent": "u1"
           }
@@ -734,7 +782,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": [
               {
                 "state": "reviewed",
@@ -758,7 +806,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [],
+            "trace": [],
             "resolves": [
               {
                 "state": "reviewed",
@@ -790,7 +838,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [],
+            "trace": [],
             "resolves": [
               {
                 "state": "reviewed",
@@ -811,7 +859,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [],
+            "trace": [],
             "resolves": [
               {
                 "state": "reviewed",
@@ -835,20 +883,26 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "edit",
-                "kind": "editSource",
-                "source": {
-                  "material": {
-                    "kind": "alternative",
-                    "state": "reviewed",
-                    "conflict": "deadline",
-                    "alternative": "b"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "edit",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "alternative",
+                        "state": "reviewed",
+                        "conflict": "deadline",
+                        "alternative": "b"
+                      }
+                    },
+                    "text": "Thursday\r\n",
+                    "output": "out"
                   }
-                },
-                "text": "Thursday\r\n",
-                "output": "out"
+                ]
               }
             ],
             "resolves": []
@@ -865,19 +919,25 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "edit",
-                "kind": "editAlternative",
-                "source": {
-                  "material": {
-                    "kind": "alternative",
-                    "state": "reviewed",
-                    "conflict": "deadline",
-                    "alternative": "b"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "edit",
+                    "kind": "editAlternative",
+                    "source": {
+                      "material": {
+                        "kind": "alternative",
+                        "state": "reviewed",
+                        "conflict": "deadline",
+                        "alternative": "b"
+                      }
+                    },
+                    "text": "Thursday\r\n"
                   }
-                },
-                "text": "Thursday\r\n"
+                ]
               }
             ],
             "resolves": []
@@ -894,50 +954,56 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "copy"
+                    }
+                  },
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": [
+                        "chapter.md"
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
+                    }
                   }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "copy"
-                }
-              },
-              {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": [
-                    "chapter.md"
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "chapter.md"
-                }
+                ]
               }
             ],
             "resolves": []
@@ -954,55 +1020,61 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    0,
-                    1
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        0,
+                        1
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "copy"
                     }
                   },
-                  "name": "copy"
-                }
-              },
-              {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": [
-                    "chapter.md"
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": [
+                        "chapter.md"
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
                     }
-                  },
-                  "name": "chapter.md"
-                }
+                  }
+                ]
               }
             ],
             "resolves": []
@@ -1019,49 +1091,55 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "copy"
+                    }
+                  },
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": []
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
+                    }
                   }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "copy"
-                }
-              },
-              {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": []
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "chapter.md"
-                }
+                ]
               }
             ],
             "resolves": []
@@ -1078,51 +1156,57 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "copy"
+                    }
+                  },
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": [
+                        ".."
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
+                    }
                   }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "copy"
-                }
-              },
-              {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": [
-                    ".."
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "chapter.md"
-                }
+                ]
               }
             ],
             "resolves": []
@@ -1139,51 +1223,57 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "a/b"
+                    }
+                  },
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": [
+                        "chapter.md"
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
+                    }
                   }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "a/b"
-                }
-              },
-              {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": [
-                    "chapter.md"
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "chapter.md"
-                }
+                ]
               }
             ],
             "resolves": []
@@ -1200,51 +1290,57 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "é"
+                    }
+                  },
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": [
+                        "chapter.md"
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
+                    }
                   }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "é"
-                }
-              },
-              {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": [
-                    "chapter.md"
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "chapter.md"
-                }
+                ]
               }
             ],
             "resolves": []
@@ -1261,28 +1357,34 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "replace",
-                "kind": "replaceEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/photo.png",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  }
-                },
-                "value": {
-                  "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-                  "material": {
-                    "material": {
-                      "kind": "alternative",
-                      "state": "reviewed",
-                      "conflict": "deadline",
-                      "alternative": "b"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "replace",
+                    "kind": "replaceEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/photo.png",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "value": {
+                      "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                      "material": {
+                        "material": {
+                          "kind": "alternative",
+                          "state": "reviewed",
+                          "conflict": "deadline",
+                          "alternative": "b"
+                        }
+                      }
                     }
                   }
-                }
+                ]
               }
             ],
             "resolves": []
@@ -1299,56 +1401,62 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copySource",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copySource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        0,
+                        9007199254740992
+                      ]
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        8,
+                        8
+                      ]
+                    },
+                    "side": "after"
                   },
-                  "range": [
-                    0,
-                    9007199254740992
-                  ]
-                },
-                "at": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    8,
-                    8
-                  ]
-                },
-                "side": "after"
-              },
-              {
-                "key": "move",
-                "kind": "moveSource",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
+                  {
+                    "key": "move",
+                    "kind": "moveSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      }
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        10,
+                        10
+                      ]
+                    },
+                    "side": "before"
                   }
-                },
-                "at": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    10,
-                    10
-                  ]
-                },
-                "side": "before"
+                ]
               }
             ],
             "resolves": []
@@ -1365,24 +1473,14 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "edit",
-                "kind": "editSource",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    0,
-                    4
-                  ]
-                },
-                "text": "[😀]",
-                "lineage": [
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
                   {
+                    "key": "edit",
+                    "kind": "editSource",
                     "source": {
                       "material": {
                         "kind": "basis",
@@ -1394,9 +1492,25 @@
                         4
                       ]
                     },
-                    "range": [
-                      1,
-                      3
+                    "text": "[😀]",
+                    "lineage": [
+                      {
+                        "source": {
+                          "material": {
+                            "kind": "basis",
+                            "path": "/note.md",
+                            "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                          },
+                          "range": [
+                            0,
+                            4
+                          ]
+                        },
+                        "range": [
+                          1,
+                          3
+                        ]
+                      }
                     ]
                   }
                 ]
@@ -1416,56 +1530,62 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copySource",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copySource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        0,
+                        4
+                      ]
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        8,
+                        8
+                      ]
+                    },
+                    "side": "after"
                   },
-                  "range": [
-                    0,
-                    4
-                  ]
-                },
-                "at": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    8,
-                    8
-                  ]
-                },
-                "side": "after"
-              },
-              {
-                "key": "copy",
-                "kind": "moveSource",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
+                  {
+                    "key": "copy",
+                    "kind": "moveSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      }
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        10,
+                        10
+                      ]
+                    },
+                    "side": "before"
                   }
-                },
-                "at": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/note.md",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  },
-                  "range": [
-                    10,
-                    10
-                  ]
-                },
-                "side": "before"
+                ]
               }
             ],
             "resolves": []
@@ -1482,13 +1602,13 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": []
           },
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": []
           }
         ]
@@ -1503,7 +1623,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [],
+            "trace": [],
             "resolves": [
               {
                 "state": "reviewed",
@@ -1528,19 +1648,25 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "edit",
-                "kind": "editSource",
-                "source": {
-                  "material": {
-                    "kind": "output",
-                    "state": "reviewed",
-                    "conflict": "deadline",
-                    "alternative": "b"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "edit",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "output",
+                        "state": "reviewed",
+                        "conflict": "deadline",
+                        "alternative": "b"
+                      }
+                    },
+                    "text": "Thursday\r\n"
                   }
-                },
-                "text": "Thursday\r\n"
+                ]
               }
             ],
             "resolves": []
@@ -1557,7 +1683,7 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": null,
+            "trace": null,
             "resolves": []
           }
         ]
@@ -1572,51 +1698,1832 @@
           {
             "change": "change-one",
             "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "operations": [
+            "trace": [
               {
-                "key": "copy",
-                "kind": "copyEntry",
-                "source": {
-                  "material": {
-                    "kind": "basis",
-                    "path": "/draft/",
-                    "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                  }
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "copy",
+                    "kind": "copyEntry",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/draft/",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "copy"
                     }
                   },
-                  "name": "copy"
-                }
+                  {
+                    "key": "move",
+                    "kind": "moveEntry",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "copy"
+                      },
+                      "within": [
+                        "chapter.md"
+                      ]
+                    },
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/archive",
+                          "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        }
+                      },
+                      "name": "chapter.md"
+                    }
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "chained frames carry one change",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
               },
               {
-                "key": "move",
-                "kind": "moveEntry",
-                "source": {
-                  "material": {
-                    "kind": "operation",
-                    "change": "change-one",
-                    "operation": "copy"
-                  },
-                  "within": [
-                    "chapter.md"
-                  ]
-                },
-                "destination": {
-                  "parent": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/archive",
-                      "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-                    }
-                  },
-                  "name": "chapter.md"
-                }
+                "before": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "after": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "operations": [
+                  {
+                    "key": "second",
+                    "kind": "moveSource",
+                    "source": {
+                      "material": {
+                        "kind": "operation",
+                        "change": "change-one",
+                        "operation": "first"
+                      }
+                    },
+                    "at": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        4,
+                        4
+                      ]
+                    },
+                    "side": "before"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:be837deff4f85c33c1881672a53ee010cabca592c115b7d33088f61bbc4f628e",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYKjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBpGNrZXllZmlyc3Rka2luZGplZGl0U291cmNlZHRleHRjTW9uZnNvdXJjZaJlcmFuZ2WCAABobWF0ZXJpYWyjZGtpbmRlYmFzaXNkcGF0aGgvbm90ZS5tZGZvYmplY3R4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwo2VhZnRlcnhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmYmVmb3JleEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWpvcGVyYXRpb25zgaViYXSiZXJhbmdlggQEaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhoL25vdGUubWRmb2JqZWN0eEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWNrZXlmc2Vjb25kZGtpbmRqbW92ZVNvdXJjZWRzaWRlZmJlZm9yZWZzb3VyY2WhaG1hdGVyaWFso2RraW5kaW9wZXJhdGlvbmZjaGFuZ2VqY2hhbmdlLW9uZWlvcGVyYXRpb25lZmlyc3RmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyaWlmQ3VycmVudPY="
+        }
+      ]
+    },
+    {
+      "name": "frame does not continue the previous frame",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+                "after": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "operations": [
+                  {
+                    "key": "second",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Tue"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "last frame does not reach the candidate",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "frame carries no operations",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": []
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "operation identity is reused across frames",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "same",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "after": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                "operations": [
+                  {
+                    "key": "same",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Tue"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "trace exceeds the frame limit",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e0",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e1",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e2",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e3",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e4",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e5",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e6",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e7",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e8",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e9",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e10",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e11",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e12",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e13",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e14",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e15",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e16",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e17",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e18",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e19",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e20",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e21",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e22",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e23",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e24",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e25",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e26",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e27",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e28",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e29",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e30",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e31",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e32",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e33",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e34",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e35",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e36",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e37",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e38",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e39",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e40",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e41",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e42",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e43",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e44",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e45",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e46",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e47",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e48",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e49",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e50",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e51",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e52",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e53",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e54",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e55",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e56",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e57",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e58",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e59",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e60",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e61",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e62",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "operations": [
+                  {
+                    "key": "e63",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              },
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "e64",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "x"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "frame roots must be object hashes",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "not-a-hash",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "frame carries no unknown members",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "first",
+                    "kind": "editSource",
+                    "source": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/note.md",
+                        "object": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                      },
+                      "range": [
+                        0,
+                        0
+                      ]
+                    },
+                    "text": "Mon"
+                  }
+                ],
+                "note": "why"
               }
             ],
             "resolves": []

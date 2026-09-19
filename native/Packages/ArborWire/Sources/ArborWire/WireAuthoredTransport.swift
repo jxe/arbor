@@ -56,13 +56,13 @@ public struct WireAuthoredCandidate: Codable, Sendable, Equatable {
         }
     }
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case change, candidate, operations, resolves, ifCurrent, objects, deltas
+        case change, candidate, trace, resolves, ifCurrent, objects, deltas
     }
     public init(from decoder: Decoder) throws {
         try validateSemanticFields(decoder, allowed: Set(CodingKeys.allCases.map(\.rawValue)))
         let c = try decoder.container(keyedBy: CodingKeys.self)
         var intent: [String: WireSemanticValue] = [:]
-        for key in [CodingKeys.change, .candidate, .operations, .resolves, .ifCurrent] where c.contains(key) {
+        for key in [CodingKeys.change, .candidate, .trace, .resolves, .ifCurrent] where c.contains(key) {
             intent[key.rawValue] = try c.decode(WireSemanticValue.self, forKey: key)
         }
         // Validate canonical base64 before Foundation's Data decoder can normalize it.

@@ -84,7 +84,7 @@ struct AcceptedContractTests {
         let update: [String: WireSemanticValue] = [
             "change": .string("c1"),
             "candidate": .string("sha256:" + String(repeating: "1", count: 64)),
-            "operations": .array([]),
+            "trace": .array([]),
             "resolves": .array(resolves)
         ]
         _ = try WireAuthoredRequestIntent(["base": .string("u1"), "updates": .array([.object(update)])])

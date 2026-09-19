@@ -486,24 +486,49 @@ public struct WireResolutionDeclaration: Codable, Sendable, Equatable {
     }
 }
 
+/// One tree-root to tree-root step of a change's authored evidence. Basis
+/// references inside a frame name objects in that frame's `before` tree, and
+/// operation references name an earlier key in the same change.
+public struct WireTraceFrame: Sendable, Equatable {
+    public var before: String
+    public var after: String
+    public var operations: [WireSourceOperation]
+    public init(before: String, after: String, operations: [WireSourceOperation]) {
+        self.before = before; self.after = after; self.operations = operations
+    }
+    var semantic: WireSemanticValue {
+        .object(["before": .string(before), "after": .string(after),
+                 "operations": .array(operations.map { .object($0.fields) })])
+    }
+    init(_ raw: WireSemanticValue) throws {
+        guard let f = raw.fields, let before = f["before"]?.text, let after = f["after"]?.text,
+              let ops = f["operations"]?.items else {
+            throw ArborWireValidationError.invalidValue("Expected trace frame")
+        }
+        self.init(before: before, after: after, operations: try ops.map { try WireSourceOperation($0.fields!) })
+    }
+}
+
 public struct WireCandidateUpdate: Codable, Sendable, Equatable {
     public var change: String
-    public var operations: [WireSourceOperation]?
+    /// `nil` is a snapshot: exact bytes with no authored evidence. A trace is
+    /// evidence the authority checks, never a hint it may skip.
+    public var trace: [WireTraceFrame]?
     public var candidate: String
     public var resolves: [WireResolutionDeclaration]
     public var ifCurrent: String?
     public var objects: [WireObjectEnvelope]
     public var deltas: [WireObjectDelta]
 
-    public init(candidate: String, change: String = UUID().uuidString, operations: [WireSourceOperation]? = nil,
+    public init(candidate: String, change: String = UUID().uuidString, trace: [WireTraceFrame]? = nil,
                 resolves: [WireResolutionDeclaration] = [], ifCurrent: String? = nil,
                 objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
-        self.candidate = candidate; self.change = change; self.operations = operations
+        self.candidate = candidate; self.change = change; self.trace = trace
         self.resolves = resolves; self.ifCurrent = ifCurrent; self.objects = objects; self.deltas = deltas
     }
     var semantic: [String: WireSemanticValue] {
         var fields: [String: WireSemanticValue] = ["change": .string(change), "candidate": .string(candidate),
-            "operations": operations.map { .array($0.map { .object($0.fields) }) } ?? .null,
+            "trace": trace.map { .array($0.map(\.semantic)) } ?? .null,
             "resolves": .array(resolves.map(\.semantic))]
         if let ifCurrent { fields["ifCurrent"] = .string(ifCurrent) }
         return fields
@@ -514,7 +539,7 @@ public struct WireCandidateUpdate: Codable, Sendable, Equatable {
     init(_ decoded: WireAuthoredCandidate) throws {
         let fields = decoded.intentFields
         self.init(candidate: fields["candidate"]!.text!, change: fields["change"]!.text!,
-            operations: try fields["operations"]!.items.map { try $0.map { try WireSourceOperation($0.fields!) } },
+            trace: try fields["trace"]!.items.map { try $0.map(WireTraceFrame.init) },
             resolves: fields["resolves"]!.items!.map { raw in
                 let r = raw.fields!
                 return WireResolutionDeclaration(state: r["state"]!.text!, conflict: r["conflict"]!.text!, alternatives: r["alternatives"]!.items!.map { $0.text! })

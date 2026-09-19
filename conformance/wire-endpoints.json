@@ -72,7 +72,7 @@
         "headers": {
           "Authorization": "Bearer <account-device-token>"
         },
-        "derivedRequestDigest": "sha256:6745bae87ecaa1769d22085cedca1b1e1ae5c34bd4913f58b0dedf945a64869a",
+        "derivedRequestDigest": "sha256:176ab1e615eb478cd792f40d8c108607871100cebd6a143e81ffb51af988544f",
         "body": {
           "base": "1",
           "updates": [
@@ -81,7 +81,7 @@
               "objects": [],
               "deltas": [],
               "change": "fixture-submit-current-update-1",
-              "operations": null,
+              "trace": null,
               "resolves": []
             }
           ]
@@ -93,7 +93,7 @@
           "results": [
             {
               "outcome": "unchanged",
-              "requestDigest": "sha256:6745bae87ecaa1769d22085cedca1b1e1ae5c34bd4913f58b0dedf945a64869a",
+              "requestDigest": "sha256:176ab1e615eb478cd792f40d8c108607871100cebd6a143e81ffb51af988544f",
               "update": {
                 "id": "1",
                 "tree": "tr_atlas",
@@ -117,7 +117,7 @@
         "headers": {
           "Authorization": "Bearer <administrator-device-token>"
         },
-        "derivedRequestDigest": "sha256:399d03d1e1b356abf9fc8e3d41e321eaee6a9d8a29818b436536eeae0d93db84",
+        "derivedRequestDigest": "sha256:f923fbdea7267c96876a3d95cf676c84558233e9c6ac301a85c96de0421f8345",
         "body": {
           "base": null,
           "updates": [
@@ -131,7 +131,7 @@
               ],
               "deltas": [],
               "change": "fixture-activate-with-null-base-1",
-              "operations": null,
+              "trace": null,
               "resolves": []
             }
           ]
@@ -143,7 +143,7 @@
           "results": [
             {
               "outcome": "accepted",
-              "requestDigest": "sha256:399d03d1e1b356abf9fc8e3d41e321eaee6a9d8a29818b436536eeae0d93db84",
+              "requestDigest": "sha256:f923fbdea7267c96876a3d95cf676c84558233e9c6ac301a85c96de0421f8345",
               "update": {
                 "id": "3",
                 "tree": "tr_new",

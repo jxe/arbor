@@ -21,9 +21,9 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
         return fields["updates"]!.items!.map { raw in
             let u = raw.fields!
             let bytes = CanonicalCBOR.encode(.map([
-                ("domain", .text("arbor-update")), ("tree", .text(tree)), ("base", base),
+                ("domain", .text("arbor-update/2")), ("tree", .text(tree)), ("base", base),
                 ("change", u["change"]!.cbor), ("candidate", u["candidate"]!.cbor),
-                ("operations", u["operations"]!.cbor), ("resolves", u["resolves"]!.cbor),
+                ("trace", u["trace"]!.cbor), ("resolves", u["resolves"]!.cbor),
                 ("ifCurrent", u["ifCurrent"]?.cbor ?? .null)
             ]))
             let digest = WireObjectCodec.hash(bytes)
@@ -114,8 +114,6 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
             if value["file"] != nil { try keys(value, ["file"]); try hash(value["file"]) }
             else if value["directory"] != nil { try keys(value, ["directory"]); try hash(value["directory"]) }
             else { try reference(.object(value), entry: true) }
-        case "undoOperation":
-            try keys(v, ["key", "kind", "target"]); let t = try object(v["target"]); try keys(t, ["change", "operation"]); try id(t["change"]); try id(t["operation"])
         default: try check(false)
         }
         return v["key"]!.text!
@@ -134,7 +132,7 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
     }
     /// Shared by semantic fixtures and complete transport candidates.
     static func validateCandidate(_ u: [String: WireSemanticValue]) throws {
-        try keys(u, ["change", "candidate", "operations", "resolves"], ["ifCurrent"])
+        try keys(u, ["change", "candidate", "trace", "resolves"], ["ifCurrent"])
         try id(u["change"]); try hash(u["candidate"])
         if u["ifCurrent"] != nil { try token(u["ifCurrent"]) }
         guard let resolves = u["resolves"]?.items else { throw ArborWireValidationError.invalidValue("Expected resolves") }
@@ -146,10 +144,24 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
             try check(!a.isEmpty); for v in a { try id(v) }
             try check(Set(a.map { $0.text! }).count == a.count)
         }
-        if u["operations"] != .null {
-            guard let ops = u["operations"]?.items else { throw ArborWireValidationError.invalidValue("Expected operations") }
-            try check(ops.count <= 1024 && (!ops.isEmpty || !resolves.isEmpty))
-            let ids = try ops.map(validateOperation); try check(Set(ids).count == ids.count)
+        if u["trace"] != .null {
+            guard let frames = u["trace"]?.items else { throw ArborWireValidationError.invalidValue("Expected trace") }
+            try check(frames.count <= 64 && (!frames.isEmpty || !resolves.isEmpty))
+            // The chain is checked here only where the request itself proves it:
+            // each frame continues the previous one and the last reaches the
+            // candidate. The authority binds `trace[0].before` to its basis.
+            var keyed = Set<String>(); var previous: String? = nil; var total = 0
+            for raw in frames {
+                let f = try object(raw); try keys(f, ["before", "after", "operations"])
+                try hash(f["before"]); try hash(f["after"])
+                guard let ops = f["operations"]?.items else { throw ArborWireValidationError.invalidValue("Expected operations") }
+                try check(!ops.isEmpty); total += ops.count; try check(total <= 1024)
+                try check(previous == nil || previous == f["before"]!.text!); previous = f["after"]!.text!
+                // One key names one authored contribution of this change, so it
+                // is unique across the whole trace, not merely within a frame.
+                for id in try ops.map(validateOperation) { try check(keyed.insert(id).inserted) }
+            }
+            try check(previous == nil || previous == u["candidate"]!.text!)
         }
     }
 }
