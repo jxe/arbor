@@ -185,6 +185,16 @@ export function storeIntentState(
   );
 }
 
+/** The active root and history map roots of an indexed (v3) state, or
+ * undefined for legacy and shared states. */
+export function indexedStateParts(bytes: Uint8Array) {
+  const raw = JSON.parse(new TextDecoder().decode(bytes));
+  if (raw?.format !== "arbor-merge-intent-state-v3") return undefined;
+  const root = indexedRoot(raw);
+  return { active: root.active, maps: root.maps };
+}
+export { historyFields };
+
 /** An editable state was recorded by an evaluation that enforced every deletion
  * in its effects map; its nodes already reflect them. */
 export async function isEditableState(

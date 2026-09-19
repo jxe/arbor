@@ -354,3 +354,63 @@ test("a trusted accepted input state stops the history walk; a requested root is
   f.objects.delete(f.file);
   await expect(verifyIntentRetention([later], f.load, { cache: new RetentionCache(), durable: () => true, trusted: () => true })).rejects.toThrow("Missing object");
 });
+
+async function indexedHistory() {
+  const { Fixture } = await import("./merge/fixture.ts");
+  const f = new Fixture();
+  let text = "one two three\n";
+  let current: string | { object: string; state: string } = f.tree({ "a.md": text });
+  for (let i = 0; i < 6; i++) {
+    const next = text.replace(/\n$/, ` w${i}\n`);
+    current = (await f.run(f.request(current, f.tree({ "a.md": next }), [
+      { kind: "editSource", key: "edit", source: f.ref("/a.md", text, [text.length - 1, text.length - 1]), text: ` w${i}` },
+    ], `change-${i}`))).result;
+    text = next;
+  }
+  const head = current as { object: string; state: string };
+  const load = async (hash: string) => {
+    const bytes = f.objects.get(hash);
+    if (!bytes) throw Error("Missing object");
+    return bytes;
+  };
+  const put = (bytes: Uint8Array) => f.put(bytes);
+  return { f, head, load, put };
+}
+
+test("an indexed state's history walk reaches everything a whole-state load reads", async () => {
+  const { head, load } = await indexedHistory();
+  const read = new Set<string>();
+  const state = await loadIntentState(head.state, load, (hash) => read.add(hash));
+  const walked = await verifyIntentRetention([head.state], load, { cache: new RetentionCache(), durable: () => true });
+  for (const hash of read) expect(walked.has(hash)).toBe(true);
+  // Every object a history record names is retained as well.
+  for (const effect of Object.values(state.effects)) expect(walked.has(effect.authored.basis)).toBe(true);
+  for (const change of Object.values(state.changes)) expect(walked.has(change)).toBe(true);
+});
+
+test("a missing history record chunk is found through the map walk", async () => {
+  const { f, head, load } = await indexedHistory();
+  const state = await loadIntentState(head.state, load);
+  const change = Object.values(state.changes)[0]!;
+  f.objects.delete(change);
+  await expect(verifyIntentRetention([head.state], load, { cache: new RetentionCache(), durable: () => true })).rejects.toThrow("Missing object");
+});
+
+test("verified durable map nodes stop later walks; staged ones never seed that trust", async () => {
+  const { f, head, load, put } = await indexedHistory();
+  const state = await loadIntentState(head.state, load);
+  // A new state sharing all history: only its root and active part differ.
+  const sibling = storeIntentState({ ...state, decisions: [] }, put, false);
+  const cache = new RetentionCache();
+  await verifyIntentRetention([head.state], load, { cache, durable: () => true });
+  const loaded: string[] = [];
+  await verifyIntentRetention([sibling], async (hash) => { loaded.push(hash); return load(hash); }, { cache, durable: () => true });
+  // Shared history was verified with the head; its change records are not reread.
+  expect(loaded).not.toContain(Object.values(state.changes)[0]!);
+  // A walk whose closure is not all durable leaves no trusted map nodes behind.
+  const staged = new RetentionCache();
+  const change = Object.values(state.changes)[1]!;
+  await verifyIntentRetention([head.state], load, { cache: staged, durable: (hash) => hash !== change });
+  f.objects.delete(change);
+  await expect(verifyIntentRetention([sibling], load, { cache: staged, durable: () => true })).rejects.toThrow("Missing object");
+});

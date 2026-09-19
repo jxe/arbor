@@ -428,3 +428,27 @@ export class LazyStateMap {
     return diffStateMap(this.root, root, this.read);
   }
 }
+
+/** One map node's direct edges for a retention walk: child nodes, or the
+ * records a leaf names. Position checks belong to lookups, not retention. */
+export async function stateMapNodeEdges(
+  hash: string,
+  read: Read,
+): Promise<{ children: string[]; records: string[] }> {
+  const value = await node(hash, read, "");
+  return "entries" in value
+    ? { children: [], records: value.entries.map(([, record]) => record) }
+    : { children: value.children.filter((h): h is string => h !== null), records: [] };
+}
+/** A record's value and every object read to reconstruct it. */
+export async function stateMapRecord(
+  hash: string,
+  read: Read,
+): Promise<{ value: unknown; objects: Set<string> }> {
+  const objects = new Set<string>();
+  const value = await readRecord(hash, async (h) => {
+    objects.add(h);
+    return read(h);
+  });
+  return { value, objects };
+}

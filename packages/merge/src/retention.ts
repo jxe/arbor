@@ -1,9 +1,13 @@
 import { StateMapValidationCache } from "./state-map.ts";
-import { loadIntentState } from "./state-storage.ts";
+import { historyFields, indexedStateParts, loadIntentState } from "./state-storage.ts";
+import { stateMapNodeEdges, stateMapRecord } from "./state-map.ts";
 import { decodeWireDirectory, hashObject } from "@arbor/wire";
-import { intentReferences, type IntentState } from "./intent-model.ts";
+import { intentHistoryReferences, intentReferences, parseIntentHistoryRecord, type IntentState } from "./intent-model.ts";
 
-type Kind = "object" | "directory" | "state" | "change";
+type HistoryField = (typeof historyFields)[number];
+/** A history map node is typed by its field: the field decides how its records
+ * name further objects. */
+type Kind = "object" | "directory" | "state" | "change" | `map-${HistoryField}`;
 type Reference = { hash: string; kind: Kind };
 type Closure = {
   hashes: ReadonlySet<string>;
@@ -21,6 +25,21 @@ export class RetentionCache {
   private entries = new Map<string, { edges: Reference[]; durable: boolean }>();
   private edges = 0;
   private closures = new Map<string, Closure>();
+  /** History map nodes whose complete closure was found durable. Durable
+   * storage is append-only, so a later walk may stop at them, as it stops at a
+   * trusted accepted state. */
+  private verifiedMaps = new Set<string>();
+  mapVerified(hash: string): boolean {
+    return this.verifiedMaps.has(hash);
+  }
+  retainVerifiedMaps(hashes: Iterable<string>) {
+    for (const hash of hashes) {
+      this.verifiedMaps.delete(hash);
+      this.verifiedMaps.add(hash);
+    }
+    while (this.verifiedMaps.size > this.maxEntries * 2)
+      this.verifiedMaps.delete(this.verifiedMaps.values().next().value!);
+  }
   closure(hash: string): Closure | undefined {
     return this.closures.get(hash);
   }
@@ -47,7 +66,7 @@ export class RetentionCache {
     return this.entries.get(ref.kind + ":" + ref.hash)?.durable ?? false;
   }
   markDurable(hash: string) {
-    for (const kind of ["object", "directory", "change"]) {
+    for (const kind of ["object", "directory", "change", ...historyFields.map((f) => `map-${f}`)]) {
       const entry = this.entries.get(kind + ":" + hash);
       if (entry) entry.durable = true;
     }
@@ -137,6 +156,8 @@ export async function verifyIntentRetention(
         (ref.kind === "state" || ref.kind === "change") && !requested.has(ref.hash) &&
         options?.trusted?.(ref) && options.durable(ref.hash)
       ) continue;
+      if (ref.kind.startsWith("map-") && options?.cache.mapVerified(ref.hash) && options.durable(ref.hash))
+        continue;
       const closure =
         ref.kind === "state" ? options?.cache.closure(ref.hash) : undefined;
       if (closure) {
@@ -188,6 +209,45 @@ export async function verifyIntentRetention(
         if (recorded.base?.state) add(recorded.base.state, "state");
         add(recorded.base.object, "directory");
         add(recorded.incoming.object, "directory");
+      } else if (ref.kind.startsWith("map-")) {
+        const field = ref.kind.slice(4) as HistoryField;
+        const cachedRead = async (hash: string) => {
+          const known = bytesByHash.get(hash);
+          if (known) return known;
+          const bytes = await load(hash);
+          if (hashObject(bytes) !== hash)
+            throw new Error("Invalid retained object hash");
+          bytesByHash.set(hash, bytes);
+          return bytes;
+        };
+        const { children, records } = await stateMapNodeEdges(ref.hash, cachedRead);
+        for (const child of children) add(child, ref.kind);
+        for (const record of records) {
+          const { value, objects } = await stateMapRecord(record, cachedRead);
+          for (const hash of objects) add(hash);
+          for (const reference of intentHistoryReferences(field, parseIntentHistoryRecord(field, value))) {
+            const colon = reference.indexOf(":");
+            add(reference.slice(colon + 1), reference.slice(0, colon) as Kind);
+          }
+        }
+      } else if (ref.kind === "state" && !options?.state?.(ref.hash) && indexedStateParts(bytes)) {
+        // An unvalidated indexed state: its active material whole, its history
+        // as typed map nodes, so shared history is walked once per node.
+        const parts = indexedStateParts(bytes)!;
+        const active = await loadIntentState(parts.active, async (hash) => {
+          const cached = bytesByHash.get(hash);
+          if (cached) return cached;
+          const bytes = await load(hash);
+          if (hashObject(bytes) !== hash)
+            throw new Error("Invalid retained object hash");
+          bytesByHash.set(hash, bytes);
+          return bytes;
+        }, (hash) => add(hash));
+        for (const reference of intentReferences(active)) {
+          const colon = reference.indexOf(":");
+          add(reference.slice(colon + 1), reference.slice(0, colon) as Kind);
+        }
+        for (const field of historyFields) add(parts.maps[field], `map-${field}`);
       } else if (ref.kind === "state") {
         const proof = options?.state?.(ref.hash);
         const value =
@@ -229,6 +289,12 @@ export async function verifyIntentRetention(
       pending: new Set([...verified].filter((hash) => !options.durable(hash))),
     });
     if (!options?.union) for (const hash of verified) all.add(hash);
+    // Every map node visited here had its whole closure walked in this root;
+    // when all of that is durable, later walks may stop at those nodes.
+    if (options && ![...verified].some((hash) => !options.durable(hash)))
+      options.cache.retainVerifiedMaps(
+        [...visited].filter((key) => key.startsWith("map-")).map((key) => key.slice(key.indexOf(":") + 1)),
+      );
     if (all.size > 1_000_000)
       throw new Error("Retained graph exceeds verification budget");
   }
