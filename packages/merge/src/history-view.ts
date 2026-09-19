@@ -144,15 +144,16 @@ export function touched(...maps: object[]): Set<string> {
   return out;
 }
 
-/** `upper` with every record of `lower` it lacks, as `{...lower, ...upper}`. */
+/** `upper` with every record of `lower` it lacks, as `{...lower, ...upper}`.
+ * Wrapped: a view resolved from a promise would be probed for `then`. */
 export async function union<T extends Record<string, unknown>>(
   lower: T,
   upper: T,
   same: (a: unknown, b: unknown) => boolean,
-): Promise<T> {
-  if (!views.has(lower) && !views.has(upper)) return { ...structuredClone(lower), ...upper };
+): Promise<{ map: T }> {
+  if (!views.has(lower) && !views.has(upper)) return { map: { ...structuredClone(lower), ...upper } };
   const out = cloneHistory(upper, structuredClone) as Record<string, unknown>;
   for (const [key, value] of Object.entries(await since(lower, upper, same)))
     if (!Object.hasOwn(upper, key)) out[key] = structuredClone(value);
-  return out as T;
+  return { map: out as T };
 }

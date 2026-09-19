@@ -160,8 +160,14 @@ test("an edit inside text deleted on the other branch matches eager evaluation",
   );
 });
 
-test("a live decision is created and resolved as eager evaluation does", async () => {
+test.each([undefined, "current"] as const)("a live decision is created and resolved as eager evaluation does (projection %s)", async (projection) => {
   const f = new Fixture();
+  const request = f.request.bind(f);
+  f.request = (...args: Parameters<Fixture["request"]>) => {
+    const r = request(...args);
+    if (projection) r.rules.config = { ...r.rules.config, conflictProjection: projection };
+    return r;
+  };
   const steps = await history(f);
   const basis = steps.at(-1)!;
   const one = edit(f, basis.text, [0, 5], "ONE");

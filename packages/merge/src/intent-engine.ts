@@ -2379,7 +2379,7 @@ class Engine {
           "changes",
           "alternatives",
         ] as const)
-          resultState[map] = (await union(current[map], resultState[map], same)) as never;
+          resultState[map] = (await union(current[map], resultState[map], same)).map as never;
         for (const old of current.decisions) {
           const index = resultState.decisions.findIndex(
             (d) => d.key === old.key
