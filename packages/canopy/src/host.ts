@@ -528,7 +528,14 @@ export async function serveCanopy(options: {
               throw error;
             }
             if (direct && !canopy.execution.covered(direct)) return wireError("permission-denied", "Authorization changed before receipt disclosure", 403);
-            const response = json(updateJSON(result.result), result.status, { "server-timing": timer.serverTiming() });
+            // The server's current head lets the client skip a descriptor read
+            // after acceptance; the watch still delivers anything newer.
+            const headTree = canopy.get(treeID), headUpdate = headTree ? canopy.currentUpdate(treeID) : null;
+            const payload = updateJSON(result.result) as Record<string, unknown>;
+            if (headTree && headUpdate && !("error" in result.result)) {
+              payload.head = { update: headUpdate.id, root: headTree.ref, conflicted: headUpdate.conflicted, observedThrough: canopy.observedThrough(treeID) };
+            }
+            const response = json(payload, result.status, { "server-timing": timer.serverTiming() });
             timer.mark("respond");
             const counters = canopy.objectCounters();
             for (const key of Object.keys(counters)) timer.count(key, Math.round((counters[key]! - countersBefore[key]!) * 10) / 10);

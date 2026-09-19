@@ -367,10 +367,25 @@ public actor UpdateCoordinator {
         priorHeads heads: WorkingTreeHeads
     ) async throws -> WorkspaceSyncPresentation {
         let current = try await transport.descriptor(tree: treeID)
-        let snapshot = try await transport.snapshot(tree: treeID, root: current.tree.root)
         let update = current.tree.update
         guard !update.isEmpty else { throw UpdateError.replicaIsNotPlaced }
-        let latestHeads = try await workingTree.heads()
+        var latestHeads = try await workingTree.heads()
+        if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
+            return try await synchronize(admission: nil)
+        }
+        // The replica already holds the server's current root: record the
+        // observation boundary and skip the snapshot download.
+        if current.tree.root == latestHeads.materializedRoot, latestHeads.acceptedRoot == current.tree.root {
+            try await workingTree.recordAccepted(root: current.tree.root, update: update, cursor: current.observedThrough)
+            control.acceptedConflicted = current.tree.conflicted
+            control.presentation = .init(state: .current, detail: "Current at accepted server root",
+                acceptedRoot: current.tree.root, localRoot: current.tree.root)
+            control.presentation.acceptedConflicted = current.tree.conflicted
+            try files.write(control)
+            return control.presentation
+        }
+        let snapshot = try await transport.snapshot(tree: treeID, root: current.tree.root)
+        latestHeads = try await workingTree.heads()
         if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
             return try await synchronize(admission: nil)
         }
@@ -1395,28 +1410,36 @@ public actor UpdateCoordinator {
             }
             // Receipts prove acceptance, not the current observation boundary.
             // Select the current projection before materializing, so replay never
-            // briefly installs an older accepted identity over a newer one.
-            let current = try await transport.descriptor(tree: attempt.tree)
-            guard current.tree.id == attempt.tree, !current.tree.update.isEmpty else { throw UpdateError.returnedSnapshotMismatch }
+            // briefly installs an older accepted identity over a newer one. A
+            // response that reports the server's head saves the descriptor read.
+            let current: (update: String, root: String, conflicted: Bool, observedThrough: String)
+            if let head = response.head {
+                current = (head.update, head.root, head.conflicted, head.observedThrough)
+            } else {
+                let descriptor = try await transport.descriptor(tree: attempt.tree)
+                guard descriptor.tree.id == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
+                current = (descriptor.tree.update, descriptor.tree.root, descriptor.tree.conflicted, descriptor.observedThrough)
+            }
+            guard !current.update.isEmpty else { throw UpdateError.returnedSnapshotMismatch }
             let installation: WireSnapshot
-            if current.tree.update == accepted.id {
-                guard current.tree.root == accepted.root else { throw UpdateError.returnedSnapshotMismatch }
+            if current.update == accepted.id {
+                guard current.root == accepted.root else { throw UpdateError.returnedSnapshotMismatch }
                 installation = projected
             } else {
-                installation = try await transport.snapshot(tree: attempt.tree, root: current.tree.root)
-                guard installation.root == current.tree.root else { throw UpdateError.returnedSnapshotMismatch }
+                installation = try await transport.snapshot(tree: attempt.tree, root: current.root)
+                guard installation.root == current.root else { throw UpdateError.returnedSnapshotMismatch }
             }
             try faultInjector.reached(.duringMaterialization)
             try await workingTree.replaceFromSystem(SnapshotBridge.replacement(snapshot: installation, tree: await workingTree.treeID(),
-                update: current.tree.update, cursor: current.observedThrough, mode: .sparseFiles))
+                update: current.update, cursor: current.observedThrough, mode: .sparseFiles))
             try faultInjector.reached(.afterMaterialization)
             try faultInjector.reached(.beforeBaseAdvancement)
             control.sourceAcceptedChanges = Array(Set((control.sourceAcceptedChanges ?? []) + request.updates.map(\.change))).sorted()
             control.attempt = nil; control.sourceAttemptChange = nil
-            control.acceptedConflicted = current.tree.conflicted
+            control.acceptedConflicted = current.conflicted
             control.presentation = .init(state: .current, detail: "Applied the server's current snapshot",
                 acceptedRoot: installation.root, localRoot: installation.root)
-            control.presentation.acceptedConflicted = current.tree.conflicted
+            control.presentation.acceptedConflicted = current.conflicted
             try files.write(control)
             let queueEmpty = try await queue.compact(settled: Set(control.sourceAcceptedChanges ?? []))
             if queueEmpty {
@@ -1428,8 +1451,8 @@ public actor UpdateCoordinator {
                 try files.write(control)
             }
             dispatch(.applied)
-            machine.base = .init(root: installation.root, update: current.tree.update,
-                cursor: current.observedThrough, conflicted: current.tree.conflicted)
+            machine.base = .init(root: installation.root, update: current.update,
+                cursor: current.observedThrough, conflicted: current.conflicted)
             await workingTree.invalidateDocumentViews()
             syncAgain = try await hasSourceWork()
             return try await presentation()

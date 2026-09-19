@@ -798,9 +798,22 @@ public struct WireUpdateElementResult: Sendable, Equatable, Codable {
     }
 }
 
+/// The server's current head as of an accepted update response.
+public struct WireUpdateHead: Sendable, Equatable, Decodable {
+    public var update: String
+    public var root: String
+    public var conflicted: Bool
+    public var observedThrough: String
+    public init(update: String, root: String, conflicted: Bool, observedThrough: String) {
+        self.update = update; self.root = root; self.conflicted = conflicted; self.observedThrough = observedThrough
+    }
+}
+
 public struct WireUpdateResponse: Sendable, Equatable, Decodable {
     public var results: [WireUpdateElementResult]
     public var observedThrough: String
+    /// Present when the server reported its head; lets the client skip a descriptor read.
+    public var head: WireUpdateHead?
 
     public var result: WireUpdateResult { results[0].result }
     public var requestDigest: String { results[0].requestDigest }
@@ -816,7 +829,7 @@ public struct WireUpdateResponse: Sendable, Equatable, Decodable {
         self.observedThrough = observedThrough
     }
 
-    private enum CodingKeys: String, CodingKey { case results, observedThrough }
+    private enum CodingKeys: String, CodingKey { case results, observedThrough, head }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -824,6 +837,11 @@ public struct WireUpdateResponse: Sendable, Equatable, Decodable {
         guard !results.isEmpty else { throw ArborWireValidationError.invalidValue("Update response has no results") }
         observedThrough = try values.decode(String.self, forKey: .observedThrough)
         guard !observedThrough.isEmpty else { throw ArborWireValidationError.invalidValue("Missing observation boundary") }
+        head = try values.decodeIfPresent(WireUpdateHead.self, forKey: .head)
+        if let head {
+            guard !head.update.isEmpty, !head.observedThrough.isEmpty else { throw ArborWireValidationError.invalidValue("Invalid update head") }
+            try validateObjectHash(head.root)
+        }
     }
 }
 

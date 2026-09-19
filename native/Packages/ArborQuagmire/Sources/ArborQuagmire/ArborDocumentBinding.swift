@@ -1,4 +1,5 @@
 import ArborKit
+import ArborWire
 import Foundation
 import Observation
 import OSLog
@@ -216,6 +217,11 @@ public final class ArborDocumentBinding {
         if machine.kind != priorPhase {
             do { try recoveryStore?.log(phase: machine.kind, generation: machine.generation, revision: recoveryRevision) }
             catch { recoveryError = error }
+            // Editor admission phases beside the network events, so a long
+            // "saving" indicator can be attributed without the unified log.
+            var note = WireNetworkLogEntry(kind: .note, name: "editor-phase", tree: reference.tree.rawValue)
+            note.error = "\(priorPhase) → \(machine.kind) generation=\(machine.generation)"
+            WireNetworkLog.current?.record(note)
         }
         for effect in effects { run(effect) }
         if machine.isSettled {

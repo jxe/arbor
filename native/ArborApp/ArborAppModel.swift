@@ -1401,9 +1401,19 @@ final class ArborWorkspaceState {
     private func refreshSyncPresentation(from coordinator: UpdateCoordinator) async {
         guard syncCoordinator === coordinator else { return }
         capabilities = await provider.capabilities()
-        conflictReview?.scheduleRefresh()
+        let previous = syncPresentation
         syncPresentation = (try? await coordinator.presentation())
             ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
+        if previous != syncPresentation {
+            var note = WireNetworkLogEntry(kind: .note, name: "presentation")
+            note.error = "\(syncPresentation.state) · \(syncPresentation.detail ?? "")"
+            WireNetworkLog.current?.record(note)
+        }
+        // Reloading choices costs a descriptor read; only do it while a
+        // conflict exists or the review still shows entries.
+        if syncPresentation.acceptedConflicted == true || conflictReview?.hasEntries == true {
+            conflictReview?.scheduleRefresh()
+        }
     }
 
     func flush() async {
