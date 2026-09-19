@@ -271,6 +271,10 @@ export async function verifyIntentRetention(
         if (proof)
           for (const hash of proof.dependencies)
             if (hash !== ref.hash) add(hash);
+        // Also walk its history as typed map nodes (the same objects), so they
+        // are remembered as verified and a later state sharing them stops there.
+        const parts = proof ? indexedStateParts(bytes) : undefined;
+        if (parts) for (const field of historyFields) add(parts.maps[field], `map-${field}`);
         for (const ref of proof?.references ?? intentReferences(value)) {
           const colon = ref.indexOf(":");
           add(ref.slice(colon + 1), ref.slice(0, colon) as Kind);

@@ -73,12 +73,14 @@ async function edit(basis: { object: string; state: string }, current: { object:
 }
 async function run(label: string, job: { request: IntentRequestInput; inputs: Map<string, Uint8Array> }) {
   timings = {}; counts = {};
+  const readsBefore = objects.readCounters.reads;
   const started = performance.now();
   const { response, objects: produced } = await tool.evaluate(job.request as never, job.inputs);
   const total = performance.now() - started;
   await objects.store([...job.inputs, ...produced].map(([hash, bytes]) => ({ hash, bytes })));
   if (response.outcome !== "evaluated") throw new Error(`${label}: ${JSON.stringify(response)}`);
   const round = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Math.round(v)]));
+  counts["store-reads"] = objects.readCounters.reads - readsBefore;
   console.log(JSON.stringify({ label, total: Math.round(total), decisions: response.decisions.length, ...round(timings), counts: round(counts) }));
   return response.result as { object: string; state: string };
 }
@@ -89,7 +91,11 @@ let n = 0;
 const id = (name: string) => `replay-${name}-${Date.now()}-${n++}`;
 for (const round of [1, 2]) {
   // Exact basis: the fast path.
-  await run(`fast-${round}`, await edit(head, head, id("fast"), "end", ` fast${round}`));
+  const fast = await run(`fast-${round}`, await edit(head, head, id("fast"), "end", ` fast${round}`));
+  // Divergent from a state written by this build: its base is editable, as every
+  // base will be once the history predating Phase 4 has been superseded.
+  const ahead = await run(`ahead-${round}`, await edit(fast, fast, id("ahead"), "end", ` ahead${round}`));
+  await run(`divergent-new-${round}`, await edit(fast, ahead, id("divergent-new"), "start", `N${round}`));
   // Based several updates back, merged into head: the full evaluator.
   const old = heads[Math.min(5, heads.length - 1)]!;
   await run(`divergent-${round}`, await edit(old, head, id("divergent"), "start", `D${round}`));
