@@ -1,16 +1,23 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { applySourceEdits, canonicalCBORHash, type SourceEdit } from "@arbor/core";
+import { applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit } from "@arbor/core";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeWireDirectory,
   encodeWireDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
   encodeObjectEnvelopes, type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@arbor/wire";
 
 export type SourceAdmissionBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
+/** One editor generation of a coalesced intent: its edits against the source
+ * the previous generation produced, and the source it produced. */
+export interface SourceAdmissionGeneration { edits: SourceEdit[]; source: string }
+/** `edits` always take the basis to `source` in one step. `generations`, when
+ * present, is the same change as the editor captured it, one generation after
+ * another, ending at `source`; the queue emits one frame per generation. */
 export interface SourceAdmissionIntent {
   basis: { tree: string; path: string; revision: string; source: string };
   edits: SourceEdit[];
   source: string;
+  generations?: SourceAdmissionGeneration[];
 }
 export interface SourcePageCreation { document: {tree: string; path: string}; removals: string[] }
 /** What a source record remembers of its editor capture: enough to serve the
@@ -79,64 +86,74 @@ function operationEdits(edits: SourceEdit[]): SourceEdit[] {
   });
 }
 
-/** Builds only the exact authored candidate, never a merge with the current tree. */
+/** The wire allows this many frames per element and this many operations
+ * across them. A trace that would exceed either after compaction is dropped
+ * to snapshot semantics: exact bytes stay authoritative. */
+const TRACE_FRAME_LIMIT = 64, TRACE_OPERATION_LIMIT = 1024;
+
+function validText(value: unknown, decoder: TextDecoder): value is string {
+  return typeof value === "string" && decoder.decode(encoder.encode(value)) === value;
+}
+function validEdits(edits: unknown, decoder: TextDecoder): edits is SourceEdit[] {
+  return Array.isArray(edits) && edits.every(e => validText(e.replacement, decoder) && (e.expected === undefined || validText(e.expected, decoder)));
+}
+
+/** Builds only the exact authored candidate, never a merge with the current
+ * tree. A multi-generation intent yields one frame per generation, each from
+ * the root the previous generation produced, with operation keys
+ * `edit-<frame>-<index>`; `compact` (default) then merges adjacent frames of
+ * plain edits (`compactTrace`). Only the final candidate's objects travel; the
+ * authority reproduces intermediate roots by executing the frames. */
 export function prepareSourceAdmission(input: {
   change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot;
-  sourcePath: string; intent: SourceAdmissionIntent;
+  sourcePath: string; intent: SourceAdmissionIntent; compact?: boolean;
 }): SourceAdmissionRecord & {document: SourceDocumentCapture; sourcePath: string} {
   const { tree, sourcePath, intent, graph } = input;
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   if (intent.basis.tree !== tree || typeof intent.basis.revision !== "string" || !intent.basis.revision ||
-      typeof intent.basis.path !== "string" || typeof intent.basis.source !== "string" || typeof intent.source !== "string" ||
-      decoder.decode(encoder.encode(intent.basis.source)) !== intent.basis.source ||
-      !Array.isArray(intent.edits) || !intent.edits.length ||
-      intent.edits.some(e => typeof e.replacement !== "string" || decoder.decode(encoder.encode(e.replacement)) !== e.replacement ||
-        (e.expected !== undefined && (typeof e.expected !== "string" || decoder.decode(encoder.encode(e.expected)) !== e.expected))) ||
-      applySourceEdits(intent.basis.source, intent.edits) !== intent.source) throw new Error("Invalid source intent");
+      typeof intent.basis.path !== "string" || !validText(intent.basis.source, decoder) || typeof intent.source !== "string" ||
+      !validEdits(intent.edits, decoder) || !intent.edits.length ||
+      applySourceEdits(intent.basis.source, intent.edits) !== intent.source ||
+      (intent.generations !== undefined && (!Array.isArray(intent.generations) || intent.generations.some(g => !validEdits(g.edits, decoder) || typeof g.source !== "string")))) throw new Error("Invalid source intent");
+  validateSourceIntent(intent);
+  // A generation that changed nothing states nothing; the rest chain exactly.
+  const generations = (intent.generations ?? [{ edits: intent.edits, source: intent.source }]).filter(g => g.edits.length);
+  if (!generations.length) throw new Error("Invalid source intent");
   const parts = sourcePath.slice(1).split("/");
   if (!sourcePath.startsWith("/") || parts.some(p => !p || p === "." || p === ".." || /[\\\0]/.test(p) || p.normalize("NFC") !== p)) throw new Error("Invalid source path");
   verifyTreeSnapshotGraph(graph, "sparse-files");
   const objects = new Map(graph.objects);
   let file = "";
-  function replace(hash: string, depth: number): string {
-    const bytes = graph.objects.get(hash);
+  function replace(hash: string, depth: number, previous: string, source: string): string {
+    const bytes = objects.get(hash);
     if (!bytes) throw new Error("Missing directory basis");
     const directory = decodeWireDirectory(bytes), entry = directory.entries.find(e => e.name === parts[depth]);
-    if (!entry && depth === parts.length - 1 && parts[depth] === "_index.md" && intent.basis.source === "") {
-      const source = encoder.encode(intent.source), file = hashObject(source);
-      objects.set(file, source);
+    if (!entry && depth === parts.length - 1 && parts[depth] === "_index.md" && previous === "") {
+      const produced = encoder.encode(source), file = hashObject(produced);
+      objects.set(file, produced);
       directory.entries.push({ name: "_index.md", file });
       directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
       const next = encodeWireDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
     }
     if (!entry) throw new Error("Source path is not in basis");
     if (depth === parts.length - 1) {
-      if (!entry.file || !equal([...graph.objects.get(entry.file) ?? []], [...encoder.encode(intent.basis.source)]) || !graph.objects.has(entry.file)) throw new Error("Source bytes do not match basis");
+      if (!entry.file || !objects.has(entry.file) || !equal([...objects.get(entry.file)!], [...encoder.encode(previous)])) throw new Error("Source bytes do not match basis");
       file = entry.file;
-      const source = encoder.encode(intent.source);
-      entry.file = hashObject(source); objects.set(entry.file, source);
+      const produced = encoder.encode(source);
+      entry.file = hashObject(produced); objects.set(entry.file, produced);
     } else {
       if (!entry.directory) throw new Error("Source path crosses a file or tree boundary");
-      entry.directory = replace(entry.directory, depth + 1);
+      entry.directory = replace(entry.directory, depth + 1, previous, source);
     }
     const next = encodeWireDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
   }
-  const root = replace(graph.root, 0), reachable = new Set<string>();
-  function visit(hash: string, kind: "file" | "directory") {
-    if (reachable.has(hash)) return;
-    reachable.add(hash);
-    if (kind === "directory") for (const entry of decodeWireDirectory(objects.get(hash)!).entries) {
-      if (entry.file) visit(entry.file, "file"); else if (entry.directory) visit(entry.directory, "directory");
-    }
-  }
-  visit(root, "directory");
-  const candidate = verifyTreeSnapshotGraph({ root, objects: new Map([...objects].filter(([hash]) => reachable.has(hash))) }, "sparse-files");
-  const sourceBytes = encoder.encode(intent.basis.source);
   const change = input.change ?? crypto.randomUUID();
-  function copyMaterial(copy: NonNullable<SourceEdit["copies"]>[number]): {kind: "basis"; path: string; object: string} {
+  function copyMaterial(copy: NonNullable<SourceEdit["copies"]>[number], file: string): {kind: "basis"; path: string; object: string} {
     if (!copy.document) return {kind: "basis", path: sourcePath, object: file};
     const {path, source} = copy.document, parts = path.slice(1).split("/");
     if (!path.startsWith("/") || parts.some(p => !p || p === "." || p === "..")) throw Error("Invalid copy path");
+    // Other documents are untouched by this record, so their basis object is
+    // the same in every frame's `before` tree.
     let hash = graph.root;
     for (const [index, part] of parts.entries()) {
       const entry = decodeWireDirectory(graph.objects.get(hash)!).entries.find(e => e.name === part);
@@ -149,33 +166,136 @@ export function prepareSourceAdmission(input: {
     }
     throw Error("Invalid copy path");
   }
-  const operations: SourceOperation[] = operationEdits(intent.edits).flatMap((edit, i) => {
-    for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
-    if(edit.length===0 && edit.copies?.length===1 && edit.copies[0]!.replacement[0]===0 && edit.copies[0]!.replacement[1]===encoder.encode(edit.replacement).length) {
-      return [{key:`copy-${i}-0`,kind:"copySource",source:{material:copyMaterial(edit.copies[0]!),range:edit.copies[0]!.source},at:{material:{kind:"basis",path:sourcePath,object:file},range:[edit.offset,edit.offset]},side:"before"} as SourceOperation];
+  let frames: SourceFrame[] = [], evidence = true;
+  const sources = new Map<string, string>([[graph.root, intent.basis.source]]);
+  let previousRoot = graph.root, previousSource = intent.basis.source;
+  for (const [frame, generation] of generations.entries()) {
+    file = "";
+    const root = replace(previousRoot, 0, previousSource, generation.source);
+    sources.set(root, generation.source);
+    const sourceBytes = encoder.encode(previousSource);
+    const operations: SourceOperation[] = operationEdits(generation.edits).flatMap((edit, i) => {
+      for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
+      if (!file) return [];
+      const key = `edit-${frame}-${i}`;
+      if(edit.length===0 && edit.copies?.length===1 && edit.copies[0]!.replacement[0]===0 && edit.copies[0]!.replacement[1]===encoder.encode(edit.replacement).length) {
+        return [{key:`copy-${frame}-${i}-0`,kind:"copySource",source:{material:copyMaterial(edit.copies[0]!, file),range:edit.copies[0]!.source},at:{material:{kind:"basis",path:sourcePath,object:file},range:[edit.offset,edit.offset]},side:"before"} as SourceOperation];
+      }
+      const operation:SourceOperation = { kind: "editSource", key, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement, ...(edit.lineage ? {lineage: edit.lineage.map(part => ({source: {material: {kind: "basis" as const, path: sourcePath, object: file}, range: part.source}, range: part.replacement}))} : {}) };
+      const result:SourceOperation[]=[operation];
+      for(const [j,copy] of (edit.copies??[]).entries()) {
+        const target={material:{kind:"operation" as const,change,operation:key},range:copy.replacement};
+        result.push({key:`copy-${frame}-${i}-${j}`,kind:"copySource",source:{material:copyMaterial(copy, file),range:copy.source},at:target,side:"before"});
+        result.push({key:`copy-placeholder-${frame}-${i}-${j}`,kind:"editSource",source:target,text:""});
+      }
+      return result;
+    });
+    // A generation without operations (the first body of a directory) cannot
+    // be a frame; the whole record is then a snapshot.
+    if (!file || !operations.length) evidence = false;
+    frames.push({ before: previousRoot, after: root, operations });
+    previousRoot = root; previousSource = generation.source;
+  }
+  const root = previousRoot, reachable = new Set<string>();
+  function visit(hash: string, kind: "file" | "directory") {
+    if (reachable.has(hash)) return;
+    reachable.add(hash);
+    if (kind === "directory") for (const entry of decodeWireDirectory(objects.get(hash)!).entries) {
+      if (entry.file) visit(entry.file, "file"); else if (entry.directory) visit(entry.directory, "directory");
     }
-    const operation:SourceOperation = { kind: "editSource", key: `edit-${i}`, source: { material: { kind: "basis", path: sourcePath, object: file }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement, ...(edit.lineage ? {lineage: edit.lineage.map(part => ({source: {material: {kind: "basis" as const, path: sourcePath, object: file}, range: part.source}, range: part.replacement}))} : {}) };
-    const result:SourceOperation[]=[operation];
-    for(const [j,copy] of (edit.copies??[]).entries()) {
-      const target={material:{kind:"operation" as const,change,operation:`edit-${i}`},range:copy.replacement};
-      result.push({key:`copy-${i}-${j}`,kind:"copySource",source:{material:copyMaterial(copy),range:copy.source},at:target,side:"before"});
-      result.push({key:`copy-placeholder-${i}-${j}`,kind:"editSource",source:target,text:""});
-    }
-    return result;
-  });
-
-  // One frame for this generation: from the basis graph's root to the root it
-  // produced. Phase 3 of plan 010 emits one frame per coalesced generation.
+  }
+  visit(root, "directory");
+  const candidate = verifyTreeSnapshotGraph({ root, objects: new Map([...objects].filter(([hash]) => reachable.has(hash))) }, "sparse-files");
+  if (evidence && input.compact !== false) {
+    // A compacted frame is proven against the generation sources it spans
+    // before it replaces the chain; otherwise the chain stays.
+    const compacted = compactTrace(frames);
+    if (compacted.every(frame => reproduces(frame, sourcePath, sources))) frames = compacted;
+  }
+  if (frames.length > TRACE_FRAME_LIMIT || frames.reduce((total, frame) => total + frame.operations.length, 0) > TRACE_OPERATION_LIMIT) evidence = false;
   const update = encodeCandidateUpdateJSON({ candidate: root, change,
-    trace: file && operations.length ? [{ before: graph.root, after: root, operations }] : null, resolves: [],
+    trace: evidence && frames.length ? frames : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   decodeCandidateUpdateJSON(update);
   const document: SourceDocumentCapture = { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) };
   return JSON.parse(JSON.stringify({ change, tree, basis: input.basis, graph: snapshotJSON(graph), sourcePath, document, candidate: snapshotJSON(candidate), update }));
 }
 
+/** `edits` must take the basis to `source`; each generation must reproduce
+ * the next exactly and the chain must end at `source`. */
 export function validateSourceIntent(intent: SourceAdmissionIntent): void {
   if (applySourceEdits(intent.basis.source, intent.edits) !== intent.source) throw Error("Invalid source intent");
+  let previous = intent.basis.source;
+  for (const generation of intent.generations ?? []) {
+    if (applySourceEdits(previous, generation.edits) !== generation.source) throw Error("Invalid source generation");
+    previous = generation.source;
+  }
+  if (intent.generations && previous !== intent.source) throw Error("Source generations do not end at the candidate");
+}
+
+/** One tree-root to tree-root step of a record's evidence, as the wire carries it. */
+export interface SourceFrame { before: string; after: string; operations: SourceOperation[] }
+
+/** A frame is plain when every operation is a lineage-free `editSource` over
+ * `basis` material of one path with a range: what `composeSourceEdits` handles. */
+function plainEdits(frame: SourceFrame): { path: string; object: string; edits: PlainSourceEdit[] } | null {
+  let path: string | undefined, object: string | undefined;
+  const edits: PlainSourceEdit[] = [];
+  for (const operation of frame.operations) {
+    if (operation.kind !== "editSource" || operation.lineage?.length || operation.source.material.kind !== "basis" || operation.source.within?.length || !operation.source.range) return null;
+    const material = operation.source.material;
+    if ((path !== undefined && path !== material.path) || (object !== undefined && object !== material.object)) return null;
+    path = material.path; object = material.object;
+    edits.push({ offset: operation.source.range[0], length: operation.source.range[1] - operation.source.range[0], replacement: operation.text });
+  }
+  if (path === undefined || object === undefined) return null;
+  return { path, object, edits: edits.sort((a, b) => a.offset - b.offset) };
+}
+
+/** Merges runs of adjacent plain frames over one path into one frame each, by
+ * `composeSourceEdits`: the merged frame runs from the first frame's `before`
+ * to the last frame's `after`, names the path's object in the first frame, and
+ * keys its operations `edit-<k>-<i>` where `k` is the first frame's index in
+ * `frames`. A run that ends at the root it started from changed nothing and
+ * yields no frame. Frames with lineage, copies or operation material are kept
+ * as they are, so a claim always stays in the frame whose basis it was
+ * captured against (spec/09). The same rule runs in the Swift queue and in
+ * Canopy's `composeFrames`; `conformance/source-admission-queue.json` holds the
+ * shared vectors. */
+export function compactTrace(frames: readonly SourceFrame[]): SourceFrame[] {
+  const result: SourceFrame[] = [];
+  let index = 0;
+  while (index < frames.length) {
+    const first = plainEdits(frames[index]!);
+    if (!first) { result.push(frames[index]!); index++; continue; }
+    let end = index + 1;
+    const generations = [first.edits];
+    while (end < frames.length) {
+      const next = plainEdits(frames[end]!);
+      if (!next || next.path !== first.path) break;
+      generations.push(next.edits); end++;
+    }
+    const before = frames[index]!.before, after = frames[end - 1]!.after;
+    if (end - index === 1) result.push(frames[index]!);
+    else if (before === after) { /* a plain run back to its start states nothing */ }
+    else {
+      const operations: SourceOperation[] = composeSourceEdits(generations).map((edit, i) => ({ key: `edit-${index}-${i}`, kind: "editSource",
+        source: { material: { kind: "basis", path: first.path, object: first.object }, range: [edit.offset, edit.offset + edit.length] }, text: edit.replacement }));
+      if (operations.length) result.push({ before, after, operations }); else result.push(...frames.slice(index, end));
+    }
+    index = end;
+  }
+  return result;
+}
+
+/** Whether a plain frame's operations take the source at its `before` root to
+ * the source at its `after` root; frames of other kinds pass. */
+function reproduces(frame: SourceFrame, sourcePath: string, sources: ReadonlyMap<string, string>): boolean {
+  const plain = plainEdits(frame);
+  if (!plain || plain.path !== sourcePath) return true;
+  const before = sources.get(frame.before), after = sources.get(frame.after);
+  if (before === undefined || after === undefined) return false;
+  try { return applySourceEdits(before, plain.edits) === after; } catch { return false; }
 }
 
 /** Page creation is still a snapshot. Its record names the branch it introduced

@@ -145,6 +145,98 @@ public struct WorkspaceSourceEdit: Hashable, Codable, Sendable {
     }
 }
 
+extension WorkspaceSourceEdit {
+    /// Composes generations of plain edits (no lineage, no copies, no guards)
+    /// into one generation over the original source. Generation `n` is stated
+    /// over the source generation `n - 1` produced; the result is stated over
+    /// the original and produces exactly what the last generation produced.
+    /// It needs no intermediate bytes: the original is modelled as pieces that
+    /// are copied ranges of it or inserted text, and each generation only
+    /// splits, removes or interleaves pieces. Copied pieces stay in original
+    /// order, so the composed edits are ascending, never adjacent and never
+    /// share an anchor. The same rule runs as `composeSourceEdits` in
+    /// `@arbor/core` and in Canopy's `composeFrames`;
+    /// `conformance/source-admission-queue.json` holds the shared vectors.
+    public static func compose(generations: [[WorkspaceSourceEdit]]) throws -> [WorkspaceSourceEdit] {
+        enum Piece { case copy(Range<Int>); case text(Data)
+            var size: Int { switch self { case let .copy(range): range.count; case let .text(data): data.count } }
+        }
+        // The original's tail is open-ended: no generation may reach past the real end.
+        let open = Int.max / 2
+        var pieces: [Piece] = [.copy(0..<open)]
+        for edits in generations {
+            var cursor = 0
+            for edit in edits {
+                guard edit.utf8Range.lowerBound >= cursor, (edit.lineage ?? []).isEmpty, (edit.copies ?? []).isEmpty else {
+                    throw WorkspacePatchError.invalidRange(edit.utf8Range)
+                }
+                cursor = edit.utf8Range.upperBound
+            }
+            // Split the pieces at every edit boundary so no piece straddles one.
+            let boundaries = Set(edits.flatMap { [$0.utf8Range.lowerBound, $0.utf8Range.upperBound] }).sorted()
+            var split: [Piece] = []
+            var position = 0, next = 0
+            for piece in pieces {
+                var start = position, remaining = piece
+                while next < boundaries.count, boundaries[next] <= start { next += 1 }
+                while next < boundaries.count, boundaries[next] < start + remaining.size {
+                    let at = boundaries[next] - start
+                    switch remaining {
+                    case let .copy(range):
+                        split.append(.copy(range.lowerBound..<(range.lowerBound + at)))
+                        remaining = .copy((range.lowerBound + at)..<range.upperBound)
+                    case let .text(data):
+                        split.append(.text(data.prefix(at)))
+                        remaining = .text(data.dropFirst(at))
+                    }
+                    start += at; next += 1
+                }
+                split.append(remaining)
+                position += piece.size
+            }
+            // Walk the split pieces, dropping what each edit replaces and inserting its text.
+            var applied: [Piece] = []
+            var index = 0, skipUntil = 0
+            position = 0
+            func flush() {
+                while index < edits.count, edits[index].utf8Range.lowerBound == position {
+                    let edit = edits[index]; index += 1
+                    if !edit.replacement.isEmpty { applied.append(.text(Data(edit.replacement.utf8))) }
+                    skipUntil = max(skipUntil, edit.utf8Range.upperBound)
+                }
+            }
+            for piece in split {
+                flush()
+                if position >= skipUntil, piece.size > 0 { applied.append(piece) }
+                position += piece.size
+            }
+            flush()
+            guard index == edits.count else { throw WorkspacePatchError.invalidRange(edits[index].utf8Range) }
+            pieces = applied
+        }
+        // Read the pieces back as edits over the original: every gap between
+        // copied ranges, together with the text inserted there, is one edit.
+        var composed: [WorkspaceSourceEdit] = []
+        var base = 0
+        var inserted = Data()
+        func emit(_ end: Int) throws {
+            if end > base || !inserted.isEmpty {
+                guard let text = String(data: inserted, encoding: .utf8) else { throw WorkspacePatchError.invalidUTF8 }
+                composed.append(WorkspaceSourceEdit(utf8Range: base..<end, replacement: text))
+                inserted = Data()
+            }
+        }
+        for piece in pieces {
+            switch piece {
+            case let .text(data): inserted.append(data)
+            case let .copy(range): try emit(range.lowerBound); base = range.upperBound
+            }
+        }
+        guard base == open else { throw WorkspacePatchError.invalidRange(base..<open) }
+        return composed
+    }
+}
+
 public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
     public var baseContentRevision: String
     public var edits: [WorkspaceSourceEdit]

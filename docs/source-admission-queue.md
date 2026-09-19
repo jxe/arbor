@@ -439,6 +439,48 @@ Phase 3 of [plan 010](../plans/canopy/010-operation-frames-and-lazy-history.md)
 is what makes the chain longer than one, by emitting a frame per coalesced
 editor generation instead of re-deriving one claim against the oldest basis.
 
+## One frame per editor generation, compacted (plan 010 Phase 3)
+
+The editor's admission machine (`DocumentAdmissionMachine`, `reduceAdmission`)
+now keeps every generation since the last admission, each with the patch the
+editor captured against its predecessor, and hands the whole list to one
+admission. `WorkspaceDocumentIntent.generations` / `SourceAdmissionIntent.generations`
+carry that chain: `patch`/`edits` still take the basis to the candidate in one
+step (that is what a delta is built from and what a provider without frame
+support applies), and the generations must reproduce each other exactly and end
+at the candidate. Native's editor binding no longer re-derives one claim from
+the oldest basis ledger; its fail-closed "Captured editor intent changed" branch
+and the exact-source fallback are gone, because a claim is always stated in the
+frame whose basis it was captured against (spec/09). The recovery journal
+retains the same chain and replays it as generations, so a recovered draft
+publishes the frames the editor captured.
+
+`prepare` in both queues emits one frame per generation, from the root the
+previous generation produced. Operation keys are `edit-<frame>-<index>`
+(`copy-<frame>-<index>-<copy>`, `copy-placeholder-…`), unique across the
+trace. Only the final candidate's objects travel; Canopy reproduces the
+intermediate roots by executing the frames. `compactTrace` then merges each run
+of adjacent *plain* frames (lineage-free `editSource` over one path's `basis`
+material) into one frame by `composeSourceEdits` / `WorkspaceSourceEdit.compose`,
+which composes the generations by range without their intermediate bytes; the
+merged frame is keyed `edit-<k>-<i>` with `k` the run's first frame index, is
+proven against the generation sources it spans before it replaces the chain,
+and a run that ends at the root it started from yields no frame. Frames with
+lineage, copies or operation material are never merged. A typing burst
+therefore arrives as one frame; a burst whose last generation nested a list
+item (the Markdown-normalization case) arrives as two, the second carrying the
+lineage. The same rule runs in Canopy's `composeFrames`;
+`conformance/source-admission-queue.json` (`traces`) holds the vectors all
+three execute. A trace that would still exceed the wire's 64 frames or 1024
+operations is dropped to `trace: null`: exact bytes stay authoritative.
+
+Chained authored records still send their file whole. Canopy's semantic
+preflight resolves each update's delta bases against the accepted base root
+before the request's own objects are stored (`reconstructDeltas` does not
+consult the in-request objects), so a predecessor candidate's file is not a
+reachable delta base there; `tests/unit/source-admission-queue.test.ts` and
+`SourceAdmissionQueueTests` keep asserting the whole-file form.
+
 ## Cross-document copies and page-conversion undo
 
 Native's explicit cross-document block-copy action now passes original block IDs

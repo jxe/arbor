@@ -13,8 +13,21 @@ struct SourceAdmissionQueueTests {
             let change: String; let basis: Basis; let revision: String
             let offset: Int; let length: Int; let expected: String; let replacement: String
         }
+        struct Trace: Decodable {
+            struct Edit: Decodable {
+                struct Part: Decodable { let source: [Int]; let replacement: [Int] }
+                let offset: Int; let length: Int; let replacement: String; let lineage: [Part]?
+                var edit: WorkspaceSourceEdit {
+                    .init(utf8Range: offset..<(offset + length), replacement: replacement,
+                          lineage: lineage?.map { .init(source: $0.source[0]..<$0.source[1], replacement: $0.replacement[0]..<$0.replacement[1]) })
+                }
+            }
+            let name: String; let generations: [[Edit]]; let source: String
+            let frames: [WireSemanticValue]?; let compacted: [WireSemanticValue]?
+        }
         let tree: String; let sourcePath: String; let source: String; let changes: [Change]
         let requests: [String: WireUpdateRequest]
+        let traces: [Trace]
     }
     func fixture() throws -> Fixture {
         let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
@@ -49,6 +62,68 @@ struct SourceAdmissionQueueTests {
             sources[change.change] = try patch.applying(to: source)
         }
         return records
+    }
+
+    /// The fixture stores frames as plain JSON; the wire element decodes them.
+    private func frames(_ raw: [WireSemanticValue]?) throws -> [WireTraceFrame]? {
+        guard let raw, case let .object(last)? = raw.last, case let .string(after)? = last["after"] else { return nil }
+        let element: WireSemanticValue = .object(["change": .string("trace"), "candidate": .string(after), "trace": .array(raw),
+                                                  "resolves": .array([]), "objects": .array([]), "deltas": .array([])])
+        return try JSONDecoder().decode(WireCandidateUpdate.self, from: JSONEncoder().encode(element)).trace
+    }
+
+    @Test("Shared trace vectors: one frame per generation, and compaction agrees with the TypeScript queue and Canopy")
+    func sharedTraces() async throws {
+        let f = try fixture()
+        #expect(!f.traces.isEmpty)
+        for value in f.traces {
+            let graph = try graph(f.source)
+            var source = f.source
+            let chain = try value.generations.map { edits -> WorkspaceDocumentGeneration in
+                let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: edits.map(\.edit))
+                source = try patch.applying(to: source)
+                return .init(patch: patch, source: source)
+            }
+            #expect(source == value.source, Comment(rawValue: value.name))
+            let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/nested/note"), source: f.source, contentRevision: "r1")
+            let intent = try WorkspaceDocumentIntent(basis: basis,
+                patch: .init(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<f.source.utf8.count, replacement: source)]),
+                source: source, generations: chain)
+            let accepted: SourceAdmissionBasis = .accepted(.init(root: graph.root, update: "up_r1"))
+            let plain = try SourceAdmissionRecord(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent, compact: false)
+            let compact = try SourceAdmissionRecord(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent)
+            let expectedFrames = try frames(value.frames), expectedCompacted = try frames(value.compacted)
+            #expect(plain.update.trace == expectedFrames, Comment(rawValue: value.name))
+            #expect(compact.update.trace == expectedCompacted, Comment(rawValue: value.name))
+            #expect(SourceAdmissionRecord.compactTrace(expectedFrames ?? []) == (expectedCompacted ?? []), Comment(rawValue: value.name))
+            // Both forms name the same candidate, carry only its objects and the same delta.
+            #expect(compact.candidate == plain.candidate)
+            #expect(compact.update.objects == plain.update.objects && compact.update.deltas == plain.update.deltas)
+            #expect(plain.update.trace?.count == value.generations.filter { !$0.isEmpty }.count)
+            try plain.validate(); try compact.validate()
+            let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+            try await SourceAdmissionQueue(tree: f.tree, stateRoot: root).retain(compact)
+            #expect(try await SourceAdmissionQueue(tree: f.tree, stateRoot: root).retained() == [compact])
+            #expect(try JSONDecoder().decode(SourceAdmissionRecord.self, from: JSONEncoder().encode(plain)) == plain)
+        }
+    }
+
+    @Test("A generation list validates as a chain, drops generations that changed nothing, and keys frames uniquely")
+    func generationChain() throws {
+        let f = try fixture(), graph = try graph(f.source)
+        let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/nested/note"), source: f.source, contentRevision: "r1")
+        let whole = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<6, replacement: "After")])
+        let first = try whole.applying(to: f.source)
+        let empty = WorkspaceDocumentGeneration(patch: .init(baseContentRevision: "r1", edits: []), source: f.source)
+        let intent = try WorkspaceDocumentIntent(basis: basis, patch: whole, source: first, generations: [empty, .init(patch: whole, source: first)])
+        let record = try SourceAdmissionRecord(change: "chain", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph, sourcePath: f.sourcePath, intent: intent)
+        #expect(record.update.trace?.count == 1)
+        #expect(record.update.trace?.first?.operations.map(\.key) == ["edit-0-0"])
+        #expect(throws: (any Error).self) { try WorkspaceDocumentIntent(basis: basis, patch: whole, source: first, generations: [empty]) }
+        let onlyEmpty = try WorkspaceDocumentIntent(basis: basis, patch: .init(baseContentRevision: "r1", edits: []), source: f.source, generations: [empty])
+        #expect(throws: (any Error).self) {
+            try SourceAdmissionRecord(change: "none", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "up_r1")), graph: graph, sourcePath: f.sourcePath, intent: onlyEmpty)
+        }
     }
 
     @Test("Undo is a plain edit; settled records drop without a release step")

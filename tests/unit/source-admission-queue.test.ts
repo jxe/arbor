@@ -6,6 +6,7 @@ import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionInten
 import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type SourceOperation, type TreeSnapshot } from "@arbor/wire";
 import { executeExactSourceEdits } from "../../packages/canopy/src/updates/source-edits.ts";
 import { decodeCandidateUpdateJSON } from "@arbor/wire";
+import { applySourceEdits, type SourceEdit } from "@arbor/core";
 
 const fixture = JSON.parse(await readFile(new URL("../../conformance/source-admission-queue.json", import.meta.url), "utf8"));
 /** A record's whole authored contribution, in order, across its frames. */
@@ -412,4 +413,60 @@ test("page creation records reproduce their original graph without an undo trans
     await queue.retain([created]);
     expect(await new SourceAdmissionQueue(f.tree,root).retained()).toEqual([created]);
   } finally {await rm(root,{recursive:true,force:true});}
+});
+
+test("shared trace vectors: one frame per generation, compaction, and Canopy's composeFrames agree", async () => {
+  const { compactTrace } = await import("@arbor/canopy-client");
+  const { composeFrames, validateSourceTrace } = await import("../../packages/canopy/src/updates/source-edits.ts");
+  const { MergeTool } = await import("../../packages/canopy/src/merge-tool.ts");
+  expect(fixture.traces.length).toBeGreaterThan(0);
+  for (const value of fixture.traces) await withQueue(async (queue, root) => {
+    const graph = initial();
+    let source = fixture.source as string;
+    const chain = value.generations.map((edits: SourceEdit[]) => ({ edits, source: source = applySourceEdits(source, edits) }));
+    expect(source).toBe(value.source);
+    const intent: SourceAdmissionIntent = { basis: { tree: fixture.tree, path: "/nested/note", revision: "r1", source: fixture.source },
+      edits: [{ offset: 0, length: Buffer.byteLength(fixture.source), replacement: source }], source, generations: chain };
+    const base = { change: "trace", tree: fixture.tree, graph, sourcePath: fixture.sourcePath, basis: { kind: "accepted" as const, root: graph.root, update: "up_r1" }, intent };
+    const plain = prepareSourceAdmission({ ...base, compact: false }), compact = prepareSourceAdmission(base);
+    expect(plain.update.trace).toEqual(value.frames);
+    expect(compact.update.trace).toEqual(value.compacted);
+    expect(compactTrace(value.frames)).toEqual(value.compacted ?? []);
+    // Both forms name the same candidate and carry only its objects.
+    expect(compact.candidate).toEqual(plain.candidate);
+    expect(compact.update.objects).toEqual(plain.update.objects);
+    expect(plain.update.trace!.length).toBe(chain.filter((g: {edits: SourceEdit[]}) => g.edits.length).length);
+    // Canopy executes both chains to the same root, and composes the plain one to the compacted frame.
+    const objects = new Map([...graph.objects, ...decodeTreeSnapshotJSON(plain.candidate).objects]);
+    const load = async (hash: string) => { const bytes = objects.get(hash); if (!bytes) throw Error("Object missing " + hash); return bytes; };
+    expect((await validateSourceTrace(value.frames, load)).root).toBe(plain.candidate.root);
+    if (value.compacted) expect((await validateSourceTrace(value.compacted, load)).root).toBe(plain.candidate.root);
+    const lineage = value.frames.some((frame: {operations: SourceOperation[]}) => frame.operations.some(op => op.kind === "editSource" && op.lineage?.length));
+    if (!lineage) {
+      const composed = await composeFrames(value.frames, load);
+      expect(composed.operations).toEqual(value.compacted?.[0]?.operations ?? []);
+    }
+    // The merge process reaches the same decisions for the chain and its compaction.
+    const tool = new MergeTool(root), rules = { id: "tree-default", revision: 1 as const };
+    const evaluate = (record: typeof plain) => tool.evaluate({ kind: "tree", tree: fixture.tree, base: { object: graph.root }, current: { object: graph.root },
+      incoming: { change: record.change, object: record.candidate.root, trace: decodeCandidateUpdateJSON(record.update).trace ?? [] }, rules }, objects);
+    const [first, second] = await Promise.all([evaluate(plain), evaluate(compact)]);
+    expect(first.response.result.object).toBe(plain.candidate.root);
+    expect(second.response.result.object).toBe(plain.candidate.root);
+    expect("decisions" in second.response ? second.response.decisions : null).toEqual("decisions" in first.response ? first.response.decisions : null);
+    await queue.retain([plain]);
+    expect(await new SourceAdmissionQueue(fixture.tree, root).retained()).toEqual([plain]);
+  });
+});
+
+test("a generation list validates as a chain and drops generations that changed nothing", () => {
+  const graph = initial(), source = fixture.source as string;
+  const basis = { tree: fixture.tree, path: "/nested/note", revision: "r1", source };
+  const first = applySourceEdits(source, [{ offset: 0, length: 6, replacement: "After" }]);
+  const build = (generations: Array<{edits: SourceEdit[]; source: string}>, final = first) => prepareSourceAdmission({ tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
+    basis: { kind: "accepted", root: graph.root, update: "up_r1" }, intent: { basis, edits: [{ offset: 0, length: 6, replacement: "After" }], source: final, generations } });
+  expect(build([{ edits: [], source }, { edits: [{ offset: 0, length: 6, replacement: "After" }], source: first }]).update.trace).toHaveLength(1);
+  expect(() => build([{ edits: [{ offset: 0, length: 6, replacement: "Other" }], source: first }])).toThrow();
+  expect(() => build([{ edits: [{ offset: 0, length: 6, replacement: "After" }], source: first }, { edits: [{ offset: 0, length: 0, replacement: "!" }], source: "!" + first }])).toThrow();
+  expect(() => build([{ edits: [], source }])).toThrow();
 });

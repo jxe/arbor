@@ -102,17 +102,27 @@ not start at the request's basis.
 `packages/canopy/src/updates/source-edits.ts` exposes the same shape for exact
 source execution: `validateSourceTrace` runs the per-frame candidate check with
 each frame's generated objects available to the next, and `composeFrames`
-collapses a chain into one frame when the frames touch disjoint paths with
-lineage-free basis edits, proving the composition by executing it. Chains that
-would need their references rebased (lineage, copies, or a second edit of the
-same file) are refused rather than guessed; client-side compaction of those
-arrives with the plan's Phase 3.
+collapses a chain of plain edits into one frame, proving the composition by
+executing it. The rule is the one both clients apply when they compact a trace
+(plan 010 Phase 3): every operation must be a lineage-free `editSource` over
+`basis` material with a range; per path, the generations compose through
+`composeSourceEdits` in `@arbor/core`, which needs no intermediate bytes
+because it models the original as copied ranges and inserted text; the
+composed operations are keyed `edit-0-<i>` in output order and name each
+path's object in the first frame; and a plain chain that ends at the root it
+started from composes to no operations. Lineage, copies and operation
+material name the generation they were captured against and are refused
+rather than rebased. `conformance/source-admission-queue.json` (`traces`)
+holds the vectors shared by `composeFrames`, the Swift queue and the
+TypeScript queue.
 
-The deployed wire is unchanged by this phase. A request still carries one flat
-`operations` array, which the request adapter reads as a single frame from the
-base root to the candidate, and a change's stored identity signature keeps its
-previous bytes for every request that wire can express. Phase 2 replaces
-`operations` with `trace` on the wire and bumps the receipt domain.
+Since Phase 2 the wire carries `trace` (up to 64 frames, 1024 operations) and
+the receipt domain is `arbor-update/2`. Since Phase 3 a client that coalesces a
+debounced burst emits one frame per editor generation and compacts adjacent
+plain frames by the rule above, so a typing burst arrives as one frame while a
+generation with lineage or copies keeps its own frame against the exact
+intermediate root. The update log's `trace-frames` and `trace-ops` show the
+chain a request carried.
 
 ## Material and choices
 

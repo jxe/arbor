@@ -56,67 +56,76 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         return WireObjectCodec.hash((try? encoder.encode(intent)) ?? Data())
     }
 
+    /// The wire allows this many frames per element and this many operations
+    /// across them. A trace that would exceed either after compaction is
+    /// dropped to snapshot semantics: exact bytes stay authoritative.
+    static let traceFrameLimit = 64
+    static let traceOperationLimit = 1024
+
+    /// Builds the record for a source intent. A multi-generation intent
+    /// (`intent.generations`) yields one frame per generation, each from the
+    /// root the previous generation produced, with operation keys
+    /// `edit-<frame>-<index>`; `compact` then merges adjacent frames of plain
+    /// edits (`compactTrace`). Only the final candidate's objects travel;
+    /// the authority reproduces intermediate roots by executing the frames.
     public init(change: String = UUID().uuidString, tree: String, basis: SourceAdmissionBasis,
-                graph: WireSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent) throws {
+                graph: WireSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent, compact: Bool = true) throws {
         try intent.validate()
         guard intent.basis.reference.tree.rawValue == tree else { throw Self.invalid("Wrong tree") }
         let parts = sourcePath.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        // A generation that changed nothing states nothing; the rest chain exactly.
+        let generations = (intent.generations.isEmpty ? [WorkspaceDocumentGeneration(patch: intent.patch, source: intent.source)] : intent.generations)
+            .filter { !$0.patch.edits.isEmpty }
         guard sourcePath.hasPrefix("/"), !parts.isEmpty,
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") && Data($0.utf8) == Data($0.precomposedStringWithCanonicalMapping.utf8) }),
-              !intent.patch.edits.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
+              !generations.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw Self.invalid("Duplicate basis object") }
-        let decoded = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+        var decoded = try WireObjectGraph.validate(graph, mode: .sparseFiles)
         var bytes = Dictionary(uniqueKeysWithValues: graph.objects.map { ($0.hash, $0.bytes) })
-        var file: String?
         func store(_ object: WireObject) throws -> String {
             let value = try WireObjectCodec.encode(object), hash = WireObjectCodec.hash(value)
             bytes[hash] = value
+            decoded[hash] = object
             return hash
         }
-        var replacedDirectories: [(base: String, result: String)] = []
-        func replace(_ hash: String, _ depth: Int) throws -> String {
+        // Directories along the path, by depth: their basis hash and the hash the final generation produced.
+        var baseDirectories: [Int: String] = [:], resultDirectories: [Int: String] = [:]
+        var file: String?, basisFile: String?
+        func replace(_ hash: String, _ depth: Int, from previous: String, to source: String, first: Bool) throws -> String {
             guard case let .directory(originalEntries, descriptor)? = decoded[hash] else { throw Self.invalid("Source path is not in basis") }
             var entries = originalEntries
             // A directory without a stored body has empty source. Its first save
             // creates material, so publish a snapshot rather than editSource with
             // a fabricated empty-file identity.
             if depth == parts.count - 1, parts[depth] == "_index.md",
-               !entries.contains(where: { $0.name == parts[depth] }), intent.basis.source.isEmpty {
-                entries.append(WireDirectoryEntry(name: parts[depth], file: try store(.file(Data(intent.source.utf8)))))
+               !entries.contains(where: { $0.name == parts[depth] }), previous.isEmpty {
+                entries.append(WireDirectoryEntry(name: parts[depth], file: try store(.file(Data(source.utf8)))))
                 entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
                 return try store(.directory(entries, childrenSource: descriptor))
             }
             guard let index = entries.firstIndex(where: { $0.name == parts[depth] }) else { throw Self.invalid("Source path is not in basis") }
             if depth == parts.count - 1 {
-                guard let source = entries[index].file, case let .file(value)? = decoded[source],
-                      value == Data(intent.basis.source.utf8) else { throw Self.invalid("Source bytes do not match basis") }
-                file = source
-                entries[index].file = try store(.file(Data(intent.source.utf8)))
+                guard let current = entries[index].file, case let .file(value)? = decoded[current],
+                      value == Data(previous.utf8) else { throw Self.invalid("Source bytes do not match basis") }
+                file = current
+                entries[index].file = try store(.file(Data(source.utf8)))
             } else {
                 guard let directory = entries[index].directory else { throw Self.invalid("Source path crosses a file or tree boundary") }
-                entries[index].directory = try replace(directory, depth + 1)
+                entries[index].directory = try replace(directory, depth + 1, from: previous, to: source, first: first)
             }
             let result = try store(.directory(entries, childrenSource: descriptor))
-            replacedDirectories.append((hash, result))
+            if first { baseDirectories[depth] = hash }
+            resultDirectories[depth] = result
             return result
         }
-        let root = try replace(graph.root, 0)
-        var reachable = Set<String>()
-        func visit(_ hash: String, _ kind: WireEntryKind) throws {
-            guard reachable.insert(hash).inserted, let value = bytes[hash] else { return }
-            if case let .directory(entries, _) = try WireObjectCodec.decode(value, kind: kind) {
-                for entry in entries { if let child = entry.hash, let kind = entry.kind { try visit(child, kind) } }
-            }
-        }
-        try visit(root, .directory)
-        let candidate = WireSnapshot(root: root, objects: reachable.sorted().compactMap { hash in bytes[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } })
-        _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
-        func copyMaterial(_ copy: WorkspaceSourceLineage) throws -> WireSemanticValue {
+        func copyMaterial(_ copy: WorkspaceSourceLineage, file: String) throws -> WireSemanticValue {
             guard let document = copy.document else {
-                return .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file!)])
+                return .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
             }
             let parts = document.path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
             guard document.path.hasPrefix("/"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { throw Self.invalid("Invalid copy path") }
+            // Other documents are untouched by this record, so their basis
+            // object is the same in every frame's `before` tree.
             var hash = graph.root
             for (index, part) in parts.enumerated() {
                 guard case let .directory(entries, _)? = decoded[hash], let entry = entries.first(where: { $0.name == part }) else { throw Self.invalid("Copy source missing from basis") }
@@ -129,67 +138,104 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             }
             throw Self.invalid("Invalid copy source")
         }
-        var operations = try Self.operationEdits(intent.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
-            // Byte-valid output alone does not prove scalar-aligned selection.
-            let source = Array(intent.basis.source.utf8)
-            for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
-                if offset < source.count && source[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
-            }
-            guard let file else { return [] }
-            if edit.utf8Range.isEmpty, let copies = edit.copies, copies.count == 1,
-               copies[0].replacement == 0..<edit.replacement.utf8.count {
-                let material: WireSemanticValue = .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
-                return [try WireSourceOperation(["key":.string("copy-\(index)-0"),"kind":.string("copySource"),
-                    "source":.object(["material":try copyMaterial(copies[0]),"range":.array([.integer(copies[0].source.lowerBound),.integer(copies[0].source.upperBound)])]),
-                    "at":.object(["material":material,"range":.array([.integer(edit.utf8Range.lowerBound),.integer(edit.utf8Range.lowerBound)])]),"side":.string("before")])]
-            }
-            var fields: [String: WireSemanticValue] = [
-                "key": .string("edit-\(index)"), "kind": .string("editSource"),
-                "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
-                                   "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
-                "text": .string(edit.replacement)
-            ]
-            if let lineage = edit.lineage {
-                fields["lineage"] = .array(lineage.map { part in .object([
+        var frames: [WireTraceFrame] = []
+        var sources: [String: String] = [graph.root: intent.basis.source]
+        var previousRoot = graph.root, previousSource = intent.basis.source
+        var evidence = true
+        for (frame, generation) in generations.enumerated() {
+            file = nil
+            let root = try replace(previousRoot, 0, from: previousSource, to: generation.source, first: frame == 0)
+            if frame == 0 { basisFile = file }
+            sources[root] = generation.source
+            let basisSource = Array(previousSource.utf8)
+            let operations = try Self.operationEdits(generation.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
+                // Byte-valid output alone does not prove scalar-aligned selection.
+                for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
+                    if offset < basisSource.count && basisSource[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
+                }
+                guard let file else { return [] }
+                let key = "edit-\(frame)-\(index)"
+                if edit.utf8Range.isEmpty, let copies = edit.copies, copies.count == 1,
+                   copies[0].replacement == 0..<edit.replacement.utf8.count {
+                    let material: WireSemanticValue = .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
+                    return [try WireSourceOperation(["key":.string("copy-\(frame)-\(index)-0"),"kind":.string("copySource"),
+                        "source":.object(["material":try copyMaterial(copies[0], file: file),"range":.array([.integer(copies[0].source.lowerBound),.integer(copies[0].source.upperBound)])]),
+                        "at":.object(["material":material,"range":.array([.integer(edit.utf8Range.lowerBound),.integer(edit.utf8Range.lowerBound)])]),"side":.string("before")])]
+                }
+                var fields: [String: WireSemanticValue] = [
+                    "key": .string(key), "kind": .string("editSource"),
                     "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
-                                       "range": .array([.integer(part.source.lowerBound), .integer(part.source.upperBound)])]),
-                    "range": .array([.integer(part.replacement.lowerBound), .integer(part.replacement.upperBound)])
-                ]) })
+                                       "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
+                    "text": .string(edit.replacement)
+                ]
+                if let lineage = edit.lineage {
+                    fields["lineage"] = .array(lineage.map { part in .object([
+                        "source": .object(["material": .object(["kind": .string("basis"), "path": .string(sourcePath), "object": .string(file)]),
+                                           "range": .array([.integer(part.source.lowerBound), .integer(part.source.upperBound)])]),
+                        "range": .array([.integer(part.replacement.lowerBound), .integer(part.replacement.upperBound)])
+                    ]) })
+                }
+                var operations = [try WireSourceOperation(fields)]
+                for (copyIndex, copy) in (edit.copies ?? []).enumerated() {
+                    let target: WireSemanticValue = .object([
+                        "material":.object(["kind":.string("operation"),"change":.string(change),"operation":.string(key)]),
+                        "range":.array([.integer(copy.replacement.lowerBound),.integer(copy.replacement.upperBound)])])
+                    let source: WireSemanticValue = .object([
+                        "material":try copyMaterial(copy, file: file),
+                        "range":.array([.integer(copy.source.lowerBound),.integer(copy.source.upperBound)])])
+                    operations.append(try WireSourceOperation(["key":.string("copy-\(frame)-\(index)-\(copyIndex)"),"kind":.string("copySource"),"source":source,"at":target,"side":.string("before")]))
+                    operations.append(try WireSourceOperation(["key":.string("copy-placeholder-\(frame)-\(index)-\(copyIndex)"),"kind":.string("editSource"),"source":target,"text":.string("")]))
+                }
+                return operations
             }
-            var operations = [try WireSourceOperation(fields)]
-            for (copyIndex, copy) in (edit.copies ?? []).enumerated() {
-                let target: WireSemanticValue = .object([
-                    "material":.object(["kind":.string("operation"),"change":.string(change),"operation":.string("edit-\(index)")]),
-                    "range":.array([.integer(copy.replacement.lowerBound),.integer(copy.replacement.upperBound)])])
-                let source: WireSemanticValue = .object([
-                    "material":try copyMaterial(copy),
-                    "range":.array([.integer(copy.source.lowerBound),.integer(copy.source.upperBound)])])
-                operations.append(try WireSourceOperation(["key":.string("copy-\(index)-\(copyIndex)"),"kind":.string("copySource"),"source":source,"at":target,"side":.string("before")]))
-                operations.append(try WireSourceOperation(["key":.string("copy-placeholder-\(index)-\(copyIndex)"),"kind":.string("editSource"),"source":target,"text":.string("")]))
-            }
-            return operations
+            // A generation without operations (the first body of a directory)
+            // cannot be a frame; the whole record is then a snapshot.
+            if file == nil || operations.isEmpty { evidence = false }
+            frames.append(WireTraceFrame(before: previousRoot, after: root, operations: operations))
+            previousRoot = root; previousSource = generation.source
         }
+        let root = previousRoot
+        var reachable = Set<String>()
+        func visit(_ hash: String, _ kind: WireEntryKind) throws {
+            guard reachable.insert(hash).inserted, let value = bytes[hash] else { return }
+            if case let .directory(entries, _) = try WireObjectCodec.decode(value, kind: kind) {
+                for entry in entries { if let child = entry.hash, let kind = entry.kind { try visit(child, kind) } }
+            }
+        }
+        try visit(root, .directory)
+        let candidate = WireSnapshot(root: root, objects: reachable.sorted().compactMap { hash in bytes[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } })
+        _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
+        if evidence, compact {
+            // A compacted frame is proven against the generation sources it
+            // spans before it replaces the chain; otherwise the chain stays.
+            let compacted = Self.compactTrace(frames)
+            if compacted.allSatisfy({ frame in Self.reproduces(frame, sourcePath: sourcePath, sources: sources) }) { frames = compacted }
+        }
+        if frames.count > Self.traceFrameLimit || frames.reduce(0, { $0 + $1.operations.count }) > Self.traceOperationLimit { evidence = false }
         let known = Set(graph.objects.map(\.hash))
-        // One frame for this generation: from the basis graph's root to the
-        // root it produced. Phase 3 emits one frame per coalesced generation.
         var update = WireCandidateUpdate(candidate: root, change: change,
-                                         trace: file == nil || operations.isEmpty ? nil : [WireTraceFrame(before: graph.root, after: root, operations: operations)],
+                                         trace: evidence && !frames.isEmpty ? frames : nil,
                                          objects: candidate.objects.filter { !known.contains($0.hash) })
         // Against an accepted basis the server can rebuild the edited file from
         // its retained base, so send the patch as a delta rather than the file.
-        // A chained authored basis is not retained server-side; its file goes whole.
+        // A chained authored basis is not retained server-side when Canopy
+        // preflights the request (its delta bases are resolved against the
+        // accepted base root before the request's own objects are stored),
+        // so its file goes whole.
         if case .accepted = basis {
             var deltas: [WireObjectDelta] = []
-            if let file, let resultHash = (try? WireObjectCodec.encode(.file(Data(intent.source.utf8)))).map(WireObjectCodec.hash),
+            if let file = basisFile,
+               let resultHash = (try? WireObjectCodec.encode(.file(Data(intent.source.utf8)))).map(WireObjectCodec.hash),
                let result = update.objects.first(where: { $0.hash == resultHash }),
                let delta = Self.delta(baseHash: file, baseSource: intent.basis.source, edits: intent.patch.edits, result: result) {
                 deltas.append(delta)
             }
             // Directories along the path change hash on every edit but differ
             // from their base in one entry; send those as splices too.
-            for pair in replacedDirectories where pair.base != pair.result {
-                guard let baseBytes = bytes[pair.base], let resultObject = update.objects.first(where: { $0.hash == pair.result }),
-                      let delta = Self.spliceDelta(baseHash: pair.base, base: baseBytes, result: resultObject) else { continue }
+            for (depth, base) in baseDirectories.sorted(by: { $0.key < $1.key }) {
+                guard let result = resultDirectories[depth], base != result,
+                      let baseBytes = bytes[base], let resultObject = update.objects.first(where: { $0.hash == result }),
+                      let delta = Self.spliceDelta(baseHash: base, base: baseBytes, result: resultObject) else { continue }
                 deltas.append(delta)
             }
             let replaced = Set(deltas.map(\.result))
@@ -202,6 +248,69 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
         self.sourcePath = sourcePath; self.candidate = candidate; self.update = update
         self.document = SourceDocumentCapture(reference: intent.basis.reference, basisRevision: intent.basis.contentRevision, intentDigest: Self.intentDigest(intent))
+    }
+
+    /// A frame is plain when every operation is a lineage-free `editSource`
+    /// over `basis` material of one path with a range: what `compose` handles.
+    private static func plainEdits(_ frame: WireTraceFrame) -> (path: String, object: String, edits: [WorkspaceSourceEdit])? {
+        var path: String?, object: String?, edits: [WorkspaceSourceEdit] = []
+        for operation in frame.operations {
+            guard operation.kind == "editSource", operation.fields["lineage"] == nil || operation.fields["lineage"] == .array([]),
+                  case let .object(source)? = operation.fields["source"], source["within"] == nil,
+                  case let .object(material)? = source["material"], material["kind"] == .string("basis"),
+                  case let .string(materialPath)? = material["path"], case let .string(materialObject)? = material["object"],
+                  case let .array(range)? = source["range"], range.count == 2,
+                  case let .integer(lower) = range[0], case let .integer(upper) = range[1],
+                  case let .string(text)? = operation.fields["text"],
+                  path == nil || path == materialPath, object == nil || object == materialObject else { return nil }
+            path = materialPath; object = materialObject
+            edits.append(WorkspaceSourceEdit(utf8Range: lower..<upper, replacement: text))
+        }
+        guard let path, let object else { return nil }
+        return (path, object, edits.sorted { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound })
+    }
+
+    /// Merges runs of adjacent plain frames over one path into one frame each,
+    /// by `WorkspaceSourceEdit.compose`: the merged frame runs from the first
+    /// frame's `before` to the last frame's `after`, names the path's object in
+    /// the first frame, and keys its operations `edit-<k>-<i>` where `k` is the
+    /// first frame's index in `frames`. A run that ends at the root it started
+    /// from changed nothing and yields no frame. Frames with lineage, copies or
+    /// operation material are kept as they are, so a claim always stays in the
+    /// frame whose basis it was captured against (spec/09). The same rule runs
+    /// in `@arbor/canopy-client` and in Canopy's `composeFrames`.
+    public static func compactTrace(_ frames: [WireTraceFrame]) -> [WireTraceFrame] {
+        var result: [WireTraceFrame] = []
+        var index = 0
+        while index < frames.count {
+            guard let first = plainEdits(frames[index]) else { result.append(frames[index]); index += 1; continue }
+            var end = index + 1, generations = [first.edits]
+            while end < frames.count, let next = plainEdits(frames[end]), next.path == first.path { generations.append(next.edits); end += 1 }
+            let before = frames[index].before, after = frames[end - 1].after
+            if end - index == 1 { result.append(frames[index]) }
+            else if before == after { /* a plain run back to its start states nothing */ }
+            else if let composed = try? WorkspaceSourceEdit.compose(generations: generations) {
+                let operations = composed.enumerated().compactMap { i, edit in
+                    try? WireSourceOperation(["key": .string("edit-\(index)-\(i)"), "kind": .string("editSource"),
+                        "source": .object(["material": .object(["kind": .string("basis"), "path": .string(first.path), "object": .string(first.object)]),
+                                           "range": .array([.integer(edit.utf8Range.lowerBound), .integer(edit.utf8Range.upperBound)])]),
+                        "text": .string(edit.replacement)])
+                }
+                if operations.count == composed.count, !operations.isEmpty { result.append(WireTraceFrame(before: before, after: after, operations: operations)) }
+                else { result.append(contentsOf: frames[index..<end]) }
+            } else { result.append(contentsOf: frames[index..<end]) }
+            index = end
+        }
+        return result
+    }
+
+    /// Whether a plain frame's operations take the source at its `before`
+    /// root to the source at its `after` root; frames of other kinds pass.
+    private static func reproduces(_ frame: WireTraceFrame, sourcePath: String, sources: [String: String]) -> Bool {
+        guard let plain = plainEdits(frame), plain.path == sourcePath else { return true }
+        guard let before = sources[frame.before], let after = sources[frame.after],
+              let produced = try? WorkspaceDocumentPatch(baseContentRevision: "", edits: plain.edits).applying(to: before) else { return false }
+        return Data(produced.utf8) == Data(after.utf8)
     }
 
     /// A common-prefix/common-suffix splice for a byte object whose base is
@@ -809,8 +918,10 @@ public struct CapturedSourceAdmissionBasis: Sendable {
     public let accepted: WireUpdateBase?
     public let sourcePath: String
 
+    /// `compact` merges adjacent plain frames of a multi-generation intent
+    /// (`SourceAdmissionRecord.compactTrace`); tests pass `false` to compare.
     public func prepare(intent: WorkspaceDocumentIntent, predecessor: String? = nil,
-                        change: String = UUID().uuidString) throws -> SourceAdmissionRecord {
+                        change: String = UUID().uuidString, compact: Bool = true) throws -> SourceAdmissionRecord {
         guard intent.basis.reference == document.reference,
               intent.basis.contentRevision == document.contentRevision,
               Data(intent.basis.source.utf8) == Data(document.source.utf8) else {
@@ -824,7 +935,7 @@ public struct CapturedSourceAdmissionBasis: Sendable {
         else if let predecessor { basis = .authored(change: predecessor) }
         else { throw ArborWireValidationError.invalidValue("Unaccepted basis requires an explicit authored predecessor") }
         return try SourceAdmissionRecord(change: change, tree: document.reference.tree.rawValue,
-                                         basis: basis, graph: graph, sourcePath: sourcePath, intent: intent)
+                                         basis: basis, graph: graph, sourcePath: sourcePath, intent: intent, compact: compact)
     }
 }
 

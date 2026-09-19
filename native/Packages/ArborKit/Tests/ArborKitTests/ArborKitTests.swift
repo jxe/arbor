@@ -78,6 +78,30 @@ struct WorkspaceCoordinatorTests {
         #expect(throws: (any Error).self) { try WorkspaceDocumentIntent(basis: basis, patch: whole, source: "After!", generations: [second, first]) }
     }
 
+    @Test("Plain generations compose by range into one generation over the original")
+    func composePlainGenerations() throws {
+        func chain(_ source: String, _ generations: [[WorkspaceSourceEdit]]) throws -> [(Range<Int>, String)] {
+            var current = source
+            for edits in generations { current = try WorkspaceDocumentPatch(baseContentRevision: "r", edits: edits).applying(to: current) }
+            let composed = try WorkspaceSourceEdit.compose(generations: generations)
+            #expect(try WorkspaceDocumentPatch(baseContentRevision: "r", edits: composed).applying(to: source) == current)
+            return composed.map { ($0.utf8Range, $0.replacement) }
+        }
+        let burst = try chain("Before 🪴\r\n", [[.init(utf8Range: 0..<0, replacement: "A")], [.init(utf8Range: 1..<1, replacement: "B")], [.init(utf8Range: 2..<8, replacement: "After")]])
+        #expect(burst.map(\.0) == [0..<6] && burst.map(\.1) == ["ABAfter"])
+        let split = try chain("Before plant", [[.init(utf8Range: 0..<6, replacement: "Start")], [.init(utf8Range: 1..<3, replacement: "TA"), .init(utf8Range: 10..<11, replacement: "T!")]])
+        #expect(split.map(\.0) == [0..<6, 11..<12] && split.map(\.1) == ["STArt", "T!"])
+        #expect(try chain("abc", [[.init(utf8Range: 0..<0, replacement: "X")], [.init(utf8Range: 0..<1, replacement: "")]]).isEmpty)
+        let tail = try chain("Before 🪴\r\n", [[.init(utf8Range: 13..<13, replacement: "Z")], [.init(utf8Range: 7..<11, replacement: "")]])
+        #expect(tail.map(\.0) == [7..<11, 13..<13] && tail.map(\.1) == ["", "Z"])
+        let merged = try chain("ab", [[.init(utf8Range: 1..<1, replacement: "x"), .init(utf8Range: 1..<1, replacement: "y")], [.init(utf8Range: 3..<3, replacement: "z"), .init(utf8Range: 3..<4, replacement: "B")]])
+        #expect(merged.map(\.0) == [1..<2] && merged.map(\.1) == ["xyzB"])
+        #expect(throws: (any Error).self) { try WorkspaceSourceEdit.compose(generations: [[.init(utf8Range: 2..<3, replacement: ""), .init(utf8Range: 1..<1, replacement: "x")]]) }
+        #expect(throws: (any Error).self) {
+            try WorkspaceSourceEdit.compose(generations: [[.init(utf8Range: 0..<1, replacement: "a", lineage: [.init(source: 0..<1, replacement: 0..<1)])]])
+        }
+    }
+
     @Test("Range-guarded source patches preserve untouched UTF-8 bytes")
     func sourcePatch() throws {
         let source = "---\r\nid: pg_patch\r\n---\r\n\r\n# Héllo\r\n\r\nKeep exactly.\r\n"

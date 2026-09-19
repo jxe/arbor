@@ -1,5 +1,5 @@
 {
-  "description": "Exact source admission queue: dependency identities survive equal roots, restart, and request preparation. Candidate/request bytes are checked by Swift and TypeScript.",
+  "description": "Exact source admission queue: dependency identities survive equal roots, restart, and request preparation; a multi-generation intent yields one frame per generation and compaction merges adjacent plain frames. Candidate, request and trace bytes are checked by Swift, TypeScript and Canopy's composeFrames.",
   "tree": "tr_queue",
   "sourcePath": "/nested/note.md",
   "source": "Before 🪴\r\n",
@@ -55,7 +55,7 @@
               "operations": [
                 {
                   "kind": "editSource",
-                  "key": "edit-0",
+                  "key": "edit-0-0",
                   "source": {
                     "material": {
                       "kind": "basis",
@@ -104,7 +104,7 @@
               "operations": [
                 {
                   "kind": "editSource",
-                  "key": "edit-0",
+                  "key": "edit-0-0",
                   "source": {
                     "material": {
                       "kind": "basis",
@@ -148,7 +148,7 @@
               "operations": [
                 {
                   "kind": "editSource",
-                  "key": "edit-0",
+                  "key": "edit-0-0",
                   "source": {
                     "material": {
                       "kind": "basis",
@@ -184,7 +184,7 @@
               "operations": [
                 {
                   "kind": "editSource",
-                  "key": "edit-0",
+                  "key": "edit-0-0",
                   "source": {
                     "material": {
                       "kind": "basis",
@@ -220,5 +220,819 @@
         }
       ]
     }
-  }
+  },
+  "traces": [
+    {
+      "name": "typing burst compacts to one plain frame",
+      "generations": [
+        [
+          {
+            "offset": 0,
+            "length": 0,
+            "replacement": "A"
+          }
+        ],
+        [
+          {
+            "offset": 1,
+            "length": 0,
+            "replacement": "B"
+          }
+        ],
+        [
+          {
+            "offset": 2,
+            "length": 6,
+            "replacement": "After"
+          }
+        ]
+      ],
+      "source": "ABAfter 🪴\r\n",
+      "frames": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:a2d4b967c84829c74d7495957963fc507344e200557dd7eb2634b7b5304bbd62",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  0
+                ]
+              },
+              "text": "A"
+            }
+          ]
+        },
+        {
+          "before": "sha256:a2d4b967c84829c74d7495957963fc507344e200557dd7eb2634b7b5304bbd62",
+          "after": "sha256:646b63adffef3914c936f1c0fd90938a9244d276d1555faad4816e6eed06833c",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-1-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:1a053fe762fae97202bcc373234ce2127f6cad70a18a4f6566755c91a6089d1a"
+                },
+                "range": [
+                  1,
+                  1
+                ]
+              },
+              "text": "B"
+            }
+          ]
+        },
+        {
+          "before": "sha256:646b63adffef3914c936f1c0fd90938a9244d276d1555faad4816e6eed06833c",
+          "after": "sha256:87cd46f08e77b9a7563e8b7d79742f7c9df2c70c1769c5eddfecafc26ab29d5e",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-2-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:191c9a789f9694917f0c94521c5cda94248ddb69a11a446cc9c1f0ab1e23babd"
+                },
+                "range": [
+                  2,
+                  8
+                ]
+              },
+              "text": "After"
+            }
+          ]
+        }
+      ],
+      "compacted": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:87cd46f08e77b9a7563e8b7d79742f7c9df2c70c1769c5eddfecafc26ab29d5e",
+          "operations": [
+            {
+              "key": "edit-0-0",
+              "kind": "editSource",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "ABAfter"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "edits inside an earlier insertion split it; the tail and an emoji delete compose",
+      "generations": [
+        [
+          {
+            "offset": 0,
+            "length": 6,
+            "replacement": "Start"
+          },
+          {
+            "offset": 13,
+            "length": 0,
+            "replacement": "Z"
+          }
+        ],
+        [
+          {
+            "offset": 1,
+            "length": 2,
+            "replacement": "TA"
+          },
+          {
+            "offset": 6,
+            "length": 4,
+            "replacement": ""
+          }
+        ]
+      ],
+      "source": "STArt \r\nZ",
+      "frames": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:ffc4a2ecb6224537e556ee501aa1029f94ed3f7a397428555ea10a18db9df81e",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "Start"
+            },
+            {
+              "kind": "editSource",
+              "key": "edit-0-1",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  13,
+                  13
+                ]
+              },
+              "text": "Z"
+            }
+          ]
+        },
+        {
+          "before": "sha256:ffc4a2ecb6224537e556ee501aa1029f94ed3f7a397428555ea10a18db9df81e",
+          "after": "sha256:719887f5879b378cc5c612fd34cb0814007da5390faf495aae4c450c0875f9f1",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-1-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:00d1ee0b32bd6b7a740bfba4fc686a718060a64fdb940bb596339ee4d31e0194"
+                },
+                "range": [
+                  1,
+                  3
+                ]
+              },
+              "text": "TA"
+            },
+            {
+              "kind": "editSource",
+              "key": "edit-1-1",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:00d1ee0b32bd6b7a740bfba4fc686a718060a64fdb940bb596339ee4d31e0194"
+                },
+                "range": [
+                  6,
+                  10
+                ]
+              },
+              "text": ""
+            }
+          ]
+        }
+      ],
+      "compacted": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:719887f5879b378cc5c612fd34cb0814007da5390faf495aae4c450c0875f9f1",
+          "operations": [
+            {
+              "key": "edit-0-0",
+              "kind": "editSource",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "STArt"
+            },
+            {
+              "key": "edit-0-1",
+              "kind": "editSource",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  7,
+                  11
+                ]
+              },
+              "text": ""
+            },
+            {
+              "key": "edit-0-2",
+              "kind": "editSource",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  13,
+                  13
+                ]
+              },
+              "text": "Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a run back to its start states nothing",
+      "generations": [
+        [
+          {
+            "offset": 0,
+            "length": 0,
+            "replacement": "X"
+          }
+        ],
+        [
+          {
+            "offset": 0,
+            "length": 1,
+            "replacement": ""
+          }
+        ]
+      ],
+      "source": "Before 🪴\r\n",
+      "frames": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:a9400f045b03f94e4319a765624d0bcfa285cf6996ad7ab23c24b250aeb82915",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  0
+                ]
+              },
+              "text": "X"
+            }
+          ]
+        },
+        {
+          "before": "sha256:a9400f045b03f94e4319a765624d0bcfa285cf6996ad7ab23c24b250aeb82915",
+          "after": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-1-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:440390e20b75d9442b9bbdc099582fb8a72490e1c4d2160782d6697b2c29a849"
+                },
+                "range": [
+                  0,
+                  1
+                ]
+              },
+              "text": ""
+            }
+          ]
+        }
+      ],
+      "compacted": null
+    },
+    {
+      "name": "lineage keeps its own frame after a compacted plain run",
+      "generations": [
+        [
+          {
+            "offset": 0,
+            "length": 6,
+            "replacement": "After"
+          }
+        ],
+        [
+          {
+            "offset": 5,
+            "length": 0,
+            "replacement": "!"
+          }
+        ],
+        [
+          {
+            "offset": 0,
+            "length": 6,
+            "replacement": "Later!",
+            "lineage": [
+              {
+                "source": [
+                  5,
+                  6
+                ],
+                "replacement": [
+                  5,
+                  6
+                ]
+              }
+            ]
+          }
+        ]
+      ],
+      "source": "Later! 🪴\r\n",
+      "frames": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "After"
+            }
+          ]
+        },
+        {
+          "before": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+          "after": "sha256:73a1319e0ae979559cce2b4009d48f20a0c6640fe022680f26cc9ff8f832f022",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-1-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2"
+                },
+                "range": [
+                  5,
+                  5
+                ]
+              },
+              "text": "!"
+            }
+          ]
+        },
+        {
+          "before": "sha256:73a1319e0ae979559cce2b4009d48f20a0c6640fe022680f26cc9ff8f832f022",
+          "after": "sha256:c1a4927e36b671283e8b7dded407e040eeaeafc88d96ec9e571cb6f5599366ac",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-2-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "Later!",
+              "lineage": [
+                {
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
+                    },
+                    "range": [
+                      5,
+                      6
+                    ]
+                  },
+                  "range": [
+                    5,
+                    6
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "compacted": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:73a1319e0ae979559cce2b4009d48f20a0c6640fe022680f26cc9ff8f832f022",
+          "operations": [
+            {
+              "key": "edit-0-0",
+              "kind": "editSource",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "After!"
+            }
+          ]
+        },
+        {
+          "before": "sha256:73a1319e0ae979559cce2b4009d48f20a0c6640fe022680f26cc9ff8f832f022",
+          "after": "sha256:c1a4927e36b671283e8b7dded407e040eeaeafc88d96ec9e571cb6f5599366ac",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-2-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "Later!",
+              "lineage": [
+                {
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
+                    },
+                    "range": [
+                      5,
+                      6
+                    ]
+                  },
+                  "range": [
+                    5,
+                    6
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "plain frames on both sides of lineage compact separately",
+      "generations": [
+        [
+          {
+            "offset": 0,
+            "length": 6,
+            "replacement": "One"
+          }
+        ],
+        [
+          {
+            "offset": 3,
+            "length": 0,
+            "replacement": " two"
+          }
+        ],
+        [
+          {
+            "offset": 0,
+            "length": 7,
+            "replacement": "One two!",
+            "lineage": [
+              {
+                "source": [
+                  0,
+                  7
+                ],
+                "replacement": [
+                  0,
+                  7
+                ]
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "offset": 8,
+            "length": 0,
+            "replacement": " three"
+          }
+        ],
+        [
+          {
+            "offset": 14,
+            "length": 0,
+            "replacement": " four"
+          }
+        ]
+      ],
+      "source": "One two! three four 🪴\r\n",
+      "frames": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:8ca3fec13ea2078c9f2d2948420a475f626c1f12b48089bf092f3d7e353fd74e",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-0-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "One"
+            }
+          ]
+        },
+        {
+          "before": "sha256:8ca3fec13ea2078c9f2d2948420a475f626c1f12b48089bf092f3d7e353fd74e",
+          "after": "sha256:e17d9fced85760cf21976f76859dbce7a2414e3e91dc763bbf4799ecf72f2f65",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-1-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:208280a017d5dc93a16cb812064916b0105d55924684c58cfde38f203169acf7"
+                },
+                "range": [
+                  3,
+                  3
+                ]
+              },
+              "text": " two"
+            }
+          ]
+        },
+        {
+          "before": "sha256:e17d9fced85760cf21976f76859dbce7a2414e3e91dc763bbf4799ecf72f2f65",
+          "after": "sha256:88b1130bab3c6f1e73c3c0edd91de5a740225dced344e82b6b77ff21e77e9b55",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-2-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              },
+              "text": "One two!",
+              "lineage": [
+                {
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
+                    },
+                    "range": [
+                      0,
+                      7
+                    ]
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "before": "sha256:88b1130bab3c6f1e73c3c0edd91de5a740225dced344e82b6b77ff21e77e9b55",
+          "after": "sha256:792fcae70194b1eea2ebbcc30539543754559c3810512b57eab1c2056bd87c6e",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-3-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:a57de3aadf8161d1ffd2eddb4de704e31b62f42b87302dc330072eace06c9184"
+                },
+                "range": [
+                  8,
+                  8
+                ]
+              },
+              "text": " three"
+            }
+          ]
+        },
+        {
+          "before": "sha256:792fcae70194b1eea2ebbcc30539543754559c3810512b57eab1c2056bd87c6e",
+          "after": "sha256:634cd048b184ae4f7c6c3eec5316ef295803be54d3729958d0ce1d6cf46a5778",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-4-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:dec4312b35b38028b267adce227662a1347c2d3792e06c9f5504f2d80b90f2c1"
+                },
+                "range": [
+                  14,
+                  14
+                ]
+              },
+              "text": " four"
+            }
+          ]
+        }
+      ],
+      "compacted": [
+        {
+          "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+          "after": "sha256:e17d9fced85760cf21976f76859dbce7a2414e3e91dc763bbf4799ecf72f2f65",
+          "operations": [
+            {
+              "key": "edit-0-0",
+              "kind": "editSource",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                },
+                "range": [
+                  0,
+                  6
+                ]
+              },
+              "text": "One two"
+            }
+          ]
+        },
+        {
+          "before": "sha256:e17d9fced85760cf21976f76859dbce7a2414e3e91dc763bbf4799ecf72f2f65",
+          "after": "sha256:88b1130bab3c6f1e73c3c0edd91de5a740225dced344e82b6b77ff21e77e9b55",
+          "operations": [
+            {
+              "kind": "editSource",
+              "key": "edit-2-0",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
+                },
+                "range": [
+                  0,
+                  7
+                ]
+              },
+              "text": "One two!",
+              "lineage": [
+                {
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
+                    },
+                    "range": [
+                      0,
+                      7
+                    ]
+                  },
+                  "range": [
+                    0,
+                    7
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "before": "sha256:88b1130bab3c6f1e73c3c0edd91de5a740225dced344e82b6b77ff21e77e9b55",
+          "after": "sha256:634cd048b184ae4f7c6c3eec5316ef295803be54d3729958d0ce1d6cf46a5778",
+          "operations": [
+            {
+              "key": "edit-3-0",
+              "kind": "editSource",
+              "source": {
+                "material": {
+                  "kind": "basis",
+                  "path": "/nested/note.md",
+                  "object": "sha256:a57de3aadf8161d1ffd2eddb4de704e31b62f42b87302dc330072eace06c9184"
+                },
+                "range": [
+                  8,
+                  8
+                ]
+              },
+              "text": " three four"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
