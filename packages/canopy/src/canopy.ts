@@ -264,6 +264,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const databasePath = join(dataRoot, "canopy.sqlite3");
     const db = openCanopyDatabase(databasePath);
     const canopy = new CanopyDaemon(dataRoot, db, mergeTool);
+    if (!process.env.ARBOR_CANOPY_NO_WARMUP && process.env.NODE_ENV !== "test") canopy.warmSemanticStates();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
       await canopy.bootstrap(bootstrap);
@@ -2204,6 +2205,30 @@ export class CanopyDaemon implements AsyncDisposable {
 
   async object(hash: ObjectHash): Promise<Uint8Array> {
     return this.objects.read(hash);
+  }
+
+  /** Prime validation proofs and retention closures for every tree's current
+   * semantic state in the background, so the first edit after a restart does
+   * not pay the cold history walk. Failures are logged and never fatal. */
+  private warmSemanticStates(): void {
+    const started = performance.now();
+    const trees = (this.db.query("SELECT id FROM trees").all() as Array<{ id: string }>).map((row) => row.id);
+    void (async () => {
+      let warmed = 0;
+      for (const tree of trees) {
+        try {
+          const current = this.currentUpdate(tree);
+          const record = current ? this.semantic.store.get(current.id) : null;
+          if (!current || !record) continue;
+          const result = await this.mergeTool.warm(tree, { object: current.root, state: record.state });
+          warmed++;
+          if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm", tree, reads: result.reads, ms: Math.round(result.milliseconds) }));
+        } catch (error) {
+          if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm", tree, error: error instanceof Error ? error.message : String(error) }));
+        }
+      }
+      if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm-done", trees: warmed, ms: Math.round(performance.now() - started) }));
+    })();
   }
 
   /** Snapshot of cumulative object read/write counters, for request diagnostics. */

@@ -99,6 +99,29 @@ export class MergeTool {
     });
   }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
+
+  /** Validate one accepted state and its retention ahead of any request, so the
+   * first edit after a restart finds warm history proofs and closures. Nothing
+   * here is trusted by later jobs beyond what a job would have cached itself. */
+  async warm(tree: string, ref: { object: string; state: string }): Promise<{ reads: number; milliseconds: number }> {
+    const started = performance.now();
+    const before = this.shared.readCounters.reads;
+    const key = JSON.stringify([tree, ref.object, ref.state]);
+    if (!this.validatedStates.has(key)) {
+      const { validateIntentState } = await import("../../merge/src/intent-engine.ts");
+      const dependencies = new Set<string>();
+      let stateBytes = 0, references: ReadonlySet<string> = new Set();
+      const material: ValidatedMaterial = new Map();
+      const state = await validateIntentState(ref, tree, {
+        read: async (hash) => { dependencies.add(hash); return this.shared.read(hash); },
+        store: async () => {},
+      }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}}});
+      const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
+      this.rememberProof(key, {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references});
+    }
+    await this.verifyRetention([ref.state], new Map(), this.validatedStates, new Set());
+    return { reads: this.shared.readCounters.reads - before, milliseconds: performance.now() - started };
+  }
   private readonly shared: ObjectStore;
   private active = 0;
   private readonly waiting: Array<() => void> = [];

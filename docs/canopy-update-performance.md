@@ -72,6 +72,36 @@ it is not opened again. The requested output roots are never trusted, staged
 bytes are still re-read until durable, and the full integrity audit passes no
 trusted set and still walks everything.
 
+### Live attribution after the later deployments
+
+With the write path fixed, per-request cache counters showed why state
+validation stayed cold on the live server: live state proofs weigh about
+36 MB each, above the former 16 MB proof ceiling, so every proof was rejected
+and each request re-validated the state from scratch (about 7,200 object reads
+and 550 ms). Raising the ceilings (`ARBOR_STATE_PROOF_MB`, default 64;
+`ARBOR_HISTORY_CACHE_MB`, default 256) brought that phase to 17–50 ms.
+
+Worker-side timings, relayed over stderr from the persistent merge worker,
+then showed which evaluator path ran. On the production copy the exact-basis
+fast path declined because the copied tree carried one unresolved content
+decision, which sends every edit through the full evaluator and its complete
+history load (about 2,800 objects, 11.5 MB). The live tree has no such
+decision and takes the fast path. The worker now caches its immutable object
+reads as Canopy does.
+
+After these changes, live warm requests measured 180–320 ms end to end on the
+server, of which 25–115 ms is the client's request body arriving; the first
+edit after a restart measured 7.6 s, dominated by cold state validation and
+retention. Canopy now warms every tree's current semantic state in the
+background at startup (`ARBOR_CANOPY_NO_WARMUP` disables it), so a first edit
+that arrives after warm-up completes finds warm proofs. Locally, warming
+turned the first validation from 149 ms to 4 ms.
+
+Remaining warm server cost is spread across retention (45–70 ms), preflight
+object publication (about 30 ms of fsync), state validation (20–50 ms), and
+the worker (30–60 ms). Reaching the 100 ms target from here needs the
+retention walk and the worker's per-request state load to shrink further.
+
 ## Tree readers and watch catch-up
 
 Reader commit `13c78de` removes repeated work from reader endpoints without a
