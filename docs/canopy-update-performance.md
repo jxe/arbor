@@ -509,6 +509,22 @@ Phase 4 (lazy history) must not reintroduce a read set: `evidence.inputs` now
 names roots, and reproducibility follows from the deterministic rule, so a lazy
 evaluator that reads fewer pages changes nothing recorded.
 
+## Lazy history (plan 010 Phase 4, local bench, 2026-09-19)
+
+`bun tests/performance/merge-history.bench.ts`: one file, one-byte append per
+update, full evaluator (`incremental: false`), bytes read and wall time, eager
+reference vs the on-demand path. "Divergent" is an edit based four updates back
+merged into head; "live decision" is an edit on a head carrying one decision.
+
+| Updates | Divergent eager | Divergent lazy | Live decision eager | Live decision lazy |
+|---|---|---|---|---|
+| 16 | 72 KB, 8 ms | 34 KB, 3 ms | 83 KB, 8 ms | 16 KB, 2 ms |
+| 64 | 363 KB, 53 ms | 52 KB, 4 ms | 370 KB, 45 ms | 42 KB, 5 ms |
+| 256 | 1.51 MB, 691 ms | 95 KB, 12 ms | 1.51 MB, 526 ms | 145 KB, 36 ms |
+
+What the lazy path still grows by is the file: every append adds a piece, and
+each effect record carries its file's piece list. Live numbers are Phase 5.
+
 ## Verification
 
 The live TypeScript/Swift protocol gate passed, including real editor recovery,

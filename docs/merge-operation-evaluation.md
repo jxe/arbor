@@ -240,6 +240,37 @@ dependencies. Only grammar modules are cached; parsed trees are disposed after
 evaluation. Neither authored source nor parser IDs execute with host IO authority.
 Existing collection schema evaluation remains in the QuickJS sandbox.
 
+## History is read on demand
+
+Retained state has two parts: active material (nodes, decisions) and five
+history maps (`outputs`, `effects`, `origins`, `alternatives`, `changes`),
+each stored as a hash-partitioned map of immutable records. A state is marked
+`editable` when the evaluation that recorded it enforced every deletion in its
+effects map on its nodes: fast-path results, and full-evaluator results whose
+nodes are the authored or merged state. Transported results, results that keep
+the current nodes under `conflictProjection: "current"`, and checkpoint or
+imported states are not editable.
+
+When the base is editable, the full evaluator loads active material whole and
+history maps as read-through views:
+
+- It re-enforces only effects the base does not hold. Those are found by
+  diffing map roots, which skips identical buckets by hash; the base's own
+  deletions are already reflected in the nodes every branch starts from.
+- It loads up front what the request names: its change identity, its operation
+  identities, and the operation or alternative material it cites. It walks
+  origin chains before its bounded origin walks, and loads the effect of each
+  inserted piece before deciding whether an insertion is an attachment.
+- Reading a record that was not loaded is an evaluator error, never "absent".
+- Results are stored by path-copying the written buckets onto the loaded map.
+
+A base that is not editable takes the complete scan once; its result is
+editable from then on. The outcome is identical either way:
+`tests/unit/merge/lazy-history.test.ts` compares every accepted result, decision
+and operation list against an eager reference that reads and re-enforces all
+history (`mergeIntent(..., { eager: true })`). Authority validation in Canopy
+still reads whole states; making it lazy is Phase 5 of plan 010.
+
 ## Limits, staging and measurements
 
 Requests are bounded to 8 MiB at the CLI, with at most 1024 operations. The evaluator
