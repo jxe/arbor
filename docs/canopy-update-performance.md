@@ -525,6 +525,29 @@ merged into head; "live decision" is an edit on a head carrying one decision.
 What the lazy path still grows by is the file: every append adds a piece, and
 each effect record carries its file's piece list. Live numbers are Phase 5.
 
+## Retention by history map node (plan 010 Phase 5, replay, 2026-09-19)
+
+`bun tools/replay-update-cost.ts <copy>` on a copy of the post-013 live data
+(tree with 640 merge records), local Mac, milliseconds, two rounds each:
+
+| Case | Before: total / retention | After: total / retention |
+|---|---|---|
+| Fast-path edit | 120-134 / 16-22 | 123-132 / 16-22 |
+| Divergent edit (base 5 back) | 310-347 / 30-39 | 279-356 / 30-38 |
+| Edit creating a conflict | 714-721 / 571-586 | 178-652 / 64-502 |
+| Edit on a live decision | 644-685 / 551-557 | 152-158 / 41 |
+
+The retention walk now follows an unvalidated state's history as typed map
+nodes and remembers nodes whose whole closure was durable, so a new state that
+shares history (decision alternatives) is walked only where it differs. Exact
+closures of three real heads are unchanged (33,607-33,670 hashes, identical
+digests); a cold full walk of one head fell from about 46 s to 3.5-6 s.
+
+Remaining: the divergent case spends 120-140 ms validating a state authored on
+an older basis whose history pages are not in the validation cache, and the
+worker still reads about 10 MB when the base state predates Phase 4 or is a
+conflict result recorded with `conflictProjection: "current"` (not editable).
+
 ## Verification
 
 The live TypeScript/Swift protocol gate passed, including real editor recovery,
