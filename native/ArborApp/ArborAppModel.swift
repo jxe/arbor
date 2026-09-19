@@ -1715,8 +1715,13 @@ final class ArborAppModel {
     func goParent() async { retainCurrentPagePresentation(); tabs.goParent(); tabVersion += 1; await loadOrRestoreCurrentPage() }
     func goHome() async {
         guard let home = treeHomeLocation else { return }
+        await returnTo(home)
+    }
+
+    /// Pops back to `location` when it is already on the tab's trail, else pushes it.
+    func returnTo(_ location: WorkspaceLocation) async {
         retainCurrentPagePresentation()
-        tabs.goHome(to: home)
+        tabs.returnTo(location)
         tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
@@ -2132,7 +2137,7 @@ final class ArborAppModel {
                     session.reportError("The Home node must be a writable Arbor page before starting a Shortcut recording.")
                     return
                 }
-                await navigate(to: homeNode.reference)
+                await returnTo(location(for: homeNode.reference))
                 await session.start(destination: stableKey)
             } catch {
                 session.reportError("Arbor could not open Home for recording: \(error.localizedDescription)")

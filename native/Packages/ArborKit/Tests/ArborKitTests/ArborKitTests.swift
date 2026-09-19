@@ -191,8 +191,33 @@ struct BrowserTabControllerTests {
 
         controller.goHome(to: .reference(home))
         #expect(controller.selectedTab.current == .reference(home))
-        #expect(controller.navigationPath.last == .reference(home))
-        #expect(controller.canGoBack)
+        #expect(controller.navigationPath.isEmpty)
+        #expect(!controller.canGoBack)
+        controller.goForward()
+        #expect(controller.selectedTab.current == .reference(first))
+        controller.goForward()
+        #expect(controller.selectedTab.current == .reference(second))
+    }
+
+    @Test("Returning to a page on the trail pops instead of pushing")
+    func returnToPopsTrail() {
+        let home = WorkspaceReference(tree: "tr_sample", path: "/")
+        let pages = ["/a", "/b", "/c"].map { WorkspaceLocation.reference(.init(tree: "tr_sample", path: $0)) }
+        let controller = BrowserTabController(home: home)
+        pages.forEach(controller.navigate(to:))
+
+        controller.returnTo(pages[0])
+        #expect(controller.selectedTab.current == pages[0])
+        #expect(controller.navigationPath == [pages[0]])
+        #expect(controller.selectedTab.forward == [pages[2], pages[1]])
+
+        controller.returnTo(pages[0])
+        #expect(controller.navigationPath == [pages[0]])
+
+        let elsewhere = WorkspaceLocation.reference(.init(tree: "tr_sample", path: "/z"))
+        controller.returnTo(elsewhere)
+        #expect(controller.navigationPath == [pages[0], elsewhere])
+        #expect(!controller.canGoForward)
     }
 
     @Test("A PageID rename reconciles every trail without adding navigation")

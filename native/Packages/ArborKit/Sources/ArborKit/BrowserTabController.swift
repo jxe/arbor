@@ -109,7 +109,25 @@ public final class BrowserTabController {
         if let parent = selectedTab.current.parent { navigate(to: parent) }
     }
 
-    public func goHome(to location: WorkspaceLocation) { navigate(to: location) }
+    public func goHome(to location: WorkspaceLocation) { returnTo(location) }
+
+    /// Pops back to `location` when it is already on this tab's trail, as if
+    /// Back were pressed until it was reached; otherwise pushes it.
+    public func returnTo(_ location: WorkspaceLocation) {
+        mutateSelected { tab in
+            guard tab.current != location else { return }
+            guard let index = tab.back.lastIndex(of: location) else {
+                tab.back.append(tab.current)
+                tab.current = location
+                tab.forward.removeAll()
+                return
+            }
+            let popped = Array(tab.back[(index + 1)...]) + [tab.current]
+            tab.forward.append(contentsOf: popped.reversed())
+            tab.back.removeSubrange(index...)
+            tab.current = location
+        }
+    }
     public func setLaunchLocation(_ location: WorkspaceLocation) { launchLocation = location }
 
     public func replaceCurrent(with location: WorkspaceLocation) {
