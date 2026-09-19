@@ -15,7 +15,7 @@ an explicit resolution through Canopy. Review is optional work within the tree,
 not a failed-save dialog or a synchronization hold.
 
 This plan owns Native review, including the remaining contextual work previously
-specified in [004](../_done/reliability/004-contextual-canopy-conflict-resolution.md). Its old
+specified in 004 (completed plan, deleted; see git history). Its old
 rejected-candidate workflow is not the implementation model. Preserve relevant
 source-fidelity and crash-safety scenarios, not its retired client conflict machine.
 [008](008-complete-native-move-copy-undo-capture.md) owns operation support and client emission;

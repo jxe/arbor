@@ -1,7 +1,7 @@
 # Resource policy implementation checkpoint
 
 [Apps 004](../plans/apps/004-mutation-permissions.md) is deployed on schema 13.
-The [September 18 cutover](../migrations/011-resource-policy/README.md#september-18-live-cutover)
+The September 18 cutover (migration 011, deleted after cutover; see git history)
 converted the accepted and local configuration and installed matching Mac/iPhone
 clients. Runtime provider integration and the remaining interactive/soak gates below
 are still open.

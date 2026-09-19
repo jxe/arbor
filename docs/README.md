@@ -29,7 +29,6 @@ Arbor separates portable contracts, current implementation status, usage, produc
 ## Planning and history
 
 - [Active plans](../plans/README.md) — project indexes, maintenance themes, and unresolved questions.
-- [Completed evidence](../plans/_done/README.md) — completed, rejected, and superseded work.
 - [Notes](notes/social-networking.md) — exploratory arguments that are neither specification nor status.
 - [Archive](archive/arbord-projection-outline.md) — historical implementation outlines retained for context.
 

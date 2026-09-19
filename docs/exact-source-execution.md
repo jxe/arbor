@@ -23,9 +23,9 @@ Tree-scoped change identities cannot overwrite prior records. Equal-byte intent
 is retained, and snapshot commits leave that evidence untouched. Exact retries
 use the existing accepted-request receipt. The public acceptance path now supplies this evidence after validation.
 
-Schema 9 adds this table through [migration 007](../migrations/007-authored-changes/README.md).
+Schema 9 adds this table through migration 007 (migration 007, deleted after cutover; see git history).
 It preserves existing history without inferring operations. This server-only migration
-has disposable-database tests and a passing [fresh schema 8 → 11 live-copy rehearsal](../migrations/009-nested-conflict-locations/rehearsal.md), and the [live server cutover](../migrations/009-nested-conflict-locations/live-cutover.md) is complete.
+has disposable-database tests and a passing fresh schema 8 → 11 live-copy rehearsal (migration 009, deleted after cutover; see git history), and the live server cutover (migration 009, deleted after cutover; see git history) is complete.
 Owning accepted records are protected by a foreign key; basis and candidate roots
 are explicit retention dependencies included in integrity checking. Future compaction
 must retain those graphs and the operation records together.
@@ -108,7 +108,7 @@ not required.
 Extend correspondence beyond one shared accepted basis. The [whole-entry lifecycle](accepted-entry-conflicts.md) now connects durable alternatives, inspection and ordinary snapshot attribution. It also retains coupled ancestor changes. Extend it to independent range decisions without losing hidden work. Keep ordinary filesystem snapshot clients
 working without a new conflict-induced pause. Run mixed-client and arrival-order
 cases, then deploy and verify server support before editor emission. The current schema 11 server storage upgrade is required;
-[migration 009](../migrations/009-nested-conflict-locations/README.md) also covers
+migration 009 (migration 009, deleted after cutover; see git history) also covers
 older provenance storage. No coordinated client cutover is needed.
 
 The [operation plan](../plans/native/008-complete-native-move-copy-undo-capture.md) owns this

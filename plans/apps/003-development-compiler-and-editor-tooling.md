@@ -15,7 +15,7 @@
 - **State:** PLANNED — deliberately separated from Data 002 so the logical node
   protocol can close without choosing an editor integration architecture.
 - **Depends on:** historical
-  [Data 002](../_done/data/002-reconcile-node-data-model.md)'s
+  Data 002 (completed plan, deleted; see git history)'s
   provider-neutral node/query contracts and Apps 001's checked-in
   Supplies corpus.
 - **Blocks:** Apps 001 local/Canopy execution, Apps 002 hosted agents, and

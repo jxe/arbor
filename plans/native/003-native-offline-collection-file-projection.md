@@ -9,8 +9,8 @@ Historical identifier: **Smaller project 003**. The filename number is preserved
 - **State:** DEFERRED — specification and implementation begin only when native
   offline browsing of collection-file children becomes a product requirement.
 - **Depends on:** historical
-  [Data 002](../_done/data/002-reconcile-node-data-model.md), the
-  historical [Data 011](../_done/data/011-collection-file-wire.md) exact-source Wire shape, and the
+  Data 002 (completed plan, deleted; see git history), the
+  historical Data 011 (completed plan, deleted; see git history) exact-source Wire shape, and the
   shared authored-code execution decisions made by Apps 003.
 
 ## Target result

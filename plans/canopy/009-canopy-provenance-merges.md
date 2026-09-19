@@ -4,12 +4,12 @@ Historical identifier: **Reliability 009**. The filename number is preserved; th
 
 Status: PARTIAL. The eight-operation authority integration is on main and deployed.
 See the [integration checkpoint](../../docs/merge-authority-integration.md) and
-[live cutover](../../migrations/010-merge-state/live-cutover.md) for completed work.
+live cutover (migration 010, deleted after cutover; see git history) for completed work.
 This plan contains only remaining work.
 
 [008](../native/008-complete-native-move-copy-undo-capture.md) owns client capture/submission;
 [010](../native/010-client-conflict-review.md) owns review. The tool's operation/language
-milestone is [013](../_done/reliability/013-merge-operations-and-formats.md).
+milestone is 013 (completed plan, deleted; see git history).
 
 ## Remaining policy and storage work
 

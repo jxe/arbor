@@ -180,8 +180,8 @@ Commit this phase independently after the live-copy verification below.
 - Search for stale `legacy`, `singleton`, `account-config-v1`, root-level
   account graph, and Migration 003 instructions. Keep only historical wording
   that is explicitly past tense and still useful.
-- Record the cutoff receipt and verification evidence, then move this plan to
-  `_done/cleanups/` and update the cleanup index.
+- Record the cutoff receipt and verification evidence in `status.md`, then delete
+  this plan and update the cleanup index.
 
 ## Verification
 

@@ -2,7 +2,7 @@
 
 Historical identifier: **Reliability 006**. The filename number is preserved; this plan now belongs to native.
 
-> **Rescoped by [Native 022](../_done/native/022-run-the-mac-app-as-a-working-tree-client.md)**:
+> **Rescoped by Native 022 (completed plan, deleted; see git history)**:
 > the client is `WorkingTree` (package `ArborWorkingTree`), placement is
 > `WorkingTreePlacementService.place`, and steady-state synchronization is
 > `UpdateCoordinator`. This plan applies to iOS placement and to visits, where
@@ -17,14 +17,13 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 > the initial download separate from a usable `WorkingTree`: a verified
 > root-page preview may appear early, but editing, offline-ready status, and
 > normal synchronization begin only after the complete accepted snapshot has
-> been validated and atomically installed. [Reliability
-> 005](../_done/reliability/005-client-synchronization-state-machines.md) owns steady-state
+> been validated and atomically installed. Reliability
+> 005 (completed plan, deleted; see git history) owns steady-state
 > synchronization after that handoff. Do not build a second lazy replica or
 > materialize a partial object graph into the normal replica store. If a STOP
 > condition occurs, stop and report rather than improvising. When complete,
-> move this file to
-> `plans/_done/reliability/006-progressive-replica-bootstrap.md`, record exact
-> verification evidence, and remove its active entry from `plans/README.md`.
+> record exact verification evidence in `status.md`, delete this file, and
+> remove its active entry from `plans/README.md`.
 >
 > **Drift check (run first)**:
 >

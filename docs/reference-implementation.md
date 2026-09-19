@@ -18,8 +18,8 @@ records consolidated request/read encoding across Canopy and both client languag
 Accepted-state links and flags use schema 8, with a history-preserving offline
 migration. The filesystem daemon and native watcher keep observation progress
 separate from accepted identity. Native cache compatibility and a
-[preserved-backup rehearsal](../migrations/006-accepted-state-links/rehearsal.md)
-pass. The [single coordinated cutover](../migrations/006-accepted-state-links/live-cutover.md)
+preserved-backup rehearsal (migration 006, deleted after cutover; see git history)
+pass. The single coordinated cutover (migration 006, deleted after cutover; see git history)
 completed September 15; ordinary-use/offline observation remains. Subsequent
 operation releases deploy verified server acceptance before client emission,
 without capability advertisement.

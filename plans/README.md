@@ -57,14 +57,14 @@ contracts remain in [open questions](open-questions.md).
 | `verification/` | Compatibility evidence, manual acceptance and release/soak checks |
 | `cleanups/` | Compatibility cutoffs and locator simplification |
 
-The [catalog](catalog.md) follows this layout. Historical records under `_done/` keep their
-original taxonomy; each moved active plan records its old identifier.
+The [catalog](catalog.md) follows this layout. Completed plans are deleted; git history keeps
+them, and each active plan records any identifier it inherited.
 
 ## Planning rules
 
 - Keep one owner for each remaining task. Link to it from dependencies instead of copying its checklist.
-- Active plans describe remaining work. Move implemented or superseded executor documents to
-  [_done/](_done/README.md), preserving IDs and evidence; transfer unfinished gates explicitly.
+- Active plans describe remaining work. Delete implemented or superseded executor documents
+  after recording their evidence in `status.md`; transfer unfinished gates explicitly.
 - **Implemented**, **installed/deployed**, and **manually verified** are separate claims.
 - **Needs design**, **deferred**, and **waiting** are not ready-to-execute instructions. Old P1/P2
   labels are workstream assessments, not the current global priority order.
@@ -83,4 +83,4 @@ original taxonomy; each moved active plan records its old identifier.
 <a id="open-questions-and-completed-work"></a>
 
 The former long sections are in the [detailed catalog](catalog.md). Completed implementation and
-superseded designs remain in [history](_done/README.md).
+superseded designs are deleted and remain in git history.

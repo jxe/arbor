@@ -355,7 +355,7 @@ git diff --check
 
 Expected: every command exits zero. Also run the repository-wide relative-link
 audit used by current documentation work and record its exact command/output in
-the plan before moving it to `plans/_done/`.
+`status.md` before deleting the plan.
 
 Manual acceptance on iPhone and macOS:
 

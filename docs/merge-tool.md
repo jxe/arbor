@@ -5,7 +5,7 @@ an `arbor-merge` executable script run by Bun. It is on main and deployed to
 `arb.nxhx.org`. The authority integration adds schema 12 ownership records; it does not change
 object layout, public Wire, or require a client cutover. See the
 [integration checkpoint](merge-authority-integration.md) and
-[offline migration](../migrations/010-merge-state/README.md).
+offline migration (migration 010, deleted after cutover; see git history).
 
 The incremental-state implementation connects Canopy to the executable's existing
 sequential persistent mode: one worker and a bounded FIFO queue, with no fan-out.

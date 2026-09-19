@@ -218,7 +218,7 @@ Private merge summaries stay in Canopy storage; they no longer determine a wire
 outcome or expose a server-specific merge kind to clients.
 
 Schema 8 stores predecessor IDs and unresolved flags. The
-[offline migration](../migrations/006-accepted-state-links/README.md) preserves all
+offline migration (migration 006, deleted after cutover; see git history) preserves all
 existing accepted-record fields, observation rows, digests and objects. Retention
 can remove a predecessor later without changing its successor's link. New snapshots
 preserve an existing unresolved flag. Production creation and resolution of retained
@@ -247,11 +247,11 @@ relaxed. Repository file/section checks introduce no new broken links.
 
 Native saved placement/visit compatibility now adapts legacy missing flags only on
 disk reads, leaving network decoding strict and source caches unchanged. The
-[preserved-backup rehearsal](../migrations/006-accepted-state-links/rehearsal.md)
+preserved-backup rehearsal (migration 006, deleted after cutover; see git history)
 passed for Canopy and saved Mac/iPhone placements. Both native platform builds,
 focused cache tests, migration tests, type checking and the protocol gate pass.
 
-The [joint live cutover](../migrations/006-accepted-state-links/live-cutover.md)
+The joint live cutover (migration 006, deleted after cutover; see git history)
 completed September 15 with exact history/byte preservation, request replay and
 Mac/iPhone restart checks. Ordinary-use/offline observation remains. Detailed
 inspection, operation execution and review UI follow independently under the

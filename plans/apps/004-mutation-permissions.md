@@ -19,7 +19,7 @@ live deployment. Preserve dirty editors and unrelated work throughout execution.
 ## Worktree checkpoint (2026-09-18)
 
 See [implementation evidence and limits](../../docs/resource-policy-implementation.md)
-and [Migration 011](../../migrations/011-resource-policy/README.md). Shared TS/Swift
+and Migration 011 (migration 011, deleted after cutover; see git history). Shared TS/Swift
 rules, resource parsing/indexing, execution tokens, guarded effects, replay checks,
 revocation streams and offline schema/configuration preparation are implemented.
 Restrictive policy-conflict acceptance and restart, exact administrator resolution,
@@ -130,6 +130,6 @@ web build is currently excluded per DEVELOPMENT.md. Document actual commands/res
 Done requires deployed/rehearsed permission equivalence for old rules, no scoped
 leakage or forged code identity, matched installed clients, Joe's preserved
 configuration/content identities and successful revocation/rollback evidence.
-Move this plan to `_done/applications/` only after the live gate and soak; update
+Delete this plan only after the live gate and soak; update
 status and indexes with measured evidence. Block cutover on unrecoverable pending
 edits, missing backups, unknown active client or a scope check that cannot be proved.

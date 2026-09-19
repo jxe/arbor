@@ -45,7 +45,7 @@ Keep the incident backups. After installing the fix, verify ordinary automatic
 Mac edit publication and subsequent edits after merge/reconnect without Sync Now.
 If the incident repeats, capture the machine phase and actual preparation error
 before a manual retry. The [release checklist](../plans/verification/release-and-soak.md#observation-and-soak-closeout)
-now owns that remaining observation; [Reliability 012](../plans/_done/reliability/012-native-sync-progress.md)
+now owns that remaining observation; Reliability 012 (completed plan, deleted; see git history)
 preserves the historical plan. Phone background syncing is outside scope.
 
 ## September 16 durability follow-up

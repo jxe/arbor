@@ -67,11 +67,11 @@ transaction rollback, forged projection/missing inverse objects, nested decision
 guarded resolution, and stale intent across 80 intervening source/snapshot updates.
 The cross-language protocol gate runs disposable Canopy/Arbor Sync hosts with Swift
 Wire, working-tree and real editor-admission tests. See the
-[rehearsal record](../migrations/010-merge-state/README.md) for restored production data.
+rehearsal record (migration 010, deleted after cutover; see git history) for restored production data.
 
 The server and packaged worker deployed together after quieting writers, verifying
 a fresh backup, and migrating schema 11 to 12. Clients need no rebuild for this
-server milestone. See the [live cutover record](../migrations/010-merge-state/live-cutover.md).
+server milestone. See the live cutover record (migration 010, deleted after cutover; see git history).
 Ship server support before enabling new editor operations.
 
 September 17 verification: the full product suite passed 957 tests. TypeScript

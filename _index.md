@@ -15,7 +15,6 @@ id: 6r6ov1
 
 [open-questions](plans/open-questions)
 
-[completed-native-plans](plans/_done/native/overview)
 
 [spec](spec)
 

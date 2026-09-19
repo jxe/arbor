@@ -11,7 +11,7 @@ Live installation and observation gates remain in [release and soak](release-and
 
 ## Completed foundation
 
-The [accepted-state cutover](../../migrations/006-accepted-state-links/live-cutover.md),
+The accepted-state cutover (migration 006, deleted after cutover; see git history),
 [Native source cutover](../../docs/native-source-cutover.md) and
 [schema-12 authority integration](../../docs/merge-authority-integration.md) record the completed
 contract, installed source clients and deployed eight-operation authority. They are not future

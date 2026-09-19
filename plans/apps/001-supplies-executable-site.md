@@ -12,9 +12,9 @@
 
 - **Priority**: P1
 - **Depends on**: completed SQLite query, streaming, and mutation runtimes
-  recorded in [`_done/applications`](../_done/applications/README.md), plus
+  recorded in `_done/applications` (completed plan, deleted; see git history), plus
   the provider-neutral node/query contract and core/provider phases in
-  [Data 002](../_done/data/002-reconcile-node-data-model.md)
+  Data 002 (completed plan, deleted; see git history)
 - **Progress**: IN PROGRESS — compiler and development typechecking are owned
   by [Apps 003](003-development-compiler-and-editor-tooling.md), and
   permissioned reader mutation is owned by
@@ -86,9 +86,9 @@ reconnecting boundaries.
 
 The following phases are historical outcomes rather than future instructions:
 
-1. [SQLite query engine](../_done/outcomes.md#supplies-sqlite-query-engine)
-2. [Race-free query-result streaming](../_done/outcomes.md#supplies-query-result-streaming)
-3. [Transactional mutation runner](../_done/outcomes.md#supplies-transactional-mutation-runner)
+1. SQLite query engine (completed plan, deleted; see git history)
+2. Race-free query-result streaming (completed plan, deleted; see git history)
+3. Transactional mutation runner (completed plan, deleted; see git history)
 
 Preserve their proved transaction and snapshot-follow behavior. Data 002 must
 adapt the SQLite relation engine into the generic node-source query algebra and

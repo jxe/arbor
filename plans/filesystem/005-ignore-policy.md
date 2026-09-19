@@ -8,9 +8,8 @@ Historical identifier: **Security 005**. The filename number is preserved; this 
 > by discovery, browsing, watching, indexing, snapshots, and materialization;
 > do not add independent filters to those consumers. If anything in the
 > "STOP conditions" section occurs, stop and report rather than improvising.
-> When complete, move this file to
-> `plans/_done/security/005-ignore-policy.md`, add verification evidence to the
-> historical index, and remove its active entry from `plans/README.md`.
+> When complete, record verification evidence in `status.md`, delete this file,
+> and remove its active entry from `plans/README.md`.
 >
 > **Drift check (run first)**:
 >
@@ -192,7 +191,7 @@ and verify that `bun.lock` contains only the intended package change.
   `tests/integration/self-sync.test.ts`;
 - `packages/fs/README.md`, `docs/local-system.md`, and
   `spec/02-directory-format.md`; and
-- `plans/README.md` and this plan's eventual move to `_done/`.
+- `plans/README.md` and this plan's eventual deletion.
 
 **Out of scope**:
 

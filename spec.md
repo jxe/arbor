@@ -3,7 +3,7 @@
 
 ## Specification stance
 
-This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](status.md) records what the reference implementation actually does; [implemented outcomes](plans/_done/outcomes.md) preserve evidence, and the [planning index](plans/README.md) owns remaining work.
+This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](status.md) records what the reference implementation actually does; implemented outcomes (completed plan, deleted; see git history) preserve evidence, and the [planning index](plans/README.md) owns remaining work.
 
 The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
 

@@ -120,7 +120,7 @@ long-lived server.
 - `packages/arborsync/src/service.ts` — the `searchPage` method only forwards
   results; it needs no change and touching it widens the diff.
 - The FTS5 schema and the `rebuild`/`indexFile` methods — indexing behavior is
-  the subject of a separate plan ([Speed 001](../_done/speed/001-index-updates.md)). Changing the schema here will
+  the subject of a separate plan (Speed 001 (completed plan, deleted; see git history)). Changing the schema here will
   collide with it.
 - `packages/render/src/PageEditor.tsx` and `blocks.tsx` — unrelated rendering
   surfaces.

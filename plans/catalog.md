@@ -21,7 +21,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `web/` — Restore the browser working-tree client, then its interface and editor features.
 
-- [Web 025 — Arbor web: one browser editor for `arbor open` and Canopy](web/025-arbor-web.md) — **P1 · PLANNED; after the Native 022 soak closeout.** One bundle behind a `WebHost` interface, served by Arbor Sync on loopback and by Canopy at canonical URLs; TypeScript twins of the Swift working tree, app model and editor host; three projects (B1 local editor, B2 Canopy host and account surfaces, B3 choice review and editor depth) with a soak between each. The [surface inventory](web/surfaces.md) lists every native surface with its web treatment. Supersedes Web 023, 008 and 005, now in [`_done/web/`](_done/web/README.md).
+- [Web 025 — Arbor web: one browser editor for `arbor open` and Canopy](web/025-arbor-web.md) — **P1 · PLANNED; after the Native 022 soak closeout.** One bundle behind a `WebHost` interface, served by Arbor Sync on loopback and by Canopy at canonical URLs; TypeScript twins of the Swift working tree, app model and editor host; three projects (B1 local editor, B2 Canopy host and account surfaces, B3 choice review and editor depth) with a soak between each. The [surface inventory](web/surfaces.md) lists every native surface with its web treatment. Supersedes Web 023, 008 and 005, now in `_done/web/` (completed plan, deleted; see git history).
 
 ## Local filesystem
 
@@ -124,7 +124,7 @@ or a concrete implementation trigger; they are not new executor plans.
 - **Shared runtime protocol decoding** — **Deduplication · WAITING.** Promote when a second trusted boundary besides Arbor Sync needs runtime decoding; then colocate browser-safe pure decoders in `@arbor/core`, without adding schema generation solely to reduce repetition.
 - **Provider scalar normalization** — **Deduplication · OWNED by Postgres 001 and 002.** Freeze one language-neutral representation for blobs, 64-bit integers, booleans, nullability, and other provider scalars before implementations drift.
 - **Bounded-placement conformance** — **Deduplication · OWNED by Postgres 005, Native 003 and Postgres 001.** Reuse the common placement corpus when deferred providers land; do not create another placement algorithm.
-- **Other ownership boundaries.** Private SQLite property receipts and direct-write bridges are removed under [Postgres 002](postgres/002-observation-and-semantic-sync.md); temporary whole-source query evaluation under [Apps 003](apps/003-development-compiler-and-editor-tooling.md); web-editor undo/history architecture under [Web 005](_done/web/005-web-editor.md).
+- **Other ownership boundaries.** Private SQLite property receipts and direct-write bridges are removed under [Postgres 002](postgres/002-observation-and-semantic-sync.md); temporary whole-source query evaluation under [Apps 003](apps/003-development-compiler-and-editor-tooling.md); web-editor undo/history architecture under Web 005 (completed plan, deleted; see git history).
 
 ## Hardening, Efficiency, Polish, etc.
 
@@ -138,7 +138,7 @@ before promoting one; an old audit finding is not proof of a current implementat
   - **Per-key frontmatter conflict semantics** — **REVERIFY.** Preserve independent external and local changes, detect same-key conflicts and deletions, and test them beside block three-way merge.
   - **Malformed and partial legacy-state recovery** — **OWNED by Cleanups 001 and 002.** Reject unsupported or ambiguous retained state without overwriting it, and retain focused failure-path tests through each cutoff.
   - **Provider-specific materialization controls** — **NEEDS DESIGN.** Add a control only when one concrete backing can report a reliable snapshot, progress, cancellation, and failure boundary; keep provider semantics in the owning Postgres or backing plan.
-  - **Web-editor boundary.** Structural undo, exact reorder restoration, pointer lifecycle, keyboard access, context-menu focus, bounded history, and scroll restoration stay together in [Web 005](_done/web/005-web-editor.md).
+  - **Web-editor boundary.** Structural undo, exact reorder restoration, pointer lifecycle, keyboard access, context-menu focus, bounded history, and scroll restoration stay together in the completed Web 005 plan (deleted; see git history).
 - **Security** — Alpha-stage injection, authorization, secret-handling, hostile-input, sandboxing, and trust-boundary work.
   - **Isolate Canopy application-code execution** — **WAITING until Canopy executes synchronized `schema.ts`, SSR, query, or mutation code.** Use one separately contained, quota-bound, version-pinned execution boundary shared with Apps 003 rather than a schema-only retrofit.
   - **Validate directory-entry names on every Wire client read path** — **REVERIFY.** Reject empty, dot, parent, and separator-bearing names before materialization; reuse the server graph invariant and add hostile-object fixtures.
@@ -153,7 +153,7 @@ before promoting one; an old audit finding is not proof of a current implementat
   - **Accessibility and responsive browser audits** — **WAITING on Web 025.** Establish repeatable keyboard, focus, semantic, contrast, and narrow/wide layout checks around the existing objective editor audit.
   - **`mergeBlocks` characterization** — **REVERIFY.** Add direct unit coverage for conservative conflict behavior before changing its alignment algorithm.
   - **Markdown/BlockNote round-trip fixtures** — **REVERIFY.** Add table-driven source-fidelity coverage for marks, raw fallback, nesting, and untouched bytes before expanding Web 025 B3.
-  - **Historical boundary.** Exact-artifact native acceptance and completed device-management browser E2E remain in [history](_done/README.md); they are not duplicated here.
+  - **Historical boundary.** Exact-artifact native acceptance and completed device-management browser E2E were recorded in completed plans (deleted; see git history); they are not duplicated here.
 - **Speed** — Measured removal of unnecessary rebuilding, unbounded scanning, and response costs.
   - **File-provider exact-source cache invalidation** — **REVERIFY.** Add filesystem-driven invalidation and metrics and deduplicate schema, store, and Markdown reads while retaining exact complete-key-set validation; do not extend the cache to database providers.
   - **Canopy object reachability index** — **NEEDS DESIGN; preserve Native 022’s implemented retained-root authorization** (retained-root reachability). Replace per-request graph scans only with an index whose update and invalidation rules cannot widen object access; coordinate the invariant with Security.

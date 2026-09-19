@@ -7,7 +7,7 @@ These instructions apply to the whole repository.
 - Read `git status`, the relevant source, and its tests before trusting prose or plan status.
 - `status.md` owns current implementation status. `spec.md` and `spec/` own portable behavior, including behavior the reference implementation has not built yet.
 - `docs/` records usage, replaceable implementation choices, and client design. Do not move implementation details into the portable specification.
-- `plans/` contains only remaining work. Move completed executor plans to `plans/_done/` and preserve their identifiers and verification evidence.
+- `plans/` contains only remaining work. Delete completed or superseded executor plans; git history is the record. Put lasting verification evidence in `status.md` or `docs/` before deleting.
 - Numbers are stable identifiers within a plan directory, not an implicit execution order; indexes own priority and dependencies.
 
 ## Change discipline

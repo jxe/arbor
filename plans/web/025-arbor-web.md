@@ -12,7 +12,7 @@
 - **Effort**: XL, split into three projects with a soak between each
 - **Risk**: MEDIUM (B1), MEDIUM (B2: new Canopy surface and browser credential), LOW (B3)
 - **Depends on**: historical Native 022 (implemented and live); Native 022 soak closeout in [release and soak](../verification/release-and-soak.md)
-- **Supersedes**: [Web 023](../_done/web/023-rebuild-the-web-editor-on-the-working-tree.md) (its library and endpoint-removal steps are folded into B1 and B2 below), [Web 008](../_done/web/008-web-native-interface-parity.md) (its parity targets are restated per surface in [surfaces.md](surfaces.md)), and the shell items of [Web 005](../_done/web/005-web-editor.md) (its remaining editor-depth items become the B3 backlog at the end of this plan). Moved to `_done/web/` on 2026-09-19.
+- **Supersedes**: Web 023 (completed plan, deleted; see git history) (its library and endpoint-removal steps are folded into B1 and B2 below), Web 008 (completed plan, deleted; see git history) (its parity targets are restated per surface in [surfaces.md](surfaces.md)), and the shell items of Web 005 (completed plan, deleted; see git history) (its remaining editor-depth items become the B3 backlog at the end of this plan). Moved to `_done/web/` on 2026-09-19.
 - **Written at**: 2026-09-19, native reference `native/ArborApp` and `native/Packages/ArborQuagmire` at HEAD
 
 ## Why this matters
@@ -156,7 +156,7 @@ git diff --check
 - `@arbor/working-tree` and `ArborWorkingTree` pass the same fixture; `WorkspaceState`/`AppModel` have React-free tests.
 - Every surface in [surfaces.md](surfaces.md) marked B1/B2/B3 is implemented with the listed labels, states and actions, and every item marked *not ported* is absent by decision, not omission.
 - `POST /v1/me`, `POST /v1/local/forget`, `GET /v1/resolve` and filesystem-path byte serving are gone with their callers; `POST /v1/bootstrap/accounts` remains.
-- Docs and `status.md` describe the browser as the third working-tree client; the superseded plans are in `_done/` with pointers here.
+- Docs and `status.md` describe the browser as the third working-tree client; the superseded plans are deleted (git history) and this plan carries their pointers.
 
 ## Boundaries and stop conditions
 

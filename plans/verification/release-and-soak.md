@@ -34,7 +34,7 @@ Owner: Canopy [009](../canopy/009-canopy-provenance-merges.md).
 - [ ] Record server readiness before enabling any newly captured client operation forms.
   Use [011](011-client-compatibility.md)'s mixed-client checks.
 
-The [schema-12 merge-authority cutover](../../migrations/010-merge-state/live-cutover.md) is complete;
+The schema-12 merge-authority cutover (migration 010, deleted after cutover; see git history) is complete;
 these later refinements are not another request to repeat that migration.
 
 ## Observation and soak closeout
@@ -46,7 +46,7 @@ elapsed calendar time alone is insufficient.
   starting Web 025. The working-tree switch and subsequent Mac/iPhone source-mode installation
   are already live. Do not repeat the old re-place or rollout instructions.
 - [ ] **Arbor Sync 001:** record the remaining raw-byte protocol soak, including ordinary use on
-  both platforms. [Migration 005](../../migrations/005-file-bytes-are-the-object/README.md) already
+  both platforms. Migration 005 (migration 005, deleted after cutover; see git history) already
   records matching rehearsals, unchanged authored bytes, both upgrades and round-trip edits.
   No history reset is requested.
 - [ ] **Reliability 012 / accepted-state cutover:** record continued automatic Mac publication
@@ -55,9 +55,9 @@ elapsed calendar time alone is insufficient.
   is not certified. If a stall recurs, capture the machine phase and preparation error before
   retrying. Phone foreground refresh is expected, not a background-sync defect.
 
-Historical plans: [Native 022](../_done/native/022-run-the-mac-app-as-a-working-tree-client.md),
-[Arbor Sync 001](../_done/arborsync/001-file-bytes-are-the-object.md),
-[Reliability 012](../_done/reliability/012-native-sync-progress.md).
+Historical plans: Native 022 (completed plan, deleted; see git history),
+Arbor Sync 001 (completed plan, deleted; see git history),
+Reliability 012 (completed plan, deleted; see git history).
 The [progress investigation](../../docs/native-sync-progress.md) preserves the reproduced failures
 without claiming to prove the original incident's exact cause.
 
