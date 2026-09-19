@@ -103,6 +103,8 @@ function normalize(pieces: Piece[]): Piece[] {
  * No bytes or global hash cache: compare file nodes against the preceding state. */
 export type ValidatedMaterial = Map<string, {node: Node; object: string}>;
 type StateValidation = {
+  /** Wall-clock budget for validation; defaults to the evaluator's 5 s. */
+  maxMillis?: number;
   historyCache: StateMapValidationCache;
   retained: (hash: string) => void;
   summary?: {bytes: (count: number) => void; references: (refs: ReadonlySet<string>) => void};
@@ -2931,7 +2933,7 @@ export async function validateIntentState(
       base: ref,
       current: ref,
       incoming: { change: "validate", object: ref.object, operations: [] },
-      rules: { id: "tree-default", revision: 1 },
+      rules: { id: "tree-default", revision: 1, ...(validation?.maxMillis ? { config: { maxMillis: validation.maxMillis } } : {}) },
     },
     objects
   );

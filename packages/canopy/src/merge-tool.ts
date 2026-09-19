@@ -46,6 +46,10 @@ export interface MergeToolOptions {
   historyCacheBytes?: number;
   /** Validated-state proof memory ceiling; default 64 MB. */
   stateProofBytes?: number;
+  /** Wall-clock budget for validating one state at the authority boundary;
+   * default 60 s. Cold validation of a large history on slow storage can
+   * exceed the evaluator's 5 s default. */
+  validationMillis?: number;
   timeoutMs?: number;
   /** Presentation policy; source choices remain coupled when the format requires it. */
   contentChoices?: "source" | "file";
@@ -99,6 +103,7 @@ export class MergeTool {
     });
   }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
+  private get validationMillis(): number { return this.options.validationMillis ?? 60_000; }
 
   /** Validate one accepted state and its retention ahead of any request, so the
    * first edit after a restart finds warm history proofs and closures. Nothing
@@ -115,7 +120,7 @@ export class MergeTool {
       const state = await validateIntentState(ref, tree, {
         read: async (hash) => { dependencies.add(hash); return this.shared.read(hash); },
         store: async () => {},
-      }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}}});
+      }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}}, maxMillis: this.validationMillis});
       const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
       this.rememberProof(key, {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references});
     }
@@ -364,7 +369,7 @@ export class MergeTool {
           const state = await validateIntentState(ref, tree, {
             read: (hash) => { dependencies.add(hash); return access.read(hash); },
             store: access.store,
-          }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {previous: prior?.material, next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}}});
+          }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {previous: prior?.material, next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}}, maxMillis: this.validationMillis});
           const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
           const proof = {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references};
           jobProofs.set(key, proof);

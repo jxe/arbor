@@ -237,6 +237,7 @@ export class CanopyDaemon implements AsyncDisposable {
       objects: this.objects,
       historyCacheBytes: megabytes("ARBOR_HISTORY_CACHE_MB", 256),
       stateProofBytes: megabytes("ARBOR_STATE_PROOF_MB", 64),
+      validationMillis: Number(process.env.ARBOR_STATE_VALIDATION_MS) > 0 ? Number(process.env.ARBOR_STATE_VALIDATION_MS) : 60_000,
       ...mergeTool,
     });
     this.semantic = new SemanticMerge(
