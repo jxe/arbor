@@ -148,7 +148,7 @@ for (const c of [
   ...cases,
   { name: "opaque.bin", source: "\u0000\u0001opaque" },
 ]) {
-  test(`${c.name}: entry transformations and inverse preserve opaque source`, async () => {
+  test(`${c.name}: entry transformations preserve opaque source`, async () => {
     for (const kind of [
       "moveEntry",
       "copyEntry",
@@ -185,22 +185,8 @@ for (const c of [
           kind,
         ),
       );
-      const undo = await f.run(
-        f.request(
-          transformed.result,
-          base,
-          [
-            {
-              key: "undo",
-              kind: "undoOperation",
-              target: { change: kind, operation: "op" },
-            },
-          ],
-          "undo",
-        ),
-      );
-      expect(undo.result.object).toBe(base);
-      expect(undo.decisions).toEqual([]);
+      expect(transformed.result.object).toBe(candidate);
+      expect(transformed.decisions).toEqual([]);
     }
   });
 }

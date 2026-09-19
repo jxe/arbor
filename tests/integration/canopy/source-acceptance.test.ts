@@ -809,7 +809,7 @@ test("a continuation after a merged prefix retains an intervening same-file snap
   await running.canopy.verifyIntegrity();
 });
 
-test("all eight operation kinds execute through accepted authority and survive restart", async()=>{
+test("all seven operation kinds execute through accepted authority and survive restart", async()=>{
  let head={id:base,root};
  let directory=decodeWireDirectory(objects.get(root)!);
  const body=(text:string)=>{const bytes=Buffer.from(text),hash=hashObject(bytes);objects.set(hash,bytes);return hash;};
@@ -834,7 +834,9 @@ test("all eight operation kinds execute through accepted authority and survive r
  const removed=directory.entries.find(e=>e.name==="copy.md")!;
  await apply({key:"op",kind:"removeEntry",source:ref("copy.md")},()=>{directory.entries=directory.entries.filter(e=>e.name!=="copy.md");});
  await stop();await start();
- await apply({key:"op",kind:"undoOperation",target:{change:changes.at(-1)!,operation:"op"}},()=>{directory.entries.push(removed);});
+ // Undo is no longer an operation: restoring the removed entry is an ordinary
+ // authored replacement of its content at its old name.
+ void removed;
  await running.canopy.verifyIntegrity();
 });
 
@@ -1021,15 +1023,12 @@ test("source choice alternatives replace only their range and preserve an indepe
   await running.canopy.verifyIntegrity();
 });
 
-test("historical grouped undo and redo preserve equal-byte round trips", async () => {
+test("equal-byte round trips authored as ordinary edits stay unconflicted", async () => {
+  // Editors express undo and redo as fresh edits against the current basis, so
+  // a round trip is an ordinary sequence that returns to earlier bytes.
   const a = await edit("ABC"), b = await edit("abc", a.candidate);
-  const inverse = (target: CandidateUpdate, candidate: ObjectHash): CandidateUpdate => ({
-    change: crypto.randomUUID(), candidate, operations: target.operations!.slice().reverse().map((op,index)=>({
-      kind:"undoOperation",key:`undo-${index}`,target:{change:target.change,operation:op.key}
-    })), resolves:[], objects:[], deltas:[]
-  });
-  const ub = inverse(b, a.candidate), ua = inverse(a, root), ra = inverse(ua, a.candidate), rb = inverse(ub, root);
-  for (const updates of [[a],[a,b],[a,b,ub],[a,ua],[a,ua,ra],[a,b,ub,rb]]) {
+  const backToA = await edit("ABC", b.candidate), backToB = await edit("abc", backToA.candidate);
+  for (const updates of [[a],[a,b],[a,b,backToA],[a,b,backToA,backToB]]) {
     const response = await client.submitUpdates(tree,{base,updates});
     expect(response.results.at(-1)!.update.root).toBe(updates.at(-1)!.candidate);
     expect(response.results.at(-1)!.update.conflicted).toBe(false);

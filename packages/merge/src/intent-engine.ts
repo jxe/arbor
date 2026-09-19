@@ -13,10 +13,13 @@ import type { MergeObjects } from "./index.ts";
 import {
   IntentError,
   alternativeKey,
+  changeIdentity,
   keyOf,
   parseIntentRequest,
+  traceOperations,
   type Effect,
   type IntentRequest,
+  type IntentRequestInput,
   type IntentDecision,
   type IntentResponse,
   type IntentState,
@@ -42,6 +45,7 @@ import {
 const encoder = new TextEncoder(),
   decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const clone = <T>(value: T): T => structuredClone(value);
+const operationsOf = traceOperations;
 const same = (a: unknown, b: unknown) =>
   stableJSONString(a) === stableJSONString(b);
 const fail = (message: string): never => {
@@ -773,99 +777,16 @@ class Engine {
     validatedBasisObject?: string
   ): Promise<void> {
     this.checkBudget();
+    // Undo left the grammar with frames: an editor expresses it as ordinary
+    // operations against the generation it is undoing.
+    if (operation.kind === "undoOperation")
+      return fail("Undo is not an authored operation");
     const key = keyOf(change, operation.key),
       before: Record<string, Node> = validatedBasisObject ? Object.create(null) : clone(state.nodes);
     if (Object.hasOwn(state.effects, key))
       return fail("Operation identity reused");
     let result: Material | undefined;
-    const undoBefore =
-      operation.kind === "undoOperation" ? clone(state) : undefined;
-    let undoAmbiguous = false;
-    if (operation.kind === "undoOperation") {
-      const effect =
-        state.effects[
-          keyOf(operation.target.change, operation.target.operation)
-        ] ?? missing("Undo target and inverse material are unavailable");
-      if (effect.undone) return fail("Operation is already undone");
-      for (const id of new Set([
-        ...Object.keys(effect.before),
-        ...Object.keys(effect.after),
-      ])) {
-        const old = effect.before[id],
-          after = effect.after[id],
-          current = state.nodes[id];
-        if (!old) {
-          if (current?.active && !same(current, after)) undoAmbiguous = true;
-          if (current) this.remove(state, id);
-          continue;
-        }
-        if (!after || !current) return fail("Undo material is unavailable");
-        for (const field of new Set([
-          ...Object.keys(old),
-          ...Object.keys(after),
-        ]) as Set<keyof Node>) {
-          if (same(old[field], after[field])) continue;
-          if (field === "deletions") {
-            const oldSet = new Set(old.deletions ?? []),
-              afterSet = new Set(after.deletions ?? []);
-            current.deletions = [
-              ...new Set([
-                ...(current.deletions ?? []).filter(
-                  (d) => !afterSet.has(d) || oldSet.has(d)
-                ),
-                ...[...oldSet].filter((d) => !afterSet.has(d)),
-              ]),
-            ];
-            continue;
-          }
-          if (
-            field === "pieces" &&
-            old.pieces &&
-            after.pieces &&
-            current.pieces
-          ) {
-            let pieces = current.pieces;
-            for (const edit of pieceEdits(after.pieces, old.pieces).reverse()) {
-              let range: [number, number];
-              try {
-                range = this.locate(pieces, after.pieces, edit.range);
-              } catch (error) {
-                if (error instanceof IntentError && error.code === "limit")
-                  throw error;
-                undoAmbiguous = true;
-                try {
-                  range = this.evolved(
-                    state,
-                    pieces,
-                    slice(after.pieces, ...edit.range)
-                  );
-                } catch (error) {
-                  if (error instanceof IntentError && error.code === "limit")
-                    throw error;
-                  range = [0, length(pieces)];
-                }
-              }
-              pieces = normalize([
-                ...slice(pieces, 0, range[0]),
-                ...edit.pieces,
-                ...slice(pieces, range[1], length(pieces)),
-              ]);
-            }
-            current.pieces = pieces;
-            continue;
-          }
-          if (!same(current[field], after[field])) undoAmbiguous = true;
-          (current as unknown as Record<string, unknown>)[field] = clone(
-            old[field]
-          );
-        }
-      }
-      for (const node of Object.values(state.nodes))
-        if (node.deletions?.length) node.active = false;
-      if (effect.target && state.effects[effect.target])
-        state.effects[effect.target]!.undone = false;
-      effect.undone = true;
-    } else if (
+    if (
       operation.kind === "editSource" ||
       operation.kind === "moveSource" ||
       operation.kind === "copySource"
@@ -1179,9 +1100,6 @@ class Engine {
       ...(operation.kind === "editSource" && operation.lineage?.length
         ? { preserves: true }
         : {}),
-      ...(operation.kind === "undoOperation"
-        ? { target: keyOf(operation.target.change, operation.target.operation) }
-        : {}),
       before: {},
       after: {},
       undone: false,
@@ -1196,28 +1114,6 @@ class Engine {
       }
     state.effects[key] = effect;
     if (result) state.outputs[key] = result;
-    if (undoAmbiguous && undoBefore) {
-      const before = await this.record(undoBefore);
-      for (const decision of state.decisions) decision.context ??= before.state;
-      const after = await this.record(state);
-      const dependencies = state.decisions.map((d) => d.key);
-      state.decisions.push({
-        key: `undo:${key}`,
-        kind: "directory",
-        affected: Object.keys(effect.after),
-        selected: 1,
-        alternatives: [
-          { ...before, contributions: [] },
-          {
-            ...after,
-            node: state.root,
-            contributions: [{ change, operation: operation.key }],
-          },
-        ],
-        dependencies,
-        reason: "Selective inverse overlaps a later contribution",
-      });
-    }
   }
   edits(base: Piece[], changed: Piece[], state: IntentState): PieceEdit[] {
     return pieceEdits(base, changed).map((edit) => ({
@@ -1483,14 +1379,7 @@ class Engine {
         ? base : await this.load(request.current);
     engineDiagnostics["load-ms"] = performance.now() - startedLoad;
     const signature = this.put(
-      encoder.encode(
-        stableJSONString({
-          base: request.base,
-          incoming: request.incoming,
-          alternatives: request.alternatives,
-          rules: request.rules,
-        })
-      )
+      encoder.encode(stableJSONString(changeIdentity(request)))
     );
     const prior = Object.hasOwn(current.changes, request.incoming.change)
       ? current.changes[request.incoming.change]
@@ -1563,10 +1452,25 @@ class Engine {
       if (!decision || !same(decision, now))
         return fail("Resolution decision is absent or stale");
     }
-    const authored = clone(base),
-      basis = clone(base);
-    for (const operation of request.incoming.operations)
-      await this.apply(authored, basis, operation, request.incoming.change);
+    const authored = clone(base);
+    // Each frame is authored against its own `before` tree, so a later frame's
+    // basis references name the previous frame's result. The frame a given
+    // operation was authored in is kept for the concurrent replay below.
+    let basis = clone(base);
+    const authoredIn = new Map<string, View>();
+    for (const [index, frame] of request.incoming.trace.entries()) {
+      for (const operation of frame.operations) {
+        authoredIn.set(operation.key, basis);
+        await this.apply(authored, basis, operation, request.incoming.change);
+      }
+      // The final frame's result is checked below, after decisions propagate
+      // and retained deletions are enforced; that is the candidate check this
+      // evaluator has always made. Intermediate frames are checked as authored.
+      if (index === request.incoming.trace.length - 1) break;
+      if ((await this.project(authored)) !== frame.after)
+        return fail("Frame does not reproduce its result");
+      basis = clone(authored);
+    }
     const wrapped = new Set<string>([...this.pendingEnclosures].filter(key => !resolved.has(key)));
     for (const decision of authored.decisions) {
       // Explicitly guarded replacement need not preserve the selected pieces of
@@ -1590,7 +1494,7 @@ class Engine {
             context.root = node.id;
             alternative.state = (await this.record(context)).state;
             alternative.contributions.push(
-              ...request.incoming.operations.map((op) => ({
+              ...operationsOf(request.incoming).map((op) => ({
                 change: request.incoming.change,
                 operation: op.key,
               }))
@@ -1634,7 +1538,7 @@ class Engine {
         if (same(old, node)) continue;
         alternative.object = await this.project(authored, node.id);
         alternative.contributions.push(
-          ...request.incoming.operations.map((op) => ({
+          ...operationsOf(request.incoming).map((op) => ({
             change: request.incoming.change,
             operation: op.key,
           }))
@@ -1688,7 +1592,7 @@ class Engine {
           {
             ...candidate,
             node: authored.root,
-            contributions: request.incoming.operations.map((op) => ({
+            contributions: operationsOf(request.incoming).map((op) => ({
               change: request.incoming.change,
               operation: op.key,
             })),
@@ -1722,7 +1626,7 @@ class Engine {
       // First enforce the complete causal context. Snapshot equality never invents
       // correspondence; branches without retained identity remain explicit choices.
       const structuralTransfer =
-        request.incoming.operations.some((op) =>
+        operationsOf(request.incoming).some((op) =>
           ["moveSource", "copySource"].includes(op.kind)
         ) ||
         Object.entries(current.effects).some(
@@ -1738,7 +1642,7 @@ class Engine {
       ) {
         const attempt = clone(current);
         try {
-          for (const operation of request.incoming.operations) {
+          for (const operation of operationsOf(request.incoming)) {
             if (
               !["editSource", "moveSource", "copySource"].includes(
                 operation.kind
@@ -1756,8 +1660,9 @@ class Engine {
                   operation.kind === "copySource"
                 ? operation.at
                 : undefined;
+            const frameBasis = authoredIn.get(operation.key) ?? basis;
             if (anchorRef) {
-              const anchor = await this.selection(anchorRef, basis, authored);
+              const anchor = await this.selection(anchorRef, frameBasis, authored);
               const old = base.nodes[anchor.node],
                 now = current.nodes[anchor.node];
               if (
@@ -1776,7 +1681,7 @@ class Engine {
             if (operation.kind === "moveSource") {
               const selected = await this.selection(
                 operation.source,
-                basis,
+                frameBasis,
                 authored
               );
               for (const [key, effect] of Object.entries(current.effects))
@@ -1798,7 +1703,7 @@ class Engine {
             }
             await this.apply(
               attempt,
-              basis,
+              frameBasis,
               operation,
               request.incoming.change
             );
@@ -1826,7 +1731,7 @@ class Engine {
             if (evidence.outcome !== "resolved")
               throw new Error("Transfer requires format review");
           }
-          for (const operation of request.incoming.operations) {
+          for (const operation of operationsOf(request.incoming)) {
             const key = keyOf(request.incoming.change, operation.key);
             if (authored.outputs[key])
               attempt.outputs[key] = clone(authored.outputs[key]!);
@@ -1888,7 +1793,7 @@ class Engine {
           alternative.state = this.authoredResult!.state;
           delete alternative.node;
           alternative.contributions.push(
-            ...request.incoming.operations.map((op) => ({
+            ...operationsOf(request.incoming).map((op) => ({
               change: request.incoming.change,
               operation: op.key,
             }))
@@ -1920,7 +1825,7 @@ class Engine {
         alternative.object = await this.project(merged, node.id);
         alternative.state = this.authoredResult!.state;
         alternative.contributions.push(
-          ...request.incoming.operations.map((op) => ({
+          ...operationsOf(request.incoming).map((op) => ({
             change: request.incoming.change,
             operation: op.key,
           }))
@@ -2220,7 +2125,7 @@ class Engine {
                           contributions:
                             side === 0
                               ? await this.contributions(current, base, id)
-                              : request.incoming.operations.map((op) => ({
+                              : operationsOf(request.incoming).map((op) => ({
                                   change: request.incoming.change,
                                   operation: op.key,
                                 })),
@@ -2284,7 +2189,7 @@ class Engine {
             {
               ...candidate,
               node: authored.root,
-              contributions: request.incoming.operations.map((op) => ({
+              contributions: operationsOf(request.incoming).map((op) => ({
                 change: request.incoming.change,
                 operation: op.key,
               })),
@@ -2533,14 +2438,16 @@ class Engine {
     // Decline reasons are diagnostics only (see engineDiagnostics.decline):
     // 1 divergent or stateless basis, 2 alternatives/resolutions, 3 no operations,
     // 4 non-basis or lineage-bearing operation, 5 unreadable state, 6 decisions,
-    // 7 change already recorded.
+    // 7 change already recorded, 8 trace not rooted at the basis.
     const decline = (reason: number) => { engineDiagnostics.decline = reason; return undefined; };
     if (!request.base.state || request.base.state !== request.current.state ||
         request.base.object !== request.current.object) return decline(1);
     if (request.alternatives?.length || request.incoming.resolves?.length) return decline(2);
-    if (!request.incoming.operations.length) return decline(3);
-    if (!request.incoming.operations.every(op => op.kind === "editSource" &&
+    const trace = request.incoming.trace;
+    if (!operationsOf(request.incoming).length) return decline(3);
+    if (!operationsOf(request.incoming).every(op => op.kind === "editSource" &&
           op.source.material.kind === "basis" && !op.lineage?.length)) return decline(4);
+    if (trace[0]!.before !== request.base.object) return decline(8);
     const partial = await loadEditableIntentState(request.base.state, hash => this.read(hash));
     if (!partial) return decline(5);
     if (partial.value.decisions.length) return decline(6);
@@ -2553,20 +2460,37 @@ class Engine {
     const projected = await this.trustedProjection(basis, request.base.object);
     this.projection = {previous: projected, next: new Map()};
     const authored = clone(basis);
-    for (const operation of request.incoming.operations) {
-      if (await partial.get("effects", keyOf(request.incoming.change, operation.key)) !== undefined)
-        return fail("Operation identity reused");
-      await this.apply(authored, basis, operation, request.incoming.change, request.base.object);
+    // Frames apply in order. Each one is authored against the previous frame's
+    // result, which this path has just projected, so its material needs no
+    // second trusted projection; the projected file objects carry forward.
+    let frameBasis: View = basis;
+    let object = request.base.object;
+    for (const frame of trace) {
+      for (const operation of frame.operations) {
+        if (await partial.get("effects", keyOf(request.incoming.change, operation.key)) !== undefined)
+          return fail("Operation identity reused");
+        await this.apply(authored, frameBasis, operation, request.incoming.change, frame.before);
+      }
+      // Historical deletions have already been applied to this exact basis. These
+      // operations introduce only fresh source origins, so only new deletion
+      // effects can remove any additional material.
+      this.enforceDeletions(authored);
+      object = await this.project(authored);
+      if (object !== frame.after)
+        return fail(trace.length > 1
+          ? "Frame does not reproduce its result"
+          : "Operations do not reproduce the complete candidate");
+      frameBasis = clone(authored);
+      // Carry the projected file objects into the next frame, detached from the
+      // live nodes: the next frame edits those nodes in place, and a reused
+      // entry must still describe the material as this frame left it.
+      this.projection = {
+        previous: new Map([...this.projection!.next].map(([id, entry]) => [id, {node: clone(entry.node), object: entry.object}])),
+        next: new Map(),
+      };
     }
-    // Historical deletions have already been applied to this exact basis. These
-    // operations introduce only fresh source origins, so only new deletion
-    // effects can remove any additional material.
-    this.enforceDeletions(authored);
-    const object = await this.project(authored);
     if (object !== request.incoming.object) return fail("Operations do not reproduce the complete candidate");
-    authored.changes[request.incoming.change] = this.put(encoder.encode(stableJSONString({
-      base: request.base, incoming: request.incoming, alternatives: request.alternatives, rules: request.rules,
-    })));
+    authored.changes[request.incoming.change] = this.put(encoder.encode(stableJSONString(changeIdentity(request))));
     const state = await partial.store(authored, bytes => this.put(bytes));
     return this.response({object, state}, authored);
   }
@@ -2591,7 +2515,7 @@ class Engine {
           ]),
         ].sort(),
         change: this.request.incoming.change,
-        operations: this.request.incoming.operations.map((op) => op.key),
+        operations: operationsOf(this.request.incoming).map((op) => op.key),
         validation: "verified",
         formats: this.formatEvidence,
       },
@@ -2605,7 +2529,7 @@ class Engine {
 export const engineDiagnostics: Record<string, number> = {};
 
 export async function mergeIntent(
-  raw: IntentRequest,
+  raw: IntentRequestInput,
   objects: MergeObjects,
   options: {incremental?: boolean} = {}
 ): Promise<IntentResponse> {
@@ -2643,7 +2567,7 @@ export async function checkpointIntent(
       incoming: {
         change: request.change,
         object: request.projection,
-        operations: [],
+        trace: [],
       },
       rules: { id: "tree-default", revision: 1 },
     },
@@ -2932,7 +2856,7 @@ export async function validateIntentState(
       tree,
       base: ref,
       current: ref,
-      incoming: { change: "validate", object: ref.object, operations: [] },
+      incoming: { change: "validate", object: ref.object, trace: [] },
       rules: { id: "tree-default", revision: 1, ...(validation?.maxMillis ? { config: { maxMillis: validation.maxMillis } } : {}) },
     },
     objects

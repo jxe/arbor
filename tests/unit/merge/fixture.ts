@@ -8,7 +8,8 @@ import {
 } from "@arbor/wire";
 import { merge as mergeIntent } from "@arbor/merge";
 import type {
-  IntentRequest,
+  Frame,
+  IntentRequestInput,
   IntentResponse,
 } from "../../../packages/merge/src/intent-model.ts";
 
@@ -62,7 +63,7 @@ export class Fixture {
     operations: SourceOperation[],
     change = "edit",
     current?: string | { object: string; state: string },
-  ): IntentRequest {
+  ): IntentRequestInput {
     const ref = (r: string | { object: string; state: string }) =>
       typeof r === "string" ? { object: r } : r;
     return {
@@ -74,15 +75,40 @@ export class Fixture {
       rules: { id: "tree-default", revision: 1 },
     };
   }
+  /** The same request with its operations carried as an explicit frame chain.
+   * `frames` gives each frame's `after` root with the operations that reach it. */
+  trace(
+    base: string | { object: string; state: string },
+    frames: Array<{ after: string; operations: SourceOperation[] }>,
+    change = "edit",
+    current?: string | { object: string; state: string },
+  ): IntentRequestInput {
+    const ref = (r: string | { object: string; state: string }) =>
+      typeof r === "string" ? { object: r } : r;
+    const chain: Frame[] = [];
+    let before = ref(base).object;
+    for (const frame of frames) {
+      chain.push({ before, after: frame.after, operations: frame.operations });
+      before = frame.after;
+    }
+    return {
+      kind: "tree",
+      tree: "tree",
+      base: ref(base),
+      current: ref(current ?? base),
+      incoming: { change, object: chain.at(-1)!.after, trace: chain },
+      rules: { id: "tree-default", revision: 1 },
+    };
+  }
   async run(
-    r: IntentRequest,
+    r: IntentRequestInput,
   ): Promise<Extract<IntentResponse, { outcome: "evaluated" }>> {
     const response = await this.evaluate(r);
     if (response.outcome !== "evaluated")
       throw new Error(JSON.stringify(response));
     return response;
   }
-  evaluate(r: IntentRequest) {
+  evaluate(r: IntentRequestInput) {
     return mergeIntent(r, {
       read: async (hash) => {
         const b = this.objects.get(hash);

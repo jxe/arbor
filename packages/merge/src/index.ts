@@ -11,8 +11,8 @@ import { readAccountConfigGraph, mergeAccountConfigGraphs, snapshotAccountConfig
 import { readAccountConfigGraphV2, mergeAccountConfigGraphsV2, snapshotAccountConfigV2 } from "./account-v2.ts";
 export { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeIntent } from "./intent-engine.ts";
-import type { IntentRequest, IntentResponse } from "./intent-model.ts";
-export type { IntentRequest, IntentResponse } from "./intent-model.ts";
+import type { IntentRequestInput, IntentResponse } from "./intent-model.ts";
+export type { Frame, IntentRequest, IntentRequestInput, IntentResponse } from "./intent-model.ts";
 export type { MergeSummary } from "./summary.ts";
 
 export interface MergeObjects {
@@ -37,7 +37,7 @@ async function snapshot(root: string, objects: MergeObjects): Promise<TreeSnapsh
 /** Pure rule evaluation plus immutable object IO. No accepted-state or database access. */
 export function merge(raw:CheckpointBatchRequest,objects:MergeObjects):Promise<CheckpointBatchResponse>;
 export function merge(raw:CheckpointRequest,objects:MergeObjects):Promise<CheckpointResponse>;
-export function merge(raw:IntentRequest,objects:MergeObjects):Promise<IntentResponse>;
+export function merge(raw:IntentRequestInput,objects:MergeObjects):Promise<IntentResponse>;
 export function merge(raw:ProjectionRequest,objects:MergeObjects):Promise<ProjectionResponse>;
 export function merge(raw:MergeRequest,objects:MergeObjects):Promise<MergeResponse>;
 export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<MergeResponse> {

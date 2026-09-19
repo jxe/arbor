@@ -17,6 +17,7 @@ import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
 import {
   type IntentRequest,
+  type IntentRequestInput,
   type IntentResponse,
 } from "../../../merge/src/intent-model.ts";
 import { MAX_CHECKPOINT_BATCH, type CheckpointRequest } from "../../../merge/src/checkpoint.ts";
@@ -239,7 +240,7 @@ export class SemanticMerge {
         )
           alternatives.push(binding);
       }
-    const input: IntentRequest = {
+    const input: IntentRequestInput = {
       kind: "tree",
       tree,
       base: basis,
@@ -247,7 +248,11 @@ export class SemanticMerge {
       incoming: {
         change: request.change,
         object: request.candidate,
-        operations: request.operations ?? [],
+        // One frame: today's clients send a flat operation list for the whole
+        // change. Phase 2 of plan 010 carries the client's own frames here.
+        trace: request.operations?.length
+          ? [{ before: basis.object, after: request.candidate, operations: request.operations }]
+          : [],
         ...(resolves.length ? { resolves } : {}),
       },
       rules: {

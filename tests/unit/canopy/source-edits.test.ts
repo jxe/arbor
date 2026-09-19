@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { encodeWireDirectory, hashObject, type MaterialRef, type SourceOperation } from "@arbor/wire";
-import { executeExactSourceEdits, validateSourceEditCandidate, UnsupportedSourceEdit } from "../../../packages/canopy/src/updates/source-edits.ts";
+import { composeFrames, executeExactSourceEdits, validateSourceEditCandidate, validateSourceTrace, UnsupportedSourceEdit } from "../../../packages/canopy/src/updates/source-edits.ts";
 
 function fixture(text: string, nested = false) {
   const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
@@ -89,5 +89,93 @@ describe("exact authored source execution", () => {
     for (const edits of [[base.edit("a", [0, 2], "x"), base.edit("b", [1, 3], "y")], [base.edit("a", [1, 1], "x"), base.edit("b", [1, 1], "y")]]) {
       await expect(executeExactSourceEdits(base.root, edits, base.load)).rejects.toBeInstanceOf(UnsupportedSourceEdit);
     }
+  });
+});
+
+describe("authored source traces", () => {
+  /** Two files, so frames can touch disjoint paths. */
+  function pair(a: string, b: string) {
+    const bytesA = new TextEncoder().encode(a), fileA = hashObject(bytesA);
+    const bytesB = new TextEncoder().encode(b), fileB = hashObject(bytesB);
+    const rootBytes = encodeWireDirectory({ type: "directory", entries: [{ name: "a.md", file: fileA }, { name: "b.md", file: fileB }] });
+    const root = hashObject(rootBytes);
+    const objects = new Map([[fileA, bytesA], [fileB, bytesB], [root, rootBytes]]);
+    return { root, fileA, fileB, objects };
+  }
+  const edit = (key: string, path: string, object: string, range: [number, number], text: string): SourceOperation =>
+    ({ key, kind: "editSource", source: { material: { kind: "basis", path, object }, range }, text });
+
+  test("each frame reproduces its own result and generated objects carry forward", async () => {
+    const start = pair("abc", "xyz"), objects = new Map(start.objects);
+    const load = async (hash: string) => { const value = objects.get(hash); if (!value) throw Error("Object missing"); return value; };
+    const first = await validateSourceEditCandidate(
+      start.root,
+      (await executeExactSourceEdits(start.root, [edit("a", "/a.md", start.fileA, [0, 1], "A")], load)).root,
+      [edit("a", "/a.md", start.fileA, [0, 1], "A")],
+      load,
+    );
+    for (const [hash, bytes] of first.generated) objects.set(hash, bytes);
+    const middle = first.root;
+    const second = await executeExactSourceEdits(middle, [edit("b", "/b.md", start.fileB, [0, 1], "X")], load);
+    for (const [hash, bytes] of second.generated) objects.set(hash, bytes);
+    // The trace validates from the original objects alone: frame two reads the
+    // material frame one generated.
+    const fresh = new Map(start.objects);
+    const trace = await validateSourceTrace(
+      [
+        { before: start.root, after: middle, operations: [edit("a", "/a.md", start.fileA, [0, 1], "A")] },
+        { before: middle, after: second.root, operations: [edit("b", "/b.md", start.fileB, [0, 1], "X")] },
+      ],
+      async hash => { const value = fresh.get(hash); if (!value) throw Error("Object missing"); return value; },
+    );
+    expect(trace.root).toBe(second.root);
+    expect(trace.evidence.map(e => e.operation)).toEqual(["a", "b"]);
+  });
+
+  test("a broken chain, a wrong result, an empty frame and a reused key are rejected", async () => {
+    const start = pair("abc", "xyz"), objects = new Map(start.objects);
+    const load = async (hash: string) => { const value = objects.get(hash); if (!value) throw Error("Object missing"); return value; };
+    const a = edit("a", "/a.md", start.fileA, [0, 1], "A");
+    const b = edit("b", "/b.md", start.fileB, [0, 1], "X");
+    const middle = (await executeExactSourceEdits(start.root, [a], load)).root;
+    for (const [hash, bytes] of (await executeExactSourceEdits(start.root, [a], load)).generated) objects.set(hash, bytes);
+    const end = (await executeExactSourceEdits(middle, [b], load)).root;
+    const frames = [
+      { before: start.root, after: middle, operations: [a] },
+      { before: middle, after: end, operations: [b] },
+    ];
+    await expect(validateSourceTrace([], load)).rejects.toThrow("trace has no frames");
+    await expect(validateSourceTrace([frames[0]!, { ...frames[1]!, before: start.root }], load)).rejects.toThrow("does not follow its basis");
+    await expect(validateSourceTrace([{ ...frames[0]!, after: start.root }, frames[1]!], load)).rejects.toThrow("do not explain candidate");
+    await expect(validateSourceTrace([frames[0]!, { ...frames[1]!, operations: [] }], load)).rejects.toThrow("carries no operations");
+    await expect(validateSourceTrace([frames[0]!, { ...frames[1]!, operations: [{ ...b, key: "a" }] }], load)).rejects.toThrow("duplicate operation key");
+  });
+
+  test("disjoint frames compose into one frame; overlapping ones do not", async () => {
+    const start = pair("abc", "xyz"), objects = new Map(start.objects);
+    const load = async (hash: string) => { const value = objects.get(hash); if (!value) throw Error("Object missing"); return value; };
+    const a = edit("a", "/a.md", start.fileA, [0, 1], "A");
+    const b = edit("b", "/b.md", start.fileB, [0, 1], "X");
+    const first = await executeExactSourceEdits(start.root, [a], load);
+    for (const [hash, bytes] of first.generated) objects.set(hash, bytes);
+    const second = await executeExactSourceEdits(first.root, [b], load);
+    for (const [hash, bytes] of second.generated) objects.set(hash, bytes);
+    const frames = [
+      { before: start.root, after: first.root, operations: [a] },
+      { before: first.root, after: second.root, operations: [b] },
+    ];
+    const composed = await composeFrames(frames, load);
+    expect(composed.before).toBe(start.root);
+    expect(composed.after).toBe(second.root);
+    expect(composed.operations.map(o => o.key)).toEqual(["a", "b"]);
+    expect((await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load)).root).toBe(second.root);
+    expect(await composeFrames([frames[0]!], load)).toBe(frames[0]!);
+    // A second edit of the same file would need its references rebased.
+    const again = await executeExactSourceEdits(first.root, [edit("a2", "/a.md", hashObject(new TextEncoder().encode("Abc")), [1, 2], "B")], load);
+    for (const [hash, bytes] of again.generated) objects.set(hash, bytes);
+    await expect(composeFrames([
+      frames[0]!,
+      { before: first.root, after: again.root, operations: [edit("a2", "/a.md", hashObject(new TextEncoder().encode("Abc")), [1, 2], "B")] },
+    ], load)).rejects.toBeInstanceOf(UnsupportedSourceEdit);
   });
 });

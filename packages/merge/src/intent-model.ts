@@ -20,7 +20,22 @@ const schema = z
       .object({
         change: token,
         object: hash,
-        operations: z.array(z.unknown()).max(1024),
+        // Exactly one of these arrives: `trace` is the frame chain; a bare
+        // `operations` array is the deployed wire's single frame and is adapted
+        // below. `parseIntentRequest` rejects both and neither.
+        operations: z.array(z.unknown()).max(1024).optional(),
+        trace: z
+          .array(
+            z
+              .object({
+                before: hash,
+                after: hash,
+                operations: z.array(z.unknown()).max(1024),
+              })
+              .strict()
+          )
+          .max(64)
+          .optional(),
         resolves: z.array(z.string().min(1)).max(1024).optional(),
       })
       .strict(),
@@ -95,6 +110,22 @@ const schema = z
       .optional(),
   })
   .strict();
+/** One tree-root to tree-root step of authored evidence. Basis references
+ * inside a frame name objects in that frame's `before` tree; operation
+ * references name an earlier key in the same change. Concatenating two traces
+ * therefore needs no rebasing. */
+export interface Frame {
+  before: string;
+  after: string;
+  operations: SourceOperation[];
+}
+/** Every operation of a change in authored order. Keys are unique across the
+ * whole trace, so a flat list carries the change's complete contribution. */
+export function traceOperations(incoming: {
+  trace: Frame[];
+}): SourceOperation[] {
+  return incoming.trace.flatMap((frame) => frame.operations);
+}
 export type IntentRequest = Omit<
   z.infer<typeof schema>,
   "incoming" | "alternatives"
@@ -102,7 +133,7 @@ export type IntentRequest = Omit<
   incoming: {
     change: string;
     object: string;
-    operations: SourceOperation[];
+    trace: Frame[];
     resolves?: string[];
   };
   alternatives?: Array<{
@@ -111,6 +142,17 @@ export type IntentRequest = Omit<
     alternative: number;
     value: { object: string; kind: "file" | "directory" };
   }>;
+};
+/** What a caller may hand the engine: the deployed wire's flat `operations`
+ * list, or a `trace` of frames. `parseIntentRequest` returns the frame form. */
+export type IntentRequestInput = Omit<IntentRequest, "incoming"> & {
+  incoming: {
+    change: string;
+    object: string;
+    operations?: SourceOperation[];
+    trace?: Frame[];
+    resolves?: string[];
+  };
 };
 export function parseIntentRequest(raw: unknown): IntentRequest {
   if (
@@ -121,30 +163,67 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
   )
     throw new IntentError("unsupported", "Unknown rule revision");
   const value = schema.parse(raw);
-  for (const op of value.incoming.operations)
-    if (
-      op &&
-      typeof op === "object" &&
-      "kind" in op &&
-      ![
-        "editSource",
-        "moveSource",
-        "copySource",
-        "moveEntry",
-        "copyEntry",
-        "removeEntry",
-        "replaceEntry",
-        "undoOperation",
-      ].includes(String(op.kind))
-    )
-      throw new IntentError("unsupported", "Unknown operation kind");
-  if (value.incoming.operations.length || !value.incoming.resolves?.length)
-    decodeAuthoredCandidateIntent({
-      change: value.incoming.change,
-      candidate: value.incoming.object,
-      operations: value.incoming.operations,
-      resolves: [],
-    });
+  const incoming = value.incoming;
+  if ((incoming.operations === undefined) === (incoming.trace === undefined))
+    throw new IntentError(
+      "invalid",
+      "An incoming change carries either operations or a trace"
+    );
+  // The deployed wire still sends one flat operation list. It is exactly one
+  // frame from the base tree to the candidate; everything below sees frames.
+  const trace =
+    incoming.trace ??
+    [
+      {
+        before: value.base.object,
+        after: incoming.object,
+        operations: incoming.operations!,
+      },
+    ];
+  if (trace.reduce((sum, frame) => sum + frame.operations.length, 0) > 1024)
+    throw new IntentError("limit", "Trace exceeds the operation limit");
+  const keys = new Set<string>();
+  for (const [index, frame] of trace.entries()) {
+    const previous = trace[index - 1];
+    if ((previous ? previous.after : value.base.object) !== frame.before)
+      throw new IntentError("invalid", "Trace does not follow its basis");
+    if (index === trace.length - 1 && frame.after !== incoming.object)
+      throw new IntentError("invalid", "Trace does not end at the candidate");
+    // Only the wire's single adapted frame may be empty: that is a snapshot
+    // candidate or a bare resolution, which carries no operations at all.
+    if (!frame.operations.length && incoming.trace)
+      throw new IntentError("invalid", "Frame carries no operations");
+    for (const op of frame.operations)
+      if (
+        op &&
+        typeof op === "object" &&
+        "kind" in op &&
+        ![
+          "editSource",
+          "moveSource",
+          "copySource",
+          "moveEntry",
+          "copyEntry",
+          "removeEntry",
+          "replaceEntry",
+        ].includes(String(op.kind))
+      )
+        throw new IntentError("unsupported", "Unknown operation kind");
+    if (frame.operations.length || !incoming.resolves?.length)
+      decodeAuthoredCandidateIntent({
+        change: incoming.change,
+        candidate: frame.after,
+        operations: frame.operations,
+        resolves: [],
+      });
+    // An operation key names one authored contribution of this change, so it
+    // stays unique across the whole trace, not merely within a frame.
+    for (const op of frame.operations as Array<{ key: string }>) {
+      if (keys.has(op.key))
+        throw new IntentError("invalid", "Operation identity reused");
+      keys.add(op.key);
+    }
+  }
   for (const alternative of value.alternatives ?? []) {
     const ref = decodeMaterialRef(alternative.ref);
     if (ref.material.kind !== "alternative" || ref.within || ref.range)
@@ -152,7 +231,28 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
         "Alternative bindings require a complete alternative reference"
       );
   }
-  return value as IntentRequest;
+  return { ...value, incoming: { ...incoming, trace } } as IntentRequest;
+}
+/** The request's semantic identity, hashed into `changes[change]`.
+ * A trace the deployed wire could have sent — none, or one frame spanning the
+ * whole change — is presented in its wire shape, so a change evaluated before
+ * and after this adapter keeps the same signature. Phase 2 drops the projection
+ * with the wire's `operations` field and bumps the receipt domain. */
+export function changeIdentity(request: IntentRequest) {
+  const { trace, ...rest } = request.incoming;
+  const legacy =
+    trace.length === 0 ||
+    (trace.length === 1 &&
+      trace[0]!.before === request.base.object &&
+      trace[0]!.after === request.incoming.object);
+  return {
+    base: request.base,
+    incoming: legacy
+      ? { ...rest, operations: trace[0]?.operations ?? [] }
+      : { ...rest, trace },
+    alternatives: request.alternatives,
+    rules: request.rules,
+  };
 }
 export class IntentError extends Error {
   constructor(
@@ -435,7 +535,7 @@ const intentResponseSchema = z
   .strict();
 export function parseIntentResponse(
   raw: unknown,
-  request: IntentRequest
+  request: IntentRequestInput
 ): Extract<IntentResponse, { outcome: "evaluated" }> {
   if (
     raw &&
@@ -456,7 +556,12 @@ export function parseIntentResponse(
     value.authored.object !== request.incoming.object ||
     value.evidence.change !== request.incoming.change ||
     JSON.stringify(value.evidence.operations) !==
-      JSON.stringify(request.incoming.operations.map((op) => op.key)) ||
+      JSON.stringify(
+        (request.incoming.trace
+          ? traceOperations({ trace: request.incoming.trace })
+          : request.incoming.operations ?? []
+        ).map((op) => op.key)
+      ) ||
     new Set(value.objects).size !== value.objects.length
   )
     throw new Error("Intent response does not match request");
@@ -531,7 +636,7 @@ export function intentHistoryReferences(field: "outputs" | "effects" | "origins"
     outputs: {}, effects: {}, origins: {}, alternatives: {}, changes: {}, [field]: {record}} as IntentState);
 }
 
-export function isIntentRequest(raw: unknown): raw is IntentRequest {
+export function isIntentRequest(raw: unknown): raw is IntentRequestInput {
   return (
     !!raw &&
     typeof raw === "object" &&
@@ -540,6 +645,7 @@ export function isIntentRequest(raw: unknown): raw is IntentRequest {
     "incoming" in raw &&
     !!raw.incoming &&
     typeof raw.incoming === "object" &&
-    "operations" in raw.incoming
+    // Either the deployed wire's flat operation list or a frame trace.
+    ("operations" in raw.incoming || "trace" in raw.incoming)
   );
 }

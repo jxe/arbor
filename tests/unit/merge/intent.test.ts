@@ -2,6 +2,8 @@ import { loadIntentState } from "../../../packages/merge/src/state-storage.ts";
 import { expect, test } from "bun:test";
 import type { MaterialRef, SourceOperation } from "@arbor/wire";
 import { Fixture } from "./fixture.ts";
+import { stableJSONString } from "@arbor/core";
+import { changeIdentity, parseIntentRequest } from "../../../packages/merge/src/intent-model.ts";
 
 test("exact source edits retain CRLF, Unicode and operation-result coordinates", async () => {
   const f = new Fixture(),
@@ -79,7 +81,7 @@ test.each(["moveSource", "copySource"] as const)(
     );
   },
 );
-test("remove, replace and undo retain exact material across evaluations", async () => {
+test("remove and replace retain exact material across evaluations", async () => {
   const f = new Fixture(),
     base = f.tree({ a: "old", b: "stay" });
   const replaced = await f.run(
@@ -105,23 +107,27 @@ test("remove, replace and undo retain exact material across evaluations", async 
       "remove",
     ),
   );
-  const undone = await f.run(
+  expect(removed.result.object).toBe(f.tree({ a: "new" }));
+  // Undo is no longer an operation: reverting is authored as an ordinary
+  // replacement against the current basis.
+  const reverted = await f.run(
     f.request(
       removed.result,
       f.tree({ a: "old" }),
       [
         {
-          key: "undo",
-          kind: "undoOperation",
-          target: { change: "replace", operation: "replace" },
+          key: "revert",
+          kind: "replaceEntry",
+          source: f.ref("/a", "new"),
+          value: { file: f.put("old") },
         },
       ],
-      "undo",
+      "revert",
     ),
   );
-  expect(undone.result.object).toBe(f.tree({ a: "old" }));
+  expect(reverted.result.object).toBe(f.tree({ a: "old" }));
 });
-test("invalid boundaries, false lineage, wrong candidate and absent undo context are distinct", async () => {
+test("invalid boundaries, false lineage, wrong candidate and undo are distinct", async () => {
   const f = new Fixture(),
     base = f.tree({ a: "αbeta" });
   const edit: SourceOperation = {
@@ -154,6 +160,8 @@ test("invalid boundaries, false lineage, wrong candidate and absent undo context
       )
     ).outcome,
   ).toBe("invalid");
+  // Undo left the grammar with frames; the engine refuses it outright rather
+  // than reporting missing causal context.
   expect(
     (
       await f.evaluate(
@@ -162,11 +170,11 @@ test("invalid boundaries, false lineage, wrong candidate and absent undo context
             key: "op",
             kind: "undoOperation",
             target: { change: "missing", operation: "op" },
-          },
+          } as SourceOperation,
         ]),
       )
     ).outcome,
-  ).toBe("missing-context");
+  ).toBe("unsupported");
 });
 
 test("concurrent disjoint edits preserve both contributions in either arrival order", async () => {
@@ -275,55 +283,6 @@ test("delete versus edit retains alternatives", async () => {
     current.result.object,
   );
 });
-test("selective source undo keeps a later independent edit", async () => {
-  const f = new Fixture(),
-    base = f.tree({ "a.txt": "one two" });
-  const a = await f.run(
-    f.request(
-      base,
-      f.tree({ "a.txt": "ONE two" }),
-      [
-        {
-          key: "op",
-          kind: "editSource",
-          source: f.ref("/a.txt", "one two", [0, 3]),
-          text: "ONE",
-        },
-      ],
-      "a",
-    ),
-  );
-  const b = await f.run(
-    f.request(
-      a.result,
-      f.tree({ "a.txt": "ONE TWO" }),
-      [
-        {
-          key: "op",
-          kind: "editSource",
-          source: f.ref("/a.txt", "ONE two", [4, 7]),
-          text: "TWO",
-        },
-      ],
-      "b",
-    ),
-  );
-  const r = await f.run(
-    f.request(
-      b.result,
-      f.tree({ "a.txt": "one TWO" }),
-      [
-        {
-          key: "op",
-          kind: "undoOperation",
-          target: { change: "a", operation: "op" },
-        },
-      ],
-      "undo",
-    ),
-  );
-  expect(r.result.object).toBe(f.tree({ "a.txt": "one TWO" }));
-});
 test("basis references follow source moved into another file within a batch", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.txt": "one two", "b.txt": "three" });
@@ -344,38 +303,6 @@ test("basis references follow source moved into another file within a batch", as
       },
     ]),
   );
-});
-test("the exploratory model's independent deletions survive selective undo", async () => {
-  const f = new Fixture(),
-    base = f.tree({ "a.txt": "keep" }),
-    empty = f.tree({});
-  const deletion: SourceOperation = {
-    key: "delete",
-    kind: "removeEntry",
-    source: f.ref("/a.txt", "keep"),
-  };
-  const alice = await f.run(f.request(base, empty, [deletion], "alice"));
-  const both = await f.run(
-    f.request(base, empty, [deletion], "bob", alice.result),
-  );
-  expect(both.decisions).toEqual([]);
-  const undo = await f.run(
-    f.request(
-      alice.result,
-      base,
-      [
-        {
-          key: "undo",
-          kind: "undoOperation",
-          target: { change: "alice", operation: "delete" },
-        },
-      ],
-      "undo",
-      both.result,
-    ),
-  );
-  expect(undo.result.object).toBe(empty);
-  expect(undo.decisions).toEqual([]);
 });
 test("two separated overlaps become independent source decisions", async () => {
   const f = new Fixture(),
@@ -478,65 +405,6 @@ test("empty operation results keep their insertion anchor", async () => {
       },
     ]),
   );
-});
-test("independent source deletions and redo retain causal contributions", async () => {
-  const f = new Fixture(),
-    base = f.tree({ "a.txt": "one two" }),
-    deleted = f.tree({ "a.txt": " two" });
-  const op: SourceOperation = {
-    key: "delete",
-    kind: "editSource",
-    source: f.ref("/a.txt", "one two", [0, 3]),
-    text: "",
-  };
-  const alice = await f.run(f.request(base, deleted, [op], "alice"));
-  const bob = await f.run(f.request(base, deleted, [op], "bob", alice.result));
-  const undone = await f.run(
-    f.request(
-      alice.result,
-      base,
-      [
-        {
-          key: "undo",
-          kind: "undoOperation",
-          target: { change: "alice", operation: "delete" },
-        },
-      ],
-      "undo",
-      bob.result,
-    ),
-  );
-  expect(undone.result.object).toBe(deleted);
-  expect(undone.decisions).toEqual([]);
-  const restored = await f.run(
-    f.request(
-      undone.result,
-      base,
-      [
-        {
-          key: "undo",
-          kind: "undoOperation",
-          target: { change: "bob", operation: "delete" },
-        },
-      ],
-      "restore",
-    ),
-  );
-  const redo = await f.run(
-    f.request(
-      restored.result,
-      deleted,
-      [
-        {
-          key: "redo",
-          kind: "undoOperation",
-          target: { change: "restore", operation: "undo" },
-        },
-      ],
-      "redo",
-    ),
-  );
-  expect(redo.result.object).toBe(deleted);
 });
 test("hidden alternative edits change retained state without resolving or changing projection", async () => {
   const f = new Fixture(),
@@ -953,7 +821,7 @@ test("malformed intent, unavailable objects, unsupported operations and resource
     },
   ]);
   const bad = structuredClone(request);
-  (bad.incoming.operations[0] as { kind: string }).kind = "unknown";
+  (bad.incoming.operations![0] as { kind: string }).kind = "unknown";
   expect((await f.evaluate(bad)).outcome).toBe("unsupported");
   const limited = structuredClone(request);
   limited.rules.config = { maxBytes: 1 };
@@ -1734,113 +1602,6 @@ test("a partial copy through a source choice stays coupled rather than inventing
     edited.result.object,
   );
 });
-test("undoing an edited insertion retains a choice and independent later text", async () => {
-  const f = new Fixture(),
-    base = f.tree({ "a.txt": "one two" });
-  const inserted = await f.run(
-    f.request(
-      base,
-      f.tree({ "a.txt": "ONE two" }),
-      [
-        {
-          key: "edit",
-          kind: "editSource",
-          source: f.ref("/a.txt", "one two", [0, 3]),
-          text: "ONE",
-        },
-      ],
-      "insert",
-    ),
-  );
-  const edited = await f.run(
-    f.request(
-      inserted.result,
-      f.tree({ "a.txt": "NEW TWO" }),
-      [
-        {
-          key: "inside",
-          kind: "editSource",
-          source: f.ref("/a.txt", "ONE two", [0, 3]),
-          text: "NEW",
-        },
-        {
-          key: "outside",
-          kind: "editSource",
-          source: f.ref("/a.txt", "ONE two", [4, 7]),
-          text: "TWO",
-        },
-      ],
-      "edit",
-    ),
-  );
-  const undo = await f.run(
-    f.request(
-      edited.result,
-      f.tree({ "a.txt": "one TWO" }),
-      [
-        {
-          key: "undo",
-          kind: "undoOperation",
-          target: { change: "insert", operation: "edit" },
-        },
-      ],
-      "undo",
-    ),
-  );
-  expect(undo.decisions).toHaveLength(1);
-  expect(undo.decisions[0]!.alternatives[0]!.object).toBe(edited.result.object);
-  expect(f.content(undo.result.object, "a.txt")).toBe("one TWO");
-});
-test("undoing a copy with later edits retains the edited copy as an alternative", async () => {
-  const f = new Fixture(),
-    base = f.tree({ "a.txt": "original" });
-  const copy = await f.run(
-    f.request(
-      base,
-      f.tree({ "a.txt": "original", "b.txt": "original" }),
-      [
-        {
-          key: "copy",
-          kind: "copyEntry",
-          source: f.ref("/a.txt", "original"),
-          destination: { parent: f.root(base), name: "b.txt" },
-        },
-      ],
-      "copy",
-    ),
-  );
-  const edit = await f.run(
-    f.request(
-      copy.result,
-      f.tree({ "a.txt": "original", "b.txt": "edited" }),
-      [
-        {
-          key: "edit",
-          kind: "editSource",
-          source: f.ref("/b.txt", "original"),
-          text: "edited",
-        },
-      ],
-      "edit",
-    ),
-  );
-  const undone = await f.run(
-    f.request(
-      edit.result,
-      base,
-      [
-        {
-          key: "undo",
-          kind: "undoOperation",
-          target: { change: "copy", operation: "copy" },
-        },
-      ],
-      "undo",
-    ),
-  );
-  expect(undone.decisions).toHaveLength(1);
-  expect(undone.decisions[0]!.alternatives[0]!.object).toBe(edit.result.object);
-});
 
 test("three same-anchor prose contributions have one order across all arrivals", async () => {
   for (const order of ["abc", "acb", "bac", "bca", "cab", "cba"]) {
@@ -2044,29 +1805,166 @@ test("copying an empty selected alternative preserves the hidden value", async (
   ]);
 });
 
-test("undo authored states remain readable when a selected conflict fragment disappears", async () => {
-  const f = new Fixture(), base = f.tree({"a.txt":"abc tail"});
-  const a = await f.run(f.request(base,f.tree({"a.txt":"AAA tail"}),[
-    {kind:"editSource",key:"edit",source:f.ref("/a.txt","abc tail",[0,3]),text:"AAA"}
-  ],"a"));
-  const conflict = await f.run(f.request(base,f.tree({"a.txt":"BBB tail"}),[
-    {kind:"editSource",key:"edit",source:f.ref("/a.txt","abc tail",[0,3]),text:"BBB"}
-  ],"b",a.result));
-  let prior = conflict.result.object;
-  let last = await f.run(f.request(conflict.result,f.tree({"a.txt":"CCC tail"}),[
-    {kind:"editSource",key:"op",source:f.ref("/a.txt","BBB tail",[0,3]),text:"CCC"}
-  ],"c"));
-  let change = "c";
-  for (let index=0;index<4;index++) {
-    const next = `inverse-${index}`;
-    const inverse = await f.run(f.request(last.authored,prior,[
-      {kind:"undoOperation",key:"op",target:{change,operation:"op"}}
-    ],next,last.result));
-    // Load both retained states, as Canopy does for a later historical branch.
-    for(const state of [inverse.authored,inverse.result]) {
-      const text = f.content(state.object,"a.txt");
-      await f.run(f.request(state,state.object,[{kind:"editSource",key:"same",source:f.ref("/a.txt",text),text}],`${next}-${state === inverse.authored ? "authored" : "result"}`));
-    }
-    prior = last.authored.object; last = inverse; change = next;
-  }
+
+test("a two-frame trace reaches the same result as the composed change", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "abc", "b.md": "xyz" });
+  const middle = f.tree({ "a.md": "Abc", "b.md": "xyz" });
+  const candidate = f.tree({ "a.md": "Abc", "b.md": "Xyz" });
+  const editA: SourceOperation = {
+    key: "a",
+    kind: "editSource",
+    source: f.ref("/a.md", "abc", [0, 1]),
+    text: "A",
+  };
+  const editB: SourceOperation = {
+    key: "b",
+    kind: "editSource",
+    source: f.ref("/b.md", "xyz", [0, 1]),
+    text: "X",
+  };
+  const framed = await f.run(
+    f.trace(base, [
+      { after: middle, operations: [editA] },
+      { after: candidate, operations: [editB] },
+    ]),
+  );
+  const composed = await f.run(f.request(base, candidate, [editA, editB]));
+  expect(framed.result.object).toBe(candidate);
+  expect(framed.result.object).toBe(composed.result.object);
+  expect(framed.decisions).toEqual(composed.decisions);
+  expect(framed.evidence.operations).toEqual(composed.evidence.operations);
+});
+
+test("a frame that does not reproduce its result is invalid", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "abc", "b.md": "xyz" });
+  const candidate = f.tree({ "a.md": "abc", "b.md": "Xyz" });
+  const response = await f.evaluate({
+    kind: "tree",
+    tree: "tree",
+    base: { object: base },
+    current: { object: base },
+    incoming: {
+      change: "edit",
+      object: candidate,
+      trace: [
+        // Claims the first edit changes nothing, which its operation denies.
+        {
+          before: base,
+          after: base,
+          operations: [
+            {
+              key: "a",
+              kind: "editSource",
+              source: f.ref("/a.md", "abc", [0, 1]),
+              text: "A",
+            },
+          ],
+        },
+        {
+          before: base,
+          after: candidate,
+          operations: [
+            {
+              key: "b",
+              kind: "editSource",
+              source: f.ref("/b.md", "xyz", [0, 1]),
+              text: "X",
+            },
+          ],
+        },
+      ],
+    },
+    rules: { id: "tree-default", revision: 1 },
+  });
+  expect(response.outcome).toBe("invalid");
+  expect((response as { message: string }).message).toContain("Frame does not reproduce its result");
+});
+
+test("a trace that leaves its basis or its candidate is rejected", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "abc" }),
+    candidate = f.tree({ "a.md": "Abc" });
+  const operations: SourceOperation[] = [
+    { key: "a", kind: "editSource", source: f.ref("/a.md", "abc", [0, 1]), text: "A" },
+  ];
+  const request = f.trace(base, [{ after: candidate, operations }]);
+  const detached = structuredClone(request);
+  detached.incoming.trace![0]!.before = candidate;
+  expect((await f.evaluate(detached)).outcome).toBe("invalid");
+  const short = structuredClone(request);
+  short.incoming.object = base;
+  expect((await f.evaluate(short)).outcome).toBe("invalid");
+  const reused = structuredClone(request);
+  reused.incoming.trace = [
+    reused.incoming.trace![0]!,
+    { before: candidate, after: candidate, operations },
+  ];
+  reused.incoming.object = candidate;
+  expect((await f.evaluate(reused)).outcome).toBe("invalid");
+});
+
+test("a later frame refers to an earlier frame's operation result", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "abc" });
+  const middle = f.tree({ "a.md": "aNEWbc" });
+  const candidate = f.tree({ "a.md": "aOLDbc" });
+  const framed = await f.run(
+    f.trace(base, [
+      {
+        after: middle,
+        operations: [
+          {
+            key: "insert",
+            kind: "editSource",
+            source: f.ref("/a.md", "abc", [1, 1]),
+            text: "NEW",
+          },
+        ],
+      },
+      {
+        after: candidate,
+        operations: [
+          {
+            key: "revise",
+            kind: "editSource",
+            source: f.op("edit", "insert", [0, 3]),
+            text: "OLD",
+          },
+        ],
+      },
+    ]),
+  );
+  expect(framed.result.object).toBe(candidate);
+  expect(f.content(framed.result.object, "a.md")).toBe("aOLDbc");
+});
+
+test("a wire-shaped change keeps the identity bytes it had before frames", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "abc" }),
+    candidate = f.tree({ "a.md": "Abc" });
+  const request = f.request(base, candidate, [
+    { key: "a", kind: "editSource", source: f.ref("/a.md", "abc", [0, 1]), text: "A" },
+  ]);
+  // The shape the evaluator hashed before operations became frames.
+  const legacy = stableJSONString({
+    base: request.base,
+    incoming: request.incoming,
+    alternatives: request.alternatives,
+    rules: request.rules,
+  });
+  expect(stableJSONString(changeIdentity(parseIntentRequest(request)))).toBe(legacy);
+  // A trace the wire could not have sent is hashed as frames, so two different
+  // changes can never share an identity.
+  const framed = f.trace(base, [{ after: candidate, operations: [
+    { key: "a", kind: "editSource", source: f.ref("/a.md", "abc", [0, 1]), text: "A" },
+  ] }]);
+  expect(stableJSONString(changeIdentity(parseIntentRequest(framed)))).toBe(legacy);
+  const middle = f.tree({ "a.md": "Abc" });
+  const two = f.trace(base, [
+    { after: middle, operations: [{ key: "a", kind: "editSource", source: f.ref("/a.md", "abc", [0, 1]), text: "A" }] },
+    { after: f.tree({ "a.md": "ABc" }), operations: [{ key: "b", kind: "editSource", source: f.ref("/a.md", "Abc", [1, 2]), text: "B" }] },
+  ]);
+  expect(stableJSONString(changeIdentity(parseIntentRequest(two)))).toContain('"trace"');
 });

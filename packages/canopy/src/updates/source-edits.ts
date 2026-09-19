@@ -143,3 +143,77 @@ export async function validateSourceEditCandidate(
   if (result.root !== candidate) invalid("operations do not explain candidate");
   return result;
 }
+
+/** One tree-root to tree-root step of authored evidence, as the merge engine
+ * sees it. Basis references name objects in this frame's `before` tree. */
+export interface SourceFrame {
+  before: ObjectHash;
+  after: ObjectHash;
+  operations: readonly AuthoredOperation[];
+}
+
+/** Validate a chain of frames. Each frame must follow its predecessor's result
+ * and must reproduce its own `after` exactly; objects a frame generates are
+ * available to the frames that follow it. Operation keys stay unique across the
+ * whole trace, because they name contributions of one change. */
+export async function validateSourceTrace(
+  frames: readonly SourceFrame[],
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; evidence: SourceEditEvidence[] }> {
+  if (!frames.length) invalid("trace has no frames");
+  const generated = new Map<ObjectHash, Uint8Array>();
+  const evidence: SourceEditEvidence[] = [];
+  const keys = new Set<string>();
+  const read = async (hash: ObjectHash) => generated.get(hash) ?? await load(hash);
+  for (const [index, frame] of frames.entries()) {
+    const previous = frames[index - 1];
+    if (previous && previous.after !== frame.before) invalid("frame does not follow its basis");
+    if (!frame.operations.length) invalid("frame carries no operations");
+    for (const operation of frame.operations) {
+      if (keys.has(operation.key)) invalid("duplicate operation key");
+      keys.add(operation.key);
+    }
+    const result = await validateSourceEditCandidate(frame.before, frame.after, frame.operations, read);
+    for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
+    evidence.push(...result.evidence);
+  }
+  return { root: frames.at(-1)!.after, generated, evidence };
+}
+
+/** Collapse a chain into one frame from the first `before` to the last `after`.
+ * Frame-local basis references only survive composition when later frames do
+ * not touch what earlier frames changed; the composed frame is then executed
+ * and must reproduce the same result. Anything that would need its references
+ * rebased (lineage, copies, or a second edit of the same file) is refused
+ * rather than guessed. */
+export async function composeFrames(
+  frames: readonly SourceFrame[],
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<SourceFrame> {
+  if (!frames.length) invalid("trace has no frames");
+  if (frames.length === 1) return frames[0]!;
+  const paths = new Set<string>();
+  for (const [index, frame] of frames.entries()) {
+    const previous = frames[index - 1];
+    if (previous && previous.after !== frame.before) invalid("frame does not follow its basis");
+    const touched: string[] = [];
+    for (const operation of frame.operations) {
+      if (operation.kind !== "editSource" || operation.lineage?.length || operation.source.material.kind !== "basis")
+        throw new UnsupportedSourceEdit("Composition needs lineage-free basis edits");
+      const path = operation.source.material.path;
+      if (paths.has(path))
+        throw new UnsupportedSourceEdit("Composition needs frames over disjoint paths");
+      touched.push(path);
+    }
+    for (const path of touched) paths.add(path);
+  }
+  const composed: SourceFrame = {
+    before: frames[0]!.before,
+    after: frames.at(-1)!.after,
+    operations: frames.flatMap((frame) => [...frame.operations]),
+  };
+  // The exact intermediate bytes make this deterministic; prove it rather than
+  // assume it, so a composed trace is never weaker evidence than the chain.
+  await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load);
+  return composed;
+}

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mergeIntent } from "../../../packages/merge/src/intent-engine.ts";
+import { engineDiagnostics, mergeIntent } from "../../../packages/merge/src/intent-engine.ts";
 import {
   loadIntentState,
   storeIntentState,
@@ -341,4 +341,93 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
   expect((await mergeIntent({...request, incoming: {...request.incoming, operations: [
     {kind: "editSource", key: "bad", source: f.ref("/a.md", "wrong", [1, 2]), text: "B"},
   ]}}, objects)).outcome).toBe("invalid");
+});
+
+test("a multi-frame trace of exact-basis edits takes the fast path", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "abc\r\n", "b.md": "xyz\r\n" });
+  // Establish a retained state so the fast path has an exact basis to reuse.
+  const initial = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.md": "Abc\r\n", "b.md": "xyz\r\n" }),
+      [{ key: "first", kind: "editSource", source: f.ref("/a.md", "abc\r\n", [0, 1]), text: "A" }],
+      "first",
+    ),
+  );
+  const start = initial.result.object;
+  const middle = f.tree({ "a.md": "ABc\r\n", "b.md": "xyz\r\n" });
+  const candidate = f.tree({ "a.md": "ABc\r\n", "b.md": "Xyz\r\n" });
+  const framed = f.trace(
+    initial.result,
+    [
+      {
+        after: middle,
+        operations: [
+          { key: "second", kind: "editSource", source: f.ref("/a.md", "Abc\r\n", [1, 2]), text: "B" },
+        ],
+      },
+      {
+        after: candidate,
+        operations: [
+          { key: "third", kind: "editSource", source: f.ref("/b.md", "xyz\r\n", [0, 1]), text: "X" },
+        ],
+      },
+    ],
+    "second",
+  );
+  expect(start).toBe(f.tree({ "a.md": "Abc\r\n", "b.md": "xyz\r\n" }));
+  const fast = await f.run(framed);
+  expect(engineDiagnostics.path).toBe(1);
+  expect(fast.result.object).toBe(candidate);
+  const full = await mergeIntent(structuredClone(framed), {
+    read: async (hash: string) => {
+      const bytes = f.objects.get(hash);
+      if (!bytes) throw new Error("missing");
+      return bytes;
+    },
+    store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
+      for (const value of values) f.objects.set(value.hash, value.bytes);
+    },
+  }, { incremental: false });
+  if (full.outcome !== "evaluated") throw new Error(JSON.stringify(full));
+  expect(engineDiagnostics.path).toBe(0);
+  expect(fast.result).toEqual(full.result);
+  expect(fast.authored).toEqual(full.authored);
+  expect(fast.decisions).toEqual(full.decisions);
+});
+
+test("a multi-frame trace whose frame result is wrong is rejected on the fast path", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.md": "abc\r\n", "b.md": "xyz\r\n" });
+  const initial = await f.run(
+    f.request(
+      base,
+      f.tree({ "a.md": "Abc\r\n", "b.md": "xyz\r\n" }),
+      [{ key: "first", kind: "editSource", source: f.ref("/a.md", "abc\r\n", [0, 1]), text: "A" }],
+      "first",
+    ),
+  );
+  const candidate = f.tree({ "a.md": "ABc\r\n", "b.md": "Xyz\r\n" });
+  const wrong = f.trace(
+    initial.result,
+    [
+      {
+        // Names the final tree as this frame's result, which its one edit does
+        // not reach.
+        after: candidate,
+        operations: [
+          { key: "second", kind: "editSource", source: f.ref("/a.md", "Abc\r\n", [1, 2]), text: "B" },
+        ],
+      },
+      {
+        after: candidate,
+        operations: [
+          { key: "third", kind: "editSource", source: f.ref("/b.md", "xyz\r\n", [0, 1]), text: "X" },
+        ],
+      },
+    ],
+    "second",
+  );
+  expect((await f.evaluate(wrong)).outcome).toBe("invalid");
 });

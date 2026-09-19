@@ -10,7 +10,7 @@ import {
   isIntentRequest,
   parseIntentResponse,
   parseIntentRequest,
-  type IntentRequest,
+  type IntentRequestInput,
   type IntentResponse,
 } from "./intent-model.ts";
 import { z } from "zod";
@@ -78,7 +78,7 @@ export type ProjectionRequest =
 
 export type MergeRequest =
   | ProjectionRequest
-  | IntentRequest
+  | IntentRequestInput
   | CheckpointRequest
   | CheckpointBatchRequest;
 export function parseRequest(raw: unknown): MergeRequest {
@@ -183,7 +183,7 @@ export function parseResponse(
 ): ProjectionResponse;
 export function parseResponse(
   raw: unknown,
-  request: IntentRequest
+  request: IntentRequestInput
 ): Extract<IntentResponse, { outcome: "evaluated" }>;
 export function parseResponse(
   raw: unknown,

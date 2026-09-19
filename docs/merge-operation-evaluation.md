@@ -59,6 +59,58 @@ hashes, change/operation keys, rule revision, configuration and policy reasons.
 A repeated contribution is not applied again; identical immutable requests replay
 deterministically. Canopy still owns durable request receipts and accepted identity.
 
+## Operations as frames
+
+Since [Canopy 010](../plans/canopy/010-operation-frames-and-lazy-history.md)
+Phase 1, the evaluator reads a change's operations as a **trace**: a chain of
+frames, each carrying the operations that take one tree root to the next.
+
+```ts
+type Frame = { before: TreeRoot; after: TreeRoot; operations: SourceOperation[] };
+```
+
+- `trace[0].before` is the request's base root and the last frame's `after` is
+  the candidate; each frame's `before` is its predecessor's `after`.
+- References are frame-local. A basis reference in a frame names an object in
+  that frame's `before` tree; an operation reference names an earlier key in the
+  same change, in any frame. Two traces therefore concatenate without rebasing,
+  which is what lets a client coalesce debounced editor generations instead of
+  recomposing ranges across them.
+- Operation keys are unique across the whole trace, because a key names one
+  authored contribution of the change.
+- Every frame must reproduce its own `after`. A frame whose operations project
+  to anything else fails with "Frame does not reproduce its result"; the last
+  frame keeps the evaluator's existing candidate check, which runs after
+  decisions propagate and retained deletions are enforced. Operations remain
+  checked evidence, never hints: a trace that is absent (or empty) is snapshot
+  semantics, exactly as `operations: null` is today, and a trace that is present
+  is validated in full.
+- `undoOperation` has left the grammar for the evaluator. Editors express undo
+  and redo as ordinary edits against the generation they are undoing, so there
+  is no causal inverse to evaluate. The Wire contract still decodes the kind
+  until the Phase 2 clean break; the engine answers `unsupported`.
+
+The exact-basis fast path takes traces too. It applies each frame in order
+against the previous frame's result, carrying the projected file material
+forward instead of re-deriving it, and checks each frame's root as it goes.
+Its decline reasons are unchanged except for a new reason 8, a trace that does
+not start at the request's basis.
+
+`packages/canopy/src/updates/source-edits.ts` exposes the same shape for exact
+source execution: `validateSourceTrace` runs the per-frame candidate check with
+each frame's generated objects available to the next, and `composeFrames`
+collapses a chain into one frame when the frames touch disjoint paths with
+lineage-free basis edits, proving the composition by executing it. Chains that
+would need their references rebased (lineage, copies, or a second edit of the
+same file) are refused rather than guessed; client-side compaction of those
+arrives with the plan's Phase 3.
+
+The deployed wire is unchanged by this phase. A request still carries one flat
+`operations` array, which the request adapter reads as a single frame from the
+base root to the candidate, and a change's stored identity signature keeps its
+previous bytes for every request that wire can express. Phase 2 replaces
+`operations` with `trace` on the wire and bumps the receipt domain.
+
 ## Material and choices
 
 Retained state is a hash-addressed implementation object. It contains entry

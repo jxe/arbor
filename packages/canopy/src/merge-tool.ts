@@ -18,9 +18,10 @@ import {
   type MergeRequest,
   type ProjectionRequest,
   type ProjectionResponse,
-  type IntentRequest,
+  type IntentRequestInput,
   type IntentResponse,
 } from "@arbor/merge";
+import { changeIdentity, parseIntentRequest } from "../../merge/src/intent-model.ts";
 import { hashObject, type ObjectHash } from "@arbor/wire";
 import type { MergeResult } from "./updates/merge.ts";
 import { PersistentMergeWorker } from "./merge-worker.ts";
@@ -152,7 +153,7 @@ export class MergeTool {
     objects: Map<ObjectHash, Uint8Array>;
   }>;
   evaluate(
-    request: IntentRequest,
+    request: IntentRequestInput,
     inputs: ReadonlyMap<ObjectHash, Uint8Array>
   ): Promise<{
     response: Extract<IntentResponse, { outcome: "evaluated" }>;
@@ -389,9 +390,11 @@ export class MergeTool {
         if (
           "authored" in response &&
           request.kind !== "checkpoint" && request.kind !== "checkpoint-batch" &&
-          "operations" in request.incoming
+          ("operations" in request.incoming || "trace" in request.incoming)
         ) {
-          const intent = request as IntentRequest;
+          // The engine hashes the request's canonical frame form; parse the
+          // same request here rather than hashing the shape it was sent in.
+          const intent = parseIntentRequest(request);
           const authored = await validate(response.authored);
           roots.push(response.authored.state);
           if (
@@ -400,14 +403,7 @@ export class MergeTool {
           )
             throw new Error("Decision response differs from retained state");
           const signature = hashObject(
-            new TextEncoder().encode(
-              stableJSONString({
-                base: intent.base,
-                incoming: intent.incoming,
-                alternatives: intent.alternatives,
-                rules: intent.rules,
-              })
-            )
+            new TextEncoder().encode(stableJSONString(changeIdentity(intent)))
           );
           if (
             authored.changes[intent.incoming.change] !== signature ||
