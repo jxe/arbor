@@ -1,4 +1,4 @@
-import { loadEditableIntentState, loadIntentState, storeIntentState } from "./state-storage.ts";
+import { isEditableState, loadEditableIntentState, loadIntentState, storeIntentState } from "./state-storage.ts";
 import type { StateMapValidationCache } from "./state-map.ts";
 import { stableJSONString } from "@arbor/core";
 import {
@@ -116,6 +116,8 @@ type StateValidation = {
 };
 class Engine {
   private validation?: StateValidation;
+  private appliedDeletions?: Record<string, unknown>;
+  eager = false;
   private projection?: StateValidation["material"];
   authoredResult?: { object: string; state: string };
   readonly pendingEnclosures = new Set<string>();
@@ -1120,9 +1122,12 @@ class Engine {
         edit.pieces.every((p) => state.effects[p.origin]?.preserves === true),
     }));
   }
-  enforceDeletions(state: IntentState) {
-    for (const effect of Object.values(state.effects)) {
+  /** `applied` holds effects whose deletions the state's nodes already reflect:
+   * those of an editable base, which every evaluation that recorded it enforced. */
+  enforceDeletions(state: IntentState, applied?: Record<string, unknown>) {
+    for (const [key, effect] of Object.entries(state.effects)) {
       if (effect.undone || effect.kind !== "editSource") continue;
+      if (applied && Object.hasOwn(applied, key) && same(applied[key], effect)) continue;
       for (const [id, before] of Object.entries(effect.before)) {
         const after = effect.after[id];
         if (!before.pieces || !after?.pieces) continue;
@@ -1374,6 +1379,8 @@ class Engine {
       current = sameBasis && !base.decisions.length && !request.alternatives?.length
         ? base : await this.load(request.current);
     engineDiagnostics["load-ms"] = performance.now() - startedLoad;
+    if (!this.eager && request.base.state && await isEditableState(request.base.state, (hash) => this.read(hash)))
+      this.appliedDeletions = base.effects;
     const signature = this.put(
       encoder.encode(stableJSONString(changeIdentity(request)))
     );
@@ -1564,7 +1571,7 @@ class Engine {
       }
     }
     await this.propagateDecisions(authored, base);
-    this.enforceDeletions(authored);
+    this.enforceDeletions(authored, this.appliedDeletions);
     const authoredRoot = await this.project(authored);
     if (authoredRoot !== request.incoming.object)
       return fail("Operations do not reproduce the complete candidate");
@@ -1613,8 +1620,10 @@ class Engine {
       decision.dependencies = decision.dependencies.filter(
         (d) => !resolved.has(d)
       );
-    this.authoredResult = await this.record(authoredSnapshot);
+    this.authoredResult = await this.record(authoredSnapshot, true);
     let resultState = authored;
+    // Whether every deletion in the result's effects is reflected in its nodes.
+    let enforced = true;
     if (
       request.current.object !== request.base.object ||
       request.current.state !== request.base.state
@@ -2165,7 +2174,7 @@ class Engine {
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
         if (node.deletions?.length) node.active = false;
-      this.enforceDeletions(merged);
+      this.enforceDeletions(merged, this.appliedDeletions);
       try {
         if (!affected.length) await this.project(merged);
       } catch (error) {
@@ -2208,8 +2217,12 @@ class Engine {
       } else {
         merged.decisions.push(...contentDecisions);
         resultState = merged;
+        enforced = true;
       }
-      if (transported) resultState = transported;
+      if (transported) {
+        resultState = transported;
+        enforced = false;
+      }
     }
     // Presentation granularity and selected projection are policy, not a second
     // executor. Canopy initially requests whole-file choices for installed clients.
@@ -2285,6 +2298,7 @@ class Engine {
       if (rootChoice) {
         resultState.nodes = clone(current.nodes);
         resultState.root = current.root;
+        enforced = false;
         rootChoice.selected = 0;
         for (const map of [
           "outputs",
@@ -2394,7 +2408,7 @@ class Engine {
       decision.dependencies = decision.dependencies.filter(
         (key) => !resolved.has(key)
       );
-    const result = await this.record(resultState);
+    const result = await this.record(resultState, enforced);
     return this.response(result, resultState);
   }
   /** Recover projected file hashes from accepted directory metadata, without
@@ -2524,11 +2538,14 @@ export const engineDiagnostics: Record<string, number> = {};
 export async function mergeIntent(
   raw: IntentRequestInput,
   objects: MergeObjects,
-  options: {incremental?: boolean} = {}
+  options: {incremental?: boolean; eager?: boolean} = {}
 ): Promise<IntentResponse> {
   try {
-    const engine = new Engine(parseIntentRequest(raw), objects),
-      result = await engine.run(options.incremental);
+    const engine = new Engine(parseIntentRequest(raw), objects);
+    // Eager evaluation reads and re-enforces all history. It is the reference
+    // the differential suite compares the history-proportional path against.
+    engine.eager = options.eager ?? false;
+    const result = await engine.run(options.incremental);
     await objects.store(
       [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
     );

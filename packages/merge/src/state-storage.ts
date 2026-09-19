@@ -184,6 +184,16 @@ export function storeIntentState(
   );
 }
 
+/** An editable state was recorded by an evaluation that enforced every deletion
+ * in its effects map; its nodes already reflect them. */
+export async function isEditableState(
+  hash: string,
+  load: (hash: string) => Promise<Uint8Array>,
+): Promise<boolean> {
+  const raw = JSON.parse(new TextDecoder().decode(await load(hash)));
+  return raw?.format === "arbor-merge-intent-state-v3" && indexedRoot(raw).editable;
+}
+
 /** A partial state is for the exact-basis evaluator only. Its empty history maps
  * are a write set, never evidence that old records are absent. */
 export async function loadEditableIntentState(
