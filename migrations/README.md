@@ -48,10 +48,13 @@ fifteen minutes; the rehearsal is where the time should go.
    `base64` in the container lacks `-w`. Use the volume command, from the repo
    directory, with the mount-relative path, and run it in the background: it
    takes about ten minutes for 100 MB and is silently cut off by a foreground
-   timeout.
+   timeout. A deploy or restart also cuts it off, so let it finish before
+   step 6. Local copies live in the repository's ignored `.backups/railway/`,
+   one directory per backup named by its UTC time, with a `source.txt` naming
+   the migration:
 
    ```sh
-   railway volume files --volume resplendent-freedom-volume download /backups/<name>/volume.tar ~/arbor-migration-<date>/<name>/volume.tar --overwrite
+   railway volume files --volume canopy-arb-nxhx-org-volume download /backups/<name>/volume.tar .backups/railway/<YYYYMMDDTHHMMSSZ>/volume.tar --overwrite
    ```
 
    Check the sha256 against the one printed on the volume.
@@ -117,8 +120,9 @@ fifteen minutes; the rehearsal is where the time should go.
 10. **iPhone last.** Update the app whenever convenient; an old build cannot
     sync against a server whose routes changed. A replica whose wire format
     changed is deleted and re-placed on launch.
-11. **Close out.** Keep the archive, the local copies, and `dot-arbor.before`
-    for two weeks, then delete them and this migration's directory. The
+11. **Close out.** Keep the backup directory under `.backups/railway/` (the
+    archive, the rehearsal copies, and `dot-arbor.before`) for two weeks, then
+    delete it and this migration's directory. The
     backup directory on the volume is deleted by a person.
 
 Rollback before step 8 is `restore-canopy` from the archive onto the volume
