@@ -364,3 +364,67 @@ export async function loadValidatedStateMap(
   };
   return visit(root, "");
 }
+
+/** Records under `root` whose key is absent from `since` or whose record hash
+ * differs. Identical subtrees are skipped by hash, so the cost is the changed
+ * buckets, not the map size. */
+export async function diffStateMap(
+  root: string,
+  since: string,
+  read: Read,
+): Promise<Record<string, unknown>> {
+  const output: Record<string, unknown> = Object.create(null);
+  const all = async (hash: string, prefix: string): Promise<Entry[]> => {
+    const value = await node(hash, read, prefix);
+    if ("entries" in value) return value.entries;
+    const out: Entry[] = [];
+    for (let i = 0; i < 16; i++)
+      if (value.children[i])
+        out.push(...(await all(value.children[i]!, prefix + i.toString(16))));
+    return out;
+  };
+  const visit = async (a: string, b: string | null, prefix: string): Promise<void> => {
+    if (a === b) return;
+    const left = await node(a, read, prefix);
+    const right = b ? await node(b, read, prefix) : undefined;
+    if ("children" in left && right && "children" in right) {
+      for (let i = 0; i < 16; i++)
+        if (left.children[i])
+          await visit(left.children[i]!, right.children[i] ?? null, prefix + i.toString(16));
+      return;
+    }
+    const mine = await all(a, prefix);
+    const theirs = new Map(b ? await all(b, prefix) : []);
+    for (const [key, hash] of mine)
+      if (theirs.get(key) !== hash) output[key] = await readRecord(hash, read);
+  };
+  await visit(root, since, "");
+  return output;
+}
+
+/** A read-through view of one history map. Records load on demand and are kept;
+ * `touched` is every object hash read through this view. */
+export class LazyStateMap {
+  private readonly values = new Map<string, unknown>();
+  readonly touched = new Set<string>();
+  private readonly read: Read;
+  constructor(readonly root: string, read: Read) {
+    this.read = async (hash) => {
+      this.touched.add(hash);
+      return read(hash);
+    };
+  }
+  async get(key: string): Promise<unknown> {
+    if (this.values.has(key)) return this.values.get(key);
+    const value = await getStateMap(this.root, key, this.read);
+    this.values.set(key, value);
+    return value;
+  }
+  async has(key: string): Promise<boolean> {
+    return (await this.get(key)) !== undefined;
+  }
+  /** Records added or replaced since another root of the same map. */
+  since(root: string): Promise<Record<string, unknown>> {
+    return diffStateMap(this.root, root, this.read);
+  }
+}
