@@ -96,17 +96,17 @@ struct LiveEditorAdmissionTests {
         undo.undo(); binding.admitCurrentGeneration(); await binding.flush()
         #expect(binding.lastError == nil)
         #expect(try await session.snapshot().source == original)
+        // Undo is a plain source edit to the owning document: the created page
+        // survives, a peer's work on it is untouched, and no conflict arises.
+        #expect(try await provider.resolve(created).reference.stableKey != nil)
         if peerEdit {
-            let accepted = try await client.descriptor(tree: treeID)
-            #expect(accepted.tree.conflicted)
-            let inspection = try await client.conflicts(tree: treeID, state: accepted.tree.update, root: accepted.tree.root)
-            guard case let .array(decisions)? = inspection.fields["decisions"] else { Issue.record("Missing decisions"); return }
-            #expect(!decisions.isEmpty)
-        } else {
-            await #expect(throws: (any Error).self) { try await provider.resolve(created) }
+            _ = try await coordinator.syncOnce()
+            let peerPage = try await tree.captureSourceAdmissionBasis(created)
+            #expect(peerPage.document.source.contains("Peer work must survive undo"))
+            #expect(try await client.descriptor(tree: treeID).tree.conflicted == false)
         }
         let retained = try await queue.retained()
-        #expect(retained.contains { $0.undoOf != nil && $0.creation != nil && $0.update.operations?.contains { $0.kind == "removeEntry" } == true })
+        #expect(!retained.contains { $0.update.operations?.contains { $0.kind == "undoOperation" || $0.kind == "removeEntry" } == true })
         let reopened = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
         #expect(try await reopened.retained() == retained)
         undo.redo(); binding.admitCurrentGeneration(); await binding.flush()
@@ -179,9 +179,10 @@ struct LiveEditorAdmissionTests {
         #expect(binding?.conflict == nil)
         let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: queueRoot)
         let record = try #require(try await queue.retained().first)
-        #expect(record.intent?.basis.source == r1.source)
-        #expect(record.intent?.basis.contentRevision == r1.contentRevision)
-        #expect(record.intent?.source == authored)
+        // Records keep no sources; the basis revision and the candidate's bytes prove the same capture.
+        #expect(record.document?.basisRevision == r1.contentRevision)
+        #expect(record.graph.objects.contains { $0.bytes == Data(r1.source.utf8) })
+        #expect(record.candidate.objects.contains { $0.bytes == Data(authored.utf8) })
         #expect(record.basis == .accepted(.init(root: initial.tree.root, update: initial.tree.update)))
         await binding?.close(); binding = nil
         await coordinator.close(); await tree.close()
@@ -275,8 +276,8 @@ extension LiveEditorAdmissionTests {
         let records = try await SourceAdmissionQueue(tree:treeID,stateRoot:root).retained()
         let record = try #require(records.first)
         let final = try #require(records.last)
-        #expect(record.intent?.basis.source == original.source)
-        #expect(record.intent?.source == authored)
+        #expect(record.graph.objects.contains { $0.bytes == Data(original.source.utf8) })
+        #expect(record.candidate.objects.contains { $0.bytes == Data(authored.utf8) })
         #expect(record.update.operations?.contains { $0.kind == "copySource" } == true)
         await binding?.close(); binding = nil; await coordinator.close(); await tree.close()
         tree = try await place(initial,client:client)
@@ -289,73 +290,15 @@ extension LiveEditorAdmissionTests {
         #expect(source == expected)
         await coordinator.close(); await tree.close()
     }
-    @Test("Offline undo resumes after reconnect or losing the editor and client", arguments: [false, true])
-    func offlineUndoRecovery(restart: Bool) async throws {
+    @Test("Editor undo and redo publish as ordinary edits", arguments: [false, true])
+    func plainUndoPublication(peerEdit: Bool) async throws {
         let env = ProcessInfo.processInfo.environment
         guard let address = env["ARBOR_SOURCE_TEST_URL"], let url = URL(string: address),
               let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
-        let root = FileManager.default.temporaryDirectory.appending(path: "offline-undo-\(UUID())")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let recovery = root.appending(path: "editor"), client = ArborWireClient(origin: url, credential: token)
-        let reference = try await freshUndoPage(client: client, tree: treeID)
-        var tree = try await place(client.descriptor(tree: treeID), client: client)
-        var coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
-            stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        var session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
-        var binding: ArborDocumentBinding? = try await .open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: recovery)
-        let original = try await session.snapshot().source
-        let manager = UndoManager(); manager.groupsByEvent = false
-        let document = try #require(binding?.document); document.undoManager = manager
-        document.didCommitTransaction = { [weak binding] _ in binding?.admitCurrentGeneration() }
-        document.transaction(name: "Typing") { _ = document.setText(document.children[0].id, AttributedString("Offline undo target")) }
-        await binding?.flush(); _ = try await coordinator.syncOnce()
-        await coordinator.setTransportAvailable(false)
-        manager.undo(); await binding?.flush()
-        #expect(binding?.lastError != nil)
-        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
-        let retained = try await queue.retained()
-        #expect(retained.last?.undoOf == retained.first?.change)
-        // Independent reads keep the installed projection, not the historical inverse candidate.
-        #expect(try await session.snapshot().source != original)
-        if !restart {
-            await coordinator.setTransportAvailable(true)
-            _ = try await coordinator.syncOnce()
-            for _ in 0..<500 {
-                if binding?.lastError == nil { break }
-                try await Task.sleep(for: .milliseconds(10))
-            }
-            #expect(binding?.lastError == nil)
-            #expect(try await session.snapshot().source == original)
-            await binding?.close(); await coordinator.close(); await tree.close()
-            return
-        }
-        binding?.stopObserving(); binding = nil
-        await session.close(); await coordinator.close(); await tree.close()
-        tree = try await place(client.descriptor(tree: treeID), client: client)
-        coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
-            stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
-        session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
-        binding = try await .open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: recovery)
-        await binding?.flush()
-        #expect(binding?.lastError == nil)
-        #expect(try await session.snapshot().source == original)
-        #expect(try await queue.retained() == retained)
-        await binding?.close(); await coordinator.close(); await tree.close()
-    }
-
-    @Test("Coalesced editor undo and redo publish named inverses through Canopy", arguments: [0, 1, 2, 6, 3, 4, 5])
-    func causalUndoPublication(scenario: Int) async throws {
-        // Clean cases: settled typing, a peer append, undo before admission, and
-        // copy. Repeat typing cases on the shared fixture's unresolved history;
-        // those projections may retain alternatives, but later edits must work.
-        let inheritedChoices = (3...5).contains(scenario), mode = scenario % 3, copying = scenario == 6
-        let env = ProcessInfo.processInfo.environment
-        guard let address = env["ARBOR_SOURCE_TEST_URL"], let url = URL(string: address),
-              let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
-        let root = FileManager.default.temporaryDirectory.appending(path: "undo-editor-\(UUID())")
+        let root = FileManager.default.temporaryDirectory.appending(path: "plain-undo-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let client = ArborWireClient(origin: url, credential: token)
-        let reference = inheritedChoices ? WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/page") : try await freshUndoPage(client: client, tree: treeID)
+        let reference = try await freshUndoPage(client: client, tree: treeID)
         let tree = try await place(client.descriptor(tree: treeID), client: client)
         let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
             stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
@@ -365,25 +308,18 @@ extension LiveEditorAdmissionTests {
         let manager = UndoManager(); manager.groupsByEvent = false
         let document = binding.document; document.undoManager = manager
         document.didCommitTransaction = { _ in binding.admitCurrentGeneration() }
-        if copying {
-            _ = document.insertCopies(of: [document.children[0]], at: .init(parent: nil, position: 0))
-        } else {
-            for text in ["Causal first", "Causal second"] {
-                document.transaction(name: "Typing", coalesceKey: "typing") {
-                    _ = document.setText(document.children[0].id, AttributedString(text))
-                }
+        for text in ["Plain first", "Plain second"] {
+            document.transaction(name: "Typing", coalesceKey: "typing") {
+                _ = document.setText(document.children[0].id, AttributedString(text))
             }
         }
         let authored = try #require(binding.lastEnqueuedSource)
-        if mode != 2 {
-            await binding.flush()
-            #expect(binding.lastError == nil)
-            _ = try await coordinator.syncOnce()
-        }
+        await binding.flush()
+        #expect(binding.lastError == nil)
+        _ = try await coordinator.syncOnce()
         let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
-        #expect(try await queue.retained().count == (mode == 2 ? 0 : copying ? 1 : 2))
         var suffix = ""
-        if mode == 1 {
+        if peerEdit {
             binding.stopObserving()
             let capture = try await tree.captureSourceAdmissionBasis(reference)
             suffix = "\n\nIndependent peer contribution\n"
@@ -397,26 +333,22 @@ extension LiveEditorAdmissionTests {
         manager.undo()
         await binding.flush()
         #expect(binding.lastError == nil)
-        let undoSource = try await session.snapshot().source
-        if !inheritedChoices { #expect(undoSource == original + suffix) }
-        let recoveryStore = try EditorRecoveryStore(root: root.appending(path: "editor"), reference: reference)
-        #expect(recoveryStore.isSaved(try #require(recoveryStore.revisions().first)))
-        let undone = try await queue.retained()
-        #expect(undone.count == (copying ? 2 : 4))
-        #expect(undone.suffix(copying ? 1 : 2).allSatisfy { $0.update.operations?.allSatisfy { $0.kind == "undoOperation" } == true })
+        // The editor's local candidate is the plain undo; Canopy merges the peer's
+        // independent append, visible once the accepted projection installs.
+        _ = try await coordinator.syncOnce()
+        #expect(try await session.snapshot().source == original + suffix)
+        let retained = try await queue.retained()
+        // No inverse operations, no transaction evidence, no document sources in the journal.
+        #expect(retained.allSatisfy { $0.update.operations?.allSatisfy { $0.kind == "editSource" } == true })
+        let journal = String(decoding: try Data(contentsOf: root.appending(path: "sync/source-admissions.json")), as: UTF8.self)
+        #expect(!journal.contains("Plain first"))
         manager.redo()
         await binding.flush()
         #expect(binding.lastError == nil)
-        let redoSource = try await session.snapshot().source
-        if !inheritedChoices { #expect(redoSource == authored + suffix) }
-        if inheritedChoices && mode == 2 {
-            document.transaction(name: "Continue after accepted undo choices") {
-                _ = document.setText(document.children[0].id, AttributedString("After accepted undo choices"))
-            }
-            await binding.flush()
-            #expect(binding.lastError == nil)
-            _ = try await coordinator.syncOnce()
-        }
+        _ = try await coordinator.syncOnce()
+        #expect(try await session.snapshot().source == authored + suffix)
+        // Settled records leave the journal once accepted; only the document's tail remains.
+        #expect(try await queue.retained().count <= 2)
         await binding.close(); await coordinator.close(); await tree.close()
     }
 

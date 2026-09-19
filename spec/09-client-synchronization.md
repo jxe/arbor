@@ -228,26 +228,25 @@ Editor recovery and publication retries MUST retain these claims unchanged.
 Clients MUST emit operation kinds only after the destination supports their
 execution; an authoritative operation cannot be recorded as an unvalidated hint.
 
-A client capturing causal undo MUST retain the identities of the operations being
-inverted. Undo grouping MAY combine several editor transactions; every member
-MUST remain distinguishable through debounce, admission, retries and recovery.
-Redo MAY invert the accepted undo operations. Restoring old bytes alone is not a
-causal undo claim. When causal evidence is unavailable, a client MAY capture the
-actual source edit without asserting operation inversion.
+Undo and redo are ordinary source edits. A client MUST NOT assert operation
+inversion for an editor undo; it captures the resulting source edit against its
+current basis exactly as it captures any other edit. The editor's own undo stack
+is client state and is not retained by the synchronization client. Restoring old
+bytes is not a causal claim and needs none.
 
-Clients MAY collect settled undo history after proving it is unreachable from
-live undo/redo entries, retained recovery drafts, pending submissions and their
-dependencies. Collection MUST preserve any authored basis still exposed to an
-editor. Missing horizon information is not proof that a target can be discarded.
-An expired target retained solely by a pending dependency MAY be collected once
-that dependency is settled and no longer reachable.
+A client MAY discard a retained admission record as soon as its change is
+accepted and no pending admission depends on it. Records MUST NOT retain
+document sources or editor transactions; they retain hashes, the wire element,
+and enough of the capture to serve a document's hidden candidate and recognize
+an exact retry. Discarding MUST preserve any authored basis still exposed to an
+open editor until the accepted projection has been installed.
 
-A compound editor action MAY include source edits and structural effects. Undo
-MUST preserve their captured scope and ownership: linking an existing page does
-not authorize deleting that page. Reversal of a snapshot-created entry MAY be
-expressed as a removal against its captured historical material, without claiming
-that the original snapshot supplied an operation identity. Concurrent changes
-remain subject to Canopy reconciliation.
+A compound editor action MAY include source edits and structural effects. A
+page-creation record retains the branch it introduced and proves that removing
+it restores the pre-creation graph, so the record reproduces its original basis;
+this is a validity check on the record, not an undo claim. Undoing such an
+action in the editor is a source edit like any other and does not remove the
+created page. Concurrent changes remain subject to Canopy reconciliation.
 
 A historical inverse candidate describes its authored basis, not necessarily the
 current projection. Clients MUST NOT install it as Canopy's reconciled state.

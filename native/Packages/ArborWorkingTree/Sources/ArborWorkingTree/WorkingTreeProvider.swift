@@ -359,10 +359,6 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
         return try await sourceCoordinator.copyDocument(snapshot())
     }
 
-    public func releaseUndoTransactions(_ ids: Set<String>) async throws {
-        try requireOpen()
-        try await sourceCoordinator?.releaseUndoTransactions(ids, reference: initialReference)
-    }
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
         try requireOpen()

@@ -278,8 +278,8 @@ extension LiveSourceAdmissionTests {
         // Other open document bases remain valid even when the newest action
         // belongs to a different page. Compaction keeps each document's tail.
         #expect(!records.map(\.change).contains(try #require(compacted.last).change))
-        for record in records where record.intent != nil {
-            let latest = records.last { $0.intent?.basis.reference.identity == record.intent?.basis.reference.identity }
+        for record in records where record.document != nil {
+            let latest = records.last { $0.document?.reference.identity == record.document?.reference.identity }
             if record.change == latest?.change { #expect(compacted.contains { $0.change == record.change }) }
         }
         await reopened.close(); await recoveredTree.close()

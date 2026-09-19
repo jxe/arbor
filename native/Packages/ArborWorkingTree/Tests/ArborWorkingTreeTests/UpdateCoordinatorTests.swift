@@ -1013,7 +1013,9 @@ struct UpdateCoordinatorTests {
             #expect(result.state == .current)
             #expect(await transport.requests.count == 2)
             #expect(await transport.requests.last?.body == frozen.body)
-            #expect(try await workingTree.heads().acceptedCursor == nil)
+            // A frame echoing our own digest is that update's observation, so a
+            // reconnect resumes after it; a replayed transition records nothing.
+            #expect(try await workingTree.heads().acceptedCursor == (net ? nil : "observation_local"))
         }
     }
 

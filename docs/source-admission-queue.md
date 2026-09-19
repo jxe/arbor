@@ -391,60 +391,37 @@ Release and exact dependency pinning remain pending; no live service or app was
 changed by this checkpoint.
 
 
-## Causal editor undo and redo
+## Undo as a plain edit (September 19)
 
-Quagmire exposes an ephemeral transaction ID and the IDs it inverts during the
-commit callback. A coalesced typing undo lists all grouped transactions in reverse
-order; redo names the undo transaction. Quagmire does not know Canopy identities.
-The Native binding captures an ordered exact-source transaction trace immediately,
-including deferred host commits, and saves it in editor recovery. Debouncing may
-combine transport work but cannot erase that trace, even when its net bytes match
-the starting document.
+Editor undo and redo are ordinary edits. The binding no longer captures
+Quagmire's transaction identities or inverses, `WorkspaceDocumentPatch` carries
+no transactions, and the coordinator no longer produces `undoOperation` records
+or releases undo history. An undo in the editor admits the resulting source
+patch against the current basis exactly like typing. Canopy's causal-undo
+evaluation path remains but installed clients do not produce it.
 
-Swift `WorkspaceDocumentPatch.transactions` and TS `SourceAdmissionIntent.transactions`
-carry `id`, `basisSource`, `source`, `edits` and `inverses`. The enclosing source proof
-and every trace step are checked. Shared clients split the trace into immutable
-admissions and bind transaction IDs to change/operation identities. Queue retention
-of each prepared batch is atomic. Reusing a transaction ID with different meaning
-or another document fails rather than retargeting it.
+This replaces the earlier causal design, which retained every editor transaction
+with two full copies of the document per record and kept each record until the
+editor released its undo identity. On the Mac that journal reached 432 records
+and 75 MB, and every admission re-encoded and fsynced all of it: 7.2 s per edit
+against a server that answered in about 250 ms.
 
-An inverse record names its target's authored candidate as its basis and the
-target's original graph as its candidate. Its operations are `undoOperation`, in
-reverse target-operation order. Canopy reconciles that historical inverse with
-later work. A grouped undo can therefore publish several historical branches;
-redo inverts those inverse records. Existing Wire operations suffice: this adds
-no endpoint, operation kind, server schema or capability negotiation.
+Records now retain hashes, the wire element verbatim, the source path, and a
+capture summary (document reference, basis revision, and a digest of the
+captured intent for exact-retry recognition). Journal schema 3 stores that
+directly; loading no longer re-derives records from document sources. A schema 2
+journal is read through its stored wire elements and rewritten once; a fully
+settled journal of either schema retires without decoding. Compaction drops a
+settled record as soon as no pending authored descendant depends on it, keeping
+only the newest record per open document and its authored ancestry until the
+tail is released.
 
-The queues retain live transaction targets and their ancestors after settlement
-and restart. Quagmire exposes the transaction IDs still reachable from its weak
-undo/redo snapshots. Native releases acknowledged IDs only after they leave that
-horizon and all pending/recovery frames. Close releases the closed editor's history
-when recovery is healthy. The queue durably records releases, retains pending
-admissions and their ancestors, and collects only settled, unreferenced records
-and objects. The latest source basis for each document remains pinned; it cannot
-be invalidated merely because another page publishes. Unknown horizons after a
-crash remain conservative until explicitly released.
-The OS UndoManager stack itself is not restored across application restart, but a
-queued inverse and its editor draft are recoverable.
+Source edits against an accepted basis now ship the edited file as an object
+delta rather than the whole file when the delta is smaller; chained authored
+records still send the file, since their base is not retained server-side.
 
-A historical inverse is not exposed as the current accepted document. The session
-retains it before requesting reconciliation; while offline the editor keeps its
-draft and reports that undo is retained and awaiting Canopy. Reconnect/retry uses
-the same targets. Follow-on editing that needs a reconciled basis waits for that
-basis; the client does not run a second merge engine. If no named effects exist
-(for example a snapshot-only first body creation or older editor history), the
-client retains the actual displayed edit using ordinary source semantics instead
-of inventing a causal claim.
-
-`conformance/causal-undo.json` is consumed by Swift and TS queue tests. Live Native
-protocol tests cover coalesced typing, undo/redo with an independent peer paragraph,
-copy undo, equal-byte round trips, continued editing through accepted alternatives,
-and reconnect/process loss while an offline undo is durably pending. The merge tool
-also preserves an overlapping sibling decision in its prior context when a hidden
-fragment continuation displaces its location; later edits must not encounter an
-unreadable retained placement. These changes remain local and use the unreleased
-sibling Quagmire checkout.
-
+`conformance/causal-undo.json` and `conformance/page-conversion-undo.json` are
+retired with this change; the TypeScript queue mirror follows separately.
 
 ## Cross-document copies and page-conversion undo
 
@@ -460,14 +437,11 @@ to search for or infer a source identity. A stale or unavailable source cannot
 silently retarget the copy. Cross-tree transfers and providers without source
 capture retain ordinary append semantics.
 
-Turning a block/subtree into a page shares one editor transaction ID with the
-page-creation receipt. Creation remains a snapshot update. Its receipt records
-the newly introduced physical branch and proves that removing it restores the
-exact pre-creation graph. Undo groups the source-edit inverse with removal of
-that captured branch, each against its own historical basis. This is an explicit
-`removeEntry`, not an invented `undoOperation` for a snapshot. Redo inverts those
-actual removal/source operations. Existing pages returned by title lookup have
-no creation receipt and must never be deleted by this undo.
+Turning a block/subtree into a page produces a page-creation record. Creation
+remains a snapshot update. Its record names the newly introduced physical branch
+and proves that removing it restores the exact pre-creation graph, which is a
+validity check on the record. Undoing the conversion in the editor is a plain
+source edit to the owning document and does not remove the created page.
 
 The shared clients retain and validate these receipts, inverse candidates and
 owner-document scopes through restart. Canopy reconciles later changes to the
