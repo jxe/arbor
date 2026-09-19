@@ -163,6 +163,39 @@ together for Phase 2.
 - Measure `trace-frames`, `trace-ops`, `body-bytes`; expect two hashes per frame
   bounded by the 250 ms debounce.
 
+### Phase 3b — Migration 013: compact merge evidence and old states (server-only, before Phase 4)
+Measured on the live database after 012: 150 MB of SQLite, of which
+`evidence.inputs` is ~100 MB (every object the evaluator happened to read;
+nothing reads it back and it is not sent over the wire) and the legacy
+`dependencies` closure is ~44 MB (the oldest ~130 of ~640 merge rows; newer rows
+use the two-root `retention` form, and the only reader is an audit that
+recomputes the closure from those roots). Objects hold 319 MB of old merge
+states in the pre-chunked format (~2.1–2.6 MB each across ~1,108 files) that
+current states still reference through their change envelopes.
+
+- Schema 14 → 15, `migrations/013-compact-merge-evidence/` set up like 012
+  (offline `run.ts`, README, `migrate.test.ts`), rehearsed on the local copy
+  first, live only with Joe's go-ahead. No wire change; server deploys alone.
+- Merge records: `evidence.inputs` becomes the three input roots (base,
+  current, incoming objects); the evaluator is deterministic, so reproducibility
+  (spec/10 :190–198) holds through re-reading. Convert legacy `dependencies` rows
+  to `retention: {version: 1, roots}` after checking each against the existing
+  audit (`canopy.ts` `verifyIntegrity` legacy branch), then drop the field.
+- Old merge states: rewrite the full-copy states into the chunked v3 format.
+  This changes their content hashes, so every reference must move together:
+  `accepted_merge_states.state`/`authored`, `retention.roots`, change envelopes
+  that name a rewritten `base.state`, and decision `context`/alternative
+  `state` values. Tree roots and file objects are untouched. Verify with the
+  full retention audit before and after; keep the old objects until the audit
+  passes, then VACUUM.
+- Cleanup: remove leftover `merge-jobs` directories; Canopy clears stale ones
+  at startup.
+- Gate: audit passes on the migrated copy; sizes recorded in
+  `docs/canopy-update-performance.md` (target: SQLite under 10 MB, objects
+  about 95 MB); a Mac and an iPhone edit succeed against the migrated copy.
+- Why before Phase 4: lazy loading changes what the evaluator reads, which
+  would silently change what `evidence.inputs` meant.
+
 ### Phase 4 — Lazy history and the deletion watermark (server-only)
 - `packages/merge/src/state-storage.ts` / `state-map.ts`: a `LazyStateMap` view
   over a v3 map root exposing `get(key)`, `has(key)`, `entries(prefix?)` and
