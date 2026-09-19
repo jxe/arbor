@@ -162,10 +162,17 @@ struct ArborSidebarRow: View {
     }
 }
 
+extension View {
+    /// The keyboard-selection highlight for a page row. `listRowBackground` is
+    /// a row trait, so this must be applied to the row's outermost view.
+    func arborKeyboardSelectedRow(_ selected: Bool) -> some View {
+        listRowBackground(selected ? Color.accentColor.opacity(0.12) : Color.clear)
+    }
+}
+
 struct ArborSidebarSearchRow: View {
     let result: WorkspaceSearchResult
     let showsBacklinkCount: Bool
-    var isKeyboardSelected = false
     var acceptsBlockDrop = true
     var movePage: (() -> Void)?
     let open: () -> Void
@@ -209,7 +216,6 @@ struct ArborSidebarSearchRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .listRowBackground(isKeyboardSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         .arborBlockDropDestination(
             acceptsBlockDrop ? ArborDocumentReferenceCodec.encode(result.reference) : nil
         )
@@ -578,7 +584,7 @@ struct ArborMoveDestinationSheet: View {
     }
 
     private var orderedDocumentResults: [WorkspaceSearchResult] {
-        ArborSidebarPages.sorted(documentResults, by: order)
+        ArborSidebarPages.displayOrder(documentResults, by: order)
     }
 
     @ViewBuilder
@@ -600,11 +606,11 @@ struct ArborMoveDestinationSheet: View {
         return ArborSidebarSearchRow(
             result: result,
             showsBacklinkCount: showsBacklinkCount,
-            isKeyboardSelected: keyboardSelection == .document(reference),
             acceptsBlockDrop: false
         ) {
             activate(.document(reference))
         }
+        .arborKeyboardSelectedRow(keyboardSelection == .document(reference))
         .id(MoveDestination.document(reference))
     }
 

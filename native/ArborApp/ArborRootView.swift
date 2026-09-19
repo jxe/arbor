@@ -168,6 +168,16 @@ enum ArborSidebarPages {
         }
     }
 
+    /// Pages in exactly the order `ArborOrderedPageSections` draws them, so
+    /// arrow keys move through the list top to bottom.
+    static func displayOrder(_ results: [WorkspaceSearchResult], by order: ArborSidebarPageOrder) -> [WorkspaceSearchResult] {
+        switch order {
+        case .recent: recentGroups(results).flatMap(\.results)
+        case .linkCount: linkCountGroups(results).flatMap(\.results)
+        case .alphabetical: sorted(results, by: order)
+        }
+    }
+
     static func linkCountGroups(_ results: [WorkspaceSearchResult]) -> [ArborSidebarPageGroup] {
         let ordered = sorted(results, by: .linkCount)
         let sections: [(String, (Int) -> Bool, Bool)] = [
@@ -738,6 +748,7 @@ struct ArborRootView: View {
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
+    @State private var sidebarListSelection: WorkspaceIdentity?
     @FocusState private var sidebarSearchFocused: Bool
 #if os(macOS)
     @State private var sidebarTitlebarAccessoryInstalled = false
@@ -1217,7 +1228,7 @@ struct ArborRootView: View {
 
     private var sidebarList: some View {
         ScrollViewReader { proxy in
-            List {
+            sidebarPagesList {
                 ArborOrderedPageSections(
                     results: model.searchResults,
                     order: sidebarPageOrder,
@@ -1228,6 +1239,18 @@ struct ArborRootView: View {
                 }
             }
             .listStyle(.sidebar)
+#if os(macOS)
+            .onChange(of: sidebarListSelection) { _, selection in
+                // Arrow keys in the focused sidebar move the selection; follow it.
+                guard let selection, selection != model.currentReference.identity,
+                      let result = model.searchResults.first(where: { $0.id == selection }) else { return }
+                Task { await model.navigate(to: .reference(result.reference)) }
+            }
+            .onChange(of: model.currentReference.identity, initial: true) { _, identity in
+                let visible = model.searchResults.contains { $0.id == identity }
+                sidebarListSelection = visible ? identity : nil
+            }
+#endif
 #if os(iOS)
             .contentMargins(.top, 0, for: .scrollContent)
 #endif
@@ -1242,6 +1265,18 @@ struct ArborRootView: View {
                 withAnimation { proxy.scrollTo(selection, anchor: .center) }
             }
         }
+    }
+
+    /// On macOS the page list is a selectable `List`, so a focused sidebar
+    /// supports arrow keys like any native source list; the current page is
+    /// its selection.
+    @ViewBuilder
+    private func sidebarPagesList<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+#if os(macOS)
+        List(selection: $sidebarListSelection, content: content)
+#else
+        List(content: content)
+#endif
     }
 
     private var sidebarPagesHeader: some View {
@@ -1278,7 +1313,6 @@ struct ArborRootView: View {
             ArborSidebarSearchRow(
                 result: result,
                 showsBacklinkCount: showsBacklinkCount,
-                isKeyboardSelected: sidebarKeyboardSelection == result.id,
                 acceptsBlockDrop: !isCurrent(.reference(result.reference)),
                 movePage: {
                     Task { _ = await model.editorHost?.moveDocument(result.reference) }
@@ -1295,11 +1329,13 @@ struct ArborRootView: View {
                     .help("Review choices on this page")
             }
         }
+        .arborKeyboardSelectedRow(sidebarKeyboardSelection == result.id)
+        .tag(result.id)
         .id(result.id)
     }
 
     private var keyboardNavigableSidebarResults: [WorkspaceSearchResult] {
-        return ArborSidebarPages.sorted(model.searchResults, by: sidebarPageOrder)
+        ArborSidebarPages.displayOrder(model.searchResults, by: sidebarPageOrder)
     }
 
     private func handleSidebarSearchKeyPress(_ press: KeyPress) -> KeyPress.Result {
