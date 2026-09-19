@@ -281,6 +281,12 @@ export class MergeTool {
         child.stdin!.end(JSON.stringify(request));
       });
       mark("worker-process");
+      try {
+        for (const [key, value] of Object.entries(worker?.lastTimings ?? {})) {
+          if (key.endsWith("-ms")) this.options.onTiming?.(`w-${key.slice(0, -3)}`, value);
+          else this.options.onCount?.(`w-${key}`, value);
+        }
+      } catch { /* diagnostics only */ }
       const raw = JSON.parse(stdout);
       if (request.kind === "checkpoint-batch" && raw.error?.code === "checkpoint-batch-too-large")
         throw new CheckpointBatchTooLargeError("Historical checkpoint batch exceeds its byte budget");

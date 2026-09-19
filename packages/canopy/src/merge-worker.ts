@@ -13,6 +13,9 @@ export class PersistentMergeWorker {
   };
   private output = Buffer.alloc(0);
   private stderrBytes = 0;
+  private stderrPending = "";
+  /** Diagnostics the worker reported for its most recent request, if any. */
+  lastTimings?: Record<string, number>;
   private failure?: Error;
   private closed = false;
   private readonly limit = 8 * 1024 * 1024;
@@ -76,8 +79,26 @@ export class PersistentMergeWorker {
     });
     this.child.stderr.on("data", (chunk: Buffer) => {
       this.stderrBytes += chunk.length;
-      if (this.stderrBytes > this.limit)
+      if (this.stderrBytes > this.limit) {
         this.fail(new Error("Merge worker diagnostics exceed byte budget"));
+        return;
+      }
+      // Timing lines are diagnostics only; anything else on stderr is ignored.
+      this.stderrPending += chunk.toString("utf8");
+      let end: number;
+      while ((end = this.stderrPending.indexOf("\n")) !== -1) {
+        const line = this.stderrPending.slice(0, end);
+        this.stderrPending = this.stderrPending.slice(end + 1);
+        if (!line.startsWith("{\"timings\":")) continue;
+        try {
+          const parsed = JSON.parse(line) as { timings?: Record<string, unknown> };
+          if (parsed.timings && typeof parsed.timings === "object") {
+            const timings: Record<string, number> = {};
+            for (const [key, value] of Object.entries(parsed.timings)) if (typeof value === "number" && Number.isFinite(value)) timings[key] = value;
+            this.lastTimings = timings;
+          }
+        } catch { /* malformed diagnostics are ignored */ }
+      }
     });
   }
   get alive(): boolean {

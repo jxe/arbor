@@ -1468,13 +1468,18 @@ class Engine {
     return result;
   }
   async run(incremental = true): Promise<IntentResponse> {
+    const startedFast = performance.now();
     const fastForward = incremental ? await this.editFastForward() : undefined;
+    engineDiagnostics["fast-forward-ms"] = performance.now() - startedFast;
+    engineDiagnostics.path = fastForward ? 1 : 0;
     if (fastForward) return fastForward;
+    const startedLoad = performance.now();
     const request = this.request,
       base = await this.load(request.base),
       sameBasis = request.base.object === request.current.object && request.base.state === request.current.state,
       current = sameBasis && !base.decisions.length && !request.alternatives?.length
         ? base : await this.load(request.current);
+    engineDiagnostics["load-ms"] = performance.now() - startedLoad;
     const signature = this.put(
       encoder.encode(
         stableJSONString({
@@ -2523,15 +2528,22 @@ class Engine {
    * maps. Existing history remains reachable without being decoded or copied. */
   private async editFastForward(): Promise<IntentResponse | undefined> {
     const request = this.request;
+    // Decline reasons are diagnostics only (see engineDiagnostics.decline):
+    // 1 divergent or stateless basis, 2 alternatives/resolutions, 3 no operations,
+    // 4 non-basis or lineage-bearing operation, 5 unreadable state, 6 decisions,
+    // 7 change already recorded.
+    const decline = (reason: number) => { engineDiagnostics.decline = reason; return undefined; };
     if (!request.base.state || request.base.state !== request.current.state ||
-        request.base.object !== request.current.object || request.alternatives?.length ||
-        request.incoming.resolves?.length || !request.incoming.operations.length ||
-        !request.incoming.operations.every(op => op.kind === "editSource" &&
-          op.source.material.kind === "basis" && !op.lineage?.length)) return;
+        request.base.object !== request.current.object) return decline(1);
+    if (request.alternatives?.length || request.incoming.resolves?.length) return decline(2);
+    if (!request.incoming.operations.length) return decline(3);
+    if (!request.incoming.operations.every(op => op.kind === "editSource" &&
+          op.source.material.kind === "basis" && !op.lineage?.length)) return decline(4);
     const partial = await loadEditableIntentState(request.base.state, hash => this.read(hash));
-    if (!partial || partial.value.decisions.length) return;
+    if (!partial) return decline(5);
+    if (partial.value.decisions.length) return decline(6);
     // The identity lookup must consult retained history, not the empty write set.
-    if (await partial.get("changes", request.incoming.change) !== undefined) return;
+    if (await partial.get("changes", request.incoming.change) !== undefined) return decline(7);
     // The host supplies a previously validated state/root pair. Recover file
     // hashes from directory metadata; do not revalidate accepted file bodies.
     const basis = partial.value;
@@ -2584,6 +2596,11 @@ class Engine {
     };
   }
 }
+
+/** Diagnostics for the most recent evaluation in this process: which path ran
+ * (1 = exact-basis fast forward, 0 = full evaluator) and phase durations. No
+ * request content. */
+export const engineDiagnostics: Record<string, number> = {};
 
 export async function mergeIntent(
   raw: IntentRequest,
