@@ -80,34 +80,6 @@ extension FocusedValues {
     }
 }
 
-
-    private var symbol: String {
-        switch node.surface {
-        case .markdown: "doc.text"
-        case .directory: "folder"
-        case .directoryDocument: "folder.badge.gearshape"
-        case .file: "doc"
-        case .collection: "tablecells"
-        case .placeholder: "icloud.slash"
-        case .diagnostic: "exclamationmark.triangle"
-        case .historical: "clock.arrow.circlepath"
-        }
-    }
-
-    private var surfaceLabel: String {
-        switch node.surface {
-        case .markdown: "Document"
-        case .directory: "Folder"
-        case .directoryDocument: "Folder document"
-        case .file: "File"
-        case .collection: "Collection"
-        case .placeholder: "Offline"
-        case .diagnostic: "Diagnostic"
-        case .historical: "History"
-        }
-    }
-}
-
 extension View {
     /// The keyboard-selection highlight for a page row. `listRowBackground` is
     /// a row trait, so this must be applied to the row's outermost view.
