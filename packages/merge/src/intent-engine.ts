@@ -335,9 +335,22 @@ class Engine {
       if (error instanceof IntentError) throw error;
       return fail("Invalid material state");
     }
-    return this.validateState(state, ref);
+    // An accepted input pair was validated by the host when it was accepted,
+    // as the exact-basis path already relies on. Recover its file hashes from
+    // the root's directory metadata instead of rebuilding every file.
+    const trusted = this.lazy && !validation;
+    if (trusted) {
+      const material = await this.trustedProjection(state, ref.object);
+      this.projection ??= {previous: new Map(), next: new Map()};
+      // Detached copies: evaluation edits loaded nodes in place, and a reused
+      // entry must still describe the material as the accepted root holds it.
+      for (const [id, entry] of material)
+        if (!this.projection.previous!.has(id))
+          this.projection.previous!.set(id, {node: clone(entry.node), object: entry.object});
+    }
+    return this.validateState(state, ref, trusted);
   }
-  async validateState(state: IntentState, ref: {object: string}): Promise<IntentState> {
+  async validateState(state: IntentState, ref: {object: string}, trusted = false): Promise<IntentState> {
     if (
       state.format !== "arbor-merge-intent-state" ||
       state.tree !== this.request.tree ||
@@ -365,7 +378,7 @@ class Engine {
       if (node.parent !== null && components("/" + node.name).length !== 1)
         return fail("Invalid entry name");
     }
-    if ((await this.project(state)) !== ref.object)
+    if (!trusted && (await this.project(state)) !== ref.object)
       return fail("State does not project to supplied root");
     const decisions = new Map(state.decisions.map((d) => [d.key, d]));
     const visiting = new Set<string>(),
