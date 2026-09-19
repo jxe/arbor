@@ -263,6 +263,9 @@ history maps as read-through views:
   inserted piece before deciding whether an insertion is an attachment.
 - Reading a record that was not loaded is an evaluator error, never "absent".
 - Results are stored by path-copying the written buckets onto the loaded map.
+- Base and current are accepted pairs the host validated on acceptance, so
+  their file hashes come from each root's directory metadata rather than from
+  rebuilding every file, as the exact-basis path already does.
 
 A base that is not editable takes the complete scan once; its result is
 editable from then on. The outcome is identical either way:

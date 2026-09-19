@@ -525,28 +525,35 @@ merged into head; "live decision" is an edit on a head carrying one decision.
 What the lazy path still grows by is the file: every append adds a piece, and
 each effect record carries its file's piece list. Live numbers are Phase 5.
 
-## Retention by history map node (plan 010 Phase 5, replay, 2026-09-19)
+## Validation and retention in proportion to the edit (plan 010 Phase 5, replay, 2026-09-19)
 
 `bun tools/replay-update-cost.ts <copy>` on a copy of the post-013 live data
 (tree with 640 merge records), local Mac, milliseconds, two rounds each:
 
-| Case | Before: total / retention | After: total / retention |
+| Case | Before | After |
 |---|---|---|
-| Fast-path edit | 120-134 / 16-22 | 123-132 / 16-22 |
-| Divergent edit (base 5 back) | 310-347 / 30-39 | 279-356 / 30-38 |
-| Edit creating a conflict | 714-721 / 571-586 | 178-652 / 64-502 |
-| Edit on a live decision | 644-685 / 551-557 | 152-158 / 41 |
+| Fast-path edit | 120-134 | 98-152 |
+| Divergent edit (base 5 back) | 310-347 | 144-176 |
+| Divergent edit from a state this build wrote | - | 123-135 |
+| Edit creating a conflict | 714-721 | 116-119 |
+| Edit on a live decision | 644-685 | 75-77 |
 
-The retention walk now follows an unvalidated state's history as typed map
-nodes and remembers nodes whose whole closure was durable, so a new state that
-shares history (decision alternatives) is walked only where it differs. Exact
-closures of three real heads are unchanged (33,607-33,670 hashes, identical
-digests); a cold full walk of one head fell from about 46 s to 3.5-6 s.
+Four changes, each measured on the replay:
 
-Remaining: the divergent case spends 120-140 ms validating a state authored on
-an older basis whose history pages are not in the validation cache, and the
-worker still reads about 10 MB when the base state predates Phase 4 or is a
-conflict result recorded with `conflictProjection: "current"` (not editable).
+- Retention walks an unvalidated state's history as typed map nodes and
+  remembers nodes whose whole closure was durable; later walks stop there.
+  Exact closures of three real heads are unchanged (33,607-33,670 hashes,
+  identical digests); a cold full walk of one head fell from 46 s to 3.5-6 s.
+- Startup warm walks the head's history the same way, so the first new state
+  after a restart does not walk all history (was about 8,600 reads, 500 ms).
+  Warm grew from 2.1 to 2.4 s.
+- History map proofs are charged for what they hold rather than for all bytes
+  below them at every tree level; the 256 MB validation cache no longer evicts
+  thousands of entries per update. Thirty validated live states account 94 MB
+  against 109 MB of measured heap growth.
+- With an editable base, the full evaluator recovers the input states' file
+  hashes from their accepted roots, as the fast path does, instead of
+  rebuilding every file; its reads fell from 9.8 MB to about 470 KB.
 
 ## Verification
 
