@@ -24,9 +24,65 @@
   after 2026-09-17; all supported Canopy, Mac, and iPhone state being proven
   v2/current; removal of the retained rollback backups by Joe; and explicit
   approval to close the v1 compatibility window
-- **Progress:** WAITING — audit now, but do not remove compatibility code or
-  migration artifacts before the cutoff gates pass
-- **Written against:** `2c81ef5`, 2026-09-04
+- **Progress:** READY — the read-only receipt below passed on 2026-09-20;
+  the remaining gates are Joe's backup removal and the iPhone check. See
+  "Coupling found on 2026-09-20" before executing: the phases cannot be
+  committed independently as written.
+- **Written against:** `2c81ef5`, 2026-09-04; receipt against `1b1710d6`
+
+## Receipt, 2026-09-20 (read-only)
+
+Live Canopy could not be queried from the agent session, so the check used
+the newest Railway backup, `.backups/railway/20260919T155020Z/migrated`:
+
+- `trees.policy`: `account-config-v2` ×1, `ordinary` ×4, no `account-config-v1`.
+- `accounts`: 1. `meta.schema_version`: 14.
+- Every cached `profile:*` member list is object-shaped; no string members.
+- Default Mac home: stamp 5, `accounts/tr_boseki5agb24ysc6cxakwcq57i`,
+  `placements.yaml`, no root `account.yaml`/`trees.yaml`/`devices/`, no
+  `.state/system/community.md`, no `.state/device.json`.
+- Workspace registry: 109 object-valued records, all with `stateID`, `rootID`
+  and `path`; 106 `rt_` and 3 `tr_` identities.
+- Not checked: the current iPhone build, and whether the Migration 003
+  backups have aged out (Joe). Phase 1's private-state move and its tests
+  were already removed on 2026-09-19; the registry shape readers remain.
+
+## Coupling found on 2026-09-20
+
+`Canopy.ensureAccountConfigTrees` (`packages/canopy/src/canopy.ts`) creates an
+`account-config-v1` configuration tree at startup for any account that lacks
+one. `serveCanopy({ accounts: [...] })` relies on it, and eleven test files
+plus `tools/hcloud-sync-lab.ts` seed their Canopy that way and then read the
+result with `readAccountConfigGraph`/`snapshotAccountConfig` and install it
+locally as the singleton layout through `saveCurrentDeviceID` and
+`CommunityConfigStore`. Removing the local adapter alone (Phase 2) therefore
+breaks `self-sync`, `server`, and `protocol/conformance`, and removing the
+Canopy policy alone (Phase 3) breaks the seeding path those same suites use.
+
+Execute instead as one change with this order, verifying at each step:
+
+1. Make `ensureAccountConfigTrees` emit a v2 graph (`snapshotAccountConfigV2`
+   with `canonical` URLs and `administrator` devices) and insert
+   `account-config-v2`. Existing v2 tests still pass; v1-reading fixtures fail.
+2. Convert the fixtures to v2: `self-sync`, `server`, `protocol/conformance`,
+   `canopy/update-host`, `merge/tool` (drop its v1 case), and the hcloud lab
+   script. Local installation uses `accounts/<cfg>/` + `placements.yaml` +
+   `CanopyAccountStore`, as `cli-sync.test.ts` already does via
+   `LocalAccountService.claimCanopyAccount`.
+3. Then delete: `packages/canopy/src/account-policy.ts`,
+   `packages/merge/src/account.ts`, the `AnyAccountConfigGraph`/`v2Graph`
+   branches in `canopy.ts`, `account-config-v1` in `model.ts`,
+   `merge/src/{index,contract,summary}.ts`, `docs/merge-tool.md` wording.
+4. Then the local adapter: `packages/stores/src/account-config.ts` (keep
+   nothing; `/v1/status` drops `deviceID`, which only fixtures set),
+   `loadLegacySingletonTreeRegistry` and the `plural` flag in `trees.ts` and
+   `tree-manager.ts`, `CommunityConfigStore` and `communityCredentialName` in
+   `server-config.ts`, the `communityConfig` dep in `ports.ts`,
+   `account-bootstrap.ts`, `account-wire.ts`, `server.ts`,
+   `sync-connections.ts`, `account-service.ts`, and `local-accounts.ts`.
+5. Finally the registry readers: `StoredWorkspaceRegistry` becomes
+   object-only, `rootIDForInitialPath` goes, and the remaining private-state
+   tests assert the current shape.
 
 ## Why this remains a cleanup
 
