@@ -59,6 +59,17 @@ describe("Canopy schema version stamp", () => {
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
 
+  test("schema 15 is current: a schema-14 root is refused and points at the offline migration", async () => {
+    expect(CANOPY_SCHEMA_VERSION).toBe("15");
+    const root = await dataRoot();
+    const first = await CanopyDaemon.open(root, bootstrap);
+    await first[Symbol.asyncDispose]();
+    const db = new Database(join(root, "canopy.sqlite3"));
+    db.run("UPDATE meta SET value = '14' WHERE key = 'schema_version'");
+    db.close();
+    await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version 14 but this build requires 15.*run the offline migration/);
+  });
+
   test("refuses a database stamped with a different version", async () => {
     const root = await dataRoot();
     const first = await CanopyDaemon.open(root, bootstrap);

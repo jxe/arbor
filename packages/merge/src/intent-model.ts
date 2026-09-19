@@ -333,7 +333,9 @@ export type IntentResponse =
       decisions: IntentDecision[];
       evidence: {
         rule: { id: "tree-default"; revision: 1 };
-        inputs: string[];
+        /** The three tree roots the rule evaluated. The rule is deterministic,
+         * so these reproduce every object it read; a full read set is not kept. */
+        inputs: { base: string; current: string; incoming: string };
         change: string;
         operations: string[];
         validation: "verified";
@@ -510,7 +512,7 @@ const intentResponseSchema = z
         rule: z
           .object({ id: z.literal("tree-default"), revision: z.literal(1) })
           .strict(),
-        inputs: z.array(hash),
+        inputs: z.object({ base: hash, current: hash, incoming: hash }).strict(),
         change: token,
         operations: z.array(token),
         validation: z.literal("verified"),

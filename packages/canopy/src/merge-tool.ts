@@ -103,6 +103,14 @@ export class MergeTool {
       },
     });
   }
+  /** Remove job and worker directories left by an earlier process. Each job
+   * removes its own directory when it settles, so anything present at startup
+   * belonged to a process that died mid-job; nothing accepted lives there. */
+  async clearStaleJobs(): Promise<void> {
+    if (this.active || this.worker) throw new Error("Stale job cleanup runs before any job");
+    for (const name of ["merge-jobs", "merge-workers"])
+      await rm(join(this.dataRoot, name), { recursive: true, force: true });
+  }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
   private get validationMillis(): number { return this.options.validationMillis ?? 60_000; }
 

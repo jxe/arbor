@@ -2502,14 +2502,11 @@ class Engine {
       decisions: state.decisions,
       evidence: {
         rule: { id: "tree-default", revision: 1 },
-        inputs: [
-          ...new Set([
-            ...this.cache.keys(),
-            this.request.base.object,
-            this.request.current.object,
-            this.request.incoming.object,
-          ]),
-        ].sort(),
+        inputs: {
+          base: this.request.base.object,
+          current: this.request.current.object,
+          incoming: this.request.incoming.object,
+        },
         change: this.request.incoming.change,
         operations: operationsOf(this.request.incoming).map((op) => op.key),
         validation: "verified",

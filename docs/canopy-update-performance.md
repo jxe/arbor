@@ -487,6 +487,28 @@ must preserve tree/credential binding, replay identity, historical authored base
 and restart behavior in both languages. Full-history integrity auditing remains
 separate from ordinary new-output validation. No such format change is made here.
 
+## Compact merge evidence (migration 013, rehearsed 2026-09-19)
+
+Measured on the post-012 copy of the live data before running
+[migration 013](../migrations/013-compact-merge-evidence/README.md): SQLite was
+149.9 MB, of which `evidence.inputs` (the evaluator's whole read set, never read
+back) was 99.8 MB across 640 merge rows and the legacy `dependencies` closure was
+43.7 MB across the oldest 130; 1.35 M digest entries held only 17,577 distinct
+hashes. Objects were 413.5 MB, of which 133 full-copy merge states of 2.1–2.6 MB
+each still hung off current states through their change envelopes.
+
+After the migration on the same copy: SQLite 6.2 MB (evidence is the three
+input roots; every row is two-root retention), objects 106.7 MB in 34,109 files.
+The retention audit passed before and after; every one of 1,521 tree roots and
+3,546 tree objects was unchanged. The whole run took 200 s on the Mac, two thirds
+of it the two full audits (62.6 s and 70.0 s); the rewrite itself, 1,652 states
+and 1,614 envelopes, took 65.5 s. Startup warm on the migrated copy read 21,061
+objects in 1.7 s, the same read count as before.
+
+Phase 4 (lazy history) must not reintroduce a read set: `evidence.inputs` now
+names roots, and reproducibility follows from the deterministic rule, so a lazy
+evaluator that reads fewer pages changes nothing recorded.
+
 ## Verification
 
 The live TypeScript/Swift protocol gate passed, including real editor recovery,

@@ -54,8 +54,11 @@ inability to evaluate is not a conflict resolution or an accepted receipt.
 
 The tool verifies the complete candidate against the authored basis before
 reconciliation. Its successful evidence distinguishes exact execution validation
-from per-format automatic-resolution decisions. Evidence includes evaluated input
-hashes, change/operation keys, rule revision, configuration and policy reasons.
+from per-format automatic-resolution decisions. Evidence includes the three evaluated
+input roots (base, current and incoming tree objects), change/operation keys, rule
+revision, configuration and policy reasons. The rule is deterministic, so the three
+roots reproduce every object it read; the read set itself is not retained (it was,
+until migration 013 compacted it).
 A repeated contribution is not applied again; identical immutable requests replay
 deterministically. Canopy still owns durable request receipts and accepted identity.
 

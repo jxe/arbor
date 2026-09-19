@@ -9,7 +9,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * history. The migration sets the stamp. "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "14";
+export const CANOPY_SCHEMA_VERSION = "15";
 /** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
 export const resourcePolicyFormatKey = (accountID: string) => `resource-policy-format:${accountID}`;
 

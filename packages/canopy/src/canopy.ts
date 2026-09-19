@@ -265,6 +265,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const databasePath = join(dataRoot, "canopy.sqlite3");
     const db = openCanopyDatabase(databasePath);
     const canopy = new CanopyDaemon(dataRoot, db, mergeTool);
+    await canopy.mergeTool.clearStaleJobs();
     if (!process.env.ARBOR_CANOPY_NO_WARMUP && process.env.NODE_ENV !== "test") canopy.warmSemanticStates();
     if (!canopy.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor server requires community bootstrap configuration");
@@ -2262,11 +2263,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const owner = this.update(accepted);
       if (!owner || owner.conflicted !== (record.decisions.length > 0))
         throw new Error("Invalid merge state ownership");
-      if (record.dependencies) {
-        const dependencies = await auditRetention([record.state, record.authored]);
-        if (stableJSONString([...dependencies].sort()) !== stableJSONString([...record.dependencies].sort()))
-          throw new Error("Invalid merge retention closure");
-      } else if (record.retention?.version !== 1 ||
+      if (record.retention?.version !== 1 ||
         stableJSONString([...record.retention.roots].sort()) !== stableJSONString([...new Set([record.state, record.authored])].sort())) {
         throw new Error("Invalid merge retention roots");
       } else {
