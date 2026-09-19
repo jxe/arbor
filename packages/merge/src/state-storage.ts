@@ -16,6 +16,7 @@ import {
   loadValidatedStateMap,
   type StateMapValidationCache,
 } from "./state-map.ts";
+import { lazyHistory, storeHistory } from "./history-view.ts";
 
 const encoder = new TextEncoder();
 const HASH = /^sha256:[a-f0-9]{64}$/;
@@ -241,4 +242,47 @@ export async function loadEditableIntentState(
       );
     },
   };
+}
+
+/** Active material in full; history maps as lazy views that load records on
+ * demand (see history-view.ts). Legacy and snapshot states load eagerly. */
+export async function loadLazyIntentState(
+  hash: string,
+  load: (hash: string) => Promise<Uint8Array>,
+): Promise<IntentState> {
+  const bytes = await load(hash);
+  if (hashObject(bytes) !== hash) throw Error("Invalid state chunk hash");
+  const raw = JSON.parse(new TextDecoder().decode(bytes));
+  if (raw?.format !== "arbor-merge-intent-state-v3")
+    return loadIntentState(hash, load);
+  const root = indexedRoot(raw);
+  const value = await loadIntentState(root.active, load);
+  if (historyFields.some((field) => Object.keys(value[field]).length))
+    throw Error("History embedded in active state");
+  for (const field of historyFields)
+    value[field] = lazyHistory(field, root.maps[field], load) as never;
+  return value;
+}
+
+/** Store a state whose history maps are lazy views by path-copying the written
+ * buckets; plain maps are stored whole. */
+export async function storeLazyIntentState(
+  state: IntentState,
+  load: (hash: string) => Promise<Uint8Array>,
+  put: (bytes: Uint8Array) => string,
+  editable = false,
+): Promise<string> {
+  const maps: Record<string, string> = {};
+  for (const field of historyFields)
+    maps[field] =
+      (await storeHistory(state[field], load, put)) ??
+      storeStateMap(state[field], put);
+  return put(
+    encode({
+      format: "arbor-merge-intent-state-v3",
+      active: storeSharedIntentState(activeState(state), put),
+      editable,
+      maps,
+    }),
+  );
 }

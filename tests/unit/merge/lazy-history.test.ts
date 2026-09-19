@@ -51,14 +51,14 @@ function edit(f: Fixture, text: string, range: [number, number], inserted: strin
 
 /** Sixty head edits: appends, deletions, moves, copies, lineage edits and two
  * checkpoint barriers. Returns the text and accepted state after every step. */
-async function history(f: Fixture): Promise<Step[]> {
+async function history(f: Fixture, count = 60): Promise<Step[]> {
   let text = "alpha beta gamma delta\n";
   const root = f.tree({ "a.md": text });
   const steps: Step[] = [];
   let current: State = (
     await differential(f, f.request(root, root, [edit(f, text, [0, 0], "").op], "start"))
   ).result;
-  for (let i = 1; i <= 60; i++) {
+  for (let i = 1; i <= count; i++) {
     if (i === 20 || i === 40) {
       text = `snapshot${i} ${text}`;
       const objects = {
@@ -180,4 +180,33 @@ test("a live decision is created and resolved as eager evaluation does", async (
   resolve.incoming.resolves = [c.decisions[0]!.key];
   const resolved = await differential(f, resolve);
   expect(resolved.decisions).toEqual([]);
+});
+
+test("a divergent merge reads history in proportion to the edit, not its length", async () => {
+  const reads: Record<string, number[]> = { eager: [], lazy: [] };
+  for (const count of [30, 90]) {
+    const f = new Fixture();
+    const steps = await history(f, count);
+    const old = steps.at(-4)!, head = steps.at(-1)!;
+    const { op, next } = edit(f, old.text, [0, 0], "OLD ");
+    const request = f.request(old.result, f.tree({ "a.md": next }), [op], "divergent", head.result);
+    for (const eager of [true, false]) {
+      let bytes = 0;
+      const response = await mergeIntent(request, {
+        read: async (hash) => {
+          const value = f.objects.get(hash)!;
+          bytes += value.length;
+          return value;
+        },
+        store: async () => {},
+      }, { incremental: false, eager });
+      expect(response.outcome).toBe("evaluated");
+      reads[eager ? "eager" : "lazy"]!.push(bytes);
+    }
+  }
+  // Measured: eager 162 KB -> 556 KB, lazy 32 KB -> 57 KB. What the lazy path
+  // still grows by is the file itself (95 -> 238 bytes, one piece per append),
+  // whose piece lists every effect record carries.
+  expect(reads.lazy![1]!).toBeLessThan(reads.eager![1]! / 5);
+  expect(reads.lazy![1]! / reads.lazy![0]!).toBeLessThan(2.5);
 });
