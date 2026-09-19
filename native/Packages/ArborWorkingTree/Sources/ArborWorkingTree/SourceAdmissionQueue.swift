@@ -480,10 +480,7 @@ private struct StoredSourceAdmission: Codable {
     var creation: SourcePageCreation?
 }
 
-/// Schema 4 stores hashes and the wire element with its frame chain. Schema 3
-/// stored the element with a flat operation list; schema 2 journals, which
-/// embedded document sources and editor transactions, are read once through
-/// their stored wire elements and rewritten; schema 1 embedded whole objects.
+/// Schema 4 stores hashes and the wire element with its frame chain.
 private struct SourceAdmissionJournal: Codable {
     static let currentSchema = 4
     var schema = currentSchema
@@ -636,49 +633,23 @@ public actor SourceAdmissionQueue {
 
     private func load(settled: Set<String> = []) async throws -> (records: [SourceAdmissionRecord], objects: [String: Data]) {
         guard let data = try files.readSourceAdmissionsData() else { return ([], [:]) }
-        // The installed iOS journal predates hash-only storage and can be
-        // hundreds of megabytes. If durable control says every top-level
-        // change settled, scan only its identities and retire it without
-        // constructing the embedded snapshots in memory.
-        if Self.isFullySettledLegacyJournal(data, settled: settled) {
+        let journal = try JSONDecoder().decode(SourceAdmissionJournal.self, from: data)
+        guard journal.schema == SourceAdmissionJournal.currentSchema, journal.tree == tree else {
+            throw ArborWireValidationError.invalidValue("Invalid source journal schema or tree")
+        }
+        if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) }) {
             try writeJournal([])
             try objects.retain(reachableFrom: [], files: [])
             return ([], [:])
         }
-        if let journal = try? JSONDecoder().decode(SourceAdmissionJournal.self, from: Self.framed(data) ?? data) {
-            guard (2...SourceAdmissionJournal.currentSchema).contains(journal.schema), journal.tree == tree else {
-                throw ArborWireValidationError.invalidValue("Invalid source journal schema or tree")
-            }
-            if !journal.records.isEmpty, journal.records.allSatisfy({ settled.contains($0.change) }) {
-                try writeJournal([])
-                try objects.retain(reachableFrom: [], files: [])
-                return ([], [:])
-            }
-            let hashes = Set(journal.records.flatMap { $0.graph.objects + $0.candidate.objects + $0.updateObjects + ($0.localTrash?.objects ?? []) })
-            var loaded: [String: Data] = [:]
-            loaded.reserveCapacity(hashes.count)
-            for hash in hashes { loaded[hash] = try await bytes(hash) }
-            var values: [SourceAdmissionRecord] = []
-            for stored in journal.records { values.append(try materialize(stored, from: loaded)) }
-            try Self.validate(values, tree: tree)
-            if journal.schema != SourceAdmissionJournal.currentSchema { try persist(values) }
-            return (values, loaded)
-        }
-
-        // Schema 1 embedded complete object bytes in every record. A fully
-        // settled legacy journal can be retired from durable control identities
-        // without rehashing hundreds of megabytes first.
-        let legacy = try JSONDecoder().decode([SourceAdmissionRecord].self, from: data)
-        if !legacy.isEmpty, legacy.allSatisfy({ settled.contains($0.change) }) {
-            try writeJournal([])
-            try objects.retain(reachableFrom: [], files: [])
-            return ([], [:])
-        }
-        try Self.validate(legacy, tree: tree)
-        // A pre-upgrade replica may already have collected an old accepted
-        // basis. Preserve every embedded byte while migrating pending work.
-        try persist(legacy, selfContained: true)
-        return (records, objectCache)
+        let hashes = Set(journal.records.flatMap { $0.graph.objects + $0.candidate.objects + $0.updateObjects + ($0.localTrash?.objects ?? []) })
+        var loaded: [String: Data] = [:]
+        loaded.reserveCapacity(hashes.count)
+        for hash in hashes { loaded[hash] = try await bytes(hash) }
+        var values: [SourceAdmissionRecord] = []
+        for stored in journal.records { values.append(try materialize(stored, from: loaded)) }
+        try Self.validate(values, tree: tree)
+        return (values, loaded)
     }
 
     private func reloadIfChanged() async throws {
@@ -690,7 +661,7 @@ public actor SourceAdmissionQueue {
         fingerprint = try currentFingerprint()
     }
 
-    private func persist(_ next: [SourceAdmissionRecord], selfContained: Bool = false) throws {
+    private func persist(_ next: [SourceAdmissionRecord]) throws {
         var bytes = objectCache
         var presented: [String: Data] = [:]
         for record in next {
@@ -707,7 +678,7 @@ public actor SourceAdmissionQueue {
             for object in record.candidate.objects where !basis.contains(object.hash) { presented[object.hash] = object.bytes }
         }
         // Standalone queues have no shared platform and remain self-contained.
-        if platform == nil || selfContained {
+        if platform == nil {
             for (hash, value) in bytes { presented[hash] = value }
         }
         try objects.store(presented)
@@ -781,117 +752,6 @@ public actor SourceAdmissionQueue {
             modified: (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
             inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         )
-    }
-
-    /// Recognizes the old top-level record array while retaining only each
-    /// record's `change` string. It deliberately does not decode object bytes.
-    /// A journal written before schema 4 stored a flat operation list for the
-    /// whole record, which is exactly one frame from its graph's root to its
-    /// candidate. Rewrite those elements before the wire codec sees them; a
-    /// schema-4 journal is returned unchanged.
-    private static func framed(_ data: Data) -> Data? {
-        guard var journal = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let schema = journal["schema"] as? Int, schema < SourceAdmissionJournal.currentSchema,
-              var records = journal["records"] as? [[String: Any]] else { return nil }
-        for index in records.indices {
-            guard var update = records[index]["update"] as? [String: Any],
-                  update["trace"] == nil,
-                  let before = (records[index]["graph"] as? [String: Any])?["root"] as? String,
-                  let after = update["candidate"] as? String else { continue }
-            let operations = update.removeValue(forKey: "operations") as? [[String: Any]]
-            update["trace"] = (operations?.isEmpty ?? true)
-                ? NSNull()
-                : [["before": before, "after": after, "operations": operations!]]
-            records[index]["update"] = update
-        }
-        journal["records"] = records
-        return try? JSONSerialization.data(withJSONObject: journal)
-    }
-
-    private static func isFullySettledLegacyJournal(_ data: Data, settled: Set<String>) -> Bool {
-        guard !settled.isEmpty else { return false }
-        return data.withUnsafeBytes { raw in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            func whitespace(_ byte: UInt8) -> Bool { byte == 0x20 || byte == 0x09 || byte == 0x0a || byte == 0x0d }
-            func nextNonWhitespace(_ start: Int) -> Int {
-                var index = start
-                while index < bytes.count, whitespace(bytes[index]) { index += 1 }
-                return index
-            }
-            func isChangeKey(_ start: Int, _ end: Int, escaped: Bool) -> Bool {
-                guard !escaped, end - start == 6 else { return false }
-                return bytes[start] == 0x63 && bytes[start + 1] == 0x68 && bytes[start + 2] == 0x61
-                    && bytes[start + 3] == 0x6e && bytes[start + 4] == 0x67 && bytes[start + 5] == 0x65
-            }
-
-            var index = nextNonWhitespace(0)
-            guard index < bytes.count, bytes[index] == 0x5b else { return false } // [
-            var arrayDepth = 1, objectDepth = 0, records = 0
-            var changes = Set<String>()
-            var inString = false, escaped = false, stringEscaped = false, stringStart = 0
-            var currentChange: String?, closed = false
-            index += 1
-            while index < bytes.count {
-                let byte = bytes[index]
-                if inString {
-                    if escaped { escaped = false; stringEscaped = true }
-                    else if byte == 0x5c { escaped = true }
-                    else if byte == 0x22 {
-                        inString = false
-                        if objectDepth == 1, arrayDepth == 1,
-                           isChangeKey(stringStart, index, escaped: stringEscaped) {
-                            var value = nextNonWhitespace(index + 1)
-                            guard value < bytes.count, bytes[value] == 0x3a else { return false } // :
-                            value = nextNonWhitespace(value + 1)
-                            guard value < bytes.count, bytes[value] == 0x22 else { return false }
-                            let start = value + 1
-                            value = start
-                            while value < bytes.count, bytes[value] != 0x22 {
-                                guard bytes[value] != 0x5c, bytes[value] >= 0x20 else { return false }
-                                value += 1
-                            }
-                            guard value < bytes.count, currentChange == nil,
-                                  let change = String(bytes: bytes[start..<value], encoding: .utf8),
-                                  !change.isEmpty else { return false }
-                            currentChange = change
-                        }
-                    }
-                    index += 1
-                    continue
-                }
-                if closed {
-                    guard whitespace(byte) else { return false }
-                    index += 1
-                    continue
-                }
-                switch byte {
-                case 0x22: // "
-                    inString = true; escaped = false; stringEscaped = false; stringStart = index + 1
-                case 0x5b: // [
-                    guard objectDepth > 0 else { return false }
-                    arrayDepth += 1
-                case 0x5d: // ]
-                    guard objectDepth == 0, arrayDepth == 1 else { arrayDepth -= 1; if arrayDepth < 1 { return false }; index += 1; continue }
-                    arrayDepth = 0; closed = true
-                case 0x7b: // {
-                    if objectDepth == 0 {
-                        guard arrayDepth == 1 else { return false }
-                        records += 1; currentChange = nil
-                    }
-                    objectDepth += 1
-                case 0x7d: // }
-                    guard objectDepth > 0 else { return false }
-                    objectDepth -= 1
-                    if objectDepth == 0 {
-                        guard let change = currentChange, settled.contains(change), changes.insert(change).inserted else { return false }
-                    }
-                default:
-                    if objectDepth == 0, arrayDepth == 1, !whitespace(byte), byte != 0x2c { return false }
-                }
-                index += 1
-            }
-            return closed && !inString && objectDepth == 0 && arrayDepth == 0 && records > 0 && changes.count == records
-        }
     }
 
     private static func validate(_ records: [SourceAdmissionRecord], tree: String) throws {

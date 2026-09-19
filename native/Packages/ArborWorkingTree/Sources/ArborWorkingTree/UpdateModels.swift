@@ -8,7 +8,6 @@ public enum UpdateError: Error, Equatable, Sendable {
     case returnedSnapshotMissing
     case returnedSnapshotMismatch
     case returnedRequestDigestMismatch
-    case retainedLegacyConflict
     case closed
     case requestEmpty
     case unsupportedControlSchema(Int)
@@ -22,7 +21,6 @@ extension UpdateError: LocalizedError {
         case .returnedSnapshotMissing: "Canopy did not return the snapshot needed to finish synchronization."
         case .returnedSnapshotMismatch: "Canopy returned content that does not match its advertised root."
         case .returnedRequestDigestMismatch: "Canopy answered a different synchronization request."
-        case .retainedLegacyConflict: "This device contains an older synchronization conflict or hold. Saved work is unchanged and needs recovery with the prior client."
         case .closed: "This synchronization session is closed."
         case .requestEmpty: "An update request must carry at least one element."
         case let .unsupportedControlSchema(schema): "Update control schema \(schema) is newer than this client."
@@ -117,9 +115,7 @@ struct UpdateHead: Codable, Equatable, Sendable {
     var spilledObjects: [String]?
 }
 
-/// Schema 2 retains snapshot heads. Old conflict/hold records are rejected by
-/// the loader before decoding can silently discard their recovery material.
-/// Schema 3 protects opt-in source queues from older clients. Legacy mode stays at 2.
+/// Schema 3 retains snapshot heads and protects source queues from older clients.
 struct UpdateControl: Codable, Equatable, Sendable {
     static let currentSchema = 3
 
@@ -128,14 +124,9 @@ struct UpdateControl: Codable, Equatable, Sendable {
     var sourceAttemptChange: String?
     var sourceAcceptedChanges: [String]?
     var acceptedConflicted: Bool?
-    var schema = 2
+    var schema = currentSchema
     var attempt: UpdateAttempt?
     var nextBase: WireUpdateBase?
     var head: UpdateHead?
     var presentation = WorkspaceSyncPresentation(state: .offline)
-
-    var hasLegacyWork: Bool {
-        head != nil || nextBase != nil ||
-            (attempt != nil && sourceAttemptChange == nil)
-    }
 }

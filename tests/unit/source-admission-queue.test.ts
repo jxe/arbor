@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionIntent, type SourceAdmissionRecord } from "@arbor/canopy-client";
@@ -158,26 +158,6 @@ test("journal references platform objects and compacts only dependency-free sett
   expect(await readdir(q.objectsPath)).toEqual([]);
 }));
 
-test("fully settled embedded-object journals upgrade directly to an empty hash journal", async () => withQueue(async (q, root) => {
-  const all = records();
-  await mkdir(join(root, "sync"), { recursive: true });
-  await writeFile(q.path, JSON.stringify(all));
-  const legacySize = (await stat(q.path)).size;
-  expect(await q.compact(new Set(all.map(record => record.change)), false)).toBe(true);
-  expect((await stat(q.path)).size).toBeLessThan(legacySize);
-  expect(JSON.parse(await readFile(q.path, "utf8"))).toMatchObject({ schema: 4, tree: fixture.tree, records: [] });
-}));
-
-test("pending legacy migration remains self-contained when its old platform basis is gone", async () => withQueue(async (q, root) => {
-  const all = records();
-  await mkdir(join(root, "sync"), { recursive: true });
-  await writeFile(q.path, JSON.stringify(all));
-  const unavailable = { bytes: async (_hash: string) => undefined };
-  const migrated = new SourceAdmissionQueue(fixture.tree, root, unavailable);
-  expect(await migrated.retained()).toEqual(all);
-  expect(await new SourceAdmissionQueue(fixture.tree, root, unavailable).retained()).toEqual(all);
-}));
-
 test("source preservation fixtures retain verified lineage across queue restart", async () => {
   const data=JSON.parse(await readFile(new URL("../../conformance/source-preservation.json",import.meta.url),"utf8"));
   for(const value of data.cases) await withQueue(async (queue,root) => {
@@ -333,45 +313,6 @@ test("undo is a plain edit; records keep no sources and settled records drop wit
   expect((await queue.retained()).map(record => record.change)).toEqual([first.change, undo.change]);
   expect(await queue.compact(new Set([first.change, undo.change]), false)).toBe(true);
   expect(await queue.retained()).toEqual([]);
-}));
-
-test("a schema 2 journal loads through its stored wire elements and is rewritten as schema 4", async () => withQueue(async (queue, root) => {
-  const [a] = records();
-  await queue.retain(a!);
-  const path = join(root, "sync", "source-admissions.json");
-  const journal = JSON.parse(await readFile(path, "utf8"));
-  journal.schema = 2;
-  journal.records[0].intent = a!.intent;
-  journal.records[0].transaction = { id: "legacy", basisSource: a!.intent.basis.source, source: a!.intent.source, edits: a!.intent.edits, inverses: [] };
-  delete journal.records[0].document;
-  journal.releasedTransactions = [];
-  await writeFile(path, JSON.stringify(journal));
-  const reopened = new SourceAdmissionQueue(fixture.tree, root);
-  const [loaded] = await reopened.retained();
-  expect(loaded).toEqual(a);
-  expect(loaded!.document?.intentDigest).toBe(a!.document.intentDigest);
-  expect(JSON.parse(await readFile(path, "utf8")).schema).toBe(4);
-}));
-
-test("a schema 3 journal's flat operation list becomes one frame from its graph to its candidate", async () => withQueue(async (queue, root) => {
-  const [a] = records();
-  await queue.retain(a!);
-  const path = join(root, "sync", "source-admissions.json");
-  const journal = JSON.parse(await readFile(path, "utf8"));
-  const stored = journal.records[0];
-  const trace = stored.update.trace;
-  expect(trace).toHaveLength(1);
-  // Rewrite the element in the shape schema 3 stored it in.
-  journal.schema = 3;
-  delete stored.update.trace;
-  stored.update.operations = trace[0].operations;
-  await writeFile(path, JSON.stringify(journal));
-  const [loaded] = await new SourceAdmissionQueue(fixture.tree, root).retained();
-  expect(loaded).toEqual(a);
-  expect(loaded!.update.trace).toEqual([
-    { before: a!.graph.root, after: a!.candidate.root, operations: trace[0].operations },
-  ]);
-  expect(JSON.parse(await readFile(path, "utf8")).schema).toBe(4);
 }));
 
 test("cross-document copies bind the captured source path and reject changed source bytes", () => {

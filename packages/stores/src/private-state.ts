@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Diagnostic } from "@arbor/core";
@@ -77,7 +77,6 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
   if (await pathKind(join(arborPrivateRoot(), "migration.lock")) !== "missing") {
     throw new Error(`Arbor data home is locked for an offline migration: ${target}`);
   }
-  await migratePrivateState(target);
   await reconcilePrivateStateVersion(arborPrivateRoot());
   return [];
 }
@@ -123,45 +122,6 @@ async function reconcilePrivateStateVersion(state: string): Promise<void> {
     }
   }
   await writeFile(stampPath, `${ARBOR_SYNC_STATE_VERSION}\n`, { mode: 0o600 });
-}
-
-const LEGACY_PRIVATE_ENTRIES = [
-  "system",
-  "sync",
-  "workspaces",
-  "workspaces.json",
-  "LinkPreviews",
-  "Hunch Rehearsals",
-] as const;
-
-/** Restart-safe alpha migration of implementation-only state into the reserved mount. */
-async function migratePrivateState(dataHome: string): Promise<void> {
-  const state = join(dataHome, ".state");
-  await mkdir(state, { recursive: true, mode: 0o700 });
-  const moves: Array<{ source: string; destination: string }> = [];
-  const emptyLegacyDirectories: string[] = [];
-  for (const name of LEGACY_PRIVATE_ENTRIES) {
-    const source = join(dataHome, name);
-    const destination = join(state, name);
-    const [sourceKind, destinationKind] = await Promise.all([pathKind(source), pathKind(destination)]);
-    if (sourceKind === "missing") continue;
-    if (destinationKind !== "missing") {
-      if (sourceKind === "directory" && (await readdir(source)).length === 0) {
-        emptyLegacyDirectories.push(source);
-        continue;
-      }
-      throw new Error(`Private-state migration collision: both ${source} and ${destination} exist`);
-    }
-    moves.push({ source, destination });
-  }
-  // Every destination was checked before the first rename, so a collision can
-  // never produce a partially merged state tree. Completed moves are harmless
-  // when startup retries after interruption.
-  for (const move of moves) await rename(move.source, move.destination);
-  // Old app builds may harmlessly recreate an empty cache directory after the
-  // cache has moved. Removing only an empty duplicate keeps restart migration
-  // idempotent without merging or discarding private state.
-  for (const source of emptyLegacyDirectories) await rmdir(source);
 }
 
 async function directoryFingerprint(path: string): Promise<{ device?: string; inode?: string }> {

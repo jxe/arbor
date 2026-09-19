@@ -18,9 +18,6 @@ export class ObjectIndex {
   constructor(databasePath: string) {
     this.database = new Database(databasePath, { create: true });
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-    // The daemon's editor path kept title/body/link tables here; only the
-    // object rows remain.
-    this.database.exec("DROP TABLE IF EXISTS docs; DROP TABLE IF EXISTS links; DROP TABLE IF EXISTS files;");
     this.database.exec("CREATE TABLE IF NOT EXISTS objects(path TEXT PRIMARY KEY, kind TEXT NOT NULL, size INTEGER, mtime_ns INTEGER, ctime_ns INTEGER, ino INTEGER, dev INTEGER, hash TEXT NOT NULL);");
     this.database.exec("CREATE INDEX IF NOT EXISTS objects_hash ON objects(hash);");
   }

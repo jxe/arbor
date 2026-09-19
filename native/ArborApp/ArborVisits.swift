@@ -40,7 +40,7 @@ actor VisitedTreeStore {
 
     func loadAll() throws -> [VisitedTreeRecord] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        let collection = try JSONDecoder.visits.decode(VisitedTreeCollection.self, from: SavedTreeDescriptorUpgrade.visits(Data(contentsOf: url)))
+        let collection = try JSONDecoder.visits.decode(VisitedTreeCollection.self, from: Data(contentsOf: url))
         guard collection.version == 1 else {
             throw ArborWireValidationError.invalidValue("Unsupported visit collection")
         }

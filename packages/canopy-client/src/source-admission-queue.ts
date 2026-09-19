@@ -33,20 +33,10 @@ export interface SourceAdmissionRecord {
 interface StoredSourceSnapshot { root: string; objects: string[] }
 type StoredSourceAdmissionRecord = Omit<SourceAdmissionRecord, "graph" | "candidate" | "update"> & {
   graph: StoredSourceSnapshot; candidate: StoredSourceSnapshot; update: CandidateUpdateJSON; updateObjects: string[];
-  /** Schema 2 fields, read once during migration and never written again. */
-  intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string;
 };
-/** Schema 4 stores the wire element verbatim with its frame chain; schema 2 and
- * 3 journals load once and are rewritten. */
-interface SourceAdmissionJournal { schema: 2 | 3 | 4; tree: string; records: StoredSourceAdmissionRecord[] }
+/** Schema 4 stores the wire element verbatim with its frame chain. */
+interface SourceAdmissionJournal { schema: 4; tree: string; records: StoredSourceAdmissionRecord[] }
 export function sourceIntentDigest(intent: SourceAdmissionIntent): string { return canonicalCBORHash(intent); }
-/** A journal written before schema 4 stored a flat operation list for the whole
- * record, which is exactly one frame from its graph's root to its candidate. */
-function framed(update: CandidateUpdateJSON, before: string): CandidateUpdateJSON {
-  if (!update || typeof update !== "object" || !("operations" in update)) return update;
-  const { operations, ...rest } = update as CandidateUpdateJSON & { operations: SourceOperation[] | null };
-  return { ...rest, trace: operations?.length ? [{ before, after: rest.candidate, operations }] : null };
-}
 interface JournalFingerprint { size: number; modified: number; inode: number }
 /** Durable platform objects addressable by canonical wire hash. Source queues
  * keep only admission-created objects when this shared store is supplied. */
@@ -444,19 +434,8 @@ export class SourceAdmissionQueue {
       }
       throw error;
     }
-    if (Array.isArray(value)) {
-      const legacy = (value as Array<SourceAdmissionRecord & { intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string }>).map(record => this.upgraded(record));
-      if (legacy.length && legacy.every(record => typeof record.change === "string" && settled.has(record.change))) {
-        await this.write([]); return;
-      }
-      validateSourceAdmissions(legacy, this.tree);
-      // Legacy recovery is self-contained even when its platform no longer
-      // retains an old accepted basis.
-      await this.write(legacy, true);
-      return;
-    }
     const journal = value as Partial<SourceAdmissionJournal>;
-    if (![2, 3, 4].includes(journal.schema as number) || journal.tree !== this.tree || !Array.isArray(journal.records)) throw new Error("Invalid source admission journal");
+    if (journal.schema !== 4 || journal.tree !== this.tree || !Array.isArray(journal.records)) throw new Error("Invalid source admission journal");
     if (journal.records.length && journal.records.every(record => typeof record.change === "string" && settled.has(record.change))) {
       await this.write([]); return;
     }
@@ -464,27 +443,17 @@ export class SourceAdmissionQueue {
     await Promise.all([...hashes].map(async hash => {
       if (!this.objects.has(hash)) this.objects.set(hash, await this.objectBytes(hash));
     }));
-    const records = journal.records.map(record => this.upgraded(this.materialize(record)));
+    const records = journal.records.map(record => this.materialize(record));
     validateSourceAdmissions(records, this.tree);
-    if (journal.schema !== 4) { await this.write(records); return; }
     this.records = records;
     this.fingerprint = await this.currentFingerprint();
   }
 
-  /** Drop schema 2 fields; keep a capture summary derived from the stored
-   * intent; carry a schema-3 element's flat operation list into a frame. */
-  private upgraded(record: SourceAdmissionRecord & { intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string }): SourceAdmissionRecord {
-    const { intent, transaction: _transaction, undoOf: _undoOf, ...rest } = record;
-    const creation = rest.creation ? { document: { ...rest.creation.document }, removals: [...rest.creation.removals] } : undefined;
-    const document = rest.document ?? (intent ? { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) } : null);
-    return { ...rest, ...(creation ? { creation } : {}), document, update: framed(rest.update, rest.graph.root) } as SourceAdmissionRecord;
-  }
-
-  private async write(records: SourceAdmissionRecord[], selfContained = false): Promise<void> {
+  private async write(records: SourceAdmissionRecord[]): Promise<void> {
     const snapshots = records.flatMap(record => [decodeTreeSnapshotJSON(record.graph), decodeTreeSnapshotJSON(record.candidate)]);
     const presented = new Map<string, Uint8Array>();
     for (const snapshot of snapshots) for (const [hash, bytes] of snapshot.objects) {
-      if (!this.platform || selfContained) presented.set(hash, bytes);
+      if (!this.platform) presented.set(hash, bytes);
       this.objects.set(hash, bytes);
     }
     // Update envelopes are exactly the objects introduced relative to each

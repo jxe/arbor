@@ -157,31 +157,6 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("Unexpected legacy conflict or hold payloads remain byte-for-byte intact", arguments: ["conflict", "hold"])
-    func retainedLegacyRecovery(key: String) async throws {
-        try await withTemporaryRoot { root in
-            let initial = try snapshot(markdown: "Saved work\n")
-            let transport = ClosureTransport(initial: initial) { _, _ in throw InjectedSyncCrash() }
-            let tree = try await placeWorkingTree(tree: descriptor(tree: "tr_legacy", snapshot: initial, update: "up_initial"),
-                at: root.appending(path: "replica"), transport: transport)
-            let files = try UpdateControlFiles(root: root)
-            // Include unknown shapes: a removed Codable field must never make
-            // an unfamiliar legacy record appear empty and safe to overwrite.
-            for payload in ["{\"recovery\":\"exact old work\"}", "false", "[]"] {
-                let original = Data("{\"schema\":2,\"\(key)\":\(payload),\"presentation\":{\"state\":\"offline\"}}".utf8)
-                try original.write(to: files.controlURL)
-                for sourceMode in [false, true] {
-                    #expect(throws: UpdateError.retainedLegacyConflict) {
-                        try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, sourceOperationEmission: sourceMode)
-                    }
-                    #expect(try Data(contentsOf: files.controlURL) == original)
-                }
-            }
-            #expect(await transport.requests.isEmpty)
-            await tree.close()
-        }
-    }
-
     @Test("Native materialization preserves exact Wire collection-file descriptors")
     func collectionFileDescriptorRoundTrip() async throws {
         try await withTemporaryRoot { root in
@@ -1264,7 +1239,7 @@ struct UpdateCoordinatorPhase3Tests {
             let control = try UpdateControlFiles(root: root).load()
             #expect(control.head == nil)
             #expect(control.attempt == nil)
-            #expect(control.schema == 2)
+            #expect(control.schema == 3)
         }
     }
 

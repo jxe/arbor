@@ -62,11 +62,6 @@ public actor UpdateCoordinator {
         if control.sourceMode == true && !sourceOperationEmission {
             throw ArborWireValidationError.invalidValue("Retained source admissions require the source-enabled client path")
         }
-        if sourceOperationEmission {
-            guard !control.hasLegacyWork else {
-                throw ArborWireValidationError.invalidValue("Retained snapshot work requires recovery before source admission; saved work has not been changed")
-            }
-        }
         // An incompatible or altered durable request must remain on disk for recovery.
         for attempt in [control.attempt].compactMap({ $0 }) {
             let request = try JSONDecoder().decode(WireUpdateRequest.self, from: attempt.body)

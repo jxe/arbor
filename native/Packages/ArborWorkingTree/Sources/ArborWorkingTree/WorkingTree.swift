@@ -144,9 +144,6 @@ public actor WorkingTree {
         try await workingTree.recoverPendingIntents()
         try await workingTree.validateLoadedState()
         try await workingTree.loadOrRebuildIndex()
-        if let cleanup = try? store.prepareLegacyCleanup() {
-            Task.detached(priority: .utility) { cleanup() }
-        }
         return workingTree
     }
 

@@ -366,34 +366,6 @@ struct SourceAdmissionQueueTests {
         #expect(try await queue.retained().isEmpty)
         #expect(try FileManager.default.contentsOfDirectory(atPath: objectDirectory.path).isEmpty)
     }
-
-    @Test("A fully settled embedded-object journal is scanned without decoding its snapshots")
-    func settledLegacyMigration() async throws {
-        let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let all = try records(f), path = root.appending(path: "sync/source-admissions.json")
-        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let encoded = String(decoding: try JSONEncoder().encode(all), as: UTF8.self)
-            .replacingOccurrences(of: "\"tree\":\"(f.tree)\"", with: "\"tree\":42")
-        try Data(encoded.utf8).write(to: path)
-        let legacySize = try Data(contentsOf: path).count
-        let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, settled: Set(all.map(\.change)))
-        #expect(try await queue.retained().isEmpty)
-        #expect((try Data(contentsOf: path)).count < legacySize)
-        let raw = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
-        #expect(raw["schema"] as? Int == 4)
-    }
-
-    @Test("Pending legacy migration remains self-contained when its old platform basis is gone")
-    func pendingLegacyMigration() async throws {
-        let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
-        let all = try records(f), path = root.appending(path: "sync/source-admissions.json")
-        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(all).write(to: path)
-        let migrated = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: EmptyObjectStore())
-        #expect(try await migrated.retained() == all)
-        let reopened = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root, platform: EmptyObjectStore())
-        #expect(try await reopened.retained() == all)
-    }
 }
 
 extension SourceAdmissionQueueTests {

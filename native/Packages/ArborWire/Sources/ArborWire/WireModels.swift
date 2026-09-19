@@ -708,19 +708,6 @@ public struct WireConflictDetails: Codable, Sendable, Equatable {
         self.conflicts = conflicts
     }
 
-    public init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        kind = try values.decode(String.self, forKey: .kind)
-        // Temporary mixed-version compatibility for locally persisted
-        // single-update conflicts. New encoders always write both fields.
-        completed = try values.decodeIfPresent([WireUpdateElementResult].self, forKey: .completed) ?? []
-        failedIndex = try values.decodeIfPresent(Int.self, forKey: .failedIndex) ?? 0
-        current = try values.decode(WireAcceptedUpdate.self, forKey: .current)
-        base = try values.decode(String.self, forKey: .base)
-        candidate = try values.decode(String.self, forKey: .candidate)
-        draft = try values.decode(WireConflictDraft.self, forKey: .draft)
-        conflicts = try values.decode([WireConflictReason].self, forKey: .conflicts)
-    }
 }
 
 public struct WireUpdateConflict: Codable, Sendable, Equatable {

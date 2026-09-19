@@ -37,14 +37,6 @@ public protocol WorkingTreeStateStore: Sendable {
     /// Every journal record, in a stable order.
     func journalRecords() throws -> [WorkingTreeJournalRecord]
     func removeJournal(token: String) throws
-
-    /// Move obsolete artifacts of earlier layouts out of the way. Returns work to
-    /// finish off-path (deleting them), or `nil` when there is nothing to do.
-    func prepareLegacyCleanup() throws -> (@Sendable () -> Void)?
-}
-
-public extension WorkingTreeStateStore {
-    func prepareLegacyCleanup() throws -> (@Sendable () -> Void)? { nil }
 }
 
 /// Dictionary-backed store for working trees that keep nothing on disk. A

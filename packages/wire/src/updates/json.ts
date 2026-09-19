@@ -333,10 +333,7 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
     throw new Error("Invalid update conflict");
   }
   const details = record.details as Record<string, unknown>;
-  // Temporary mixed-version compatibility for conflicts persisted by clients
-  // before update requests became plural. New encoders always write both.
-  const completed = details.completed ?? [];
-  const failedIndex = details.failedIndex ?? 0;
+  const { completed, failedIndex } = details;
   if (typeof details.kind !== "string" || !CONFLICT_KINDS.has(details.kind)
     || typeof details.base !== "string" || !HASH.test(details.base)
     || typeof details.candidate !== "string" || !HASH.test(details.candidate)

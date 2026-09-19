@@ -74,58 +74,6 @@ public struct DurableWorkingTreeFiles: WorkingTreeStateStore {
         try remove(URL(filePath: token))
     }
 
-    public func prepareLegacyCleanup() throws -> (@Sendable () -> Void)? {
-        let tombstones = try prepareLegacyHistoryCleanup()
-        guard !tombstones.isEmpty else { return nil }
-        let cleanupRoot = root
-        return { Self.removeLegacyHistoryTombstones(tombstones, from: cleanupRoot) }
-    }
-
-    /// Moves the obsolete full-snapshot archive out of the production namespace.
-    /// Recursive deletion is deliberately separated so opening a tree never waits on it.
-    func prepareLegacyHistoryCleanup() throws -> [URL] {
-        let manager = FileManager.default
-        let history = root.appending(path: "history", directoryHint: .isDirectory)
-        var tombstones = try manager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
-        ).filter { Self.isLegacyHistoryTombstoneName($0.lastPathComponent) }
-
-        if manager.fileExists(atPath: history.path) {
-            let values = try history.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-            guard values.isDirectory == true, values.isSymbolicLink != true else {
-                throw WorkingTreeError.corruptState("Legacy working tree history is not a directory")
-            }
-            let tombstone = root.appending(
-                path: ".obsolete-history-\(UUID().uuidString.lowercased())",
-                directoryHint: .isDirectory
-            )
-            if Darwin.rename(history.path, tombstone.path) != 0 {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-            try syncDirectory(root)
-            tombstones.append(tombstone)
-        }
-        return tombstones
-    }
-
-    static func removeLegacyHistoryTombstones(_ tombstones: [URL], from root: URL) {
-        let manager = FileManager.default
-        let standardizedRoot = root.standardizedFileURL
-        for tombstone in tombstones {
-            let standardized = tombstone.standardizedFileURL
-            guard standardized.deletingLastPathComponent() == standardizedRoot,
-                  isLegacyHistoryTombstoneName(standardized.lastPathComponent) else { continue }
-            try? manager.removeItem(at: standardized)
-        }
-    }
-
-    private static func isLegacyHistoryTombstoneName(_ name: String) -> Bool {
-        let prefix = ".obsolete-history-"
-        guard name.hasPrefix(prefix) else { return false }
-        return UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
-    }
-
     private func remove(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)

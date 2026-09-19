@@ -52,19 +52,11 @@ struct UpdateControlFiles: Sendable {
     func load() throws -> UpdateControl {
         guard FileManager.default.fileExists(atPath: controlURL.path) else { return UpdateControl() }
         let bytes = try Data(contentsOf: controlURL)
-        // Removed Codable fields would otherwise be silently ignored and lost
-        // on the next write. Refuse even unfamiliar legacy payload shapes.
-        let raw = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
-        if ["conflict", "hold"].contains(where: { key in
-            raw?[key].map { !($0 is NSNull) } ?? false
-        }) {
-            throw UpdateError.retainedLegacyConflict
-        }
         var control = try JSONDecoder().decode(UpdateControl.self, from: bytes)
         guard control.schema <= UpdateControl.currentSchema else {
             throw UpdateError.unsupportedControlSchema(control.schema)
         }
-        control.schema = control.sourceMode == true ? 3 : 2
+        control.schema = UpdateControl.currentSchema
         return control
     }
 
@@ -72,7 +64,7 @@ struct UpdateControlFiles: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var value = control
-        value.schema = value.sourceMode == true ? 3 : 2
+        value.schema = UpdateControl.currentSchema
         try atomicWrite(try encoder.encode(value), to: controlURL)
         // Retain scheduling/persistence evidence after successful requests have
         // cleared the live control. Never put authored source or credentials in

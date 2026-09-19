@@ -69,7 +69,7 @@ describe("Arbor private state", () => {
     const canonicalRoot = await realpath(root);
     const canonicalOtherRoot = await realpath(otherRoot);
     const legacyStateID = "legacy-state-id";
-    await writeFile(join(state, "workspaces.json"), `${JSON.stringify({
+    await writeFile(join(state, ".state", "workspaces.json"), `${JSON.stringify({
       [canonicalRoot]: legacyStateID,
       [canonicalOtherRoot]: "other-legacy-state-id",
     })}\n`);
@@ -92,65 +92,6 @@ describe("Arbor private state", () => {
       inode: expect.any(String),
     });
     expect((await stat((await workspaceState(root)).directory)).mode & 0o777).toBe(0o700);
-  });
-
-  test("moves every known legacy private artifact beneath the reserved mount", async () => {
-    const state = await temp("arbor-private-state-migration-");
-    process.env.ARBOR_DATA_HOME = state;
-    await mkdir(join(state, "system"));
-    await mkdir(join(state, "sync"));
-    await mkdir(join(state, "workspaces"));
-    await mkdir(join(state, "LinkPreviews"));
-    await mkdir(join(state, "Hunch Rehearsals"));
-    await writeFile(join(state, "workspaces.json"), "{}\n");
-
-    await prepareArborDataRoot();
-
-    for (const name of [
-      "system", "sync", "workspaces", "workspaces.json", "LinkPreviews", "Hunch Rehearsals",
-    ]) {
-      await expect(stat(join(state, name))).rejects.toMatchObject({ code: "ENOENT" });
-      expect(await stat(join(state, ".state", name))).toBeTruthy();
-    }
-  });
-
-  test("leaves Finder metadata in place even when the reserved mount has its own", async () => {
-    const state = await temp("arbor-private-state-finder-");
-    process.env.ARBOR_DATA_HOME = state;
-    await mkdir(join(state, ".state"));
-    await writeFile(join(state, ".state", ".DS_Store"), "moved finder state");
-    await writeFile(join(state, ".DS_Store"), "new finder state");
-
-    await prepareArborDataRoot();
-
-    expect(await readFile(join(state, ".DS_Store"), "utf8")).toBe("new finder state");
-    expect(await readFile(join(state, ".state", ".DS_Store"), "utf8")).toBe("moved finder state");
-  });
-
-  test("removes an empty legacy cache directory when migrated state already exists", async () => {
-    const state = await temp("arbor-private-state-empty-recreated-");
-    process.env.ARBOR_DATA_HOME = state;
-    await mkdir(join(state, ".state", "LinkPreviews"), { recursive: true });
-    await writeFile(join(state, ".state", "LinkPreviews", "cached.json"), "{}\n");
-    await mkdir(join(state, "LinkPreviews"));
-
-    await prepareArborDataRoot();
-
-    await expect(stat(join(state, "LinkPreviews"))).rejects.toMatchObject({ code: "ENOENT" });
-    expect(await readFile(join(state, ".state", "LinkPreviews", "cached.json"), "utf8")).toBe("{}\n");
-  });
-
-  test("rejects a nonempty legacy cache collision without merging it", async () => {
-    const state = await temp("arbor-private-state-nonempty-collision-");
-    process.env.ARBOR_DATA_HOME = state;
-    await mkdir(join(state, ".state", "LinkPreviews"), { recursive: true });
-    await writeFile(join(state, ".state", "LinkPreviews", "migrated.json"), "{}\n");
-    await mkdir(join(state, "LinkPreviews"));
-    await writeFile(join(state, "LinkPreviews", "legacy.json"), "{}\n");
-
-    await expect(prepareArborDataRoot()).rejects.toThrow("Private-state migration collision");
-    expect(await readFile(join(state, "LinkPreviews", "legacy.json"), "utf8")).toBe("{}\n");
-    expect(await readFile(join(state, ".state", "LinkPreviews", "migrated.json"), "utf8")).toBe("{}\n");
   });
 
   test("preserves private identity when a directory moves on one filesystem", async () => {
@@ -182,7 +123,8 @@ describe("Arbor private state", () => {
     await mkdir(moved);
     const info = await stat(moved);
     const fingerprint = { device: String(info.dev), inode: String(info.ino) };
-    await writeFile(join(state, "workspaces.json"), `${JSON.stringify({
+    await mkdir(join(state, ".state"));
+    await writeFile(join(state, ".state", "workspaces.json"), `${JSON.stringify({
       [join(outer, "old-a")]: {
         stateID: "state-a",
         rootID: "rt_old_a",
@@ -208,7 +150,8 @@ describe("Arbor private state", () => {
     const root = join(state, "root");
     await mkdir(root);
     const malformed = "{ this is not JSON";
-    await writeFile(join(state, "workspaces.json"), malformed);
+    await mkdir(join(state, ".state"));
+    await writeFile(join(state, ".state", "workspaces.json"), malformed);
 
     await expect(workspaceIdentity(root)).rejects.toBeInstanceOf(SyntaxError);
     expect(await readFile(join(state, ".state", "workspaces.json"), "utf8")).toBe(malformed);
