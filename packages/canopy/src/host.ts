@@ -555,6 +555,7 @@ export async function serveCanopy(options: {
             return wireError("invalid-request", "after and Last-Event-ID disagree", 400);
           }
           const lastEventID = queryCursor ?? headerCursor;
+          const keepaliveRequested = request.headers.get("arbor-watch-keepalive") === "1";
           /** Encode a contiguous run of accepted updates as bounded `tree.update` frames, or null when any transition is unavailable. */
           const refFrames = (records: ObservationRecord[]): string[] | null => {
             const current = canopy.get(tree.id) ?? tree;
@@ -617,17 +618,22 @@ export async function serveCanopy(options: {
               const position = canopy.observationPosition(tree.id, lastEventID);
               if (!position.retained) return resync("The requested cursor is no longer retained");
               delivered = position.through;
-              // Send bytes at once so headers flush through proxies and the client
-              // can tell an open stream from a stalled connect; then keep the
-              // connection warm through proxy idle timeouts.
-              controller.enqueue(encoder.encode(execution ? ": authorized\n\n" : ": ready\n\n"));
-              const keepalive = setInterval(() => {
-                if (closed) return;
-                try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* closing */ }
-              }, WATCH_KEEPALIVE_MS);
-              keepalive.unref?.();
-              const stopTimers = stop;
-              stop = () => { clearInterval(keepalive); stopTimers(); };
+              if (execution) controller.enqueue(encoder.encode(": authorized\n\n"));
+              // Clients that opt in receive an immediate comment so headers flush
+              // through proxies and an open stream is distinguishable from a
+              // stalled connect, then periodic comments through proxy idle
+              // timeouts. Older clients reject comment-only blocks, so this is
+              // never sent unrequested.
+              if (keepaliveRequested) {
+                controller.enqueue(encoder.encode(": ready\n\n"));
+                const keepalive = setInterval(() => {
+                  if (closed) return;
+                  try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* closing */ }
+                }, WATCH_KEEPALIVE_MS);
+                keepalive.unref?.();
+                const stopTimers = stop;
+                stop = () => { clearInterval(keepalive); stopTimers(); };
+              }
             },
             async pull(controller) {
               try {
