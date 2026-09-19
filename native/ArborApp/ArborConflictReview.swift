@@ -21,7 +21,9 @@ final class ArborConflictReviewModel {
     private(set) var previewing = false
     private(set) var contents: [String: Data] = [:]
     private(set) var directories: [String: [WireDirectoryEntry]] = [:]
-    private(set) var loading = false
+    private(set) var refreshing = false
+    /// True only until the first inspection arrives.
+    var loading: Bool { refreshing && snapshot == nil }
     private(set) var applying = false
     private(set) var pending = false
     private(set) var completedID: String?
@@ -79,11 +81,14 @@ final class ArborConflictReviewModel {
         }
     }
 
+    /// Re-inspect choices and retained drafts. Values are only published when
+    /// they change, and `loading` is only shown before the first result, so a
+    /// background refresh never redraws or reflows anything by itself.
     func refresh() async {
         refreshGeneration += 1
         let generation = refreshGeneration
-        loading = true
-        defer { if generation == refreshGeneration { loading = false } }
+        refreshing = true
+        defer { if generation == refreshGeneration { refreshing = false } }
         do {
             await saveTask?.value
             let capturedSaveGeneration = saveGeneration
@@ -96,11 +101,22 @@ final class ArborConflictReviewModel {
             if (capturedSaveGeneration != saveGeneration || saving || failedSave), let draft {
                 drafts.removeAll { $0.id == draft.id }; drafts.append(draft)
             }
-            self.drafts = drafts; self.pending = pending
+            if self.drafts != drafts { self.drafts = drafts }
+            if self.pending != pending { self.pending = pending }
             let snapshot = try await coordinator.inspectChoices()
             guard generation == refreshGeneration else { return }
-            self.snapshot = snapshot
+            if self.snapshot != snapshot { self.snapshot = snapshot }
+            rebaseOpenDraft(onto: snapshot)
         } catch { if generation == refreshGeneration { message = error.localizedDescription } }
+    }
+
+    /// An unrelated accepted update moves the snapshot state without changing
+    /// anything the open draft shows; follow it instead of marking it stale.
+    private func rebaseOpenDraft(onto snapshot: ConflictReviewSnapshot) {
+        guard let current = draft, !current.isCurrent(in: snapshot), !pending,
+              let rebased = current.rebased(onto: snapshot) else { return }
+        draft = rebased
+        save(rebased)
     }
 
     func select(_ decision: ConflictReviewDecision) async {
@@ -414,52 +430,99 @@ struct ArborChoiceReviewList: View {
             .sorted { $0.path < $1.path }
     }
 
+    /// A page title for a decision path: `/notes/idea.md` → "idea",
+    /// `/notes/_index.md` → "notes", `/` → "Tree contents".
+    static func pageTitle(_ path: String) -> (title: String, context: String?) {
+        var parts = path.split(separator: "/").map(String.init)
+        guard let last = parts.last else { return ("Tree contents", nil) }
+        if last == "_index.md" { parts.removeLast() }
+        else if last.hasSuffix(".md") { parts[parts.count - 1] = String(last.dropLast(3)) }
+        guard let title = parts.popLast() else { return ("Tree contents", nil) }
+        return (title, parts.isEmpty ? nil : "/" + parts.joined(separator: "/"))
+    }
+
+    private var selection: Binding<String?> {
+        Binding(get: { review.selectedID }, set: { id in
+            guard let id, id != review.selectedID else { return }
+            if let decision = review.decisions.first(where: { $0.id == id }) { open(decision) }
+            else if let draft = review.retainedDrafts.first(where: { $0.id == id }) { openDraft(draft) }
+        })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Button(action: back) { Label("All pages", systemImage: "chevron.left") }
+            HStack(spacing: 8) {
+                Button(action: back) { Image(systemName: "chevron.left") }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("All pages")
+                    .help("Back to all pages")
+                Text(review.snapshot == nil ? "Choices" : "Choices · \(review.decisions.count)")
+                    .font(.headline)
                 Spacer()
-                Button { Task { await review.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                    .accessibilityLabel("Refresh choices").disabled(review.loading)
-            }.padding(12)
-            HStack {
-                Text(review.snapshot == nil ? "Review choices" : "Review choices · \(review.decisions.count)").font(.headline)
-                Spacer()
-            }.padding(.horizontal, 12).padding(.bottom, 8)
-            List {
+                if review.refreshing, review.snapshot != nil {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button { Task { await review.refresh() } } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Refresh choices")
+                        .help("Refresh choices")
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            Divider()
+            List(selection: selection) {
                 ForEach(groupedChoices, id: \.path) { group in
-                    Section(group.path == "/" ? "Tree contents" : group.path) {
+                    let page = Self.pageTitle(group.path)
+                    Section {
                         ForEach(group.decisions) { decision in
-                            Button { open(decision) } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(decision.summary).font(.headline)
-                                    if review.drafts.contains(where: { $0.id == decision.id }) {
-                                        Label("Draft retained", systemImage: "doc").font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }.padding(.vertical, 4)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(decision.summary).lineLimit(2)
+                                if review.drafts.contains(where: { $0.id == decision.id }) {
+                                    Text("Draft retained").font(.caption).foregroundStyle(.secondary)
+                                }
                             }
-                            .listRowBackground(review.selectedID == decision.id ? Color.accentColor.opacity(0.12) : Color.clear)
+                            .padding(.vertical, 2)
+                            .tag(decision.id)
+                        }
+                    } header: {
+                        HStack(spacing: 4) {
+                            Text(page.title)
+                            if let context = page.context {
+                                Text(context).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                            }
                         }
                     }
                 }
                 if !review.retainedDrafts.isEmpty {
                     Section("Retained drafts") {
                         ForEach(review.retainedDrafts) { draft in
-                            Button { openDraft(draft) } label: {
-                                VStack(alignment: .leading) {
-                                    Text(draft.decision.title)
-                                    Text(review.snapshot == nil ? "Draft retained · Status unavailable" : "Choice resolved · Draft retained").font(.caption).foregroundStyle(.secondary)
-                                }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(draft.decision.title).lineLimit(2)
+                                Text(review.snapshot == nil ? "Status unavailable" : "Choice resolved")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
+                            .tag(draft.id)
                         }
                     }
                 }
-                if review.loading { ProgressView("Loading choices…") }
-                if !review.loading && review.decisions.isEmpty && review.snapshot != nil {
-                    Label("All choices reviewed", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+            }
+            .listStyle(.sidebar)
+            .overlay {
+                if review.loading {
+                    ProgressView()
+                } else if let message = review.message, review.snapshot == nil {
+                    ContentUnavailableView("Choices unavailable", systemImage: "exclamationmark.triangle", description: Text(message))
+                } else if review.snapshot != nil, review.decisions.isEmpty, review.retainedDrafts.isEmpty {
+                    ContentUnavailableView("No choices", systemImage: "checkmark.circle",
+                        description: Text("Every choice in this tree has been reviewed."))
                 }
-                if let message = review.message { Text(message).font(.caption).foregroundStyle(.secondary) }
-            }.listStyle(.sidebar)
+            }
+            if let message = review.message, review.snapshot != nil {
+                Divider()
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            }
         }
     }
 }

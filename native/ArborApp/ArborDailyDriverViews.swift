@@ -41,6 +41,9 @@ struct ArborWindowCommands {
     var showHistory: () -> Void
     var showSource: () -> Void
     var showSyncStatus: () -> Void
+    var reviewChoices: () -> Void
+    /// Nil while the open tree has no review model (nothing to review).
+    var reviewChoiceCount: Int?
     var showAccounts: () -> Void
     var movePage: () -> Void
     var movePageToTrash: () -> Void

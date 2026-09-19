@@ -1409,10 +1409,15 @@ final class ArborWorkspaceState {
             note.error = "\(syncPresentation.state) · \(syncPresentation.detail ?? "")"
             WireNetworkLog.current?.record(note)
         }
-        // Reloading choices costs a descriptor read; only do it while a
-        // conflict exists or the review still shows entries.
-        if syncPresentation.acceptedConflicted == true || conflictReview?.hasEntries == true {
-            conflictReview?.scheduleRefresh()
+        // Choices only change with the accepted state, so re-inspect when the
+        // accepted root or conflict flag moves (or a review submission is
+        // waiting), not on every local save or watch echo.
+        let acceptedChanged = previous.acceptedRoot != syncPresentation.acceptedRoot
+            || previous.acceptedConflicted != syncPresentation.acceptedConflicted
+        if let review = conflictReview,
+           syncPresentation.acceptedConflicted == true || review.hasEntries,
+           acceptedChanged || review.pending {
+            review.scheduleRefresh()
         }
     }
 

@@ -47,6 +47,18 @@ struct ConflictReviewTests {
         #expect(!ConflictReviewDraft(snapshot: composed, decision: composed.decisions[0], alternative: "alternative-0").isCurrent(in: decomposed))
     }
 
+    @Test("A draft rebases onto a new accepted state only when its evidence is unchanged")
+    func rebaseUnchangedEvidence() throws {
+        let old = try inspection()
+        var draft = ConflictReviewDraft(snapshot: old, decision: old.decisions[0], alternative: "alternative-1", source: "Composed")
+        draft.remove = false
+        let next = try inspection(state: "accepted-2")
+        let rebased = try #require(draft.rebased(onto: next))
+        #expect(rebased.isCurrent(in: next))
+        #expect(rebased.selection(for: draft.id) == draft.selection(for: draft.id))
+        #expect(draft.rebased(onto: try inspection(state: "accepted-2", dependencies: ["other-choice"])) == nil)
+    }
+
     @Test("Durable draft round trips preserve whitespace, line endings and scalar spelling")
     func draftRecovery() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "review-draft-\(UUID().uuidString)")

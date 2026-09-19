@@ -35,6 +35,11 @@ private struct ArborNavigationCommands: Commands {
     @FocusedValue(\.arborWindowCommands) private var commands
     @FocusedValue(\.editorCommands) private var editorCommands
 
+    private var reviewChoicesTitle: String {
+        guard let count = commands?.reviewChoiceCount, count > 0 else { return "Review Choices…" }
+        return "Review Choices (\(count))…"
+    }
+
     var body: some Commands {
 #if os(macOS)
         CommandGroup(after: .appSettings) {
@@ -93,6 +98,8 @@ private struct ArborNavigationCommands: Commands {
                 .disabled(commands?.hasDocument != true)
             Button("Sync Status…") { commands?.showSyncStatus() }
                 .disabled(commands == nil)
+            Button(reviewChoicesTitle) { commands?.reviewChoices() }
+                .disabled(commands?.reviewChoiceCount == nil)
             Divider()
             Button("Close Tab") { commands?.closeTab() }
                 .keyboardShortcut("w", modifiers: .command)

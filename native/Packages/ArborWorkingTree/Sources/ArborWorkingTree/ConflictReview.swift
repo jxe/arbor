@@ -181,6 +181,20 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         return WireObjectCodec.hash(try encoder.encode(self))
     }
+    /// The same draft pinned to `current`, when the accepted state moved but
+    /// the draft's group and every decision in it (alternatives, hashes,
+    /// placements) are unchanged, so the reviewed evidence is identical. Nil
+    /// when anything the reviewer saw differs; that still needs an explicit
+    /// "Review latest".
+    public func rebased(onto current: ConflictReviewSnapshot) -> ConflictReviewDraft? {
+        guard snapshot.tree.utf8.elementsEqual(current.tree.utf8),
+              Set(current.group(containing: id).map(\.id)) == Set(decisions.map(\.id)),
+              decisions.allSatisfy({ decision in current.decisions.first(where: { $0.id == decision.id }) == decision })
+        else { return nil }
+        var next = ConflictReviewDraft(snapshot: current, decision: decision, alternative: alternative, source: source)
+        next.selections = selections; next.destination = destination; next.remove = remove
+        return next
+    }
     public func isCurrent(in current: ConflictReviewSnapshot) -> Bool {
         snapshot.tree.utf8.elementsEqual(current.tree.utf8) && snapshot.state.utf8.elementsEqual(current.state.utf8) &&
         Set(current.group(containing: id).map(\.id)) == Set(decisions.map(\.id)) &&

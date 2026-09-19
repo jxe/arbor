@@ -1156,18 +1156,18 @@ struct ArborRootView: View {
     private var sidebarReviewContent: some View {
         ZStack {
             VStack(spacing: 0) {
+                // With nothing to review the entry lives only in File ▸ Review Choices….
                 if let review = workspace.conflictReview,
-                   review.hasEntries || workspace.syncPresentation.acceptedConflicted == true {
-                    Button {
-                        reviewingChoices = true
-                        Task { await review.refresh() }
-                    } label: {
+                   !review.decisions.isEmpty || !review.retainedDrafts.isEmpty || review.pending {
+                    Button(action: showChoiceReview) {
                         HStack {
                             Label("Review choices", systemImage: "arrow.triangle.branch")
                             Spacer()
-                            if review.snapshot != nil { Text("\(review.decisions.count)").monospacedDigit() }
-                            else { Image(systemName: "circle.fill").font(.system(size: 6)) }
-                        }.padding(.horizontal, 12).padding(.vertical, 10)
+                            Text("\(review.decisions.count + review.retainedDrafts.count)")
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .contentShape(.rect)
                     }.buttonStyle(.plain)
                     Divider()
                 }
@@ -1190,6 +1190,17 @@ struct ArborRootView: View {
     }
 
     @State private var reviewAccessoryReveal: EditorAccessoryReveal?
+
+    private func showChoiceReview() {
+        guard let review = workspace.conflictReview else { return }
+        reviewingChoices = true
+#if os(macOS)
+        if columnVisibility == .detailOnly { withAnimation { columnVisibility = .all } }
+#else
+        withAnimation { sidebarRevealProgress = 1 }
+#endif
+        Task { await review.refresh() }
+    }
 
     private func openReviewChoice(_ decision: ConflictReviewDecision) {
         guard let review = workspace.conflictReview else { return }
@@ -1550,6 +1561,8 @@ struct ArborRootView: View {
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: showStatusPanel,
+            reviewChoices: showChoiceReview,
+            reviewChoiceCount: workspace.conflictReview.map { $0.decisions.count + $0.retainedDrafts.count },
             showAccounts: showAccountsPanel,
             movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
             movePageToTrash: { trashConfirmationPresented = true },
