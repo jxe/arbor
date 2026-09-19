@@ -1,4 +1,3 @@
-import type { SearchResult } from "./types.ts";
 import { canonicalCBORHash } from "./cbor.ts";
 import type { JSONValue, NodeRef, NodeSnapshot } from "./node-model.ts";
 import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath, TreeID, TreeRef } from "./identifiers.ts";
@@ -234,23 +233,10 @@ export interface NodeResponse extends NodeSnapshot {
   acceptedRequestDigests?: Hash[];
 }
 
-export interface SearchPage {
-  results: SearchResult[];
-  nextCursor: string | null;
-  observedThrough: EventCursor;
-}
-
 export interface BacklinkEntry {
   ref: NodeRef;
   title: string;
   context: string;
-}
-
-export interface BacklinksPage {
-  target: NodeRef;
-  entries: BacklinkEntry[];
-  nextCursor: string | null;
-  observedThrough: EventCursor;
 }
 
 export interface BlockRecoveryEntry {
@@ -273,13 +259,6 @@ export interface TrashRecoveryEntry {
 }
 
 export type RecoveryEntry = BlockRecoveryEntry | TrashRecoveryEntry;
-
-export interface RecoveryPage {
-  ref: NodeRef;
-  entries: RecoveryEntry[];
-  nextCursor: string | null;
-  observedThrough: EventCursor;
-}
 
 export interface LocatorResolution {
   ref: NodeRef;

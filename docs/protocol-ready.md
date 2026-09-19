@@ -8,8 +8,6 @@ The TypeScript Wire client exposes `WireUnsupportedOperation`; the daemon retain
 
 ## Coordinated upgrade
 
-[Preparation evidence and remaining joint steps](protocol-cutover-preparation.md) records the integration onto newer main, successful native builds, disposable cutover rehearsal, and device checks. It supersedes the original worktree test counts below.
-
 The coordinated live cutover completed with Joe on 2026-09-14. Canopy, Arbor Sync, macOS, and iOS now run the protocol-ready contract from commit `e1e2531`. The procedure below is retained as the upgrade and rollback reference; it is not an instruction to repeat the cutover.
 
 There is one current Wire request shape and digest contract. The singular request adapter is removed. This code change does not deploy any service, change Quagmire pins, migrate live data, or reset history. No database schema change is required for this milestone: Canopy has not yet accepted operation provenance.

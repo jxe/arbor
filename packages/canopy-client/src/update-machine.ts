@@ -115,10 +115,6 @@ export interface UpdateTransition {
   effects: UpdateEffect[];
 }
 
-export function initialUpdateState(transportAvailable = true): UpdateState {
-  return { kind: "unplaced", transportAvailable };
-}
-
 function ctx(state: Base): Base {
   return { ...(state.base ? { base: state.base } : {}), transportAvailable: state.transportAvailable };
 }
@@ -427,9 +423,4 @@ function resume(state: Extract<UpdateState, { kind: "offline" }>): UpdateTransit
     state: { ...ctx(state), kind: "accepted-pending-apply", base: state.base, result: { kind: "current", root: state.base.root, update: state.base.update, digests: [] } },
     effects: [{ type: "catchUp", cursor: state.base.cursor }],
   };
-}
-
-/** Whether the machine holds a request whose outcome may already be known to the authority. */
-export function updateRequestMayHaveReachedAuthority(state: UpdateState): boolean {
-  return state.kind === "submitting" || state.kind === "submitting-pending" || (state.kind === "offline" && state.transmitted);
 }

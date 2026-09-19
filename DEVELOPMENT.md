@@ -137,4 +137,3 @@ ARBOR_DATA_HOME="$test_state" bun run arborsync "$test_root" --port 4317
 
 Open `http://127.0.0.1:4317`. Check local navigation, extensionless Markdown URLs, child-link ordering, properties, exact-source edits, undo/redo, external file reconciliation, responsive navigation, recovery, and read-only collection rows. For remote presentation, open a public canonical URL through `arbor open` and directly in a regular browser; HTML and `Accept: text/markdown` should describe the same complete operational document without exposing private representation files.
 
-For an objective browser layout report, evaluate [`tools/browser/editor-audit.js`](tools/browser/editor-audit.js) in the built-in browser as `(${source})()`. In writable contexts it also installs `window.__arborEditorAudit` with report, overlay, theme, and cleanup helpers.

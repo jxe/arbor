@@ -143,19 +143,6 @@ export function admissionIsSettled<S>(state: AdmissionState<S>): boolean {
   return state.kind !== "dirty" && state.kind !== "submitting" && state.kind !== "submitting-dirty";
 }
 
-/** Every generation since `accepted`, in authored order: what a recovery
- * checkpoint retains and what the next admission will carry. */
-export function pendingAdmissionGenerations<S>(state: AdmissionState<S>): AdmissionGeneration<S>[] {
-  switch (state.kind) {
-    case "dirty": return state.latest.generations;
-    case "submitting": return state.submitted.generations;
-    case "submitting-dirty": return [...state.submitted.generations, ...state.latest.generations];
-    case "conflict": return [...state.submitted.generations, ...(state.latest?.generations ?? [])];
-    case "failed": return [...state.pending.generations, ...(state.latest?.generations ?? [])];
-    default: return [];
-  }
-}
-
 function submission<S>(generations: AdmissionGeneration<S>[]): AdmissionSubmission<S> {
   const newest = generations[generations.length - 1]!;
   const preservesIntent = generations.some((generation) => generation.preservesIntent);

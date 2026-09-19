@@ -3,13 +3,10 @@ import { join } from "node:path";
 import { arborPrivateRoot, prepareArborDataRoot } from "@arbor/stores";
 import {
   decodeCandidateUpdateJSON,
-  decodeObjectDeltas,
   decodeTreeSnapshotJSON,
   encodeTreeSnapshotJSON,
-  encodeObjectDeltaJSON,
   encodeObjectEnvelopes,
   encodeUpdateConflictJSON,
-  type ObjectDelta,
   type ObjectHash,
   type TreeSnapshot,
   type UpdateConflictJSON,
@@ -140,10 +137,6 @@ export function pendingFromSnapshot(
   };
 }
 
-export function snapshotFromPending(pending: PendingTreeUpdate): TreeSnapshot {
-  return decodeTreeSnapshotJSON({ root: pending.candidate, objects: pending.objects });
-}
-
 export function updatesFromPending(pending: PendingTreeUpdate): CandidateUpdateJSON[] {
   const { base: _base, origin: _origin, successors: _successors, ...first } = pending;
   return [first, ...(pending.successors ?? [])];
@@ -159,18 +152,6 @@ export function appendPendingTreeSuccessor(
   const successor = pendingFromSnapshot(null, snapshot);
   const { base: _base, origin: _origin, successors: _successors, ...update } = successor;
   return { ...pending, successors: [...(pending.successors ?? []), update] };
-}
-
-export function deltasFromPending(pending: PendingTreeUpdate): ObjectDelta[] {
-  return decodeObjectDeltas(pending.deltas ?? []);
-}
-
-export function withDelta(pending: PendingTreeUpdate, delta: ObjectDelta): PendingTreeUpdate {
-  return {
-    ...pending,
-    objects: pending.objects.filter((object) => object.hash !== delta.result),
-    deltas: [...(pending.deltas ?? []).filter((existing) => existing.result !== delta.result), encodeObjectDeltaJSON(delta)],
-  };
 }
 
 /** The draft the conflict describes, reconstructed by applying its transition to the candidate graph. */

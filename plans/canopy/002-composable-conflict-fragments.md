@@ -10,8 +10,9 @@ resolution are implemented; their rollout is tracked in [release and verificatio
 
 ## Existing evidence
 
-The isolated [fragment storage proof](../../docs/conflict-fragment-storage.md) remains useful
-representation evidence. The production merge authority now owns accepted/authored semantic state,
+The isolated fragment storage proof (removed from the tree; see git history before 2026-09-20
+for `packages/canopy/src/experimental/conflict-fragments`) was representation evidence only.
+The production merge authority now owns accepted/authored semantic state,
 hidden and undo material, and public inspection identities. Do not import the experiment's parallel
 authority, receipt API or owner table, or repeat the completed schema-12 migration.
 
