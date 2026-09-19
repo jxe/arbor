@@ -13,7 +13,7 @@ const directory = encodeWireDirectory({ type: "directory", entries: [{ name: "no
 const root = hashObject(directory);
 const operations: SourceOperation[] = [{ key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/note.md", object: file } }, text: "abc" }];
 const executed = await executeExactSourceEdits(root, operations, async hash => hash === root ? directory : bytes);
-const sourceIntent = { change: "change-one", operations, evidence: executed.evidence };
+const sourceIntent = { change: "change-one", trace: [{ before: root, after: executed.root, operations }], evidence: executed.evidence };
 function initialize(tree: string) {
   db.run("INSERT INTO trees VALUES (?, ?, 1)", [tree, root]);
   store.insert({ tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
@@ -78,7 +78,7 @@ test("invalid evidence and missing receipt cannot leave partial state", () => {
 test("retains a candidate graph even when reconciliation projects the basis", async () => {
   const edits: SourceOperation[] = [{ ...operations[0]!, text: "different" } as SourceOperation];
   const result = await executeExactSourceEdits(root, edits, async hash => hash === root ? directory : bytes);
-  store.commit({ ...input(), candidateRoot: result.root, sourceIntent: { change: "other", operations: edits, evidence: result.evidence } });
+  store.commit({ ...input(), candidateRoot: result.root, sourceIntent: { change: "other", trace: [{ before: root, after: result.root, operations: edits }], evidence: result.evidence } });
   expect(new Set(new SourceIntentStore(db).roots())).toEqual(new Set([root, result.root]));
   const record = new SourceIntentStore(db).get("one", "other")!;
   expect(() => new SourceIntentStore(db).insert(record)).toThrow("transaction");

@@ -102,13 +102,20 @@ export function parseRequest(raw: unknown): MergeRequest {
       if (changes.has(change.change))
         throw new Error("Duplicate authored change");
       changes.add(change.change);
+      // The source worker carries one flat list per change; the authored
+      // grammar reads it as that change's single frame.
       const decoded = decodeAuthoredCandidateIntent({
-        ...change,
+        change: change.change,
         candidate: request.incoming.object,
+        trace: [{
+          before: request.base.object,
+          after: request.incoming.object,
+          operations: change.operations,
+        }],
         resolves: [],
       });
       contributions.push(
-        ...decoded.operations!.map((operation) => ({
+        ...decoded.trace![0]!.operations.map((operation) => ({
           change: change.change,
           operation: operation.key,
         }))

@@ -96,7 +96,7 @@ export async function inspectResourcePolicy(dataRoot: string) {
         updates: [
           {
             change: `resource-policy-${row.ref.slice(7)}`,
-            operations: null,
+            trace: null,
             resolves: [],
             ifCurrent: accepted.id,
             candidate: root,

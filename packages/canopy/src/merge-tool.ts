@@ -390,7 +390,9 @@ export class MergeTool {
         if (
           "authored" in response &&
           request.kind !== "checkpoint" && request.kind !== "checkpoint-batch" &&
-          ("operations" in request.incoming || "trace" in request.incoming)
+          // Either shape the engine accepts states authored evidence: the wire
+          // sends a trace, an in-process caller may state one flat step.
+          ("trace" in request.incoming || "operations" in request.incoming)
         ) {
           // The engine hashes the request's canonical frame form; parse the
           // same request here rather than hashing the shape it was sent in.

@@ -1,11 +1,12 @@
 import { ConflictStore } from "./conflict-store.ts";
 import { Database } from "bun:sqlite";
-import { validateUpdateRequestIntent, type SourceOperation } from "@arbor/wire";
+import { validateUpdateRequestIntent, type SourceTraceFrame } from "@arbor/wire";
 import type { SourceEditEvidence } from "./source-edits.ts";
 
 export interface SourceIntent {
   change: string;
-  operations: SourceOperation[];
+  /** The authored frame chain, exactly as the change carried it. */
+  trace: SourceTraceFrame[];
   evidence: SourceEditEvidence[];
 }
 export interface StoredSourceIntent extends SourceIntent {
@@ -28,7 +29,7 @@ export class SourceIntentStore {
       accepted_id TEXT NOT NULL UNIQUE REFERENCES accepted_updates(id) ON DELETE RESTRICT,
       basis_root TEXT NOT NULL,
       candidate_root TEXT NOT NULL,
-      operations_json TEXT NOT NULL,
+      trace_json TEXT NOT NULL,
       evidence_json TEXT NOT NULL,
       PRIMARY KEY (tree_id, change_id)
     )`);
@@ -46,29 +47,35 @@ export class SourceIntentStore {
       throw new Error("Source intent does not match its accepted update");
     }
     validateUpdateRequestIntent({ base: record.acceptedUpdate, updates: [{
-      change: record.change, candidate: record.candidateRoot, operations: record.operations,
+      change: record.change, candidate: record.candidateRoot, trace: record.trace,
       resolves: new ConflictStore(this.db).get(record.acceptedUpdate)?.resolutions ?? [], objects: [], deltas: [],
     }] });
-    if (record.evidence.length !== record.operations.length || record.operations.some((operation, index) =>
+    // The wire proves the chain is internally consistent and ends at the
+    // candidate; only the store knows the basis the chain must start from.
+    if (record.trace.length && record.trace[0]!.before !== record.basisRoot) {
+      throw new Error("Source trace does not start at the recorded basis");
+    }
+    const operations = record.trace.flatMap((frame) => frame.operations);
+    if (record.evidence.length !== operations.length || operations.some((operation, index) =>
       operation.kind !== "editSource" || record.evidence[index]?.operation !== operation.key || record.evidence[index]?.text !== operation.text)) {
       throw new Error("Source evidence does not match authored operations");
     }
     // Deliberately no upsert. Reusing a change identity must never replace its
     // old intent; exact retries use the retained accepted request receipt.
     this.db.run(`INSERT INTO authored_changes
-      (tree_id, change_id, accepted_id, basis_root, candidate_root, operations_json, evidence_json)
+      (tree_id, change_id, accepted_id, basis_root, candidate_root, trace_json, evidence_json)
       VALUES (?, ?, ?, ?, ?, ?, ?)`, [record.tree, record.change, record.acceptedUpdate,
-      record.basisRoot, record.candidateRoot, JSON.stringify(record.operations), JSON.stringify(record.evidence)]);
+      record.basisRoot, record.candidateRoot, JSON.stringify(record.trace), JSON.stringify(record.evidence)]);
   }
 
   get(tree: string, change: string): StoredSourceIntent | null {
     const row = this.db.query("SELECT * FROM authored_changes WHERE tree_id = ? AND change_id = ?").get(tree, change) as {
       tree_id: string; change_id: string; accepted_id: string; basis_root: string; candidate_root: string;
-      operations_json: string; evidence_json: string;
+      trace_json: string; evidence_json: string;
     } | null;
     return row ? { tree: row.tree_id, change: row.change_id, acceptedUpdate: row.accepted_id,
       basisRoot: row.basis_root, candidateRoot: row.candidate_root,
-      operations: JSON.parse(row.operations_json), evidence: JSON.parse(row.evidence_json) } : null;
+      trace: JSON.parse(row.trace_json), evidence: JSON.parse(row.evidence_json) } : null;
   }
 
   forAccepted(update: string): StoredSourceIntent | null {

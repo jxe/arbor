@@ -777,10 +777,6 @@ class Engine {
     validatedBasisObject?: string
   ): Promise<void> {
     this.checkBudget();
-    // Undo left the grammar with frames: an editor expresses it as ordinary
-    // operations against the generation it is undoing.
-    if (operation.kind === "undoOperation")
-      return fail("Undo is not an authored operation");
     const key = keyOf(change, operation.key),
       before: Record<string, Node> = validatedBasisObject ? Object.create(null) : clone(state.nodes);
     if (Object.hasOwn(state.effects, key))

@@ -160,8 +160,8 @@ test("invalid boundaries, false lineage, wrong candidate and undo are distinct",
       )
     ).outcome,
   ).toBe("invalid");
-  // Undo left the grammar with frames; the engine refuses it outright rather
-  // than reporting missing causal context.
+  // Undo left the grammar with frames; an operation kind the grammar does not
+  // name is refused outright rather than reported as missing causal context.
   expect(
     (
       await f.evaluate(
@@ -170,7 +170,7 @@ test("invalid boundaries, false lineage, wrong candidate and undo are distinct",
             key: "op",
             kind: "undoOperation",
             target: { change: "missing", operation: "op" },
-          } as SourceOperation,
+          } as unknown as SourceOperation,
         ]),
       )
     ).outcome,
@@ -1940,31 +1940,23 @@ test("a later frame refers to an earlier frame's operation result", async () => 
   expect(f.content(framed.result.object, "a.md")).toBe("aOLDbc");
 });
 
-test("a wire-shaped change keeps the identity bytes it had before frames", async () => {
+test("a change's identity is its frame chain, however the caller stated it", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.md": "abc" }),
     candidate = f.tree({ "a.md": "Abc" });
-  const request = f.request(base, candidate, [
-    { key: "a", kind: "editSource", source: f.ref("/a.md", "abc", [0, 1]), text: "A" },
-  ]);
-  // The shape the evaluator hashed before operations became frames.
-  const legacy = stableJSONString({
-    base: request.base,
-    incoming: request.incoming,
-    alternatives: request.alternatives,
-    rules: request.rules,
-  });
-  expect(stableJSONString(changeIdentity(parseIntentRequest(request)))).toBe(legacy);
-  // A trace the wire could not have sent is hashed as frames, so two different
-  // changes can never share an identity.
-  const framed = f.trace(base, [{ after: candidate, operations: [
-    { key: "a", kind: "editSource", source: f.ref("/a.md", "abc", [0, 1]), text: "A" },
-  ] }]);
-  expect(stableJSONString(changeIdentity(parseIntentRequest(framed)))).toBe(legacy);
-  const middle = f.tree({ "a.md": "Abc" });
+  const edit = { key: "a", kind: "editSource" as const, source: f.ref("/a.md", "abc", [0, 1]), text: "A" };
+  // One flat list and the single frame it adapts to are the same claim, so
+  // they must hash alike: the adapted list never survives beside the chain.
+  const flat = stableJSONString(changeIdentity(parseIntentRequest(f.request(base, candidate, [edit]))));
+  const framed = f.trace(base, [{ after: candidate, operations: [edit] }]);
+  expect(stableJSONString(changeIdentity(parseIntentRequest(framed)))).toBe(flat);
+  expect(flat).toContain('"trace"');
+  expect(Object.keys(parseIntentRequest(f.request(base, candidate, [edit])).incoming)).not.toContain("operations");
+  // The same operations divided into two frames are a different claim, so two
+  // changes can never share an identity by regrouping their steps.
   const two = f.trace(base, [
-    { after: middle, operations: [{ key: "a", kind: "editSource", source: f.ref("/a.md", "abc", [0, 1]), text: "A" }] },
+    { after: candidate, operations: [edit] },
     { after: f.tree({ "a.md": "ABc" }), operations: [{ key: "b", kind: "editSource", source: f.ref("/a.md", "Abc", [1, 2]), text: "B" }] },
   ]);
-  expect(stableJSONString(changeIdentity(parseIntentRequest(two)))).toContain('"trace"');
+  expect(stableJSONString(changeIdentity(parseIntentRequest(two)))).not.toBe(flat);
 });

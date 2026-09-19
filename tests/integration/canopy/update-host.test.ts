@@ -114,7 +114,7 @@ describe("governed account-configuration Canopy server", () => {
       },
     };
     const snapshots = [snapshotAccountConfig(graphOne), snapshotAccountConfig(graphTwo)];
-    const updates = snapshots.map((snapshot) => ({ change: crypto.randomUUID(), operations: null,
+    const updates = snapshots.map((snapshot) => ({ change: crypto.randomUUID(), trace: null,
       candidate: snapshot.root,
       resolves: [],
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
@@ -146,7 +146,7 @@ describe("governed account-configuration Canopy server", () => {
       devices: {...baseline.graph.devices, [administrator]: {...baseline.graph.devices[administrator]!, label: `Guarded ${crypto.randomUUID()}`}},
     });
     const request = {base:baseline.current.tree.update,updates:[{
-      change:crypto.randomUUID(),candidate:candidate.root,operations:null,resolves:[],ifCurrent:baseline.current.tree.update,
+      change:crypto.randomUUID(),candidate:candidate.root,trace:null,resolves:[],ifCurrent:baseline.current.tree.update,
       objects:[...candidate.objects].map(([hash,bytes])=>({hash,bytes})),deltas:[],
     }]};
     const first = await client.submitUpdates(baseline.current.tree.id,request);
@@ -171,10 +171,10 @@ describe("governed account-configuration Canopy server", () => {
     const candidate = snapshotAccountConfig({...baseline.graph,devices:{...baseline.graph.devices,
       [administrator]:{...baseline.graph.devices[administrator]!,label:`After no-op ${crypto.randomUUID()}`}}});
     const request = {base:activation ? null : baseline.current.tree.update,updates:[{
-      change:crypto.randomUUID(),candidate:baseline.snapshot.root,operations:null,resolves:[],
+      change:crypto.randomUUID(),candidate:baseline.snapshot.root,trace:null,resolves:[],
       ...(activation ? {} : {ifCurrent:baseline.current.tree.update}),objects:[],deltas:[],
     },{
-      change:crypto.randomUUID(),candidate:candidate.root,operations:null,resolves:[],
+      change:crypto.randomUUID(),candidate:candidate.root,trace:null,resolves:[],
       objects:[...candidate.objects].map(([hash,bytes])=>({hash,bytes})),deltas:[],
     }]};
     const response = await client.submitUpdates(baseline.current.tree.id,request);
@@ -193,8 +193,12 @@ describe("governed account-configuration Canopy server", () => {
       ...baseline.graph,
       devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label: "Must not be accepted" } },
     });
-    const first = { change: crypto.randomUUID(), operations: null, candidate: snapshot.root, resolves: [], objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })), deltas: [] };
-    const second = { ...first, change: crypto.randomUUID(), operations: [{key: "undo", kind: "undoOperation", target: {change: "prior", operation: "edit"}}] };
+    const first = { change: crypto.randomUUID(), trace: null, candidate: snapshot.root, resolves: [], objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })), deltas: [] };
+    // A governed configuration tree accepts no authored evidence at all, so a
+    // perfectly well-formed trace is the unsupported form here.
+    const second = { ...first, change: crypto.randomUUID(), trace: [{ before: baseline.current.tree.root, after: snapshot.root, operations: [
+      { key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/devices.yaml", object: baseline.current.tree.root } }, text: "" },
+    ] }] };
     const count = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
     const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -218,7 +222,7 @@ describe("governed account-configuration Canopy server", () => {
     const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ change: crypto.randomUUID(), operations: null,
+      body: JSON.stringify({ change: crypto.randomUUID(), trace: null,
         base: baseline.current.tree.update,
         candidate: baseline.current.tree.root,
         resolves: [],
@@ -483,7 +487,11 @@ describe("governed account-configuration Canopy server", () => {
     const initial = await resolveSnapshot(await snapshotDirectory(treePath));
     const unsupported = await fetch(`${running.url}/.arbor/trees/${treeID}/updates`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ base: null, updates: [{ change: crypto.randomUUID(), operations: [{key: "undo", kind: "undoOperation", target: {change: "prior", operation: "edit"}}], candidate: initial.root, resolves: [], objects: [], deltas: [] }] }),
+      // An activation carries exact bytes only; any authored evidence, however
+      // well formed, is unsupported.
+      body: JSON.stringify({ base: null, updates: [{ change: crypto.randomUUID(), trace: [{ before: initial.root, after: initial.root, operations: [
+        { key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/note.md", object: initial.root } }, text: "" },
+      ] }], candidate: initial.root, resolves: [], objects: [], deltas: [] }] }),
     });
     expect(unsupported.status).toBe(422);
     expect(running.canopy.get(treeID)).toBeNull();

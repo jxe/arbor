@@ -30,7 +30,7 @@ function change(basis: string, entries: Record<string, Omit<WireDirectoryEntry, 
   return directory(value);
 }
 function snapshot(candidate: string): CandidateUpdate {
-  return { change: crypto.randomUUID(), candidate, operations: null, resolves: [], deltas: [],
+  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
     objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 async function submit(update: CandidateUpdate, basis = base) {

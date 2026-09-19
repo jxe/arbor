@@ -23,7 +23,7 @@ test("worker failure accepts preserved alternatives, survives restart and permit
       const value = decodeWireDirectory(objects.get(root)!);
       value.entries = [...value.entries.filter(entry => entry.name !== name), { name, file }].sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
       const source = encodeWireDirectory(value), candidate = hashObject(source); objects.set(candidate, source);
-      return { change: crypto.randomUUID(), candidate, objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })), operations: null, resolves: [], deltas: [] };
+      return { change: crypto.randomUUID(), candidate, objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })), trace: null, resolves: [], deltas: [] };
     }
     const submit = async (base: string, update: CandidateUpdate) => (await client.submitUpdates(tree, { base, updates: [update] })).results[0]!;
     const base = await submit(head.update, edit(head.root, "Base\n"));

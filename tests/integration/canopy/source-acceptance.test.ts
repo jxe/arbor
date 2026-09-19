@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { serveCanopy } from "@arbor/canopy";
 import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@arbor/wire";
 import { executeExactSourceEdits } from "../../../packages/canopy/src/updates/source-edits.ts";
+/** A request's whole authored contribution, in order, across its frames. */
+const authored = (u: CandidateUpdate) => (u.trace ?? []).flatMap(frame => frame.operations);
 
 let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient;
 let tree: string, base: string, root: ObjectHash, objects: Map<ObjectHash, Uint8Array>;
@@ -41,11 +43,11 @@ async function editAt(path: string, text: string, basis = root, range: [number, 
   const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path, object: file }, range }, text }];
   const executed = await executeExactSourceEdits(basis, operations, async hash => objects.get(hash)!);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
-  return { change: crypto.randomUUID(), candidate: executed.root, operations, resolves: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
+  return { change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: basis, after: executed.root, operations }], resolves: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
 }
 function records() {
   const db = new Database(`${dir}/canopy.sqlite3`);
-  try { return db.query("SELECT u.change_id, u.base_root AS basis_root, u.candidate_root, m.record_json FROM accepted_merge_states m JOIN accepted_updates u ON u.id=m.accepted_id WHERE u.tree_id = ? AND json_extract(m.record_json, '$.request.operations') IS NOT NULL").all(tree); } finally { db.close(); }
+  try { return db.query("SELECT u.change_id, u.base_root AS basis_root, u.candidate_root, m.record_json FROM accepted_merge_states m JOIN accepted_updates u ON u.id=m.accepted_id WHERE u.tree_id = ? AND json_extract(m.record_json, '$.request.trace') IS NOT NULL").all(tree); } finally { db.close(); }
 }
 test("accepts exact source, retains evidence across restart, and replays after snapshot advancement", async () => {
   const update = await edit("ABC"), request = { base, updates: [update] };
@@ -54,7 +56,7 @@ test("accepts exact source, retains evidence across restart, and replays after s
   expect(accepted.results[0]!.update.root).toBe(update.candidate);
   expect(records()).toHaveLength(1);
   const snapshot = await edit("XYZ", update.candidate);
-  await client.submitUpdates(tree, { base: accepted.results[0]!.update.id, updates: [{ ...snapshot, operations: null }] });
+  await client.submitUpdates(tree, { base: accepted.results[0]!.update.id, updates: [{ ...snapshot, trace: null }] });
   await stop(); await start();
   const replay = await client.submitUpdates(tree, request);
   expect(replay.results[0]!.update.id).toBe(accepted.results[0]!.update.id);
@@ -119,7 +121,7 @@ async function rangeCandidate(edits: RangeEdit[]): Promise<CandidateUpdate> {
     source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range: edit.range }, text: edit.text }));
   const result = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
   for (const object of result.generated) objects.set(...object);
-  return { change: crypto.randomUUID(), candidate: result.root, operations, resolves: [],
+  return { change: crypto.randomUUID(), candidate: result.root, trace: [{ before: root, after: result.root, operations }], resolves: [],
     objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
 }
 const rangeCases: Array<{ name: string; left: RangeEdit[]; right: RangeEdit[] }> = [
@@ -145,7 +147,7 @@ for (const scenario of rangeCases) for (const reverse of [false, true]) {
       const alternative = page.decisions[0]!.alternatives.find(a => a.contributions.some(c => c.change === request.change))!;
       const file = decodeWireDirectory(objects.get(request.candidate)!).entries.find(e => e.name === "note.md")!.file!;
       expect(alternative.value).toEqual({ file });
-      expect(alternative.contributions).toEqual(request.operations!.map(op => ({ change: request.change, operation: op.key })));
+      expect(alternative.contributions).toEqual(authored(request).map(op => ({ change: request.change, operation: op.key })));
     }
     await stop(); await start();
     expect(await client.conflicts(tree, accepted.id, accepted.root)).toEqual(page);
@@ -169,7 +171,7 @@ test("nested range collisions create a decision at the physical file", async () 
       source: { material: { kind: "basis" as const, path: "/nested/note.md", object: original.file! }, range: [0,1] as [number, number] }, text }];
     const executed = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
     for (const object of executed.generated) objects.set(...object);
-    candidates.push({ change: crypto.randomUUID(), candidate: executed.root, operations, resolves: [],
+    candidates.push({ change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: root, after: executed.root, operations }], resolves: [],
       objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   }
   const prior = (await client.submitUpdates(tree, { base, updates: [candidates[0]!] })).results[0]!.update;
@@ -185,8 +187,15 @@ test("nested range collisions create a decision at the physical file", async () 
 test("candidate mismatch and dynamic unsupported forms reject before any prefix commits", async () => {
   const first = await edit("ABC"), second = await edit("DEF", first.candidate);
   const before = running.canopy.currentUpdate(tree);
-  await expect(client.submitUpdates(tree, { base, updates: [{ ...first, candidate: root }] })).rejects.toThrow("do not reproduce");
-  const overlapping = { ...second, operations: [...second.operations!, { ...second.operations![0]!, key: "overlap" }] };
+  // A trace whose last frame does not end at the candidate is refused by the
+  // contract, before anything is executed.
+  await expect(client.submitUpdates(tree, { base, updates: [{ ...first, candidate: root }] })).rejects.toThrow("Invalid authored update contract");
+  // A self-consistent trace whose operations do not produce the result it
+  // claims is refused by execution, which is the check the contract cannot make.
+  await expect(client.submitUpdates(tree, { base, updates: [
+    { ...first, candidate: root, trace: [{ ...first.trace![0]!, after: root }] },
+  ] })).rejects.toThrow("do not reproduce");
+  const overlapping = { ...second, trace: [{ ...second.trace![0]!, operations: [...authored(second), { ...authored(second)[0]!, key: "overlap" }] }] };
   await expect(client.submitUpdates(tree, { base, updates: [first, overlapping] })).rejects.toThrow();
   expect(running.canopy.currentUpdate(tree)).toEqual(before);
   expect(records()).toHaveLength(0);
@@ -195,8 +204,8 @@ test("reusing a retained change for another operation or snapshot cannot mutate 
   const first = await edit("ABC");
   const response = await client.submitUpdates(tree, { base, updates: [first] });
   const next = await edit("DEF", first.candidate);
-  for (const operations of [next.operations, null]) {
-    await expect(client.submitUpdates(tree, { base: response.results[0]!.update.id, updates: [{ ...next, change: first.change, operations }] })).rejects.toThrow(/identity.*(bound|reused)/);
+  for (const trace of [next.trace, null]) {
+    await expect(client.submitUpdates(tree, { base: response.results[0]!.update.id, updates: [{ ...next, change: first.change, trace }] })).rejects.toThrow(/identity.*(bound|reused)/);
   }
   expect(records()).toHaveLength(1);
 });
@@ -258,7 +267,7 @@ test("same-basis independent source edits merge across restart and retain replay
   expect(records()).toHaveLength(3);
   // A baseline snapshot client can edit the merged projection normally.
   const next = await edit("snapshot", expected.candidate);
-  const snapshot = await client.submitUpdates(tree, { base: accepted.results[0]!.update.id, updates: [{ ...next, operations: null }] });
+  const snapshot = await client.submitUpdates(tree, { base: accepted.results[0]!.update.id, updates: [{ ...next, trace: null }] });
   expect(snapshot.results[0]!.update.root).toBe(next.candidate);
   expect(records()).toHaveLength(3);
   await running.canopy.verifyIntegrity();
@@ -302,14 +311,14 @@ test("whole-file alternatives survive snapshot edits, restart, and guarded resol
   const response = await fetch(hiddenURL, { headers: { authorization: `Bearer ${token}` } });
   expect(await response.text()).toBe("second\r\n");
   const visible = await edit("continued", update.root, [0,5]);
-  const next = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...visible, operations: null }] })).results[0]!.update;
+  const next = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...visible, trace: null }] })).results[0]!.update;
   expect(next.conflicted).toBe(true);
   await stop(); await start();
   const continued = await client.conflicts(tree, next.id, next.root);
   expect(continued.decisions[0]!.id).toBe(decision.id);
   expect(continued.decisions[0]!.alternatives.find(a => a.id === hidden.id)).toMatchObject({ id: hidden.id, revision: hidden.revision, value: hidden.value, contributions: hidden.contributions });
   expect(await client.conflicts(tree, update.id, update.root)).toEqual(page);
-  const resolution = { change: crypto.randomUUID(), candidate: next.root, operations: [], resolves: [{ state: next.id, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] };
+  const resolution = { change: crypto.randomUUID(), candidate: next.root, trace: [], resolves: [{ state: next.id, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] };
   const resolved = (await client.submitUpdates(tree, { base: next.id, updates: [resolution] })).results[0]!.update;
   expect(resolved.root).toBe(next.root);
   expect(resolved.id).not.toBe(next.id);
@@ -323,14 +332,14 @@ test("deleting the selected file retains hidden material and stale resolution do
   const directory = decodeWireDirectory(objects.get(update.root)!);
   directory.entries = directory.entries.filter(e => e.name !== "note.md");
   const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes);
-  const request = { base: update.id, updates: [{ change: crypto.randomUUID(), candidate, operations: null, resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] }] };
+  const request = { base: update.id, updates: [{ change: crypto.randomUUID(), candidate, trace: null, resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] }] };
   const deleted = (await client.submitUpdates(tree, request)).results[0]!.update;
   expect(deleted.conflicted).toBe(true);
   const current = await client.conflicts(tree, deleted.id, deleted.root);
   expect(current.decisions.find(d=>d.id!==decision.id)!.alternatives.map(a=>a.value)).toContainEqual({directory:candidate});
   const hidden = decision.alternatives.find(a => a.id !== decision.selected)!;
   expect(current.decisions[0]!.alternatives.find(a => a.id === hidden.id)).toMatchObject({ id: hidden.id, revision: hidden.revision, value: hidden.value, contributions: hidden.contributions });
-  await expect(client.submitUpdates(tree, { base: deleted.id, updates: [{ change: crypto.randomUUID(), candidate: deleted.root, operations: [], resolves: [{ state: update.id, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] })).rejects.toBeInstanceOf(WireUpdateConflict);
+  await expect(client.submitUpdates(tree, { base: deleted.id, updates: [{ change: crypto.randomUUID(), candidate: deleted.root, trace: [], resolves: [{ state: update.id, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] })).rejects.toBeInstanceOf(WireUpdateConflict);
   expect((await client.descriptor(tree)).tree.update).toBe(deleted.id);
   await running.canopy.verifyIntegrity();
 });
@@ -346,7 +355,7 @@ test("inspection pages exceed 32 decisions, stay state-bound, and partial resolu
       source: { material: { kind: "basis" as const, path: `/choice-${i}.txt`, object: file } }, text }));
     const result = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
     for (const value of result.generated) objects.set(...value);
-    return { change: crypto.randomUUID(), candidate: result.root, operations, resolves: [], objects: [...result.generated].map(([hash,bytes]) => ({ hash,bytes })), deltas: [] };
+    return { change: crypto.randomUUID(), candidate: result.root, trace: [{ before: root, after: result.root, operations }], resolves: [], objects: [...result.generated].map(([hash,bytes]) => ({ hash,bytes })), deltas: [] };
   }
   await client.submitUpdates(tree, { base, updates: [await peer("left")] });
   const accepted = (await client.submitUpdates(tree, { base, updates: [await peer("right")] })).results[0]!.update;
@@ -355,7 +364,7 @@ test("inspection pages exceed 32 decisions, stay state-bound, and partial resolu
   const last = await client.conflicts(tree, accepted.id, accepted.root, { after: first.next! });
   expect(last.decisions).toHaveLength(1); expect(last.next).toBeNull();
   const d = first.decisions[0]!;
-  const next = (await client.submitUpdates(tree, { base: accepted.id, updates: [{ change: crypto.randomUUID(), candidate: accepted.root, operations: [], resolves: [{ state: accepted.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }], objects: [], deltas: [] }] })).results[0]!.update;
+  const next = (await client.submitUpdates(tree, { base: accepted.id, updates: [{ change: crypto.randomUUID(), candidate: accepted.root, trace: [], resolves: [{ state: accepted.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }], objects: [], deltas: [] }] })).results[0]!.update;
   expect(next.conflicted).toBe(true);
   expect((await client.conflicts(tree, next.id, next.root)).decisions).toHaveLength(32);
   expect(await client.conflicts(tree, accepted.id, accepted.root, { after: first.next! })).toEqual(last);
@@ -369,8 +378,8 @@ test("inspection pages exceed 32 decisions, stay state-bound, and partial resolu
 test("a stale save adds an alternative instead of overwriting a newer revision", async () => {
   const { update } = await wholeConflict();
   const a = await edit("newer", update.root, [0,5]), b = await edit("offline", update.root, [0,5]);
-  await client.submitUpdates(tree, { base: update.id, updates: [{ ...a, operations: null }] });
-  const next = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...b, operations: null }] })).results[0]!.update;
+  await client.submitUpdates(tree, { base: update.id, updates: [{ ...a, trace: null }] });
+  const next = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...b, trace: null }] })).results[0]!.update;
   expect(next.conflicted).toBe(true);
   const page=await client.conflicts(tree,next.id,next.root);
   expect(page.decisions).toHaveLength(2);
@@ -422,9 +431,9 @@ test.each(["first", "second"])("a batch suffix continues its hidden candidate an
 test("snapshot change identities cannot be reused to impersonate later alternative contributions", async () => {
   const { update } = await wholeConflict();
   const first = await edit("snapshot", update.root, [0,5]);
-  const next = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...first, operations: null }] })).results[0]!.update;
+  const next = (await client.submitUpdates(tree, { base: update.id, updates: [{ ...first, trace: null }] })).results[0]!.update;
   const second = await edit("different", next.root, [0,8]);
-  await expect(client.submitUpdates(tree, { base: next.id, updates: [{ ...second, operations: null, change: first.change }] })).rejects.toThrow(/identity.*(bound|reused)/);
+  await expect(client.submitUpdates(tree, { base: next.id, updates: [{ ...second, trace: null, change: first.change }] })).rejects.toThrow(/identity.*(bound|reused)/);
   expect((await client.descriptor(tree)).tree.update).toBe(next.id);
 });
 test("entry kind changes retain hidden files and nested batch edits keep their attribution", async () => {
@@ -435,13 +444,13 @@ test("entry kind changes retain hidden files and nested batch edits keep their a
   directory.entries = directory.entries.map(e => e.name === "note.md" ? { name: e.name, directory: folderHash } : e);
   const encoded = encodeWireDirectory(directory), candidate = hashObject(encoded);
   for (const [hash, bytes] of [[file, child], [folderHash, folder], [candidate, encoded]] as Array<[ObjectHash, Uint8Array]>) objects.set(hash, bytes);
-  const replacement:CandidateUpdate={ change: crypto.randomUUID(), candidate, operations: null, resolves: [], objects: [...objects].map(([hash,bytes]) => ({ hash,bytes })), deltas: [] };
+  const replacement:CandidateUpdate={ change: crypto.randomUUID(), candidate, trace: null, resolves: [], objects: [...objects].map(([hash,bytes]) => ({ hash,bytes })), deltas: [] };
   const placed = (await client.submitUpdates(tree, { base: update.id, updates: [replacement] })).results[0]!.update;
   async function nested(basis: ObjectHash, object: ObjectHash, range: [number,number], text: string): Promise<CandidateUpdate> {
     const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: "/note.md/child.txt", object }, range }, text }];
     const result = await executeExactSourceEdits(basis, operations, async hash => objects.get(hash)!);
     for (const value of result.generated) objects.set(...value);
-    return { change: crypto.randomUUID(), candidate: result.root, operations, resolves: [], objects: [...result.generated].map(([hash,bytes]) => ({ hash,bytes })), deltas: [] };
+    return { change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basis, after: result.root, operations }], resolves: [], objects: [...result.generated].map(([hash,bytes]) => ({ hash,bytes })), deltas: [] };
   }
   const first = await nested(candidate, file, [0,1], "A"), second = await nested(first.candidate, hashObject(new TextEncoder().encode("Abc")), [1,2], "B");
   const result = await client.submitUpdates(tree, { base: update.id, updates: [replacement, first, second] });
@@ -499,11 +508,11 @@ test("nested decisions stay independent across histories, hidden successors, res
   const response = await fetch(`${running.url}/.arbor/trees/${tree}/conflicts/${l.id}/alternatives/${hidden.id}/objects/${hidden.value.file}?state=${continued.id}`, { headers: { authorization: `Bearer ${token}` } });
   expect(response.status).toBe(200); expect(await response.text()).toBe("continued\r\n");
   const resolved = (await client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate: continued.root,
-    operations: [], resolves: [{ state: continued.id, conflict: l.id, alternatives: l.alternatives.map(v => v.id) }], objects: [], deltas: [] }] })).results[0]!.update;
+    trace: [], resolves: [{ state: continued.id, conflict: l.id, alternatives: l.alternatives.map(v => v.id) }], objects: [], deltas: [] }] })).results[0]!.update;
   expect(resolved.conflicted).toBe(true);
   expect((await client.conflicts(tree, resolved.id, resolved.root)).decisions.map(d => d.id)).toEqual([r.id]);
   const snapshotEdit = await editAt("/nested/right/note.md", "snapshot-right", resolved.root, [0,10]);
-  const snapshotAccepted = (await client.submitUpdates(tree, { base: resolved.id, updates: [{ ...snapshotEdit, operations: null }] })).results[0]!.update;
+  const snapshotAccepted = (await client.submitUpdates(tree, { base: resolved.id, updates: [{ ...snapshotEdit, trace: null }] })).results[0]!.update;
   const snapshotDecision = (await client.conflicts(tree, snapshotAccepted.id, snapshotAccepted.root)).decisions[0]!;
   expect(snapshotDecision.id).toBe(r.id);
   expect(snapshotDecision.alternatives.find(a => a.id === r.selected)!.value).toEqual({ file: hashObject(new TextEncoder().encode("snapshot-right\r\n")) });
@@ -525,8 +534,8 @@ test("a stale nested source edit survives eighty intervening source and snapshot
   let current = { id: base, root };
   for (let i = 0; i < 80; i++) {
     const authored = await editAt("/nested/left/note.md", String(i).padStart(3, "0"), current.root);
-    const request = i % 7 === 0 ? { ...authored, operations: null } : authored;
-    peers.push({ change: request.change, operation: request.operations === null ? null : "edit" });
+    const request = i % 7 === 0 ? { ...authored, trace: null } : authored;
+    peers.push({ change: request.change, operation: request.trace === null ? null : "edit" });
     current = (await client.submitUpdates(tree, { base: current.id, updates: [request] })).results[0]!.update;
   }
   const stale = await editAt("/nested/left/note.md", "old-basis", initialRoot);
@@ -576,7 +585,7 @@ test("TS document session admits stale intent, restarts, continues a hidden cand
   const beforeResolution = await restarted.document.snapshot();
   const second = new WireClient(running.url, token), decision = inspection.decisions[0]!;
   const resolved = await second.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: current.tree.root,
-    operations: [], resolves: [{ state: current.tree.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] });
+    trace: [], resolves: [{ state: current.tree.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }], objects: [], deltas: [] }] });
   expect(resolved.results[0]!.update.conflicted).toBe(false);
   expect(resolved.results[0]!.update.root).toBe(current.tree.root);
   const refreshed = await restarted.document.snapshot();
@@ -598,7 +607,7 @@ function rootSnapshot(basis: ObjectHash, modify: (directory: ReturnType<typeof d
   modify(directory);
   directory.entries.sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   const bytes = encodeWireDirectory(directory), candidate = hashObject(bytes); objects.set(candidate, bytes);
-  return { change: crypto.randomUUID(), candidate, operations: null, resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] };
+  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], objects: [{ hash: candidate, bytes }], deltas: [] };
 }
 const resolutionGuard = (state: string, decision: Awaited<ReturnType<WireClient["conflicts"]>>["decisions"][number]) =>
   ({ state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) });
@@ -652,7 +661,7 @@ test("selected child edits update the ancestor projection; partial keep resoluti
   await expect(client.submitUpdates(tree, { base: continued.id, updates: [{ ...deletion, change: crypto.randomUUID(),
     resolves: firstPage.decisions.map(d => resolutionGuard(ancestorState.id, d)) }] })).rejects.toBeInstanceOf(WireUpdateConflict);
   const kept = (await client.submitUpdates(tree, { base: continued.id, updates: [{ change: crypto.randomUUID(), candidate: continued.root,
-    operations: [], resolves: [resolutionGuard(continued.id, ancestor)], objects: [], deltas: [] }] })).results[0]!.update;
+    trace: [], resolves: [resolutionGuard(continued.id, ancestor)], objects: [], deltas: [] }] })).results[0]!.update;
   expect(kept.root).toBe(continued.root); expect(kept.conflicted).toBe(true);
   const remaining = await client.conflicts(tree, kept.id, kept.root);
   expect(remaining.decisions.map(d => d.id)).toEqual([child.id]);
@@ -737,7 +746,7 @@ test("an ancestor choice can remain open while one child is explicitly resolved"
   const added = (await client.submitUpdates(tree, { base: accepted.id, updates: [deletion] })).results[0]!.update;
   const page = await client.conflicts(tree, added.id, added.root), child = page.decisions.find(d => d.id === before.decisions[0]!.id)!;
   const resolved = (await client.submitUpdates(tree, { base: added.id, updates: [{ change: crypto.randomUUID(), candidate: added.root,
-    operations: [], resolves: [resolutionGuard(added.id, child)], objects: [], deltas: [] }] })).results[0]!.update;
+    trace: [], resolves: [resolutionGuard(added.id, child)], objects: [], deltas: [] }] })).results[0]!.update;
   const remaining = await client.conflicts(tree, resolved.id, resolved.root);
   expect(remaining.decisions).toHaveLength(1); expect(remaining.decisions[0]!.id).not.toBe(child.id);
   expect(remaining.decisions[0]!.dependencies).toEqual([]);
@@ -752,7 +761,7 @@ test.each([false, true])("a source successor preserves an independently created 
   create.objects.push({ hash: file, bytes });
   await client.submitUpdates(tree, { base, updates: [create] });
   const first = await edit("B1"), second = await edit("B2", first.candidate, [0,2]);
-  if (snapshotPredecessor) first.operations = null;
+  if (snapshotPredecessor) first.trace = null;
   const prefix = await client.submitUpdates(tree, { base, updates: [first] });
   expect(prefix.results[0]!.update.root).not.toBe(first.candidate);
   await stop(); await start();
@@ -791,7 +800,7 @@ test("a continuation after a merged prefix retains an intervening same-file snap
   const prefix = (await client.submitUpdates(tree, { base, updates: [first] })).results[0]!.update;
   for (const [hash, bytes] of (await client.snapshot(tree, prefix.root)).objects) objects.set(hash, bytes);
   const peer = await edit("PEER", prefix.root, [0,2]);
-  await client.submitUpdates(tree, { base: prefix.id, updates: [{ ...peer, operations: null }] });
+  await client.submitUpdates(tree, { base: prefix.id, updates: [{ ...peer, trace: null }] });
   const third = await edit("B3", second.candidate, [0,2]);
   const request = { base, updates: [first, second, third] };
   const response = await client.submitUpdates(tree, request), current = response.results[2]!.update;
@@ -819,7 +828,7 @@ test("all seven operation kinds execute through accepted authority and survive r
   modify();directory.entries.sort((a,b)=>Buffer.compare(Buffer.from(a.name),Buffer.from(b.name)));
   const bytes=encodeWireDirectory(directory),candidate=hashObject(bytes);objects.set(candidate,bytes);
   const change=crypto.randomUUID();changes.push(change);
-  const update:CandidateUpdate={change,candidate,operations:[operation],resolves:[],objects:[...objects].map(([hash,bytes])=>({hash,bytes})),deltas:[]};
+  const update:CandidateUpdate={change,candidate,trace:[{before:head.root,after:candidate,operations:[operation]}],resolves:[],objects:[...objects].map(([hash,bytes])=>({hash,bytes})),deltas:[]};
   const result=(await client.submitUpdates(tree,{base:head.id,updates:[update]})).results[0]!;
   expect(result.update.root).toBe(candidate);expect(result.update.conflicted).toBe(false);head=result.update;
  };
@@ -845,7 +854,7 @@ test("authorized hidden alternative edits retain projection and public identity"
  const decision=(await client.conflicts(tree,update.id,update.root)).decisions[0]!;
  const hidden=decision.alternatives.find(a=>a.id!==decision.selected)!;
  const operation={key:"edit-hidden",kind:"editSource" as const,source:{material:{kind:"alternative" as const,state:update.id,conflict:decision.id,alternative:hidden.id}},text:"changed hidden\r\n"};
- const accepted=(await client.submitUpdates(tree,{base:update.id,updates:[{change:crypto.randomUUID(),candidate:update.root,operations:[operation],resolves:[],objects:[],deltas:[]}]})).results[0]!.update;
+ const accepted=(await client.submitUpdates(tree,{base:update.id,updates:[{change:crypto.randomUUID(),candidate:update.root,trace:[{before:update.root,after:update.root,operations:[operation]}],resolves:[],objects:[],deltas:[]}]})).results[0]!.update;
  expect(accepted.root).toBe(update.root);expect(accepted.conflicted).toBe(true);
  const next=(await client.conflicts(tree,accepted.id,accepted.root)).decisions[0]!;
  expect(next.id).toBe(decision.id);expect(next.selected).toBe(decision.selected);
@@ -879,8 +888,8 @@ test("source admission preserves an existing snapshot conflict's public identiti
  const rename=rootSnapshot(root,d=>{d.entries=d.entries.map(e=>e.name==="note.md"?{...e,name:"note.txt"}:e);});
  const seeded=(await client.submitUpdates(tree,{base,updates:[rename]})).results[0]!.update;base=seeded.id;root=seeded.root;
  const a=await editAt("/note.txt","LEFT"),b=await editAt("/note.txt","RIGHT");
- await client.submitUpdates(tree,{base,updates:[{...a,operations:null}]});
- const old=(await client.submitUpdates(tree,{base,updates:[{...b,operations:null}]})).results[0]!.update;
+ await client.submitUpdates(tree,{base,updates:[{...a,trace:null}]});
+ const old=(await client.submitUpdates(tree,{base,updates:[{...b,trace:null}]})).results[0]!.update;
  expect(old.conflicted).toBe(true);
  const before=(await client.conflicts(tree,old.id,old.root)).decisions;
  const snapshot=await client.snapshot(tree,old.root);for(const pair of snapshot.objects)objects.set(...pair);
@@ -898,7 +907,7 @@ test("cold history reads durable checkpoints without restaging its growing prefi
   for (let i = 0; i < 70; i++) {
     const update = await edit(String(i).padStart(3, "0"), current);
     const result = await client.submitUpdates(tree, {
-      base: accepted, updates: [{ ...update, operations: null }],
+      base: accepted, updates: [{ ...update, trace: null }],
     });
     current = result.results[0]!.update.root;
     accepted = result.results[0]!.update.id;
@@ -934,7 +943,7 @@ test("large historical batches split without changing their accepted basis", asy
   let current = root, accepted = base;
   for (let i=0;i<10;i++) {
     const update=await edit(String(i).padStart(3,"0"),current);
-    const result=await client.submitUpdates(tree,{base:accepted,updates:[{...update,operations:null}]});
+    const result=await client.submitUpdates(tree,{base:accepted,updates:[{...update,trace:null}]});
     current=result.results[0]!.update.root;accepted=result.results[0]!.update.id;
   }
   await stop();await start();
@@ -966,7 +975,7 @@ test("independent source conflicts expose ranges and resolve separately across r
       source: {material: {kind: "basis" as const, path: "/note.md", object: file}, range: [Number(offset), Number(offset)+1] as [number,number]}, text: String(text),
     }));
     const executed = await executeExactSourceEdits(root, operations, async hash => objects.get(hash)!);
-    return {change: crypto.randomUUID(), candidate: executed.root, operations, resolves: [], objects: [...executed.generated].map(([hash,bytes])=>({hash,bytes})), deltas: []};
+    return {change: crypto.randomUUID(), candidate: executed.root, trace: [{before: root, after: executed.root, operations}], resolves: [], objects: [...executed.generated].map(([hash,bytes])=>({hash,bytes})), deltas: []};
   }
   await client.submitUpdates(tree, {base, updates:[await changes("A","C")]});
   const conflict = (await client.submitUpdates(tree,{base,updates:[await changes("X","Z")]})).results[0]!.update;
@@ -978,7 +987,7 @@ test("independent source conflicts expose ranges and resolve separately across r
   expect(await client.conflicts(tree,conflict.id,conflict.root)).toEqual(page);
   const first = page.decisions[0]!;
   const resolved = (await client.submitUpdates(tree,{base:conflict.id,updates:[{
-    change:crypto.randomUUID(),candidate:conflict.root,operations:[],resolves:[{state:conflict.id,conflict:first.id,alternatives:first.alternatives.map(a=>a.id)}],objects:[],deltas:[],
+    change:crypto.randomUUID(),candidate:conflict.root,trace:[],resolves:[{state:conflict.id,conflict:first.id,alternatives:first.alternatives.map(a=>a.id)}],objects:[],deltas:[],
   }]})).results[0]!.update;
   expect(resolved.conflicted).toBe(true);
   const remaining=await client.conflicts(tree,resolved.id,resolved.root);
@@ -1008,10 +1017,10 @@ test("source choice alternatives replace only their range and preserve an indepe
   const encoded=encodeWireDirectory(directory),candidate=hashObject(encoded);
   const result=(await client.submitUpdates(tree,{base:accepted.id,updates:[{
     change:crypto.randomUUID(),candidate,
-    operations:[
+    trace:[{before:accepted.root,after:candidate,operations:[
       {key:"choose",kind:"copySource",source:{material:{kind:"alternative",state:accepted.id,conflict:decision.id,alternative:hidden.id}},at:decision.affected[0]!,side:"before"},
       {key:"remove-selected",kind:"editSource",source:decision.affected[0]!,text:""},
-    ],
+    ]}],
     resolves:[{state:accepted.id,conflict:decision.id,alternatives:decision.alternatives.map(a=>a.id)}],
     objects:[{hash,bytes},{hash:candidate,bytes:encoded}],deltas:[],
   }]})).results[0]!.update;

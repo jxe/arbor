@@ -51,7 +51,7 @@ try {
   const seeded = await submit(original.id, {
     change: crypto.randomUUID(),
     candidate,
-    operations: null,
+    trace: null,
     resolves: [],
     objects: [
       { hash: file, bytes },
@@ -73,7 +73,11 @@ try {
     return {
       change: crypto.randomUUID(),
       candidate,
-      operations: [
+      trace: [
+      {
+        before: seeded.root,
+        after: candidate,
+        operations: [
         {
           key: "edit",
           kind: "editSource",
@@ -82,6 +86,8 @@ try {
           },
           text,
         },
+        ],
+      },
       ],
       resolves: [],
       objects: [
@@ -115,7 +121,7 @@ try {
   const resolved = await submit(conflict.id, {
     change: crypto.randomUUID(),
     candidate: conflict.root,
-    operations: [],
+    trace: [],
     resolves: record.decisions.map((d: any) => ({
       state: conflict.id,
       conflict: d.inspection.id,
@@ -128,7 +134,7 @@ try {
   await submit(resolved.id, {
     change: crypto.randomUUID(),
     candidate: original.root,
-    operations: null,
+    trace: null,
     resolves: [],
     objects: [],
     deltas: [],

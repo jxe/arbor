@@ -13,7 +13,7 @@ export interface MergeStateRecord {
     | null;
   request: Pick<
     CandidateUpdate,
-    "change" | "candidate" | "operations" | "resolves"
+    "change" | "candidate" | "trace" | "resolves"
   >;
 }
 /** An accepted row owns both its projection state and the original author's state. */

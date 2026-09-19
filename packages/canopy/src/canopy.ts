@@ -1183,7 +1183,7 @@ export class CanopyDaemon implements AsyncDisposable {
     authentication?: CanopyAuthentication
   ): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
-    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.operations !== null || u.resolves.length))) throw new Error("Execution update form is not allowed");
+    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new Error("Execution update form is not allowed");
     if (
       this.get(treeID)?.policy === "account-config-v1" &&
       request.updates.some((u) => u.resolves.length)
@@ -1195,11 +1195,11 @@ export class CanopyDaemon implements AsyncDisposable {
       if (
         (request.base === null ||
           this.get(treeID)?.policy.startsWith("account-config-")) &&
-        update.operations !== null
+        update.trace !== null
       ) {
         throw new UpdateProtocolError(
           "unsupported-operation",
-          `Update ${index} (${update.change}) contains operations or resolutions not yet supported by Canopy`
+          `Update ${index} (${update.change}) carries a trace or resolutions not yet supported by Canopy`
         );
       }
     }
@@ -1230,7 +1230,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const intents = new Map<number, { basis: StateRef; evaluated: Evaluated; guards: string[] }>();
     if (
       request.base &&
-      request.updates.some((update) => update.operations !== null)
+      request.updates.some((update) => update.trace !== null)
     ) {
       if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
@@ -1301,7 +1301,7 @@ export class CanopyDaemon implements AsyncDisposable {
           objects
         ))
           objects.set(object.hash, object.bytes);
-        if (update.operations !== null) {
+        if (update.trace !== null) {
           try {
             const keys = update.resolves.flatMap(
               (r) =>
@@ -1479,7 +1479,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const execution = this.execution.current;
     if (execution) {
       if (this.currentUpdate(treeID)?.conflicted) throw new Error("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
-      if (!request.ifCurrent || request.operations !== null || request.resolves.length) throw new Error("Execution update form is not allowed");
+      if (!request.ifCurrent || request.trace !== null || request.resolves.length) throw new Error("Execution update form is not allowed");
       const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
       if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
     }
@@ -2040,7 +2040,7 @@ export class CanopyDaemon implements AsyncDisposable {
     let effects: ResourceEffect[] = [];
     const checkEffects = async (before: string, after: string, objects: ReadonlyMap<ObjectHash, Uint8Array>) => {
       if (!execution) return;
-      if (request.resolves.length || request.operations !== null) throw new Error("Scoped execution operations/resolutions are not allowed until effect validation is available");
+      if (request.resolves.length || request.trace !== null) throw new Error("Scoped execution operations/resolutions are not allowed until effect validation is available");
       effects = await resourceEffects(before, after, hash => this.objects.load(hash, objects));
       if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
     };

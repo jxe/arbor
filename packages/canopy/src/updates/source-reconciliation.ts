@@ -45,11 +45,14 @@ export async function reconcileSourceEdits(
   const changes = new Set<string>();
   const files = new Map<string, ObjectHash>();
   function append(intent: SourceIntent): boolean {
-    if (changes.has(intent.change) || operations.length + intent.operations.length > 4096) return false;
+    // A change's frames are its steps; replay reads its whole contribution in
+    // authored order, which is the flattened chain.
+    const authored = intent.trace.flatMap((frame) => frame.operations);
+    if (changes.has(intent.change) || operations.length + authored.length > 4096) return false;
     changes.add(intent.change);
-    authoredChanges.push({ change: intent.change, operations: intent.operations });
+    authoredChanges.push({ change: intent.change, operations: authored });
     for (const evidence of intent.evidence) files.set(evidence.path, evidence.source.object);
-    for (const operation of intent.operations) {
+    for (const operation of authored) {
       contributions.push({ change: intent.change, operation: operation.key });
       // Keys are local to each change. These transient execution keys are never
       // stored or exposed as material identity.

@@ -66,7 +66,7 @@ export async function reconcileEntryAmbiguity(input: {
       let decision = state.decisions.find(d => decisionPath(d) === path);
       const descendants = state.decisions.filter(d => decisionPath(d).startsWith(`${path}/`));
       const changed = !same(before, authored) || explicitAt(path);
-      const contributions = request.operations === null ? [{ change: request.change, operation: null }] : contributionsAt(input.contributions, path);
+      const contributions = request.trace === null ? [{ change: request.change, operation: null }] : contributionsAt(input.contributions, path);
       const selected = decision?.alternatives.find(a => a.id === decision!.selected);
       if (decision && (!selected || !same(selected.value, remote))) throw new Error("Stored conflict projection does not match accepted entry");
       const basisAlternative = prior?.alternatives.find(a => a.id === prior.selected);
@@ -149,7 +149,7 @@ export async function reconcileEntryAmbiguity(input: {
   if (rootDecision || !compatibleMetadata || coupledRoot) {
     const before = { directory: input.base }, remote = { directory: input.current }, authored = { directory: request.candidate };
     const changed = !same(before, authored) || !!input.explicitPaths?.size;
-    const contributions = request.operations === null ? [{ change: request.change, operation: null }] : contributionsAt(input.contributions, "/");
+    const contributions = request.trace === null ? [{ change: request.change, operation: null }] : contributionsAt(input.contributions, "/");
     const selected = rootDecision?.alternatives.find(a => a.id === rootDecision.selected);
     if (rootDecision && (!selected || !same(selected.value, remote))) throw new Error("Stored root conflict projection does not match accepted root");
     const basis = rootPrior?.alternatives.find(a => a.id === rootPrior.selected);

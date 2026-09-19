@@ -27,7 +27,6 @@ const id = (value: unknown) =>
 export type StateRef = { object: string; state: string };
 export type Evaluated = Extract<IntentResponse, { outcome: "evaluated" }>;
 export function operationReferences(op: SourceOperation): MaterialRef[] {
-  if (op.kind === "undoOperation") return [];
   const refs = [op.source];
   if (op.kind === "editSource")
     refs.push(...(op.lineage ?? []).map((l) => l.source));
@@ -195,7 +194,8 @@ export class SemanticMerge {
     resolves: string[] = []
   ) {
     const alternatives: NonNullable<IntentRequest["alternatives"]> = [];
-    for (const operation of request.operations ?? [])
+    for (const frame of request.trace ?? [])
+      for (const operation of frame.operations)
       for (const ref of operationReferences(operation)) {
         if (ref.material.kind !== "alternative") continue;
         const material = ref.material,
@@ -248,11 +248,9 @@ export class SemanticMerge {
       incoming: {
         change: request.change,
         object: request.candidate,
-        // One frame: today's clients send a flat operation list for the whole
-        // change. Phase 2 of plan 010 carries the client's own frames here.
-        trace: request.operations?.length
-          ? [{ before: basis.object, after: request.candidate, operations: request.operations }]
-          : [],
+        // The client's own frames, as authored. A snapshot carries no evidence
+        // and reaches the engine as an empty chain.
+        trace: request.trace ?? [],
         ...(resolves.length ? { resolves } : {}),
       },
       rules: {
@@ -386,7 +384,7 @@ export class SemanticMerge {
       request: {
         change: request.change,
         candidate: request.candidate,
-        operations: request.operations,
+        trace: request.trace,
         resolves: request.resolves,
       },
     };
@@ -412,7 +410,7 @@ export class SemanticMerge {
         return null;
       keys.push(decision.key);
     }
-    if (request.operations === null && request.candidate !== current.root) {
+    if (request.trace === null && request.candidate !== current.root) {
       const guarded = new Set(keys);
       for (const key of keys) {
         const decision = record?.decisions.find((d) => d.key === key);

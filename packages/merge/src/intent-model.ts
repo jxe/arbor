@@ -143,8 +143,9 @@ export type IntentRequest = Omit<
     value: { object: string; kind: "file" | "directory" };
   }>;
 };
-/** What a caller may hand the engine: the deployed wire's flat `operations`
- * list, or a `trace` of frames. `parseIntentRequest` returns the frame form. */
+/** What a caller may hand the engine: a `trace` of frames, which is what the
+ * wire carries, or a flat `operations` list for a caller that has only one
+ * step to state. `parseIntentRequest` returns the frame form either way. */
 export type IntentRequestInput = Omit<IntentRequest, "incoming"> & {
   incoming: {
     change: string;
@@ -169,8 +170,9 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
       "invalid",
       "An incoming change carries either operations or a trace"
     );
-  // The deployed wire still sends one flat operation list. It is exactly one
-  // frame from the base tree to the candidate; everything below sees frames.
+  // A caller with one step to state may send a flat operation list. It is
+  // exactly one frame from the base tree to the candidate; everything below
+  // sees frames, which is also what the wire hands in.
   const trace =
     incoming.trace ??
     [
@@ -189,8 +191,9 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
       throw new IntentError("invalid", "Trace does not follow its basis");
     if (index === trace.length - 1 && frame.after !== incoming.object)
       throw new IntentError("invalid", "Trace does not end at the candidate");
-    // Only the wire's single adapted frame may be empty: that is a snapshot
-    // candidate or a bare resolution, which carries no operations at all.
+    // Only the single adapted frame may be empty: that is a snapshot candidate
+    // or a bare resolution, which carries no operations at all. A trace states
+    // its steps, so each of its frames contributes something.
     if (!frame.operations.length && incoming.trace)
       throw new IntentError("invalid", "Frame carries no operations");
     for (const op of frame.operations)
@@ -213,7 +216,7 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
       decodeAuthoredCandidateIntent({
         change: incoming.change,
         candidate: frame.after,
-        operations: frame.operations,
+        trace: [{ before: frame.before, after: frame.after, operations: frame.operations }],
         resolves: [],
       });
     // An operation key names one authored contribution of this change, so it
@@ -231,25 +234,18 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
         "Alternative bindings require a complete alternative reference"
       );
   }
-  return { ...value, incoming: { ...incoming, trace } } as IntentRequest;
+  // The adapted list is dropped, never carried beside the chain it became: a
+  // change's identity must not depend on which of the two shapes stated it.
+  const { operations: _adapted, ...rest } = incoming;
+  return { ...value, incoming: { ...rest, trace } } as IntentRequest;
 }
-/** The request's semantic identity, hashed into `changes[change]`.
- * A trace the deployed wire could have sent — none, or one frame spanning the
- * whole change — is presented in its wire shape, so a change evaluated before
- * and after this adapter keeps the same signature. Phase 2 drops the projection
- * with the wire's `operations` field and bumps the receipt domain. */
+/** The request's semantic identity, hashed into `changes[change]`. The frame
+ * chain is the authored claim, so it is what the signature covers: the same
+ * operations divided into different frames are a different change. */
 export function changeIdentity(request: IntentRequest) {
-  const { trace, ...rest } = request.incoming;
-  const legacy =
-    trace.length === 0 ||
-    (trace.length === 1 &&
-      trace[0]!.before === request.base.object &&
-      trace[0]!.after === request.incoming.object);
   return {
     base: request.base,
-    incoming: legacy
-      ? { ...rest, operations: trace[0]?.operations ?? [] }
-      : { ...rest, trace },
+    incoming: request.incoming,
     alternatives: request.alternatives,
     rules: request.rules,
   };

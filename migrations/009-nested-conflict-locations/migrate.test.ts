@@ -25,8 +25,8 @@ function fixture(stamp: "8" | "9" | "10", run: (path: string) => void) {
     } else {
       if (stamp === "9") store.insert({ tree: "tree", root, previousRoot: root, kind: "accepted", acceptedAt: 2,
         subject: "device", requestDigest: `sha256:${"b".repeat(64)}`, baseRoot: root, candidateRoot: root,
-        sourceIntent: { change: "source-before-upgrade", operations: [{ key: "edit", kind: "editSource",
-          source: { material: { kind: "basis", path: "/note.md", object: root } }, text: "a" }],
+        sourceIntent: { change: "source-before-upgrade", trace: [{ before: root, after: root, operations: [{ key: "edit", kind: "editSource",
+          source: { material: { kind: "basis", path: "/note.md", object: root } }, text: "a" }] }],
           evidence: [{ operation: "edit", path: "/note.md", source: { object: root, range: [0,1] }, text: "a", lineage: [] }] } });
       db.run("DROP TABLE accepted_conflicts");
       db.run("DROP INDEX accepted_updates_change");

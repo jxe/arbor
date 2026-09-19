@@ -9,7 +9,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * history. The migration sets the stamp. "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "13";
+export const CANOPY_SCHEMA_VERSION = "14";
 /** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
 export const resourcePolicyFormatKey = (accountID: string) => `resource-policy-format:${accountID}`;
 
@@ -23,7 +23,7 @@ export const AUTHORITY_SCHEMA = {
   ],
   accepted_conflicts: ["accepted_id", "state_json"],
   accepted_merge_states: ["accepted_id", "record_json"],
-  authored_changes: ["tree_id", "change_id", "accepted_id", "basis_root", "candidate_root", "operations_json", "evidence_json"],
+  authored_changes: ["tree_id", "change_id", "accepted_id", "basis_root", "candidate_root", "trace_json", "evidence_json"],
   accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],

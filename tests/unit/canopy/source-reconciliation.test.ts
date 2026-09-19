@@ -15,7 +15,7 @@ function fixture(text = "α😀omega\r\n", extension = "md") {
     const operations: SourceOperation[] = [{ key: "edit", kind: "editSource", source: { material: { kind: "basis", path, object: file }, range }, text }];
     const result = await executeExactSourceEdits(root, operations, load);
     for (const entry of result.generated) objects.set(...entry);
-    return { intent: { change, operations, evidence: result.evidence } satisfies SourceIntent, candidate: result.root };
+    return { intent: { change, trace: [{ before: root, after: result.root, operations }], evidence: result.evidence } satisfies SourceIntent, candidate: result.root };
   }
   async function accept(authored: Awaited<ReturnType<typeof change>>, history: SourceHistoryEntry[]) {
     const current = history.at(-1)?.update ?? initial;

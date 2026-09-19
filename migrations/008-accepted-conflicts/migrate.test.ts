@@ -14,7 +14,7 @@ function fixture(run: (path: string) => void) {
     db.run("INSERT INTO trees (id, ref, updated_at) VALUES ('tree', ?, 1)", [root]);
     new AcceptedUpdateStore(db).insert({ tree: "tree", root, previousRoot: null, kind: "initial", acceptedAt: 1, subject: "device", requestDigest: root });
     new AcceptedUpdateStore(db).insert({ tree: "tree", root, previousRoot: root, kind: "accepted", acceptedAt: 2, subject: "device", requestDigest: `sha256:${"b".repeat(64)}`, baseRoot: root, candidateRoot: root,
-      sourceIntent: { change: "retained-change", operations: [{ key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/note.txt", object: root } }, text: "x" }],
+      sourceIntent: { change: "retained-change", trace: [{ before: root, after: root, operations: [{ key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/note.txt", object: root } }, text: "x" }] }],
         evidence: [{ operation: "edit", path: "/note.txt", source: { object: root, range: [0,1] }, text: "x", lineage: [] }] } });
     db.run("DROP TABLE accepted_conflicts");
     db.run("DROP INDEX accepted_updates_change");
