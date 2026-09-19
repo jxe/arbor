@@ -60,12 +60,17 @@ Two changes follow. Canopy's object store now keeps a bounded in-memory cache
 of hash-verified immutable bytes (256 MB by default, `ARBOR_OBJECT_CACHE_MB`
 overrides) and the merge tool reads through the same store; read counts,
 bytes, and time appear in the per-request record. Retention verification now
-treats a job's input states as trusted leaves when they are present in
-durable storage: those states came from Canopy's own accepted records or from
-output this process already validated and published, never from a client, so
-their history is not re-audited on every request. The requested output roots
-are never trusted, staged bytes are still re-read until durable, and the full
-integrity audit passes no trusted set and still walks everything.
+treats a job's input states, and every durable change record, as trusted
+leaves. Input states come from Canopy's own accepted records or from output
+this process already validated and published, never from a client. A state's
+change map names every historical change record directly, and each record
+names an older base state, so trusting the inputs alone did not bound the
+walk: the first cold edit after the second deployment still read 19,414
+files and 406 MB in 69.5 s. A durable change record was published into
+append-only storage by a job whose own retention walk verified its base, so
+it is not opened again. The requested output roots are never trusted, staged
+bytes are still re-read until durable, and the full integrity audit passes no
+trusted set and still walks everything.
 
 ## Tree readers and watch catch-up
 

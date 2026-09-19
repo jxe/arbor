@@ -330,11 +330,26 @@ test("a trusted accepted input state stops the history walk; a requested root is
   expect(walked.has(f.file)).toBe(true);
   const loaded: string[] = [];
   const trusted = await verifyIntentRetention([later], async (hash) => { loaded.push(hash); return f.load(hash); }, {
-    cache: new RetentionCache(), durable: () => true, trusted: (hash) => hash === f.state,
+    cache: new RetentionCache(), durable: () => true, trusted: (ref) => ref.kind === "state" && ref.hash === f.state,
   });
   expect(loaded).not.toContain(f.state);
+  expect(loaded).toContain(change);
   expect(trusted.has(f.file)).toBe(true); // reachable through B's own root directory
   expect(loaded).toContain(later);
+  // A durable change record is a leaf (its bytes may still be read for
+  // availability, but its base state is not); a staged one is still opened
+  // so its base state is reached.
+  loaded.length = 0;
+  await verifyIntentRetention([later], async (hash) => { loaded.push(hash); return f.load(hash); }, {
+    cache: new RetentionCache(), durable: () => true, trusted: (ref) => ref.kind === "change",
+  });
+  expect(loaded).not.toContain(f.state);
+  loaded.length = 0;
+  await verifyIntentRetention([later], async (hash) => { loaded.push(hash); return f.load(hash); }, {
+    cache: new RetentionCache(), durable: (hash) => hash !== change, trusted: (ref) => ref.kind === "change",
+  });
+  expect(loaded).toContain(change);
+  expect(loaded).toContain(f.state);
   // Trusting the requested root itself changes nothing: it is still verified.
   f.objects.delete(f.file);
   await expect(verifyIntentRetention([later], f.load, { cache: new RetentionCache(), durable: () => true, trusted: () => true })).rejects.toThrow("Missing object");

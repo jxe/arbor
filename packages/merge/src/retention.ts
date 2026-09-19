@@ -86,10 +86,12 @@ export async function verifyIntentRetention(
     historyCache?: StateMapValidationCache;
     /** Audit a union without constructing a separate closure for every root. */
     union?: boolean;
-    /** States the caller has already accepted and stored durably, typically the
-     * job's input states. The walk stops at them instead of re-verifying their
-     * history; a requested root is never trusted. A full audit passes none. */
-    trusted?: (hash: string) => boolean;
+    /** References whose history the caller has already verified: accepted
+     * input states, and durable change records (each was walked by the job
+     * that published it into append-only storage). The walk stops at them
+     * when they are durable; a requested root is never trusted. A full audit
+     * passes none. */
+    trusted?: (ref: Reference) => boolean;
     /** Already hash-checked and semantically validated, with every object read
      * to reconstruct it. Availability is still checked by this graph walk. */
     state?: (hash: string) =>
@@ -132,8 +134,8 @@ export async function verifyIntentRetention(
       if (verified.size > 1_000_000)
         throw new Error("Retained graph exceeds verification budget");
       if (
-        ref.kind === "state" && !requested.has(ref.hash) &&
-        options?.trusted?.(ref.hash) && options.durable(ref.hash)
+        (ref.kind === "state" || ref.kind === "change") && !requested.has(ref.hash) &&
+        options?.trusted?.(ref) && options.durable(ref.hash)
       ) continue;
       const closure =
         ref.kind === "state" ? options?.cache.closure(ref.hash) : undefined;

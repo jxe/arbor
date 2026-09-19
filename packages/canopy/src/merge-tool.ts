@@ -81,7 +81,7 @@ export class MergeTool {
   verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, proofs: ReadonlyMap<string, StateProof> = this.validatedStates, trusted: ReadonlySet<string> = new Set()) {
     return verifyIntentRetention(roots, (hash) => this.shared.load(hash, available), {
       cache: this.retentionCache, durable: (hash) => !available.has(hash),
-      trusted: (hash) => trusted.has(hash),
+      trusted: (ref) => ref.kind === "change" || trusted.has(ref.hash),
       state: (hash) => {
         for (const proof of proofs.values())
           if (proof.hash === hash) return {value: proof.state, dependencies: proof.dependencies, references: proof.references};
