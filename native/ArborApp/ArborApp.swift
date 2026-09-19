@@ -1,4 +1,5 @@
 import Quagmire
+import ArborWire
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -7,6 +8,10 @@ import AppKit
 @main
 struct ArborApplication: App {
     @State private var workspace = ArborWorkspaceState()
+
+    init() {
+        WireNetworkLog.install(WireNetworkLog(directory: ArborSupportDirectories.networkLogs))
+    }
 #if os(macOS)
     @NSApplicationDelegateAdaptor(ArborApplicationDelegate.self) private var appDelegate
 #endif

@@ -1703,6 +1703,14 @@ struct ArborRootView: View {
                     managementPresented = false
                 }
 #endif
+            },
+            showNetworkLog: {
+#if os(macOS)
+                sheetAfterManagementDismiss = .networkLog
+                managementPresented = false
+#else
+                presentedSheet = .networkLog
+#endif
             }
         )
     }
@@ -2042,6 +2050,8 @@ struct ArborRootView: View {
                     .navigationTitle("arborsync Logs")
             }
             .frame(minWidth: 560, minHeight: 420)
+        case .networkLog:
+            ArborNetworkLogView()
         case .syncStatus:
             syncStatusPanel
         default:

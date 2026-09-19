@@ -23,6 +23,7 @@
 		99BD41DDA7F431EFF35715DA /* ArborVisits.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE70397F1F757F27B747FF11 /* ArborVisits.swift */; };
 		BCE1A74E18AC59895789A289 /* ArborWire in Frameworks */ = {isa = PBXBuildFile; productRef = 540CECB7BA0B67B0E3F6418F /* ArborWire */; };
 		BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */; };
+		C5924325DBDDC8A54CC82FB8 /* ArborNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D4FAFCA6075D3EA65AF950 /* ArborNetworkLogView.swift */; };
 		D1790FD36A1B6B934C01B694 /* ArborKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2C95342129C1FAED832C33BC /* ArborKit */; };
 		DC34C5D8EFB2C066FE9AF7B5 /* ArborApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8457F359DE90E5500C1B892D /* ArborApp.swift */; };
 		F163E201B6651C63D56574E1 /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 58BDC1D3069C577A3C27996C /* QuagmireExtras */; };
@@ -46,6 +47,7 @@
 		241EC1812476B93C642E57A2 /* ArborWorkingTree */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborWorkingTree; path = Packages/ArborWorkingTree; sourceTree = SOURCE_ROOT; };
 		24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
 		288990A21FB0D222423967A4 /* ArborQuagmire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborQuagmire; path = Packages/ArborQuagmire; sourceTree = SOURCE_ROOT; };
+		29D4FAFCA6075D3EA65AF950 /* ArborNetworkLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborNetworkLogView.swift; sourceTree = "<group>"; };
 		3A6BDD949D4954FB7E6A9F40 /* arborsync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = arborsync.entitlements; sourceTree = "<group>"; };
 		3AC49A8DD32DA714FB06F11E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3D2630E60EAEFC5EACBFFF9B /* ArborWire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborWire; path = Packages/ArborWire; sourceTree = SOURCE_ROOT; };
@@ -93,6 +95,7 @@
 				24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */,
 				5330A3B1B772C817E59FECA6 /* ArborConflictReview.swift */,
 				8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */,
+				29D4FAFCA6075D3EA65AF950 /* ArborNetworkLogView.swift */,
 				B7994449946DFB23BD2F4810 /* ArborRootView.swift */,
 				1EB05A227DAEF0E129AA6CA2 /* ArborSaveDiagnostics.swift */,
 				0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */,
@@ -291,6 +294,7 @@
 				F20EDB4AE065CFCC0A52D67C /* ArborAppModel.swift in Sources */,
 				474DC252BF2AE18C1346E07B /* ArborConflictReview.swift in Sources */,
 				321414EED0DBE45187CC1086 /* ArborDailyDriverViews.swift in Sources */,
+				C5924325DBDDC8A54CC82FB8 /* ArborNetworkLogView.swift in Sources */,
 				49918DF0BE00F770672896EF /* ArborRootView.swift in Sources */,
 				8868FBA6BDB5410D6666283B /* ArborSaveDiagnostics.swift in Sources */,
 				BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */,

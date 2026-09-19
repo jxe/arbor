@@ -12,6 +12,7 @@ enum ArborPresentedSheet: String, Identifiable {
     case source
     case history
     case arborsyncLogs
+    case networkLog
     case syncStatus
 
     var id: String { rawValue }
@@ -989,6 +990,7 @@ struct ArborSyncStatusView: View {
     let syncNow: () -> Void
     let reconnectArborSync: () -> Void
     let showArborSyncLogs: () -> Void
+    var showNetworkLog: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1016,6 +1018,8 @@ struct ArborSyncStatusView: View {
                             Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
                                 .disabled(sync.state == .offline)
                         }
+                        Button("Network Log…", systemImage: "waveform.path.ecg", action: showNetworkLog)
+                            .help("Timings for updates, watch frames, and reads")
 #if os(macOS)
                         Menu {
                             Button("Reconnect to arborsync", systemImage: "arrow.clockwise", action: reconnectArborSync)

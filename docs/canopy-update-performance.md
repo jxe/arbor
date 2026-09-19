@@ -102,6 +102,20 @@ object publication (about 30 ms of fsync), state validation (20–50 ms), and
 the worker (30–60 ms). Reaching the 100 ms target from here needs the
 retention walk and the worker's per-request state load to shrink further.
 
+### Correlating the client network log with server records
+
+Arbor Native keeps a client network log at `Application Support/Arbor/Logs/network-YYYY-MM-DD.jsonl`
+(one JSON line per event, newest window also shown in Sync Status → Network Log).
+It records every update POST (attempt, bytes, status, duration, request digests,
+returned update ids, and the server's `Server-Timing` phases), watch connects
+and disconnects (with reason and frame count), each watch frame (cursor, update
+ids, and the round trip from the originating POST when the frame echoes one of
+this device's request digests), and tree reads (objects, snapshots, conflicts,
+descriptors). Canopy's per-request line carries the same phases plus `accepted`
+update ids, so a client entry and a server record for one edit share the
+accepted update id and near-identical `total`. Mac object reads through the
+local arborsync daemon do not pass through this log.
+
 ## Tree readers and watch catch-up
 
 Reader commit `13c78de` removes repeated work from reader endpoints without a

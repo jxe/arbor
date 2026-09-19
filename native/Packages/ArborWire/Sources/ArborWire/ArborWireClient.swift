@@ -94,7 +94,7 @@ public actor ArborWireClient {
         let query = state.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
         let path = "/.arbor/trees/\(component(tree))/conflicts/\(component(conflict))/alternatives/\(component(alternative))/objects/\(hash)?state=\(query)"
         let request = try await authorizedRequest(path: path)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await logged(request, kind: .read, name: "conflict-object", tree: tree)
         try validate(data: data, status: statusCode(response))
         let actual = WireObjectCodec.hash(data)
         guard actual == hash else { throw ArborWireValidationError.objectHashMismatch(expected: hash, actual: actual) }
@@ -115,7 +115,7 @@ public actor ArborWireClient {
         try validateObjectHash(hash)
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/objects/\(component(hash))")
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await logged(request, kind: .read, name: "objects", tree: tree)
         let status = try statusCode(response)
         try validate(data: data, status: status)
         let actual = WireObjectCodec.hash(data)
@@ -129,7 +129,7 @@ public actor ArborWireClient {
             path: "/.arbor/trees/\(component(tree))/snapshots/\(component(root))"
         )
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await logged(request, kind: .read, name: "snapshot", tree: tree)
         let status = try statusCode(response)
         try validate(data: data, status: status)
         guard let http = response as? HTTPURLResponse,
@@ -185,10 +185,25 @@ public actor ArborWireClient {
         request.httpBody = prepared.body
 
         var lastError: Error = URLError(.unknown)
+        let log = WireNetworkLog.current
         for attempt in 0..<3 {
+            var entry = WireNetworkLogEntry(kind: .update, name: "updates", tree: prepared.tree)
+            entry.method = "POST"
+            entry.attempt = attempt + 1
+            entry.bytesOut = prepared.body.count
+            entry.requestDigests = prepared.requestDigests
+            log?.noteUpdateSent(digests: prepared.requestDigests, at: entry.at)
             do {
-                let (data, response) = try await session.data(for: request)
+                let (data, response) = try await loggedData(request, entry: &entry)
                 let status = try statusCode(response)
+                if status < 400, let decoded = try? decoder.decode(WireUpdateResponse.self, from: data) {
+                    entry.updateIDs = decoded.results.map { element in
+                        switch element.result { case .accepted(let update), .unchanged(let update): update.id }
+                    }
+                    if case .accepted(let update) = decoded.results.last?.result { entry.root = update.root }
+                    log?.noteUpdateResponded(digests: prepared.requestDigests)
+                }
+                log?.record(entry)
                 if status == 409, let conflict = try? decoder.decode(WireUpdateConflict.self, from: data), conflict.error == "conflict" {
                     let validated = try conflict.validated()
                     guard validated.details.failedIndex < prepared.requestDigests.count,
@@ -266,11 +281,26 @@ public actor ArborWireClient {
         if let lastEventID { request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID") }
         let session = session
         let finalRequest = request
+        let log = WireNetworkLog.current
         return AsyncThrowingStream { continuation in
             let task = Task {
+                let connectedAt = Date()
+                var frames = 0
+                var connect = WireNetworkLogEntry(kind: .watchConnect, name: "watch", tree: tree, at: connectedAt)
+                connect.cursor = lastEventID
+                func disconnect(_ error: Error?) {
+                    var entry = WireNetworkLogEntry(kind: .watchDisconnect, name: "watch", tree: tree)
+                    entry.durationMs = Date().timeIntervalSince(connectedAt) * 1000
+                    entry.bytesIn = frames
+                    entry.error = error.map(Self.describe)
+                    log?.record(entry)
+                }
                 do {
                     let (bytes, response) = try await session.bytes(for: finalRequest)
                     guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                    connect.status = http.statusCode
+                    connect.durationMs = Date().timeIntervalSince(connectedAt) * 1000
+                    log?.record(connect)
                     guard http.statusCode < 400 else {
                         var body = Data()
                         for try await byte in bytes { body.append(byte) }
@@ -330,6 +360,22 @@ public actor ArborWireClient {
                                outerDigest != finalDigest {
                                 throw ArborWireValidationError.malformedSSE("Tree ref request digests disagree")
                             }
+                            frames += 1
+                            if let log {
+                                let digest = event.change.requestDigest ?? transitions.last?.requestDigest
+                                var entry = WireNetworkLogEntry(kind: .watchFrame, name: "watch", tree: tree)
+                                entry.cursor = event.cursor
+                                entry.root = descriptor.root
+                                entry.updateIDs = transitions.map(\.update.id)
+                                if entry.updateIDs?.isEmpty == true { entry.updateIDs = [descriptor.update] }
+                                entry.bytesIn = frame.data.utf8.count
+                                entry.requestDigests = digest.map { [$0] }
+                                if let digest, let trip = log.roundTrip(for: digest, at: entry.at) {
+                                    entry.roundTripMs = trip.roundTripMs
+                                    entry.afterResponseMs = trip.afterResponseMs
+                                }
+                                log.record(entry)
+                            }
                             continuation.yield(WireWatchEvent(
                                 cursor: event.cursor,
                                 treeID: event.tree,
@@ -341,10 +387,15 @@ public actor ArborWireClient {
                         }
                     }
                     _ = try parser.finish()
+                    disconnect(nil)
                     continuation.finish()
                 } catch is CancellationError {
+                    if connect.status == nil { connect.error = "cancelled"; log?.record(connect) }
+                    disconnect(CancellationError())
                     continuation.finish()
                 } catch {
+                    if connect.status == nil { connect.error = Self.describe(error); connect.durationMs = Date().timeIntervalSince(connectedAt) * 1000; log?.record(connect) }
+                    disconnect(error)
                     continuation.finish(throwing: error)
                 }
             }
@@ -373,7 +424,7 @@ public actor ArborWireClient {
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await logged(request, kind: .read, name: Self.logName(request), tree: Self.logTree(request))
         let status = try statusCode(response)
         try validate(data: data, status: status)
         return try decoder.decode(T.self, from: data)
@@ -413,6 +464,57 @@ public actor ArborWireClient {
     }
 
     private func url(_ path: String) -> URL { URL(string: path, relativeTo: origin)!.absoluteURL }
+
+    /// Perform a request and record it in the installed network log, if any.
+    private func logged(_ request: URLRequest, kind: WireNetworkLogEntry.Kind, name: String, tree: String?) async throws -> (Data, URLResponse) {
+        var entry = WireNetworkLogEntry(kind: kind, name: name, tree: tree)
+        entry.method = request.httpMethod ?? "GET"
+        entry.bytesOut = request.httpBody?.count
+        let result = try await loggedData(request, entry: &entry)
+        WireNetworkLog.current?.record(entry)
+        return result
+    }
+
+    /// Fill `entry` with timing, status, byte counts, server phases, or the error.
+    private func loggedData(_ request: URLRequest, entry: inout WireNetworkLogEntry) async throws -> (Data, URLResponse) {
+        let started = Date()
+        entry.at = started
+        do {
+            let (data, response) = try await session.data(for: request)
+            entry.durationMs = Date().timeIntervalSince(started) * 1000
+            entry.bytesIn = data.count
+            if let http = response as? HTTPURLResponse {
+                entry.status = http.statusCode
+                entry.serverTiming = WireNetworkLog.parseServerTiming(http.value(forHTTPHeaderField: "Server-Timing"))
+            }
+            return (data, response)
+        } catch {
+            entry.durationMs = Date().timeIntervalSince(started) * 1000
+            entry.error = Self.describe(error)
+            WireNetworkLog.current?.record(entry)
+            throw error
+        }
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if error is CancellationError { return "cancelled" }
+        if let error = error as? URLError { return "URLError \(error.code.rawValue): \(error.localizedDescription)" }
+        return String(describing: error)
+    }
+
+    private static func logName(_ request: URLRequest) -> String {
+        guard let path = request.url?.path else { return "request" }
+        if path.hasPrefix("/.arbor/trees/") {
+            let rest = path.dropFirst("/.arbor/trees/".count).split(separator: "/", maxSplits: 1)
+            return rest.count > 1 ? String(rest[1]) : "descriptor"
+        }
+        return path
+    }
+
+    private static func logTree(_ request: URLRequest) -> String? {
+        guard let path = request.url?.path, path.hasPrefix("/.arbor/trees/") else { return nil }
+        return path.dropFirst("/.arbor/trees/".count).split(separator: "/", maxSplits: 1).first.map(String.init)?.removingPercentEncoding
+    }
 
     private func component(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/")))!

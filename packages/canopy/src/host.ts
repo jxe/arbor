@@ -531,7 +531,8 @@ export async function serveCanopy(options: {
             for (const key of Object.keys(counters)) timer.count(key, Math.round((counters[key]! - countersBefore[key]!) * 10) / 10);
             // Diagnostics only: tree identity, outcome, and durations. No subjects,
             // request content, or object identities.
-            logUpdate({ event: "update", tree: treeID, status: result.status, updates: update.updates.length, ...timer.summary() });
+            const accepted = "results" in result.result ? result.result.results.map((element) => element.update.id) : [];
+            logUpdate({ event: "update", tree: treeID, status: result.status, updates: update.updates.length, accepted, ...timer.summary() });
             return response;
           });
         }
