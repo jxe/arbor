@@ -190,7 +190,8 @@ publication machines remain separate. The reference reducers are described in
   require a local compare-and-swap conflict resolution. Canopy reconciles the
   original intent and preserves genuine overlap as accepted state.
 - Admission MUST validate that the edits applied to the captured basis produce
-  the declared candidate exactly. Local failure is reserved for inability to
+  the declared candidate exactly, frame by frame: the operations a client states
+  for one generation MUST reproduce the root that generation produced. Local failure is reserved for inability to
   retain the edit durably or express it validly, including unavailable basis
   material, invalid scope, invalid guards, or a read-only document. Network
   availability and a newer accepted projection do not invalidate admission.
@@ -202,6 +203,12 @@ publication machines remain separate. The reference reducers are described in
 - Coalescing MUST preserve causal meaning and the correct basis. Requests already
   attempted remain immutable. A successor authored against a submitted candidate
   MUST retain that dependency, including when Canopy projects a peer alternative.
+  A client that coalesces several editor generations into one change MUST emit
+  one frame per generation, in authored order, rather than re-deriving a single
+  claim against the oldest basis. Frames are concatenated, never rebased: each
+  frame's references name material in its own `before` tree, and operation keys
+  stay unique across the whole trace. A client MAY merge adjacent frames only
+  when it can prove the merged frame reproduces the same result.
 - Restart MUST recover the original basis and pending intent. A newer projection
   does not turn recovery into a request for local merge review. Unknown submission
   outcomes require exact retry; equality with projected bytes is not proof that
@@ -224,6 +231,8 @@ more than once, but each destination span MUST be distinct, scalar-aligned and
 byte-identical to the observed source. It MUST NOT also claim that destination as
 preserved lineage. A client MUST derive copy intent from an explicit authoring
 action, never from equal bytes alone. Equal candidate bytes MUST NOT erase captured operation identity.
+A claim MUST be stated in the frame whose basis it was captured against, so
+coalescing never forces a client to re-derive lineage or copies across generations.
 Editor recovery and publication retries MUST retain these claims unchanged.
 Clients MUST emit operation kinds only after the destination supports their
 execution; an authoritative operation cannot be recorded as an unvalidated hint.

@@ -368,7 +368,7 @@ It names both predecessor identity and projected root. A same-root semantic upda
 therefore advances the identity chain even when no new object bytes are required.
 Rule execution, automatic resolution and restoration are provenance, not mutually
 exclusive accepted-update kinds. Rule evidence is retained under the semantic
-requirements in [source intent §6](10-source-intent.md#6-format-aware-merge-rules-and-explicit-automatic-resolution).
+requirements in [source intent §7](10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution).
 
 The transition may carry complete `objects`, [deltas](#25-sparse-transfer-with-object-deltas),
 or both. Its transport basis is `from` when present, otherwise `update.previous`.
@@ -658,16 +658,18 @@ type UpdateRequest = {
 
 type CandidateUpdate = TransitionPayload & {
   change: string;
-  operations: AuthoredOperation[] | null;
+  trace: Frame[] | null;
   candidate: Hash;
   resolves: ResolutionDeclaration[];
   ifCurrent?: string;
 };
 ```
 
-`change` is a durable authored-change identity; `operations: null` explicitly
-selects snapshot semantics. An array fully explains the candidate using
-[source operations](10-source-intent.md). An empty array is valid only for an explicit resolution with no content edits.
+`change` is a durable authored-change identity; `trace: null` explicitly
+selects snapshot semantics. A trace is a chain of tree-root to tree-root frames
+that fully explains the candidate using [source operations](10-source-intent.md);
+every frame must reproduce its own result. An empty trace is valid only for an
+explicit resolution with no content edits.
 `resolves` declares guarded decisions endorsed by this candidate; empty means none.
 These fields are required, included
 in request identity, and preserved verbatim in an adopted or retried prefix.
@@ -734,7 +736,7 @@ same time:
 Within one client epoch, every later request must preserve the exact semantic
 earlier elements and only append. The transport representation of an element's
 objects and deltas may change without changing its identity. A client must not
-rewrite an element's change ID, operations, candidate, resolution declarations, or precondition, or fork two different
+rewrite an element's change ID, trace, candidate, resolution declarations, or precondition, or fork two different
 successors from one prefix. It starts a new epoch only after the previous
 speculative string has been completely acknowledged and its resulting accepted
 transition has been durably applied, using that watchpoint as the new `base`.
@@ -814,7 +816,7 @@ replay handling in §2.1:
    contributions and apply
    applicable format-aware rules. If valid competing effects cannot be uniquely
    combined, retain them as unresolved decisions within the representation limits
-   of [source intent §5–7](10-source-intent.md#5-accepted-decisions-and-continued-editing).
+   of [source intent §6–7](10-source-intent.md#6-accepted-decisions-and-continued-editing).
    Missing automatic merge rules alone do not require rejection. Ordinary operations
    and snapshots preserve existing decisions; only guarded explicit resolution
    closes them.
@@ -837,7 +839,7 @@ replay handling in §2.1:
    Never substitute a rejected local draft for accepted alternatives.
 
 Format-aware rules may produce a clean merge or explicitly resolve guarded decisions
-under [source intent §6](10-source-intent.md#6-format-aware-merge-rules-and-explicit-automatic-resolution).
+under [source intent §7](10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution).
 They must honor the applicable model constraints, including
 [collection-file rules](06-child-backings.md#23-accepted-update-validation-and-merge).
 The authority retains unresolved choices when no rule justifies resolution. Concrete
@@ -903,8 +905,10 @@ applied exactly becomes a new client-owned conflict before submission.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
-of `{ domain: "arbor-update", tree, base, change, operations, candidate, resolves, ifCurrent }`,
-with absent `ifCurrent` encoded as CBOR null. Ordered arrays retain their submitted
+of `{ domain: "arbor-update/2", tree, base, change, trace, candidate, resolves, ifCurrent }`,
+with absent `ifCurrent` encoded as CBOR null. The digest covers the whole trace,
+including each frame's `before` and `after`, so the same operations divided into
+different frames are a different change. Ordered arrays retain their submitted
 order, including resolution declarations and reviewed alternative IDs. Identity is
 scoped to the authenticated credential.
 For the first element, `base` is the request's accepted update id or `null`.

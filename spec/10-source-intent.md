@@ -7,23 +7,24 @@ reference implementation's progress toward it.
 
 ## 1. An authored change
 
-Every candidate has required `change`, `candidate`, `operations` and `resolves`
+Every candidate has required `change`, `candidate`, `trace` and `resolves`
 fields. `change` identifies an immutable authored change within its TreeID and uses
 the [material-reference key syntax](01-tree-operations.md#122-material-references-and-selectors).
 A random UUID is suitable for a new change. Exact retry and
 adoption retain its identity and semantics; clients MUST NOT reuse it for different
 intent. Change identities within a request are distinct.
 
-`operations: null` means snapshot semantics. Otherwise ordered operations explain
-the entire authored transition, including effects on hidden material. There is no
-residual field. Known operations followed by snapshot-only edits are separate
-candidate elements. `resolves` is always an array; empty means no human-authored
-resolution. An empty operations array is valid only with nonempty `resolves`, for
-an explicit resolution that leaves the projection unchanged. Snapshot candidates
-may also carry explicit resolution declarations; snapshots alone never resolve.
-Unknown semantic fields or operation kinds are invalid.
+`trace: null` means snapshot semantics. Otherwise the trace is a chain of frames
+(§2.1) whose operations explain the entire authored transition, including effects
+on hidden material. There is no residual field. Known operations followed by
+snapshot-only edits are separate candidate elements. `resolves` is always an
+array; empty means no human-authored resolution. An empty trace is valid only
+with nonempty `resolves`, for an explicit resolution that leaves the projection
+unchanged. Snapshot candidates may also carry explicit resolution declarations;
+snapshots alone never resolve. Unknown semantic fields or operation kinds are
+invalid.
 
-An operation key is unique within its change. `(change, operation)` identifies its
+An operation key is unique within its change, across every frame of its trace. `(change, operation)` identifies its
 single material result when it has one; there is no independently named output.
 Result identity and material origin are distinct: a move preserves origins, a copy
 creates new origins with derivation, and an edit preserves only verified lineage.
@@ -32,7 +33,36 @@ may contain several retained or newly created origins. Equal bytes do not establ
 shared origin. A snapshot asserts no fine-grained origins; the authority may derive
 conservative correspondence, but MUST NOT invent move, copy, undo or resolution intent.
 
-## 2. References in authored changes
+## 2. The trace
+
+```ts
+type Frame = { before: Hash; after: Hash; operations: Operation[] };
+```
+
+A trace is an ordered chain of frames, each one tree root to the next. It records
+the authored transition as the client actually made it, rather than flattening
+several editor generations into one claim that no single basis explains.
+
+- `trace[0].before` MUST be the candidate's authored basis root, and each later
+  frame's `before` MUST equal its predecessor's `after`.
+- The last frame's `after` MUST be `candidate`.
+- Every frame MUST reproduce its `after` exactly, including untouched bytes, when
+  its operations execute against its `before` (§3). A frame that does not is
+  invalid; the authority never falls back to the candidate's bytes.
+- Each frame carries at least one operation. A change with nothing to state uses
+  an empty trace or, for snapshot semantics, `null`.
+
+Basis references inside a frame name material in that frame's `before` tree;
+operation references name an earlier key anywhere in the same change. Frames are
+therefore concatenated without rebasing, which is what lets a client coalesce
+several generations into one change.
+
+Limits: at most 64 frames per candidate and 1024 operations across the whole
+trace. The request digest ([tree operations §2.1](01-tree-operations.md#21-the-update-request))
+covers the trace, so the same operations divided into different frames are a
+different change.
+
+## 3. References in authored changes
 
 [Tree operations §1.2.2](01-tree-operations.md#122-material-references-and-selectors)
 defines `Material`, `Ref`, `EntryDestination` and their selectors for both reads and
@@ -43,7 +73,7 @@ type Lineage = { source: Ref; range: [number, number] };
 type OperationRef = { change: string; operation: string };
 ```
 
-## 3. Operations
+## 4. Operations
 
 The target authority supports every operation below. Each has required `key` and
 `kind` fields. All listed fields are required except `lineage`. References may
@@ -59,7 +89,10 @@ so there is no separate `editAlternative` operation.
 | `copyEntry` | `source: Ref, destination: EntryDestination` | Create a distinct entry/subtree derived from observed material. Result is the new subtree. |
 | `removeEntry` | `source: Ref` | Remove the observed entry; concurrent modifications remain evidence to reconcile. No material result. |
 | `replaceEntry` | `source: Ref, value: { file: Hash } \| { directory: Hash } \| Ref` | Replace the selected entry's content/subtree while retaining its outer entry identity. Result is the replaced entry. |
-| `undoOperation` | `target: OperationRef` | Invert the named causal contribution while preserving independent later work. Ambiguity remains a decision. No material result. |
+
+Undo is not an operation. An editor publishes an undo as the ordinary operations
+that restore the earlier text against the generation being undone, which a frame
+already expresses exactly.
 
 `replaceEntry` supports whole-file/binary and subtree replacement without a text
 payload. A `file` or `directory` value identifies the explicit entry kind and its object supplied
@@ -77,28 +110,30 @@ source selections. Each mapping MUST preserve exact bytes and origin. Unmapped t
 is new material. False lineage is invalid. Omission supplies no preservation claim;
 lineage is not normalization or inferred copy intent.
 
-Operations execute in order against their authored semantic basis. Basis references
-retain their meaning as earlier operations transform material; use operation-result
-references for newly introduced material. The result MUST reproduce `candidate`,
-including untouched bytes, while retaining all declared hidden/provenance effects.
+Operations execute in order against their frame's `before` root, frame by frame.
+Basis references retain their meaning as earlier operations transform material;
+use operation-result references for newly introduced material. Each frame's
+result MUST reproduce its `after`, and so the last frame's `candidate`, including
+untouched bytes, while retaining all declared hidden/provenance effects.
 Contradictory authored effects, false references and unexplained candidate changes
 fail. Valid effects that become incompatible through concurrency are retained as
 unresolved decisions when representable within the contract bounds.
 
-Limits: at most 1024 operations per candidate, 1024 lineage segments per edit, and
+Limits: at most 1024 operations per candidate across its trace, 64 frames,
+1024 lineage segments per edit, and
 1 MiB of UTF-8 text per text field. Implementations may impose documented overall
 request/object limits. Grammar validation does not establish source reachability,
 UTF-8 boundaries in stored objects, candidate correspondence or authorization; the
 authority validates those before acceptance.
 
-## 4. Acceptance and explicit resolution
+## 5. Acceptance and explicit resolution
 
 [Tree operations §2.3](01-tree-operations.md#23-accepting-and-merging) is the single
 acceptance procedure for snapshots and operations. Reconciliation is the default;
 optional `ifCurrent` guards exact accepted identity. There is no resolved-only write
 mode. A consumer that requires resolved material checks that condition when consuming
-it. Operations and candidate are both semantic intent, never unchecked hints or a
-snapshot fallback. Provenance, decisions and projected state commit atomically.
+it. The trace and the candidate are both semantic intent, never unchecked hints or a
+snapshot fallback: a trace is optional, and once present it is checked in full. Provenance, decisions and projected state commit atomically.
 
 ```ts
 type ResolutionDeclaration = {
@@ -142,7 +177,7 @@ Keeping the existing projection can use `operations: []` plus guarded `resolves`
 It advances accepted identity even with an unchanged root. An automatic rule uses the
 same resolution invariants with separately recorded authority authorship under §6.
 
-## 5. Accepted decisions and continued editing
+## 6. Accepted decisions and continued editing
 
 An authority distinguishes contributions, unresolved decisions and the ordinary
 projected file graph. Decision identity is stable within a tree. Alternatives retain
@@ -175,7 +210,7 @@ a full provenance graph. [Tree operations §1.2.3](01-tree-operations.md#123-rea
 specifies text, whole-entry and placement inspection using the same material-reference
 vocabulary.
 
-## 6. Format-aware merge rules and explicit automatic resolution
+## 7. Format-aware merge rules and explicit automatic resolution
 
 Merge rules interpret exact source, structural/schema context, provenance and open
 decisions. A filename extension alone is insufficient: Markdown frontmatter and

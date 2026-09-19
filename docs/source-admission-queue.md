@@ -397,8 +397,8 @@ Editor undo and redo are ordinary edits. The binding no longer captures
 Quagmire's transaction identities or inverses, `WorkspaceDocumentPatch` carries
 no transactions, and the coordinator no longer produces `undoOperation` records
 or releases undo history. An undo in the editor admits the resulting source
-patch against the current basis exactly like typing. Canopy's causal-undo
-evaluation path remains but installed clients do not produce it.
+patch against the current basis exactly like typing. `undoOperation` has since
+left the wire grammar and the evaluator entirely.
 
 This replaces the earlier causal design, which retained every editor transaction
 with two full copies of the document per record and kept each record until the
@@ -421,9 +421,23 @@ delta rather than the whole file when the delta is smaller; chained authored
 records still send the file, since their base is not retained server-side.
 
 `conformance/causal-undo.json` is retired with this change. The TypeScript queue
-mirrors the same cut: no transactions or inverses, schema 3 journals with a
-capture summary, and release-free compaction. `conformance/page-conversion-undo.json`
+mirrors the same cut: no transactions or inverses, journals with a capture
+summary, and release-free compaction. `conformance/page-conversion-undo.json`
 remains as the page-creation fixture for both queues.
+
+## One frame per record (journal schema 4)
+
+The wire's `operations` field became `trace`, a chain of `{before, after,
+operations}` frames. A record's element now carries exactly one frame, from its
+basis graph's root to the candidate it produced, and a record with no operations
+carries `trace: null` as before. Journal schema 4 stores that element verbatim;
+a schema 3 journal's flat operation list is read once as that same single frame
+and rewritten, in both the Swift and the TypeScript queue. `request(through:)`
+is unchanged: it still concatenates each record's element in dependency order.
+
+Phase 3 of [plan 010](../plans/canopy/010-operation-frames-and-lazy-history.md)
+is what makes the chain longer than one, by emitting a frame per coalesced
+editor generation instead of re-deriving one claim against the oldest basis.
 
 ## Cross-document copies and page-conversion undo
 

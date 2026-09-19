@@ -11,9 +11,10 @@ records what an edit costs before operations become frames and history is loaded
 lazily. Nothing here changes behaviour.
 
 The per-request update log line now also carries `body-bytes` (the encoded
-request body) and `trace-ops` (authored operations across the request's
-updates). `trace-frames` follows with the wire change in Phase 2. As before, the
-line contains no request content, subjects, or object identities.
+request body), `trace-frames` (authored frames across the request's updates) and
+`trace-ops` (authored operations across those frames). Until Phase 3 coalesces
+generations, an ordinary source edit logs `trace-frames: 1`. As before, the line
+contains no request content, subjects, or object identities.
 
 `bun tests/performance/merge-history.bench.ts` (synthetic, in-memory: one file,
 one-byte append per update; no server, volume, or network) now also reports

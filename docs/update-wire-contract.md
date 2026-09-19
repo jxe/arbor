@@ -28,10 +28,23 @@ scans incoming bytes incrementally so a large frame costs linear parsing work.
 
 ## Target request
 
-Each candidate carries `change`, `candidate`, explicit `operations`, required
+Each candidate carries `change`, `candidate`, an explicit `trace`, required
 `resolves`, optional `ifCurrent`, and the existing `objects`/`deltas` transport.
-`operations: null` selects snapshots. Empty operation arrays require at least one
-resolution declaration. Ordinary writes reconcile; exact-state guards use accepted
+`trace: null` selects snapshots. An empty trace requires at least one resolution
+declaration.
+
+A trace is a chain of frames, `{before, after, operations}`, each one tree root
+to the next: `trace[0].before` is the authored basis, each later frame continues
+the previous one, and the last frame ends at `candidate`. Every frame must
+reproduce its own `after`; a trace is evidence the authority checks in full,
+never a hint it may skip. References inside a frame name material in that
+frame's `before` tree and operation keys are unique across the whole trace, so a
+client coalescing several editor generations concatenates frames rather than
+rebasing them. Limits: 64 frames, 1024 operations across the trace.
+
+`undoOperation` is not in the grammar. An editor publishes undo as the ordinary
+operations that restore the earlier text, stated in the frame for the generation
+being undone. Ordinary writes reconcile; exact-state guards use accepted
 identity. `ifMatch`, `onConflict`, output names and special alternative-edit/resolution
 opcodes are absent. Inspection action labels remain user capabilities, not opcodes.
 
@@ -103,11 +116,11 @@ existing deployed-format compatibility tests.
 
 [Plan 011](../plans/verification/011-client-compatibility.md) owns the sequence.
 The request-side implementation is complete in this worktree. Snapshot constructors
-emit `operations: null` and `resolves: []`; optional `ifCurrent` binds accepted
+emit `trace: null` and `resolves: []`; optional `ifCurrent` binds accepted
 identity. Canopy checks replay before the guard and uses the guarded accepted ID
 in its commit comparison, so same-root advancement cannot bypass a precondition.
 The existing conservative snapshot merge engine remains in use. Canopy rejects an
-entire batch with `422 unsupported-operation` if any element has operations or
+entire batch with `422 unsupported-operation` if any element has a trace or
 resolution declarations; grammar support never implies semantic execution.
 
 Accepted-state/read adoption now includes simplified outcomes, predecessor ID/root
