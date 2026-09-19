@@ -49,11 +49,15 @@ struct NativePlacementRecord: Codable, Equatable, Sendable {
     var origin: URL
     var configurationTree: String?
     var tree: WireTreeDescriptor
+    /// The folder the daemon keeps this tree in on this Mac, as of the last
+    /// open. Launch previews it read-only while the tree is confirmed.
+    var osPath: String?
 
-    init(origin: URL, configurationTree: String? = nil, tree: WireTreeDescriptor) {
+    init(origin: URL, configurationTree: String? = nil, tree: WireTreeDescriptor, osPath: String? = nil) {
         self.origin = origin
         self.configurationTree = configurationTree
         self.tree = tree
+        self.osPath = osPath
     }
 }
 
@@ -70,9 +74,13 @@ actor NativePlacementStore {
         self.url = url
     }
 
-    func load() throws -> NativePlacementRecord? {
+    func load() throws -> NativePlacementRecord? { try Self.selected(at: url) }
+
+    /// The selected placement, read synchronously so launch knows its tree
+    /// before the first frame.
+    nonisolated static func selected(at url: URL = ArborSupportDirectories.nativePlacement) throws -> NativePlacementRecord? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let collection = try loadCollection()
+        let collection = try loadCollection(at: url)
         return collection.selectedTree.flatMap { selected in
             collection.placements.first { $0.tree.id == selected }
         } ?? collection.placements.first
@@ -80,7 +88,7 @@ actor NativePlacementStore {
 
     func loadAll() throws -> [NativePlacementRecord] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        return try loadCollection().placements
+        return try Self.loadCollection(at: url).placements
     }
 
     func save(_ record: NativePlacementRecord) throws {
@@ -122,10 +130,10 @@ actor NativePlacementStore {
 
     private func loadCollectionIfPresent() throws -> NativePlacementCollection? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return try loadCollection()
+        return try Self.loadCollection(at: url)
     }
 
-    private func loadCollection() throws -> NativePlacementCollection {
+    private nonisolated static func loadCollection(at url: URL) throws -> NativePlacementCollection {
         let data = try SavedTreeDescriptorUpgrade.placements(Data(contentsOf: url))
         if let collection = try? JSONDecoder().decode(NativePlacementCollection.self, from: data) {
             guard collection.version == 2 else {
@@ -139,7 +147,7 @@ actor NativePlacementStore {
         return NativePlacementCollection(selectedTree: record.tree.id, placements: [record])
     }
 
-    private func validate(_ records: [NativePlacementRecord]) throws {
+    private nonisolated static func validate(_ records: [NativePlacementRecord]) throws {
         var trees = Set<String>()
         for record in records {
             guard record.version == 1 else {

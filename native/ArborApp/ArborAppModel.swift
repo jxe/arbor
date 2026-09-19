@@ -109,6 +109,11 @@ final class ArborWorkspaceState {
     private(set) var home: WorkspaceReference
     private(set) var launchLocation: WorkspaceLocation
     private(set) var generation = 0
+    /// Bumped when the provider is replaced by one presenting the same tree at
+    /// the same locations (preview → confirmed working tree): windows reload
+    /// their pages in place instead of resetting navigation.
+    private(set) var providerRevision = 0
+    private(set) var launchPhase: ArborLaunchPhase = .ready
     private(set) var capabilities: WorkspaceProviderCapabilities = .readOnly
     private(set) var providerDetail = "No tree open"
     private(set) var syncPresentation = WorkspaceSyncPresentation(
@@ -164,11 +169,26 @@ final class ArborWorkspaceState {
         ])
         self.provider = provider
         self.editorWorkspace = ArborEditorWorkspace(provider: provider, recoveryRoot: editorRecoveryRoot)
-        let initialHome = suppliedProvider == nil
+        var initialHome = suppliedProvider == nil
             ? disconnectedHome
             : WorkspaceReference(tree: "tr_sample", path: "/")
+        var initialPhase = ArborLaunchPhase.ready
+#if os(macOS)
+        // Know the tree to reopen before the first frame, so launch never
+        // shows a stand-in and then jumps.
+        if suppliedProvider == nil, ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] != "1" {
+            if let record = try? NativePlacementStore.selected() {
+                initialHome = WorkspaceReference(tree: TreeID(rawValue: record.tree.id), path: "/")
+                initialPhase = .restoring(record.displayName)
+            } else {
+                initialPhase = .empty(nil)
+            }
+        }
+#endif
         self.home = initialHome
         self.launchLocation = .reference(initialHome)
+        self.launchPhase = initialPhase
+        if case let .restoring(name) = initialPhase { self.providerDetail = "Opening \(name)…" }
         if suppliedProvider != nil {
             self.capabilities = .full
             self.providerDetail = "In-memory test fixture"
@@ -885,15 +905,21 @@ final class ArborWorkspaceState {
         try await nativePlacementStore.save(NativePlacementRecord(
             origin: origin,
             configurationTree: placed.configurationTree,
-            tree: descriptor
+            tree: descriptor,
+            osPath: placed.osPath
         ))
         nativePlacements = try await nativePlacementStore.loadAll()
         let placeName = placed.canonical?.path ?? placed.name
+        let nextHome = WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/")
         await switchProvider(
             nextProvider,
-            home: WorkspaceReference(tree: TreeID(rawValue: treeID), path: "/"),
-            detail: "Working tree · \(placeName) · \(placed.osPath ?? "")"
+            home: nextHome,
+            detail: "Working tree · \(placeName) · \(placed.osPath ?? "")",
+            // The confirmed tree replaces its own preview at the same
+            // locations: keep every window's navigation and reload in place.
+            preservingNavigation: launchPhase.isPreviewing && home == nextHome
         )
+        launchPhase = .ready
         syncCoordinator = coordinator
         conflictReview = ArborConflictReviewModel(coordinator: coordinator)
         Task { [weak self] in await self?.conflictReview?.refresh() }
@@ -1006,15 +1032,34 @@ final class ArborWorkspaceState {
 
     // MARK: Restore and reconnect
 
-    /// Reconnect to the daemon and re-open the last placed tree, if any.
+    /// Reopen the last placed tree, if any. When its folder is on disk the
+    /// tree is shown from it at once, read-only, while the daemon attach,
+    /// bootstrap and update coordinator confirm a basis for edits; the
+    /// confirmed tree then replaces the preview in place.
     func restoreLocalWorkspaceIfAvailable() async {
         guard !attemptedWorkspaceRestore else { return }
         attemptedWorkspaceRestore = true
         nativePlacements = (try? await nativePlacementStore.loadAll()) ?? []
+        let record = try? await nativePlacementStore.load()
+        if let record, !launchPhase.isPreviewing, let osPath = record.osPath,
+           FileManager.default.fileExists(atPath: osPath) {
+            let tree = TreeID(rawValue: record.tree.id)
+            if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath)) {
+                await switchProvider(
+                    WorkingTreeProvider(workingTree: preview, readOnly: true),
+                    home: WorkspaceReference(tree: tree, path: "/"),
+                    detail: "Connecting · \(record.displayName) · \(osPath)",
+                    recoversEdits: false
+                )
+                launchPhase = .confirming(record.displayName)
+            }
+        }
         do {
-            if let record = try await nativePlacementStore.load() {
+            if let record {
+                if !launchPhase.isPreviewing { launchPhase = .restoring(record.displayName) }
                 try await openPlacedTree(record.tree.id)
             } else {
+                launchPhase = .empty(nil)
                 try await ensureArborSync()
                 syncPresentation = WorkspaceSyncPresentation(
                     state: .offline,
@@ -1023,9 +1068,22 @@ final class ArborWorkspaceState {
                 prefetchLocalArborSyncOverview()
             }
         } catch {
-            errorMessage = Self.bootstrapFailureMessage(error, processKind: arborsyncProcessKind)
+            let message = Self.bootstrapFailureMessage(error, processKind: arborsyncProcessKind)
+            if case let .confirming(name) = launchPhase {
+                // Keep showing the folder; it just cannot be edited yet.
+                launchPhase = .unconfirmed(name, message)
+            } else {
+                launchPhase = .empty(message)
+            }
             if arborsyncClient != nil { prefetchLocalArborSyncOverview() }
         }
+    }
+
+    /// Try the launch restore again after a failure.
+    func retryRestore() async {
+        attemptedWorkspaceRestore = false
+        if case let .unconfirmed(name, _) = launchPhase { launchPhase = .confirming(name) }
+        await restoreLocalWorkspaceIfAvailable()
     }
 
     /// Reconnect to the control-mode daemon and re-open whatever was open.
@@ -1468,18 +1526,21 @@ final class ArborWorkspaceState {
         _ nextProvider: any WorkspaceProvider,
         home nextHome: WorkspaceReference,
         launchLocation nextLaunchLocation: WorkspaceLocation? = nil,
-        detail: String
+        detail: String,
+        preservingNavigation: Bool = false,
+        recoversEdits: Bool = true
     ) async {
         await editorWorkspace.closeAll()
         conflictReview = nil
         provider = nextProvider
-        editorWorkspace = ArborEditorWorkspace(provider: nextProvider, recoveryRoot: editorRecoveryRoot)
+        // A read-only preview never keeps editor recovery drafts.
+        editorWorkspace = ArborEditorWorkspace(provider: nextProvider, recoveryRoot: recoversEdits ? editorRecoveryRoot : nil)
         home = nextHome
         launchLocation = nextLaunchLocation ?? .reference(nextHome)
         providerDetail = detail
         capabilities = await nextProvider.capabilities()
         latestStructuralReceipt = nil
-        generation += 1
+        if preservingNavigation { providerRevision += 1 } else { generation += 1 }
         errorMessage = nil
     }
 
@@ -1541,6 +1602,7 @@ final class ArborAppModel {
     private(set) var linkedPageTrashPrompt: LinkedPageTrashPrompt?
     private var retainedPagePresentations: [PagePresentationKey: PagePresentation] = [:]
     private var observedWorkspaceGeneration: Int
+    private var observedProviderRevision: Int
     private var loadRequestID = 0
     private var searchRequestID = 0
     private var lastSearchQuery = ""
@@ -1553,6 +1615,7 @@ final class ArborAppModel {
         self.tabs = BrowserTabController(launchLocation: workspace.launchLocation)
         self.sidebarLocation = workspace.launchLocation
         self.observedWorkspaceGeneration = workspace.generation
+        self.observedProviderRevision = workspace.providerRevision
     }
 
     convenience init() {
@@ -1619,6 +1682,21 @@ final class ArborAppModel {
         await load()
     }
 
+    /// The workspace replaced its provider with one presenting the same tree
+    /// at the same locations (a launch preview becoming the confirmed tree).
+    /// Tabs and history stay; the current page reloads in place, with its old
+    /// presentation on screen until the new one is ready.
+    func reloadForProviderRevision() async {
+        guard observedProviderRevision != workspace.providerRevision else { return }
+        observedProviderRevision = workspace.providerRevision
+        retainCurrentPagePresentation()
+        let key = PagePresentationKey(tabID: selectedTabID, location: currentLocation)
+        // Every other retained page holds a binding from the closed provider.
+        retainedPagePresentations = retainedPagePresentations.filter { $0.key == key }
+        await load()
+        if node != nil { retainedPagePresentations.removeValue(forKey: key) }
+    }
+
     func load() async {
         loadRequestID += 1
         let requestID = loadRequestID
@@ -1652,7 +1730,9 @@ final class ArborAppModel {
                 }
             }
             sidebarLocation = sidebarBase
-            if resolved.surface.supportsDocumentSession, resolved.isWritable {
+            // A launch preview shows pages in the editor too, so confirming the
+            // tree changes nothing on screen; the view blocks input meanwhile.
+            if resolved.surface.supportsDocumentSession, resolved.isWritable || workspace.launchPhase.isPreviewing {
                 let lease = try await workspace.editorWorkspace.lease(resolved.reference)
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
@@ -2191,5 +2271,42 @@ final class ArborAppModel {
         case .reference:
             return .reference(reference)
         }
+    }
+}
+
+/// What the window shows while a tree is being reopened at launch.
+enum ArborLaunchPhase: Equatable {
+    /// The tree is known but nothing can be shown yet (no folder on disk).
+    case restoring(String)
+    /// The placed folder is shown read-only while its accepted state is confirmed.
+    case confirming(String)
+    /// The folder is shown read-only; confirming failed with this message.
+    case unconfirmed(String, String)
+    /// A tree is open and editable.
+    case ready
+    /// No tree to open, or opening failed with this message.
+    case empty(String?)
+
+    /// Whether the window shows a tree (possibly a read-only preview of one).
+    var showsTree: Bool {
+        switch self {
+        case .restoring, .empty: false
+        default: true
+        }
+    }
+
+    var isPreviewing: Bool {
+        switch self {
+        case .confirming, .unconfirmed: true
+        default: false
+        }
+    }
+}
+
+extension NativePlacementRecord {
+    var displayName: String {
+        tree.canonicalPath.flatMap { $0.split(separator: "/").last.map(String.init) }
+            ?? osPath.map { URL(filePath: $0).lastPathComponent }
+            ?? tree.id
     }
 }

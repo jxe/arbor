@@ -1569,3 +1569,117 @@ extension WorkspaceSynchronization {
         }
     }
 }
+
+#if os(macOS)
+/// Shown while a known tree opens and there is nothing on disk to preview.
+/// It stays blank for a moment, so a fast open never flashes a spinner.
+struct ArborLaunchOpeningView: View {
+    let name: String
+    @State private var showsProgress = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if showsProgress {
+                ProgressView().controlSize(.small)
+                Text("Opening \(name)…").foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            try? await Task.sleep(for: .milliseconds(250))
+            withAnimation(.easeIn(duration: 0.2)) { showsProgress = true }
+        }
+    }
+}
+
+/// Shown when no tree is open: nothing placed yet, or opening failed.
+struct ArborLaunchEmptyView: View {
+    let message: String?
+    let trees: [ArborLocalTreeMenuItem]
+    let openTree: (String) -> Void
+    let openLocation: () -> Void
+    let showAccounts: () -> Void
+    let retry: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 20) {
+            ContentUnavailableView {
+                Label(message == nil ? "No Tree Open" : "Couldn’t Open Tree",
+                      systemImage: message == nil ? "tree" : "exclamationmark.triangle")
+            } description: {
+                Text(message ?? "Open one of the trees placed on this Mac, or open a location.")
+            } actions: {
+                HStack {
+                    if let retry { Button("Try Again", action: retry).buttonStyle(.borderedProminent) }
+                    Button("Open Location…", action: openLocation)
+                    Button("Accounts…", action: showAccounts)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            if !trees.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Trees on this Mac").font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, 12).padding(.bottom, 6)
+                    ForEach(trees) { tree in
+                        Button { openTree(tree.id) } label: {
+                            HStack {
+                                Image(systemName: "tree").foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(tree.title)
+                                    Text(tree.path).font(.caption).foregroundStyle(.secondary)
+                                        .lineLimit(1).truncationMode(.head)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: 380)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A thin bar above a launch preview: the tree is shown from its folder and
+/// becomes editable once its accepted state is confirmed.
+struct ArborLaunchConfirmationBar: View {
+    let phase: ArborLaunchPhase
+    let retry: () -> Void
+
+    var body: some View {
+        switch phase {
+        case .confirming:
+            bar {
+                ProgressView().controlSize(.mini)
+                Text("Connecting… Editing turns on once this tree is up to date.")
+            }
+        case let .unconfirmed(_, message):
+            bar {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                Text("Read-only: \(message)").lineLimit(2).textSelection(.enabled)
+                Spacer(minLength: 8)
+                Button("Try Again", action: retry).controlSize(.small)
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func bar(@ViewBuilder content: () -> some View) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) { content() }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16).padding(.vertical, 6)
+            Divider()
+        }
+        .transition(.opacity)
+    }
+}
+#endif

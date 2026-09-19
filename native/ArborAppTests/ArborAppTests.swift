@@ -352,6 +352,12 @@ struct ArborAppTests {
 
         try await store.save(record)
         #expect(try await store.load() == record)
+        #expect(try NativePlacementStore.selected(at: root.appending(path: "placement.json")) == record)
+        var placed = record
+        placed.osPath = "/Users/example/todos"
+        try await store.save(placed)
+        #expect(try NativePlacementStore.selected(at: root.appending(path: "placement.json"))?.osPath == "/Users/example/todos")
+        #expect(placed.displayName == "todos")
         let second = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
             configurationTree: "tr_accountconfiguration",
@@ -546,6 +552,10 @@ struct ArborAppTests {
         #expect(linkGroups.map { $0.results.map(\.title) }
             == [["Beta"], ["🌲 Alpha"], ["Older", "Monthly"]])
         #expect(linkGroups.map(\.showsBacklinkCounts) == [false, false, true])
+        // Arrow keys walk pages in the order the sidebar draws them.
+        #expect(ArborSidebarPages.displayOrder(results, by: .linkCount).map(\.title)
+            == ["Beta", "🌲 Alpha", "Older", "Monthly"])
+        #expect(ArborSidebarPages.displayOrder(results, by: .alphabetical) == ArborSidebarPages.sorted(results, by: .alphabetical))
         #expect(arborSidebarContextPath("/arbor-demo") == nil)
         #expect(arborSidebarContextPath("/March-Out-My-Work/arbor-demo")
             == "/March-Out-My-Work")
@@ -570,6 +580,23 @@ struct ArborAppTests {
         #expect(model.navigationPath.isEmpty)
         #expect(model.pagePresentation(for: .reference(home))?.editorLease != nil)
         #expect(model.pagePresentation(for: .reference(welcome))?.editorLease != nil)
+    }
+
+    @Test("Home pops back to the tree root instead of pushing it again")
+    func homePopsTrail() async {
+        let model = ArborAppModel()
+        await model.load()
+        let home = model.currentLocation
+        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        await model.navigate(to: welcome)
+        #expect(model.navigationPath.count == 1)
+
+        await model.goHome()
+
+        #expect(model.currentLocation == home)
+        #expect(model.navigationPath.isEmpty)
+        #expect(!model.canGoBack)
+        #expect(model.canGoForward)
     }
 
     @Test("A directory becomes the sidebar browsing context")

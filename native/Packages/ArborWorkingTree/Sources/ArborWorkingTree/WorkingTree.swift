@@ -350,7 +350,7 @@ public actor WorkingTree {
         }
     }
 
-    private func state(from replacement: WorkingTreeSystemReplacement) throws -> WorkingTreeState {
+    func state(from replacement: WorkingTreeSystemReplacement) throws -> WorkingTreeState {
         guard !replacement.update.isEmpty else { throw WorkingTreeError.corruptState("System update ID is empty") }
         let nodes = replacement.nodes.map { node -> WorkingTreeNode in
             switch node.content {

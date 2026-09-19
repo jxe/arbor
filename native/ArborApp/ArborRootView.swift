@@ -812,6 +812,9 @@ struct ArborRootView: View {
 
     var body: some View {
         platformNavigation
+        .task(id: workspace.providerRevision) {
+            await model.reloadForProviderRevision()
+        }
         .task(id: workspace.generation) {
             await model.resetForWorkspace()
 #if os(iOS)
@@ -1020,13 +1023,32 @@ struct ArborRootView: View {
                 .toolbar(removing: .sidebarToggle)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 260, max: 500)
         } detail: {
-            NavigationStack(path: navigationPathBinding) {
-                pageFrame(for: model.navigationRoot)
-                    .navigationDestination(for: WorkspaceLocation.self) { location in
-                        pageFrame(for: location)
+            switch workspace.launchPhase {
+            case let .restoring(name):
+                ArborLaunchOpeningView(name: name)
+            case let .empty(message):
+                ArborLaunchEmptyView(
+                    message: message,
+                    trees: localTreeMenuItems,
+                    openTree: windowCommands.jumpToLocalTree,
+                    openLocation: { presentedSheet = .openLocation },
+                    showAccounts: showAccountsPanel,
+                    retry: message == nil ? nil : { Task { await workspace.retryRestore() } }
+                )
+            case .confirming, .unconfirmed, .ready:
+                VStack(spacing: 0) {
+                    ArborLaunchConfirmationBar(phase: workspace.launchPhase) {
+                        Task { await workspace.retryRestore() }
                     }
+                    NavigationStack(path: navigationPathBinding) {
+                        pageFrame(for: model.navigationRoot)
+                            .navigationDestination(for: WorkspaceLocation.self) { location in
+                                pageFrame(for: location)
+                            }
+                    }
+                    .id(model.selectedTabID)
+                }
             }
-            .id(model.selectedTabID)
         }
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
 #endif
@@ -1271,7 +1293,7 @@ struct ArborRootView: View {
             .contentMargins(.top, 0, for: .scrollContent)
 #endif
             .overlay {
-                if model.searchResults.isEmpty {
+                if model.searchResults.isEmpty, workspace.launchPhase.showsTree {
                     ContentUnavailableView.search(text: sidebarSearchText)
                         .allowsHitTesting(false)
                 }
@@ -2046,7 +2068,7 @@ struct ArborRootView: View {
     private func pageFrameContent(for location: WorkspaceLocation) -> some View {
         if let presentation = model.pagePresentation(for: location) {
             let node = presentation.node
-            if node.surface.supportsDocumentSession, node.isWritable {
+            if node.surface.supportsDocumentSession, node.isWritable || presentation.editorLease != nil {
                 if let lease = presentation.editorLease, let host = presentation.editorHost {
                     VStack(spacing: 0) {
                         if location == model.currentLocation,
@@ -2078,6 +2100,8 @@ struct ArborRootView: View {
                                 showStatus: showStatusPanel
                             )
                         }
+                        // A launch preview is read-only until the tree is confirmed.
+                        .allowsHitTesting(node.isWritable)
                     }
                 } else {
                     ProgressView()
