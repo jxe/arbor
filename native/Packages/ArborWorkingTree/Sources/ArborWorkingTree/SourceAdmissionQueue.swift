@@ -73,6 +73,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             bytes[hash] = value
             return hash
         }
+        var replacedDirectories: [(base: String, result: String)] = []
         func replace(_ hash: String, _ depth: Int) throws -> String {
             guard case let .directory(originalEntries, descriptor)? = decoded[hash] else { throw Self.invalid("Source path is not in basis") }
             var entries = originalEntries
@@ -95,7 +96,9 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                 guard let directory = entries[index].directory else { throw Self.invalid("Source path crosses a file or tree boundary") }
                 entries[index].directory = try replace(directory, depth + 1)
             }
-            return try store(.directory(entries, childrenSource: descriptor))
+            let result = try store(.directory(entries, childrenSource: descriptor))
+            replacedDirectories.append((hash, result))
+            return result
         }
         let root = try replace(graph.root, 0)
         var reachable = Set<String>()
@@ -172,12 +175,23 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         // Against an accepted basis the server can rebuild the edited file from
         // its retained base, so send the patch as a delta rather than the file.
         // A chained authored basis is not retained server-side; its file goes whole.
-        if case .accepted = basis, let file,
-           let resultHash = (try? WireObjectCodec.encode(.file(Data(intent.source.utf8)))).map(WireObjectCodec.hash),
-           let result = update.objects.first(where: { $0.hash == resultHash }),
-           let delta = Self.delta(baseHash: file, baseSource: intent.basis.source, edits: intent.patch.edits, result: result) {
-            update.objects.removeAll { $0.hash == result.hash }
-            update.deltas = [delta]
+        if case .accepted = basis {
+            var deltas: [WireObjectDelta] = []
+            if let file, let resultHash = (try? WireObjectCodec.encode(.file(Data(intent.source.utf8)))).map(WireObjectCodec.hash),
+               let result = update.objects.first(where: { $0.hash == resultHash }),
+               let delta = Self.delta(baseHash: file, baseSource: intent.basis.source, edits: intent.patch.edits, result: result) {
+                deltas.append(delta)
+            }
+            // Directories along the path change hash on every edit but differ
+            // from their base in one entry; send those as splices too.
+            for pair in replacedDirectories where pair.base != pair.result {
+                guard let baseBytes = bytes[pair.base], let resultObject = update.objects.first(where: { $0.hash == pair.result }),
+                      let delta = Self.spliceDelta(baseHash: pair.base, base: baseBytes, result: resultObject) else { continue }
+                deltas.append(delta)
+            }
+            let replaced = Set(deltas.map(\.result))
+            update.objects.removeAll { replaced.contains($0.hash) }
+            update.deltas = deltas
         }
         // Validate the complete Wire grammar, including change and operation identities.
         _ = try JSONEncoder().encode(update)
@@ -185,6 +199,27 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         self.graph = WireSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
         self.sourcePath = sourcePath; self.candidate = candidate; self.update = update
         self.document = SourceDocumentCapture(reference: intent.basis.reference, basisRevision: intent.basis.contentRevision, intentDigest: Self.intentDigest(intent))
+    }
+
+    /// A common-prefix/common-suffix splice for a byte object whose base is
+    /// retained; used for directory objects where one entry changed.
+    static func spliceDelta(baseHash: String, base: Data, result: WireObjectEnvelope) -> WireObjectDelta? {
+        let target = result.bytes
+        var prefix = 0
+        while prefix < base.count, prefix < target.count, base[base.startIndex + prefix] == target[target.startIndex + prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < base.count - prefix, suffix < target.count - prefix,
+              base[base.endIndex - 1 - suffix] == target[target.endIndex - 1 - suffix] { suffix += 1 }
+        var instructions: [WireObjectDeltaInstruction] = []
+        if prefix > 0 { instructions.append(.copy(offset: 0, length: prefix)) }
+        let middle = target.subdata(in: (target.startIndex + prefix)..<(target.endIndex - suffix))
+        if !middle.isEmpty { instructions.append(.insert(middle)) }
+        if suffix > 0 { instructions.append(.copy(offset: base.count - suffix, length: suffix)) }
+        guard !instructions.isEmpty, let delta = try? WireObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
+              (try? delta.apply(to: base)) == target else { return nil }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        guard let encodedDelta = try? encoder.encode(delta), let encodedResult = try? encoder.encode(result), encodedDelta.count < encodedResult.count else { return nil }
+        return delta
     }
 
     /// Copy/insert instructions from ordered, non-overlapping patch edits, only
@@ -550,10 +585,11 @@ public actor SourceAdmissionQueue {
             for object in record.localTrash?.objects ?? [] {
                 bytes[object.hash] = object.bytes; presented[object.hash] = object.bytes
             }
-            // Candidate updates are precisely the objects introduced relative
-            // to their graph. Accepted graph objects stay in the platform CAS;
-            // authored descendants resolve their parent additions here.
-            for object in record.update.objects { presented[object.hash] = object.bytes }
+            // Objects a candidate introduces relative to its graph are queue-owned
+            // until the admission settles, whether the wire element carries them
+            // whole or as deltas. Accepted graph objects stay in the platform CAS.
+            let basis = Set(record.graph.objects.map(\.hash))
+            for object in record.candidate.objects where !basis.contains(object.hash) { presented[object.hash] = object.bytes }
         }
         // Standalone queues have no shared platform and remain self-contained.
         if platform == nil || selfContained {

@@ -350,6 +350,28 @@ public actor UpdateCoordinator {
         return control.presentation
     }
 
+    /// The graph reachable from `root`, assembled object by object: everything
+    /// already local is reused and only absent objects are fetched, so catching
+    /// up after a restart costs a handful of small reads rather than a snapshot.
+    /// Nested trees are separate boundaries and are not entered.
+    private func sparseDirectoryGraph(treeID: String, root: String) async throws -> WireSnapshot {
+        var objects: [WireObjectEnvelope] = []
+        var pending: [(hash: String, kind: WireEntryKind)] = [(root, .directory)], seen = Set<String>()
+        while let next = pending.popLast() {
+            guard seen.insert(next.hash).inserted else { continue }
+            let bytes: Data
+            if let local = try? await workingTree.objectBytes(hash: next.hash) { bytes = local }
+            else { bytes = try await transport.object(tree: treeID, hash: next.hash) }
+            guard WireObjectCodec.hash(bytes) == next.hash else { throw UpdateError.returnedSnapshotMismatch }
+            objects.append(WireObjectEnvelope(hash: next.hash, bytes: bytes))
+            guard next.kind == .directory, case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else { continue }
+            for entry in entries { if let child = entry.hash, let kind = entry.kind { pending.append((child, kind)) } }
+        }
+        let graph = WireSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
+        _ = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+        return graph
+    }
+
     /// The tree's own sparse graph plus the bytes every delta in a transition
     /// needs, fetched through the object store once each. Files the transition
     /// does not touch stay absent; the replay and the bridge both run sparse.
@@ -384,7 +406,12 @@ public actor UpdateCoordinator {
             try files.write(control)
             return control.presentation
         }
-        let snapshot = try await transport.snapshot(tree: treeID, root: current.tree.root)
+        // Files are mostly local already: walk only the directory objects from
+        // the new root and install a sparse graph. A full snapshot is the
+        // fallback when an object read is unavailable.
+        let snapshot: WireSnapshot
+        if let sparse = try? await sparseDirectoryGraph(treeID: treeID, root: current.tree.root) { snapshot = sparse }
+        else { snapshot = try await transport.snapshot(tree: treeID, root: current.tree.root) }
         latestHeads = try await workingTree.heads()
         if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
             return try await synchronize(admission: nil)

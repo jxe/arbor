@@ -72,13 +72,16 @@ struct SourceAdmissionQueueTests {
         let encoded = String(decoding: try JSONEncoder().encode(undo), as: UTF8.self)
         #expect(!encoded.contains("filler line"))
         #expect(undo.document?.intentDigest.hasPrefix("sha256:") == true)
-        // An accepted-basis source edit ships as a delta, never the whole file.
-        #expect(first.update.deltas.count == 1)
-        if let delta = first.update.deltas.first {
-            #expect(!first.update.objects.contains { $0.hash == delta.result })
+        // An accepted-basis source edit ships the file, and any changed
+        // directory a splice would shrink, as deltas against retained bases.
+        #expect(!first.update.deltas.isEmpty)
+        #expect(!first.update.objects.contains { object in first.update.deltas.contains { $0.result == object.hash } })
+        for delta in first.update.deltas {
             let baseObject = try #require(graph.objects.first { $0.hash == delta.base })
-            #expect(try delta.apply(to: baseObject.bytes) == WireObjectCodec.encode(.file(Data(edited.utf8))))
+            let resultObject = try #require(first.candidate.objects.first { $0.hash == delta.result })
+            #expect(try delta.apply(to: baseObject.bytes) == resultObject.bytes)
         }
+        #expect(first.update.deltas.contains { $0.result == (try? WireObjectCodec.hash(WireObjectCodec.encode(.file(Data(edited.utf8))))) })
         #expect(undo.update.deltas.isEmpty)
         let queue = try await SourceAdmissionQueue(tree: f.tree, stateRoot: root)
         try await queue.retain([first, undo])

@@ -56,9 +56,12 @@ public protocol UpdateTransport: Sendable {
     func snapshot(tree: String, root: String) async throws -> WireSnapshot
     func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract
     func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data
+    /// One immutable object by hash, for directory walks that avoid a full snapshot.
+    func object(tree: String, hash: String) async throws -> Data
 }
 
 extension UpdateTransport {
+    public func object(tree: String, hash: String) async throws -> Data { throw UpdateError.returnedSnapshotMissing }
     public func conflicts(tree: String, state: String, root: String, after: String?) async throws -> WireDecisionPageContract {
         throw ConflictReviewError.unavailable
     }
@@ -82,6 +85,7 @@ public struct ArborWireReplicaTransport: UpdateTransport, Sendable {
         try await client.conflicts(tree: tree, state: state, root: root, after: after)
     }
     public func conflictObject(tree: String, state: String, conflict: String, alternative: String, hash: String) async throws -> Data { try await client.conflictObject(tree: tree, state: state, conflict: conflict, alternative: alternative, hash: hash) }
+    public func object(tree: String, hash: String) async throws -> Data { try await client.object(tree: tree, hash: hash) }
 }
 
 /// One exact persisted request: its body (with every object envelope it
