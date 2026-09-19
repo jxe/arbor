@@ -293,6 +293,7 @@ export async function loadValidatedStateMap(
       },
       prefix,
     );
+    const ownBytes = bytes;
     const values: Record<string, unknown> = Object.create(null);
     const objects = new Set([hash]);
     const references = new Set<string>();
@@ -353,12 +354,15 @@ export async function loadValidatedStateMap(
       bytes,
       visits,
     });
+    // Record values are charged where their record proofs are cached; a map
+    // proof holds only pointers to them. Charging every level for all bytes
+    // below it counted one state's history once per tree level and made the
+    // cache evict thousands of entries per update.
     options.cache.set(
       key,
       proof,
-      bytes * 2 +
-        (objects.size + references.size) * 160 +
-        Object.keys(values).length * 128,
+      ownBytes * 2 +
+        (objects.size + references.size + Object.keys(values).length) * 64,
     );
     return proof;
   };
