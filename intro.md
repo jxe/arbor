@@ -66,7 +66,7 @@ Inside Markdown, these are still ordinary link destinations. From the document
 
 ```md
 [Notes](notes)
-[Roadmap](../roadmap)
+[Plans](plans/README)
 [Drift](arbor://notes.example.org/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0)
 ```
 

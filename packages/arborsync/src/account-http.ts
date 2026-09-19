@@ -1,5 +1,5 @@
 import type { LocalAccountService } from "./account-service.ts";
-import { ProtocolError } from "./protocol-error.ts";
+import { ProtocolError } from "@arbor/core";
 import { json } from "./http.ts";
 
 export function accountHandler(service: LocalAccountService) {

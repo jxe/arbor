@@ -236,11 +236,11 @@ test("batched checkpoints exactly preserve individual states including legacy al
 
 
 test("only explicit checkpoint byte limits request a smaller historical batch",async()=>{
-  const {CheckpointBatchTooLargeError}=await import("../../../packages/canopy/src/merge-tool.ts");
+  const {CheckpointBatchLimitError}=await import("@arbor/merge");
   const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));
   const fake=join(directory,"batch-limit.ts");await writeFile(fake,"process.exit(75);");
   const request={kind:"checkpoint-batch" as const,tree:"tree",current:{object:base.root},steps:[{projection:base.root,change:"change",decisions:[]}]};
-  await expect(new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map())).rejects.toBeInstanceOf(CheckpointBatchTooLargeError);
+  await expect(new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map())).rejects.toBeInstanceOf(CheckpointBatchLimitError);
   expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
 });
 

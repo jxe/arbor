@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeWireDirectory, hashObject } from "@arbor/wire";
 import { createCanopySchema } from "../../packages/canopy/src/schema.ts";
-import { ObjectStore } from "../../packages/canopy/src/objects.ts";
+import { ObjectStore } from "@arbor/object-store";
 import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
 import { encodeLegacyObject } from "./legacy.ts";
 import { migrateCanopy } from "./run.ts";

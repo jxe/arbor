@@ -1,8 +1,8 @@
-import type { MergeSummary } from "../../../merge/src/summary.ts";
-export type { MergeSummary, SourceReconciliation } from "../../../merge/src/summary.ts";
+import type { MergeSummary } from "@arbor/merge";
+export type { MergeSummary, SourceReconciliation } from "@arbor/merge";
 import type { ObjectHash, UpdateConflict } from "@arbor/wire";
 import { decideUpdate } from "./decision.ts";
-import { mergeWireTrees, type MergeResult } from "./merge.ts";
+import { mergeWireTrees, type MergeResult } from "@arbor/merge";
 
 export type ReconciledUpdate =
   | { outcome: "current" }

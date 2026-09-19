@@ -23,7 +23,7 @@ import {
 } from "@arbor/merge";
 import { changeIdentity, parseIntentRequest } from "../../merge/src/intent-model.ts";
 import { hashObject, type ObjectHash } from "@arbor/wire";
-import type { MergeResult } from "./updates/merge.ts";
+import { CheckpointBatchLimitError, type MergeResult } from "@arbor/merge";
 import { PersistentMergeWorker } from "./merge-worker.ts";
 import { StateMapValidationCache } from "../../merge/src/state-map.ts";
 
@@ -55,8 +55,6 @@ export interface MergeToolOptions {
   /** Presentation policy; source choices remain coupled when the format requires it. */
   contentChoices?: "source" | "file";
 }
-
-export class CheckpointBatchTooLargeError extends Error {}
 
 type StateProof = {hash: string; object: string; state: IntentState; bytes: number; dependencies: Set<string>; material: ValidatedMaterial; references: ReadonlySet<string>};
 
@@ -304,7 +302,7 @@ export class MergeTool {
           },
           (error, stdout) => {
             if (request.kind === "checkpoint-batch" && (error as (Error & {code?:unknown}) | null)?.code === CHECKPOINT_BATCH_TOO_LARGE_EXIT)
-              reject(new CheckpointBatchTooLargeError("Historical checkpoint batch exceeds its byte budget"));
+              reject(new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget"));
             else if (error || inputError) reject(error ?? inputError);
             else resolve(stdout);
           }
@@ -326,7 +324,7 @@ export class MergeTool {
       } catch { /* diagnostics only */ }
       const raw = JSON.parse(stdout);
       if (request.kind === "checkpoint-batch" && raw.error?.code === "checkpoint-batch-too-large")
-        throw new CheckpointBatchTooLargeError("Historical checkpoint batch exceeds its byte budget");
+        throw new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget");
       const response = parseResponse(raw, request);
       const objects = new Map<ObjectHash, Uint8Array>();
       for (const hash of response.objects)

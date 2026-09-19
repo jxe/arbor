@@ -1,5 +1,5 @@
 import { sha256 } from "@arbor/core";
-import { ProtocolError } from "./protocol-error.ts";
+import { ProtocolError } from "@arbor/core";
 
 /** Opaque continuation cursor bound to its route's complete query. */
 export function encodePageCursor(key: string, offset: number): string {

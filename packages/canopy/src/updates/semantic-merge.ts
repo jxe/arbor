@@ -1,4 +1,4 @@
-import { loadIntentState } from "../../../merge/src/state-storage.ts";
+import { loadIntentState, MAX_CHECKPOINT_BATCH, CheckpointBatchLimitError, type CheckpointRequest } from "@arbor/merge";
 import { Database } from "bun:sqlite";
 import { stableJSONString } from "@arbor/core";
 import {
@@ -11,7 +11,7 @@ import {
   type MaterialRef,
   type SourceOperation,
 } from "@arbor/wire";
-import { MergeTool, CheckpointBatchTooLargeError } from "../merge-tool.ts";
+import { MergeTool } from "../merge-tool.ts";
 import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
 import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
@@ -19,8 +19,7 @@ import {
   type IntentRequest,
   type IntentRequestInput,
   type IntentResponse,
-} from "../../../merge/src/intent-model.ts";
-import { MAX_CHECKPOINT_BATCH, type CheckpointRequest } from "../../../merge/src/checkpoint.ts";
+} from "@arbor/merge";
 const encoder = new TextEncoder();
 const id = (value: unknown) =>
   hashObject(encoder.encode(stableJSONString(value))).slice(7);
@@ -177,7 +176,7 @@ export class SemanticMerge {
           offset += size;
           break;
         } catch (error) {
-          if (!(error instanceof CheckpointBatchTooLargeError) || size === 1) throw error;
+          if (!(error instanceof CheckpointBatchLimitError) || size === 1) throw error;
           size = Math.max(1, Math.floor(size / 2));
         }
       }

@@ -1,4 +1,4 @@
-import { defaultSourceMergeRule, type SourceMergeRuleSelector } from "./merge-rules.ts";
+import { defaultSourceMergeRule, type SourceMergeRuleSelector } from "../../../merge/src/merge-rules.ts";
 import { decodeWireDirectory, hashObject, type AcceptedUpdate, type ObjectHash, type SourceOperation } from "@arbor/wire";
 import { executeExactSourceEdits, UnsupportedSourceEdit } from "./source-edits.ts";
 import type { SourceIntent, StoredSourceIntent } from "./source-intent-store.ts";

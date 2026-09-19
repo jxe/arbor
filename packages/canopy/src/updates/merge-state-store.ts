@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { InspectedDecision, CandidateUpdate } from "@arbor/wire";
-import type { IntentResponse } from "../../../merge/src/intent-model.ts";
+import type { IntentResponse } from "@arbor/merge";
 export interface MergeStateRecord {
   state: string;
   authored: string;

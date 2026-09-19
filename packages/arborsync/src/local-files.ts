@@ -3,7 +3,7 @@ import { basename, dirname } from "node:path";
 import { canonicalNodePath, normalizeTreePath, siblingMarkdownTreePath, type NodeRef } from "@arbor/core";
 import type { TreeManager } from "./tree-manager.ts";
 import type { Workspace } from "./workspace.ts";
-import { ProtocolError } from "./protocol-error.ts";
+import { ProtocolError } from "@arbor/core";
 
 /** A logical path inside one placed or session workspace. */
 interface ResolvedScope {

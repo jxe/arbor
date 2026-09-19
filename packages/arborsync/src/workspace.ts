@@ -10,7 +10,8 @@ import { reportObjectRead } from "./object-read-diagnostics.ts";
 import { rootDisplayName } from "./root-title.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
 
-export { ProtocolError, RevisionConflictError } from "./protocol-error.ts";
+export { ProtocolError } from "@arbor/core";
+export { RevisionConflictError } from "./node-sampling.ts";
 
 export interface WorkspaceOptions {
   faultInjector?: (stage: string) => void | Promise<void>;

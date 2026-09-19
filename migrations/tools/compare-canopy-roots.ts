@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { ObjectStore } from "../../packages/canopy/src/objects.ts";
+import { ObjectStore } from "@arbor/object-store";
 import { readAccountConfigGraph, type AccountConfigGraph } from "../../packages/canopy/src/account-policy.ts";
 import { readAccountConfigGraphV2, type AccountConfigGraphV2 } from "../../packages/canopy/src/account-policy-v2.ts";
 import { materializeTree } from "@arbor/fs";

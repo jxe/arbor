@@ -3,7 +3,7 @@ import { readdir, unlink, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { decodeWireDirectory, encodeWireDirectory, hashObject, verifyTreeSnapshotGraph, type ObjectHash, type WireDirectoryEntry } from "@arbor/wire";
 import { decodeLegacyObject } from "./legacy.ts";
-import { ObjectStore } from "../../packages/canopy/src/objects.ts";
+import { ObjectStore } from "@arbor/object-store";
 import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
 import { assertCurrentCanopySchema } from "../../packages/canopy/src/schema.ts";
 import { rootProfileFacts } from "../../packages/canopy/src/profile.ts";

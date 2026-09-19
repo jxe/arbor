@@ -13,7 +13,11 @@ export { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type M
 import { mergeIntent } from "./intent-engine.ts";
 import type { IntentRequestInput, IntentResponse } from "./intent-model.ts";
 export type { Frame, IntentRequest, IntentRequestInput, IntentResponse } from "./intent-model.ts";
-export type { MergeSummary } from "./summary.ts";
+export type { MergeSummary, SourceReconciliation } from "./summary.ts";
+export { mergeWireTrees, type MergeResult } from "./merge.ts";
+export { CheckpointBatchLimitError } from "./checkpoint-batch.ts";
+export { loadIntentState } from "./state-storage.ts";
+export { MAX_CHECKPOINT_BATCH, type CheckpointRequest } from "./checkpoint.ts";
 
 export interface MergeObjects {
   read(hash: ObjectHash): Promise<Uint8Array>;

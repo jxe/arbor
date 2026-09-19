@@ -3,7 +3,7 @@ import { currentDeviceID } from "@arbor/stores";
 import { ResyncRequiredError } from "./events.ts";
 import type { ArborSyncDaemon } from "./service.ts";
 import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
-import { ProtocolError } from "./protocol-error.ts";
+import { ProtocolError } from "@arbor/core";
 import { json, errorResponse } from "./http.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {

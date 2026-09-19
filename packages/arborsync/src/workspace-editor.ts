@@ -45,7 +45,8 @@ import { writeFilesystemProperties } from "./filesystem-property-write.ts";
 import { generateTreeTypes, generatedTypeDeclarationPath } from "./generated-types.ts";
 import { NodeProviderRouter } from "./node-provider-router.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
-import { ProtocolError, RevisionConflictError } from "./protocol-error.ts";
+import { ProtocolError } from "@arbor/core";
+import { RevisionConflictError } from "./node-sampling.ts";
 
 export interface ConfirmedSourcePatch {
   baseSource: string;

@@ -943,12 +943,12 @@ test("large historical batches split without changing their accepted basis", asy
     current=result.results[0]!.update.root;accepted=result.results[0]!.update.id;
   }
   await stop();await start();
-  const {CheckpointBatchTooLargeError}=await import("../../../packages/canopy/src/merge-tool.ts");
+  const {CheckpointBatchLimitError}=await import("@arbor/merge");
   const tool=(running.canopy as unknown as {mergeTool:import("../../../packages/canopy/src/merge-tool.ts").MergeTool}).mergeTool;
   const evaluate=tool.evaluate.bind(tool);let splits=0,successfulSteps=0;
   tool.evaluate=(async(request:any,inputs:ReadonlyMap<string,Uint8Array>)=>{
     if(request.kind==="checkpoint-batch"){
-      if(request.steps.length>4){splits++;throw new CheckpointBatchTooLargeError("test budget");}
+      if(request.steps.length>4){splits++;throw new CheckpointBatchLimitError("test budget");}
       successfulSteps+=request.steps.length;
     }
     return evaluate(request,inputs);

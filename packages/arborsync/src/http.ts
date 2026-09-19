@@ -1,5 +1,5 @@
 import type { ArborErrorCode, ArborError } from "@arbor/core";
-import { ProtocolError } from "./protocol-error.ts";
+import { ProtocolError } from "@arbor/core";
 
 export function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });

@@ -62,7 +62,7 @@ import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore, type AcceptedUpdateInput, type StoredAcceptedResponse } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
-import { ObjectStore } from "./objects.ts";
+import { ObjectStore } from "@arbor/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
 import { rootProfileFacts } from "./profile.ts";
