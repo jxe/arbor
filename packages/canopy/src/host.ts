@@ -493,7 +493,7 @@ export async function serveCanopy(options: {
           if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
           const treeID = decodeURIComponent(updates[1]!);
           const timer = new PhaseTimer();
-          const writesBefore = canopy.objectWrites();
+          const countersBefore = canopy.objectCounters();
           return await withPhaseTimer(timer, async () => {
             const body = await request.json() as Record<string, unknown>;
             const update = decodeUpdateRequestJSON(body);
@@ -526,8 +526,8 @@ export async function serveCanopy(options: {
             if (direct && !canopy.execution.covered(direct)) return wireError("permission-denied", "Authorization changed before receipt disclosure", 403);
             const response = json(updateJSON(result.result), result.status, { "server-timing": timer.serverTiming() });
             timer.mark("respond");
-            const writes = canopy.objectWrites();
-            for (const key of ["objects", "written", "fsyncs"] as const) timer.count(key, writes[key] - writesBefore[key]);
+            const counters = canopy.objectCounters();
+            for (const key of Object.keys(counters)) timer.count(key, Math.round((counters[key]! - countersBefore[key]!) * 10) / 10);
             // Diagnostics only: tree identity, outcome, and durations. No subjects,
             // request content, or object identities.
             logUpdate({ event: "update", tree: treeID, status: result.status, updates: update.updates.length, ...timer.summary() });

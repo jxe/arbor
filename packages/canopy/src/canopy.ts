@@ -242,7 +242,7 @@ export class CanopyDaemon implements AsyncDisposable {
     );
     this.acceptedStore = new AcceptedUpdateStore(db);
     this.observations = new ObservationLog(db);
-    this.objects = new ObjectStore(join(dataRoot, "objects"));
+    this.objects = new ObjectStore(join(dataRoot, "objects"), { cacheBytes: objectCacheBytes() });
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
       tree: (id) => this.get(id),
@@ -2202,9 +2202,12 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.objects.read(hash);
   }
 
-  /** Snapshot of cumulative object write counters, for request diagnostics. */
-  objectWrites(): { objects: number; written: number; fsyncs: number } {
-    return { ...this.objects.writes };
+  /** Snapshot of cumulative object read/write counters, for request diagnostics. */
+  objectCounters(): Record<string, number> {
+    return {
+      objects: this.objects.writes.objects, written: this.objects.writes.written, fsyncs: this.objects.writes.fsyncs,
+      reads: this.objects.readCounters.reads, "read-files": this.objects.readCounters.files, "read-bytes": this.objects.readCounters.bytes, "read-ms": this.objects.readCounters.milliseconds,
+    };
   }
 
   /** Verify SQLite plus every object reachable from retained accepted history. */
@@ -2634,4 +2637,10 @@ function dirnameURL(path: string): string {
   const segments = pathSegments(path);
   if (segments.length <= 1) return "/";
   return `/${segments.slice(0, -1).join("/")}`;
+}
+
+/** Immutable object cache size; `ARBOR_OBJECT_CACHE_MB` overrides the 256 MB default. */
+function objectCacheBytes(): number {
+  const configured = Number(process.env.ARBOR_OBJECT_CACHE_MB);
+  return (Number.isFinite(configured) && configured >= 0 ? configured : 256) * 1024 * 1024;
 }

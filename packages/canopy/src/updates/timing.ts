@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 /**
  * Per-request phase accounting for update acceptance. Phases are wall-clock
  * milliseconds between consecutive marks; `add` records nested work (merge
@@ -49,30 +51,19 @@ function round(ms: number): number {
   return Math.round(ms * 10) / 10;
 }
 
-// One process-wide current timer rather than AsyncLocalStorage: the request
-// path already runs inside the execution authority's async context, and the
-// server serializes updates per tree. Concurrent updates to different trees
-// would attribute a phase to whichever request marked it, which is diagnostic
-// noise, not a correctness concern.
-let current: PhaseTimer | undefined;
+const storage = new AsyncLocalStorage<PhaseTimer>();
 
 /** Run `work` with `timer` as the current request's timer. */
-export async function withPhaseTimer<T>(timer: PhaseTimer, work: () => Promise<T>): Promise<T> {
-  const previous = current;
-  current = timer;
-  try {
-    return await work();
-  } finally {
-    current = previous;
-  }
+export function withPhaseTimer<T>(timer: PhaseTimer, work: () => Promise<T>): Promise<T> {
+  return storage.run(timer, work);
 }
 
 /** The current request's timer, if one is active. */
 export function phaseTimer(): PhaseTimer | undefined {
-  return current;
+  return storage.getStore();
 }
 
 /** Mark a phase on the current request's timer, if any. */
 export function markPhase(phase: string): void {
-  current?.mark(phase);
+  storage.getStore()?.mark(phase);
 }

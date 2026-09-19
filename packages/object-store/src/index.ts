@@ -28,7 +28,19 @@ async function syncPath(path: string): Promise<void> {
  * a candidate graph before any of its objects are durable.
  */
 export class ObjectStore {
-  constructor(private readonly root: string) {}
+  /** Verified immutable bytes by hash; content addressing makes a hit exact. */
+  private readonly cache = new Map<ObjectHash, Uint8Array>();
+  private cachedBytes = 0;
+  private readonly cacheLimit: number;
+
+  /** Cumulative read-side counters for diagnostics; callers diff snapshots. */
+  readonly readCounters: ObjectReadCounters = { reads: 0, files: 0, bytes: 0, milliseconds: 0 };
+
+  /** `cacheBytes` above zero keeps that many bytes of hash-verified objects in
+   * memory. Only for stores whose files are never rewritten in place. */
+  constructor(private readonly root: string, options: { cacheBytes?: number } = {}) {
+    this.cacheLimit = Math.max(0, options.cacheBytes ?? 0);
+  }
 
   path(hash: ObjectHash): string {
     if (!HASH.test(hash)) throw new Error(`Invalid object hash: ${hash}`);
@@ -37,9 +49,33 @@ export class ObjectStore {
 
   /** Exact stored bytes; throws when the object is absent or corrupt. */
   async read(hash: ObjectHash): Promise<Uint8Array> {
+    this.readCounters.reads++;
+    const cached = this.cache.get(hash);
+    if (cached) {
+      // Refresh recency so the working set survives eviction.
+      this.cache.delete(hash);
+      this.cache.set(hash, cached);
+      return cached;
+    }
+    const started = performance.now();
     const bytes = new Uint8Array(await readFile(this.path(hash)));
+    this.readCounters.files++;
+    this.readCounters.bytes += bytes.byteLength;
+    this.readCounters.milliseconds += performance.now() - started;
     if (hashObject(bytes) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
+    this.remember(hash, bytes);
     return bytes;
+  }
+
+  private remember(hash: ObjectHash, bytes: Uint8Array): void {
+    if (!this.cacheLimit || bytes.byteLength > this.cacheLimit / 8 || this.cache.has(hash)) return;
+    this.cache.set(hash, bytes);
+    this.cachedBytes += bytes.byteLength;
+    for (const [oldest, old] of this.cache) {
+      if (this.cachedBytes <= this.cacheLimit) break;
+      this.cache.delete(oldest);
+      this.cachedBytes -= old.byteLength;
+    }
   }
 
   /** Bytes from the proposal or the store, or null when neither has them. */
@@ -194,6 +230,7 @@ export class ObjectStore {
       unique.set(object.hash, object.bytes);
     }
     this.writes.objects += unique.size;
+    if (durable) for (const [hash, bytes] of unique) this.remember(hash, bytes);
     // Directories whose entries changed or whose files were only staged
     // before; each is synced once after every file in it is complete.
     const directories = new Set<string>();
@@ -266,6 +303,17 @@ export class ObjectStore {
     this.writes.fsyncs++;
     await syncPath(path);
   }
+}
+
+export interface ObjectReadCounters {
+  /** Read calls, including cache hits. */
+  reads: number;
+  /** Reads that went to the filesystem. */
+  files: number;
+  /** Bytes read from the filesystem. */
+  bytes: number;
+  /** Wall time spent in filesystem reads. */
+  milliseconds: number;
 }
 
 export interface ObjectWriteCounters {
