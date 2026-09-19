@@ -13,7 +13,7 @@ func compoundEntryFixtures() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
         defer { try? FileManager.default.removeItem(at:root) }
         let record = try SourceAdmissionRecord(change:fixture.change,tree:"tr_compound",basis:.accepted(.init(root:fixture.graph.root,update:"basis")),graph:fixture.graph,candidate:value.candidate,entryActions:value.actions)
-        #expect(record.update.operations == value.operations)
+        #expect(record.update.trace?.flatMap(\.operations) == value.operations)
         let queue = try await SourceAdmissionQueue(tree:"tr_compound",stateRoot:root)
         try await queue.retain(record)
         let reopened = try await SourceAdmissionQueue(tree:"tr_compound",stateRoot:root)

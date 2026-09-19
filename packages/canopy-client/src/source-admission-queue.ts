@@ -29,9 +29,17 @@ type StoredSourceAdmissionRecord = Omit<SourceAdmissionRecord, "graph" | "candid
   /** Schema 2 fields, read once during migration and never written again. */
   intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string;
 };
-/** Schema 3 stores the wire element verbatim; schema 2 journals load once and are rewritten. */
-interface SourceAdmissionJournal { schema: 2 | 3; tree: string; records: StoredSourceAdmissionRecord[] }
+/** Schema 4 stores the wire element verbatim with its frame chain; schema 2 and
+ * 3 journals load once and are rewritten. */
+interface SourceAdmissionJournal { schema: 2 | 3 | 4; tree: string; records: StoredSourceAdmissionRecord[] }
 export function sourceIntentDigest(intent: SourceAdmissionIntent): string { return canonicalCBORHash(intent); }
+/** A journal written before schema 4 stored a flat operation list for the whole
+ * record, which is exactly one frame from its graph's root to its candidate. */
+function framed(update: CandidateUpdateJSON, before: string): CandidateUpdateJSON {
+  if (!update || typeof update !== "object" || !("operations" in update)) return update;
+  const { operations, ...rest } = update as CandidateUpdateJSON & { operations: SourceOperation[] | null };
+  return { ...rest, trace: operations?.length ? [{ before, after: rest.candidate, operations }] : null };
+}
 interface JournalFingerprint { size: number; modified: number; inode: number }
 /** Durable platform objects addressable by canonical wire hash. Source queues
  * keep only admission-created objects when this shared store is supplied. */
@@ -156,7 +164,10 @@ export function prepareSourceAdmission(input: {
     return result;
   });
 
-  const update = encodeCandidateUpdateJSON({ candidate: root, change, operations: file && operations.length ? operations : null, resolves: [],
+  // One frame for this generation: from the basis graph's root to the root it
+  // produced. Phase 3 of plan 010 emits one frame per coalesced generation.
+  const update = encodeCandidateUpdateJSON({ candidate: root, change,
+    trace: file && operations.length ? [{ before: graph.root, after: root, operations }] : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   decodeCandidateUpdateJSON(update);
   const document: SourceDocumentCapture = { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) };
@@ -176,7 +187,7 @@ export function preparePageCreation(input: {change: string; tree: string; basis:
   const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change});
   if (removed.candidate.root !== graph.root) throw Error("Creation does not reproduce original graph");
   verifyTreeSnapshotGraph(graph,"sparse-files"); verifyTreeSnapshotGraph(candidate,"sparse-files");
-  const update = encodeCandidateUpdateJSON({change,candidate:candidate.root,operations:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  const update = encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   return {change,tree,basis,graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,document:null,creation:{document:{...creation.document},removals:[...creation.removals]},update};
 }
 export function prepareEntryAdmission(input: {
@@ -187,7 +198,7 @@ export function prepareEntryAdmission(input: {
   const context={change,candidate:input.candidate};
   const {candidate,operations}=input.entryActions ? prepareEntryActions(input.graph,input.entryActions,context) : prepareEntryTransfer(input.graph,input.entryTransfer!,context);
   if(input.candidate && input.candidate.root!==candidate.root)throw Error("Entry intent does not reproduce candidate");
-  const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,operations,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:operations.length?[{before:input.graph.root,after:candidate.root,operations}]:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   decodeCandidateUpdateJSON(update);
   return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,document:null,...(input.entryActions ? {entryActions:structuredClone(input.entryActions)} : {entryTransfer:structuredClone(input.entryTransfer)}),candidate:snapshotJSON(candidate),update};
 }
@@ -325,7 +336,7 @@ export class SourceAdmissionQueue {
       return;
     }
     const journal = value as Partial<SourceAdmissionJournal>;
-    if ((journal.schema !== 2 && journal.schema !== 3) || journal.tree !== this.tree || !Array.isArray(journal.records)) throw new Error("Invalid source admission journal");
+    if (![2, 3, 4].includes(journal.schema as number) || journal.tree !== this.tree || !Array.isArray(journal.records)) throw new Error("Invalid source admission journal");
     if (journal.records.length && journal.records.every(record => typeof record.change === "string" && settled.has(record.change))) {
       await this.write([]); return;
     }
@@ -335,17 +346,18 @@ export class SourceAdmissionQueue {
     }));
     const records = journal.records.map(record => this.upgraded(this.materialize(record)));
     validateSourceAdmissions(records, this.tree);
-    if (journal.schema !== 3) { await this.write(records); return; }
+    if (journal.schema !== 4) { await this.write(records); return; }
     this.records = records;
     this.fingerprint = await this.currentFingerprint();
   }
 
-  /** Drop schema 2 fields; keep a capture summary derived from the stored intent. */
+  /** Drop schema 2 fields; keep a capture summary derived from the stored
+   * intent; carry a schema-3 element's flat operation list into a frame. */
   private upgraded(record: SourceAdmissionRecord & { intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string }): SourceAdmissionRecord {
     const { intent, transaction: _transaction, undoOf: _undoOf, ...rest } = record;
     const creation = rest.creation ? { document: { ...rest.creation.document }, removals: [...rest.creation.removals] } : undefined;
     const document = rest.document ?? (intent ? { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) } : null);
-    return { ...rest, ...(creation ? { creation } : {}), document } as SourceAdmissionRecord;
+    return { ...rest, ...(creation ? { creation } : {}), document, update: framed(rest.update, rest.graph.root) } as SourceAdmissionRecord;
   }
 
   private async write(records: SourceAdmissionRecord[], selfContained = false): Promise<void> {
@@ -362,7 +374,7 @@ export class SourceAdmissionQueue {
     }
     await mkdir(this.objectsPath, { recursive: true, mode: 0o700 });
     await Promise.all([...presented].map(([hash, bytes]) => this.writeObject(hash, bytes)));
-    const journal: SourceAdmissionJournal = { schema: 3, tree: this.tree, records: records.map(record => this.stored(record)) };
+    const journal: SourceAdmissionJournal = { schema: 4, tree: this.tree, records: records.map(record => this.stored(record)) };
     const directory = dirname(this.path), temporary = `${this.path}.${crypto.randomUUID()}.tmp`;
     await mkdir(directory, { recursive: true, mode: 0o700 });
     try {

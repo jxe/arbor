@@ -66,7 +66,7 @@ struct SourceAdmissionQueueTests {
         let undoPatch = WorkspaceDocumentPatch(baseContentRevision: "c1", edits: [.init(utf8Range: 0..<5, replacement: "Before", expected: "After")])
         let undo = try SourceAdmissionRecord(change: "undo", tree: f.tree, basis: .authored(change: first.change), graph: first.candidate,
             sourcePath: f.sourcePath, intent: .init(basis: .init(reference: reference, source: edited, contentRevision: "c1"), patch: undoPatch, source: source))
-        #expect(undo.update.operations?.allSatisfy { $0.kind == "editSource" } == true)
+        #expect(undo.update.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true)
         #expect(undo.candidate.root == graph.root)
         // Records carry no document bytes: only hashes, the wire element, and a capture digest.
         let encoded = String(decoding: try JSONEncoder().encode(undo), as: UTF8.self)
@@ -142,8 +142,9 @@ struct SourceAdmissionQueueTests {
             copies: f.edit.copies.map { .init(source: $0.source[0]..<$0.source[1], replacement: $0.replacement[0]..<$0.replacement[1], document: $0.document) })])
         let record = try SourceAdmissionRecord(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.destinationPath,
             intent: .init(basis: basis, patch: patch, source: f.destination + f.edit.replacement))
-        #expect(record.update.operations?.first?.kind == "copySource")
-        guard case let .object(source)? = record.update.operations?.first?.fields["source"], case let .object(material)? = source["material"] else { Issue.record("Missing material"); return }
+        let copied = record.update.trace?.first?.operations.first
+        #expect(copied?.kind == "copySource")
+        guard case let .object(source)? = copied?.fields["source"], case let .object(material)? = source["material"] else { Issue.record("Missing material"); return }
         #expect(material["path"] == .string(f.sourcePath))
         var wrong = patch; wrong.edits[0].copies?[0].document?.path = "/missing.md"
         #expect(throws: (any Error).self) {
@@ -304,7 +305,7 @@ struct SourceAdmissionQueueTests {
         #expect(try await queue.retained().isEmpty)
         #expect((try Data(contentsOf: path)).count < legacySize)
         let raw = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
-        #expect(raw["schema"] as? Int == 3)
+        #expect(raw["schema"] as? Int == 4)
     }
 
     @Test("Pending legacy migration remains self-contained when its old platform basis is gone")
@@ -333,7 +334,7 @@ extension SourceAdmissionQueueTests {
             try await queue.retain(record)
             let reopened = try await SourceAdmissionQueue(tree:"tr_entry",stateRoot:root)
             #expect(try await reopened.retained() == [record])
-            #expect(record.update.operations?.first?.kind == kind.rawValue)
+            #expect(record.update.trace?.first?.operations.first?.kind == kind.rawValue)
             #expect(throws:(any Error).self) { try EntryTransfer(kind:kind,source:"/nested",parent:"/nested",name:"loop").prepare(graph:graph) }
         }
     }

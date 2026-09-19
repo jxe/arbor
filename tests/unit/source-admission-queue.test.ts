@@ -3,11 +3,14 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionIntent, type SourceAdmissionRecord } from "@arbor/canopy-client";
-import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type TreeSnapshot } from "@arbor/wire";
+import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type SourceOperation, type TreeSnapshot } from "@arbor/wire";
 import { executeExactSourceEdits } from "../../packages/canopy/src/updates/source-edits.ts";
 import { decodeCandidateUpdateJSON } from "@arbor/wire";
 
 const fixture = JSON.parse(await readFile(new URL("../../conformance/source-admission-queue.json", import.meta.url), "utf8"));
+/** A record's whole authored contribution, in order, across its frames. */
+const authored = (update: { trace: Array<{ operations: SourceOperation[] }> | null }) =>
+  (update.trace ?? []).flatMap(frame => frame.operations);
 function initial(): TreeSnapshot {
   const file = new TextEncoder().encode(fixture.source), hash = hashObject(file);
   const nested = encodeWireDirectory({ type: "directory", entries: [{ name: "note.md", file: hash }] }), directory = hashObject(nested);
@@ -53,7 +56,7 @@ test("shared source queue preserves dependency identity, exact candidate bytes a
     expect(prepared.request).toEqual(fixture.requests[record.change]);
     // Independent server execution checks that client-generated operations explain every byte.
     const update = decodeCandidateUpdateJSON(record.update), graph = decodeTreeSnapshotJSON(record.graph);
-    const executed = await executeExactSourceEdits(graph.root, update.operations!, async hash => graph.objects.get(hash)!);
+    const executed = await executeExactSourceEdits(graph.root, authored(update), async hash => graph.objects.get(hash)!);
     expect(executed.root).toBe(record.candidate.root);
   }
   expect((await reopened.request("change-b")).request.updates.map(u => u.change)).toEqual(["change-a", "change-b"]);
@@ -118,7 +121,7 @@ test("first directory-body save retains an exact snapshot without inventing sour
   const graph = { root, objects: new Map([[root, bytes]]) };
   const record = prepareSourceAdmission({ tree: fixture.tree, graph, basis: { kind: "accepted", root, update: "empty" }, sourcePath: "/_index.md",
     intent: { basis: { tree: fixture.tree, path: "/", revision: "empty-body", source: "" }, source: "Exact\r\n", edits: [{ offset: 0, length: 0, replacement: "Exact\r\n" }] } });
-  expect(record.update.operations).toBeNull();
+  expect(record.update.trace).toBeNull();
   await q.retain(record);
   expect((await q.retained())[0]).toEqual(record);
   expect(decodeTreeSnapshotJSON(record.candidate).objects.has(hashObject(Buffer.from("Exact\r\n")))).toBe(true);
@@ -161,7 +164,7 @@ test("fully settled embedded-object journals upgrade directly to an empty hash j
   const legacySize = (await stat(q.path)).size;
   expect(await q.compact(new Set(all.map(record => record.change)), false)).toBe(true);
   expect((await stat(q.path)).size).toBeLessThan(legacySize);
-  expect(JSON.parse(await readFile(q.path, "utf8"))).toMatchObject({ schema: 3, tree: fixture.tree, records: [] });
+  expect(JSON.parse(await readFile(q.path, "utf8"))).toMatchObject({ schema: 4, tree: fixture.tree, records: [] });
 }));
 
 test("pending legacy migration remains self-contained when its old platform basis is gone", async () => withQueue(async (q, root) => {
@@ -184,7 +187,7 @@ test("source preservation fixtures retain verified lineage across queue restart"
     const record=prepare();await queue.retain(record);
     const reopened=new SourceAdmissionQueue(fixture.tree,root);
     expect(await reopened.retained()).toEqual([record]);
-    const operation=decodeCandidateUpdateJSON(record.update).operations![0]!;
+    const operation=authored(decodeCandidateUpdateJSON(record.update))[0]!;
     expect(operation.kind).toBe("editSource");
     if(operation.kind==="editSource")expect(operation.lineage?.map(l=>({source:l.source.range,replacement:l.range}))).toEqual(value.lineage);
   });
@@ -197,10 +200,10 @@ test("explicit entry moves and copies retain different intent through restart", 
     const record=prepareEntryAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"entry-basis"},graph,entryTransfer:{kind,source:"/nested/note.md",parent:"/",name:"moved.md"}});
     await queue.retain(record);
     expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
-    expect(decodeCandidateUpdateJSON(record.update).operations?.[0]?.kind).toBe(kind);
+    expect(authored(decodeCandidateUpdateJSON(record.update))[0]?.kind).toBe(kind);
     const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
     const tool=new MergeTool(root),candidate=decodeTreeSnapshotJSON(record.candidate);
-    const evaluated=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations:decodeCandidateUpdateJSON(record.update).operations!},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    const evaluated=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations:authored(decodeCandidateUpdateJSON(record.update))},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
     expect(()=>prepareEntryAdmission({tree:fixture.tree,basis:record.basis,graph,entryTransfer:{kind,source:"/nested",parent:"/nested",name:"loop"}})).toThrow();
   });
@@ -216,7 +219,7 @@ test("copy metadata edits bind to operation output and survive recovery", async 
   const encoded=encodeWireDirectory(directory),candidate={root:hashObject(encoded),objects:new Map([...pure.objects,[file,bytes],[hashObject(encoded),encoded]])};
   const record=prepareEntryAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,candidate,entryTransfer:{...entryTransfer,rewrites:{"":file}}});
   await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
-  const operations=decodeCandidateUpdateJSON(record.update).operations!;
+  const operations=authored(decodeCandidateUpdateJSON(record.update));
   expect(operations.map(op=>op.kind)).toEqual(["copyEntry","editSource"]);
   const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
   const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
@@ -231,7 +234,7 @@ test("compound entry fixtures retain one basis and execute atomically after rest
     const graph=decodeTreeSnapshotJSON(fixtures.graph);
     const record=prepareEntryAdmission({change:fixtures.change,tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,entryActions:value.actions});
     expect(record.candidate).toEqual(value.candidate);
-    expect(decodeCandidateUpdateJSON(record.update).operations).toEqual(value.operations);
+    expect(authored(decodeCandidateUpdateJSON(record.update))).toEqual(value.operations);
     await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
     const candidate=decodeTreeSnapshotJSON(record.candidate);
     const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations:value.operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
@@ -252,9 +255,9 @@ test("compound move transports a concurrent child edit without changing the sibl
   const current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(move.candidate);
   const objects=new Map([...graph.objects,...current.objects,...incoming.objects]);
   const tool=new MergeTool(root);
-  const accepted=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,operations:decodeCandidateUpdateJSON(peer.update).operations!},rules:{id:"tree-default",revision:1}},objects);
+  const accepted=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,operations:authored(decodeCandidateUpdateJSON(peer.update))},rules:{id:"tree-default",revision:1}},objects);
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
-  const result=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,object:incoming.root,operations:decodeCandidateUpdateJSON(move.update).operations!},rules:{id:"tree-default",revision:1}},objects);
+  const result=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,object:incoming.root,operations:authored(decodeCandidateUpdateJSON(move.update))},rules:{id:"tree-default",revision:1}},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
   let hash=result.response.result.object;
   for(const part of ["archive","moved","child.md"]){const entry=decodeWireDirectory(objects.get(hash)!).entries.find(e=>e.name===part)!;hash=(entry.file??entry.directory)!;}
@@ -275,7 +278,7 @@ test("explicit source copies validate, survive recovery, and execute through the
     if(!c.valid){expect(prepare).toThrow();return;}
     const record=prepare();await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
     const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
-    const candidate=decodeTreeSnapshotJSON(record.candidate),operations=decodeCandidateUpdateJSON(record.update).operations!;
+    const candidate=decodeTreeSnapshotJSON(record.candidate),operations=authored(decodeCandidateUpdateJSON(record.update));
     expect(operations.filter(o=>o.kind==="copySource").length).toBe(c.copies.length);
     const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
@@ -291,9 +294,9 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
   const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
   const tool=new MergeTool(root),current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(copy.candidate);
   const objects=new Map([...graph.objects,...current.objects,...incoming.objects]),rules={id:"tree-default",revision:1 as const};
-  const accepted=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,operations:decodeCandidateUpdateJSON(peer.update).operations!},rules},objects);
+  const accepted=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,operations:authored(decodeCandidateUpdateJSON(peer.update))},rules},objects);
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
-  const result=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,operations:decodeCandidateUpdateJSON(copy.update).operations!},rules},objects);
+  const result=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,operations:authored(decodeCandidateUpdateJSON(copy.update))},rules},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
   const {decodeWireDirectory}=await import("@arbor/wire");
   const hash=decodeWireDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
@@ -312,14 +315,14 @@ test("undo is a plain edit; records keep no sources and settled records drop wit
   const undo = prepareSourceAdmission({ change: "undo", tree: fixture.tree, graph: decodeTreeSnapshotJSON(first.candidate), sourcePath: fixture.sourcePath,
     basis: { kind: "authored", change: first.change },
     intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: "c1", source: edited }, edits: [{ offset: 0, length: 5, replacement: "Before", expected: "After" }], source: text } });
-  expect(undo.update.operations?.every(op => op.kind === "editSource")).toBe(true);
+  expect(authored(undo.update).every(op => op.kind === "editSource")).toBe(true);
   expect(undo.candidate.root).toBe(graph.root);
   expect(JSON.stringify(undo)).not.toContain(text.trim());
   expect(undo.document.intentDigest).toMatch(/^sha256:/);
   await queue.retain([first, undo]);
   expect(await new SourceAdmissionQueue(fixture.tree, root).retained()).toEqual([first, undo]);
   const journal = JSON.parse(await readFile(join(root, "sync", "source-admissions.json"), "utf8"));
-  expect(journal.schema).toBe(3);
+  expect(journal.schema).toBe(4);
   expect(journal.records.every((record: Record<string, unknown>) => !("intent" in record) && !("transaction" in record) && !("undoOf" in record))).toBe(true);
   // Settled records go once nothing pending depends on them; the preserved
   // tail keeps the newest record per document and its authored ancestry.
@@ -331,7 +334,7 @@ test("undo is a plain edit; records keep no sources and settled records drop wit
   expect(await queue.retained()).toEqual([]);
 }));
 
-test("a schema 2 journal loads through its stored wire elements and is rewritten as schema 3", async () => withQueue(async (queue, root) => {
+test("a schema 2 journal loads through its stored wire elements and is rewritten as schema 4", async () => withQueue(async (queue, root) => {
   const [a] = records();
   await queue.retain(a!);
   const path = join(root, "sync", "source-admissions.json");
@@ -346,7 +349,28 @@ test("a schema 2 journal loads through its stored wire elements and is rewritten
   const [loaded] = await reopened.retained();
   expect(loaded).toEqual(a);
   expect(loaded!.document?.intentDigest).toBe(a!.document.intentDigest);
-  expect(JSON.parse(await readFile(path, "utf8")).schema).toBe(3);
+  expect(JSON.parse(await readFile(path, "utf8")).schema).toBe(4);
+}));
+
+test("a schema 3 journal's flat operation list becomes one frame from its graph to its candidate", async () => withQueue(async (queue, root) => {
+  const [a] = records();
+  await queue.retain(a!);
+  const path = join(root, "sync", "source-admissions.json");
+  const journal = JSON.parse(await readFile(path, "utf8"));
+  const stored = journal.records[0];
+  const trace = stored.update.trace;
+  expect(trace).toHaveLength(1);
+  // Rewrite the element in the shape schema 3 stored it in.
+  journal.schema = 3;
+  delete stored.update.trace;
+  stored.update.operations = trace[0].operations;
+  await writeFile(path, JSON.stringify(journal));
+  const [loaded] = await new SourceAdmissionQueue(fixture.tree, root).retained();
+  expect(loaded).toEqual(a);
+  expect(loaded!.update.trace).toEqual([
+    { before: a!.graph.root, after: a!.candidate.root, operations: trace[0].operations },
+  ]);
+  expect(JSON.parse(await readFile(path, "utf8")).schema).toBe(4);
 }));
 
 test("cross-document copies bind the captured source path and reject changed source bytes", () => {
@@ -356,7 +380,7 @@ test("cross-document copies bind the captured source path and reject changed sou
   graph.root=hashObject(directory); graph.objects=new Map([[graph.root,directory],[targetHash,target],[hashObject(Buffer.from(original)),Buffer.from(original)]]);
   const build=(source:string)=>prepareSourceAdmission({tree:fixture.tree,change:"cross-copy",graph,sourcePath:"/dest.md",basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:fixture.tree,path:"/dest",revision:"r1",source:target.toString()},source:target.toString()+original,edits:[{offset:target.length,length:0,replacement:original,copies:[{source:[0,Buffer.byteLength(original)],replacement:[0,Buffer.byteLength(original)],document:{path:"/source.md",source}}]}]}});
   const record=build(original);
-  expect(record.update.operations?.[0]).toMatchObject({kind:"copySource",source:{material:{path:"/source.md"}},at:{material:{path:"/dest.md"}}});
+  expect(authored(record.update)[0]).toMatchObject({kind:"copySource",source:{material:{path:"/source.md"}},at:{material:{path:"/dest.md"}}});
   expect(()=>build("Changed")).toThrow();
 });
 
@@ -366,7 +390,7 @@ test("shared cross-document fixture validates exact UTF-8 material", async () =>
   const directory=encodeWireDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination)},{name:"source.md",file:hashObject(source)}]});
   const graph={root:hashObject(directory),objects:new Map([[hashObject(directory),directory],[hashObject(source),source],[hashObject(destination),destination]])};
   const record=prepareSourceAdmission({tree:f.tree,change:"shared-cross-copy",graph,sourcePath:f.destinationPath,basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:f.tree,path:"/destination",source:f.destination,revision:"r1"},source:f.destination+f.edit.replacement,edits:[f.edit]}});
-  expect(record.update.operations?.[0]).toMatchObject({kind:"copySource",source:{material:{path:f.sourcePath},range:f.edit.copies[0].source}});
+  expect(authored(record.update)[0]).toMatchObject({kind:"copySource",source:{material:{path:f.sourcePath},range:f.edit.copies[0].source}});
 });
 
 test("page creation records reproduce their original graph without an undo transaction",async()=>{

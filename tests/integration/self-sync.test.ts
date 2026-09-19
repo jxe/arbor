@@ -183,17 +183,19 @@ test("pending semantic identity survives persistence and appending a snapshot su
   process.env.ARBOR_DATA_HOME = stateA;
   const snapshot = await resolveSnapshot(await snapshotDirectory(treeA));
   const pending = pendingFromSnapshot("up_basis", snapshot);
-  pending.operations = [{ kind: "undoOperation", key: "undo", target: { change: "previous", operation: "edit" } }];
+  pending.trace = [{ before: snapshot.root, after: pending.candidate, operations: [
+    { kind: "editSource", key: "edit", source: { material: { kind: "basis", path: "/note.md", object: snapshot.root } }, text: "x" },
+  ] }];
   const id = generateArborID("tr");
   await savePendingTreeUpdate(id, appendPendingTreeSuccessor(pending, snapshot));
   const restored = (await pendingTreeUpdate(id))!;
   expect(restored.change).toBe(pending.change);
-  expect(restored.operations).toEqual(pending.operations);
+  expect(restored.trace).toEqual(pending.trace);
   const updates = updatesFromPending(restored);
   expect(updates).toHaveLength(2);
   expect(updates[1]!.change).not.toBe(pending.change);
-  expect(updates[1]!.operations).toBeNull();
-  expect(decodeCandidateUpdateJSON(updates[0]).operations).toEqual(pending.operations);
+  expect(updates[1]!.trace).toBeNull();
+  expect(decodeCandidateUpdateJSON(updates[0]).trace).toEqual(pending.trace);
 });
 
 test("old pending requests fail closed and remain byte-for-byte recoverable", async () => {
@@ -364,7 +366,7 @@ describe("private self-sync", () => {
       const encoded = encodeWireDirectory(directory), root = hashObject(encoded);
       current.snapshot.objects.set(file, bytes); current.snapshot.objects.set(root, encoded);
       await owner.submitUpdates(tree, { base: current.descriptor.tree.update, updates: [{
-        change: crypto.randomUUID(), candidate: root, operations: null, deltas: [],
+        change: crypto.randomUUID(), candidate: root, trace: null, deltas: [],
         resolves: [{ state: page.state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }],
         objects: [...current.snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       }] });
@@ -466,7 +468,7 @@ describe("private self-sync", () => {
     const successorObjects = new Map(chainEnd.objects);
     successorObjects.set(hashObject(extraFile), extraFile);
     successorObjects.set(hashObject(successorRoot), successorRoot);
-    const successor: CandidateUpdate = { change: crypto.randomUUID(), operations: null,
+    const successor: CandidateUpdate = { change: crypto.randomUUID(), trace: null,
       candidate: hashObject(successorRoot),
       resolves: [],
       objects: [...successorObjects].map(([hash, bytes]) => ({ hash, bytes })),
@@ -590,7 +592,7 @@ describe("private self-sync", () => {
       entries: [{ name: "LinkPreviews", file: emptyDirectoryHash }],
     });
     const staleRootHash = hashObject(staleRoot);
-    await savePendingTreeUpdate(configurationTree, { change: crypto.randomUUID(), operations: null,
+    await savePendingTreeUpdate(configurationTree, { change: crypto.randomUUID(), trace: null,
       base: remote.tree.update!,
       candidate: staleRootHash,
       resolves: [],

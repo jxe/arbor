@@ -1578,7 +1578,9 @@ extension UpdateCoordinator {
         // New editor admissions can arrive during material loading.
         guard !(try await hasSourceWork()), !syncActive, control.attempt == nil,
               try files.loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
-        let update = WireCandidateUpdate(candidate: preview.candidate.root, operations: preview.operations,
+        let chosen = preview.operations ?? []
+        let update = WireCandidateUpdate(candidate: preview.candidate.root,
+            trace: chosen.isEmpty ? nil : [WireTraceFrame(before: fresh.root, after: preview.candidate.root, operations: chosen)],
             resolves: draft.decisions.map { .init(state: draft.snapshot.state, conflict: $0.id, alternatives: $0.alternatives.map(\.id)) },
             objects: preview.candidate.objects)
         let base = WireUpdateBase(root: fresh.root, update: fresh.state)

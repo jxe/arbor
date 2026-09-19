@@ -33,7 +33,7 @@ struct LiveEditorAdmissionTests {
         entries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
         let bytes = try WireObjectCodec.encode(.directory(entries, childrenSource: descriptor))
         let update = WireCandidateUpdate(candidate: WireObjectCodec.hash(bytes), change: UUID().uuidString,
-            operations: nil, objects: [.init(hash: hash, bytes: file), .init(hash: WireObjectCodec.hash(bytes), bytes: bytes)])
+            trace: nil, objects: [.init(hash: hash, bytes: file), .init(hash: WireObjectCodec.hash(bytes), bytes: bytes)])
         let request = try await client.prepareUpdates(tree: tree, base: .init(root: snapshot.root, update: current.tree.update), updates: [update])
         _ = try await client.submitUpdateResponse(request)
         return .init(tree: TreeID(rawValue: tree), path: "/" + name)
@@ -69,7 +69,7 @@ struct LiveEditorAdmissionTests {
         #expect(await host.copyToDocument(ArborDocumentReferenceCodec.encode(destination), blocks: [binding.document.children[0]], from: binding.document))
         _ = try await coordinator.syncOnce()
         let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
-        #expect(try await queue.retained().contains { $0.update.operations?.contains { $0.kind == "copySource" } == true })
+        #expect(try await queue.retained().contains { $0.update.trace?.contains { $0.operations.contains { $0.kind == "copySource" } } == true })
         let action = UUID(), block = binding.document.children[0]
         let page = try #require(await host.createDocument(title: "Converted " + action.uuidString, requestedReference: nil,
             initialContent: [block], transaction: action))
@@ -106,7 +106,7 @@ struct LiveEditorAdmissionTests {
             #expect(try await client.descriptor(tree: treeID).tree.conflicted == false)
         }
         let retained = try await queue.retained()
-        #expect(!retained.contains { $0.update.operations?.contains { $0.kind == "undoOperation" || $0.kind == "removeEntry" } == true })
+        #expect(!retained.contains { $0.update.trace?.contains { $0.operations.contains { $0.kind == "removeEntry" } } == true })
         let reopened = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
         #expect(try await reopened.retained() == retained)
         undo.redo(); binding.admitCurrentGeneration(); await binding.flush()
@@ -221,7 +221,7 @@ struct LiveEditorAdmissionTests {
             return id
         }
         #expect(alternatives.count == 2)
-        let resolution = WireCandidateUpdate(candidate: current.tree.root, operations: [],
+        let resolution = WireCandidateUpdate(candidate: current.tree.root, trace: [],
             resolves: [.init(state: current.tree.update, conflict: id, alternatives: ids)], objects: [])
         let prepared = try await client.prepareUpdates(tree: treeID,
             base: .init(root: current.tree.root, update: current.tree.update), updates: [resolution])
@@ -278,7 +278,7 @@ extension LiveEditorAdmissionTests {
         let final = try #require(records.last)
         #expect(record.graph.objects.contains { $0.bytes == Data(original.source.utf8) })
         #expect(record.candidate.objects.contains { $0.bytes == Data(authored.utf8) })
-        #expect(record.update.operations?.contains { $0.kind == "copySource" } == true)
+        #expect(record.update.trace?.contains { $0.operations.contains { $0.kind == "copySource" } } == true)
         await binding?.close(); binding = nil; await coordinator.close(); await tree.close()
         tree = try await place(initial,client:client)
         coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root,
@@ -339,7 +339,7 @@ extension LiveEditorAdmissionTests {
         #expect(try await session.snapshot().source == original + suffix)
         let retained = try await queue.retained()
         // No inverse operations, no transaction evidence, no document sources in the journal.
-        #expect(retained.allSatisfy { $0.update.operations?.allSatisfy { $0.kind == "editSource" } == true })
+        #expect(retained.allSatisfy { $0.update.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true })
         let journal = String(decoding: try Data(contentsOf: root.appending(path: "sync/source-admissions.json")), as: UTF8.self)
         #expect(!journal.contains("Plain first"))
         manager.redo()

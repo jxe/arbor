@@ -170,7 +170,10 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             return operations
         }
         let known = Set(graph.objects.map(\.hash))
-        var update = WireCandidateUpdate(candidate: root, change: change, operations: file == nil || operations.isEmpty ? nil : operations,
+        // One frame for this generation: from the basis graph's root to the
+        // root it produced. Phase 3 emits one frame per coalesced generation.
+        var update = WireCandidateUpdate(candidate: root, change: change,
+                                         trace: file == nil || operations.isEmpty ? nil : [WireTraceFrame(before: graph.root, after: root, operations: operations)],
                                          objects: candidate.objects.filter { !known.contains($0.hash) })
         // Against an accepted basis the server can rebuild the edited file from
         // its retained base, so send the patch as a delta rather than the file.
@@ -268,7 +271,9 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         let prepared = try entryActions?.prepare(graph:graph, candidate:candidate, changeID:change) ?? entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change)
         if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
-        self.update = WireCandidateUpdate(candidate: candidate.root, change: change, operations: prepared?.operations,
+        let captured = prepared?.operations ?? []
+        self.update = WireCandidateUpdate(candidate: candidate.root, change: change,
+                                          trace: captured.isEmpty ? nil : [WireTraceFrame(before: graph.root, after: candidate.root, operations: captured)],
                                           objects: self.candidate.objects.filter { !known.contains($0.hash) })
         _ = try JSONEncoder().encode(update)
     }
@@ -366,11 +371,12 @@ private struct StoredSourceAdmission: Codable {
     var creation: SourcePageCreation?
 }
 
-/// Schema 3 stores hashes and the wire element only. Schema 2 journals, which
+/// Schema 4 stores hashes and the wire element with its frame chain. Schema 3
+/// stored the element with a flat operation list; schema 2 journals, which
 /// embedded document sources and editor transactions, are read once through
 /// their stored wire elements and rewritten; schema 1 embedded whole objects.
 private struct SourceAdmissionJournal: Codable {
-    static let currentSchema = 3
+    static let currentSchema = 4
     var schema = currentSchema
     var tree: String
     var records: [StoredSourceAdmission]
@@ -530,7 +536,7 @@ public actor SourceAdmissionQueue {
             try objects.retain(reachableFrom: [], files: [])
             return ([], [:])
         }
-        if let journal = try? JSONDecoder().decode(SourceAdmissionJournal.self, from: data) {
+        if let journal = try? JSONDecoder().decode(SourceAdmissionJournal.self, from: Self.framed(data) ?? data) {
             guard (2...SourceAdmissionJournal.currentSchema).contains(journal.schema), journal.tree == tree else {
                 throw ArborWireValidationError.invalidValue("Invalid source journal schema or tree")
             }
@@ -670,6 +676,29 @@ public actor SourceAdmissionQueue {
 
     /// Recognizes the old top-level record array while retaining only each
     /// record's `change` string. It deliberately does not decode object bytes.
+    /// A journal written before schema 4 stored a flat operation list for the
+    /// whole record, which is exactly one frame from its graph's root to its
+    /// candidate. Rewrite those elements before the wire codec sees them; a
+    /// schema-4 journal is returned unchanged.
+    private static func framed(_ data: Data) -> Data? {
+        guard var journal = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let schema = journal["schema"] as? Int, schema < SourceAdmissionJournal.currentSchema,
+              var records = journal["records"] as? [[String: Any]] else { return nil }
+        for index in records.indices {
+            guard var update = records[index]["update"] as? [String: Any],
+                  update["trace"] == nil,
+                  let before = (records[index]["graph"] as? [String: Any])?["root"] as? String,
+                  let after = update["candidate"] as? String else { continue }
+            let operations = update.removeValue(forKey: "operations") as? [[String: Any]]
+            update["trace"] = (operations?.isEmpty ?? true)
+                ? NSNull()
+                : [["before": before, "after": after, "operations": operations!]]
+            records[index]["update"] = update
+        }
+        journal["records"] = records
+        return try? JSONSerialization.data(withJSONObject: journal)
+    }
+
     private static func isFullySettledLegacyJournal(_ data: Data, settled: Set<String>) -> Bool {
         guard !settled.isEmpty else { return false }
         return data.withUnsafeBytes { raw in

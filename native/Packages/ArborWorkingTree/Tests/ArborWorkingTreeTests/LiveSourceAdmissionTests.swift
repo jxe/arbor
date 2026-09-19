@@ -138,7 +138,7 @@ struct LiveSourceAdmissionTests {
             })
         }
         #expect(guards.contains { $0.conflict == conflict && Set($0.alternatives) == Set(identities) })
-        let resolution = WireCandidateUpdate(candidate: current.tree.root, operations: [], resolves:guards, objects: [])
+        let resolution = WireCandidateUpdate(candidate: current.tree.root, trace: [], resolves:guards, objects: [])
         var staleResolution = resolution
         staleResolution.change = UUID().uuidString
         staleResolution.resolves[0].state = firstConflict.tree.update
@@ -328,10 +328,10 @@ extension LiveSourceAdmissionTests {
         _ = try await provider.perform(.restore(reference:trashed.reference))
         let records = try await SourceAdmissionQueue(tree:treeID,stateRoot:root).retained()
         #expect(records.count == 5)
-        #expect(records[0].update.operations?.map(\.kind) == ["moveEntry","moveEntry"])
-        #expect(records[1].update.operations?.filter { $0.kind == "copyEntry" }.count == 2)
-        #expect(records[3].update.operations?.map(\.kind) == ["removeEntry","removeEntry"])
-        #expect(records[4].update.operations == nil)
+        #expect(records[0].update.trace?.flatMap(\.operations).map(\.kind) == ["moveEntry","moveEntry"])
+        #expect(records[1].update.trace?.flatMap(\.operations).filter { $0.kind == "copyEntry" }.count == 2)
+        #expect(records[3].update.trace?.flatMap(\.operations).map(\.kind) == ["removeEntry","removeEntry"])
+        #expect(records[4].update.trace == nil)
         await coordinator.close(); await tree.close()
         let clean = try await place(initial,client:client)
         let recovered = try UpdateCoordinator(workingTree:clean,transport:transport,stateRoot:root,
@@ -400,7 +400,7 @@ extension LiveSourceAdmissionTests {
             guard case let .directory(entries, metadata) = try WireObjectCodec.decode(rootBytes, kind: .directory) else { throw ConflictReviewError.unavailable }
             let deletionBytes = try WireObjectCodec.encode(.directory(entries.filter { $0.name != "page.md" }, childrenSource: metadata))
             let deletionRoot = WireObjectCodec.hash(deletionBytes)
-            let deletion = WireCandidateUpdate(candidate: deletionRoot, operations: nil,
+            let deletion = WireCandidateUpdate(candidate: deletionRoot, trace: nil,
                 objects: [.init(hash: deletionRoot, bytes: deletionBytes)])
             let deletionRequest = try await client.prepareUpdates(tree: treeID,
                 base: .init(root: inspection.root, update: inspection.state), updates: [deletion])

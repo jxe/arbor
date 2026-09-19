@@ -1785,7 +1785,7 @@ private actor SourceModeTransport: UpdateTransport {
         var candidate = initial
         var results: [WireUpdateElementResult] = []
         for (index, element) in request.updates.enumerated() {
-            #expect(element.operations?.allSatisfy { $0.kind == "editSource" } == true)
+            #expect(element.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true)
             // Like Canopy's immutable store, retain earlier authored candidates
             // even when their accepted projection selected the peer's bytes.
             candidate = try snapshots[element.candidate] ?? completeCandidate(WireUpdateRequest(base: request.base, updates: [element]), retained: candidate)
@@ -1978,10 +1978,10 @@ extension SourceSessionPublicationTests {
             let queue = try await SourceAdmissionQueue(tree: treeID.rawValue, stateRoot: root)
             let records = try await queue.retained()
             #expect(records.count == 8)
-            #expect(records[0].update.operations == nil)
-            #expect(records[1].update.operations?.first?.kind == "editSource")
-            #expect(records[3].update.operations?.first?.kind == "moveEntry")
-            #expect(records[4].update.operations == nil) // New directory material, not a made-up source identity.
+            #expect(records[0].update.trace == nil)
+            #expect(records[1].update.trace?.first?.operations.first?.kind == "editSource")
+            #expect(records[3].update.trace?.first?.operations.first?.kind == "moveEntry")
+            #expect(records[4].update.trace == nil) // New directory material, not a made-up source identity.
             for index in 1..<records.count { #expect(records[index].basis == .authored(change: records[index - 1].change)) }
             await coordinator.close(); await session.close(); await body.close()
             let reopened = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
@@ -2171,11 +2171,11 @@ extension SourceSessionPublicationTests {
             let trashed = try #require(try await provider.perform(.trash(reference:moved.reference)))
             let queue = try await SourceAdmissionQueue(tree:treeID.rawValue,stateRoot:root)
             let before = try await queue.retained()
-            #expect(before[0].update.operations?.map(\.kind) == ["moveEntry","moveEntry"])
-            #expect(before[2].update.operations?.map(\.kind) == ["moveEntry","moveEntry"])
-            #expect(before[3].update.operations?.filter { $0.kind == "copyEntry" }.count == 2)
-            #expect(before[3].update.operations?.contains { $0.kind == "editSource" } == true)
-            #expect(before[4].update.operations?.map(\.kind) == ["removeEntry","removeEntry"])
+            #expect(before[0].update.trace?.flatMap(\.operations).map(\.kind) == ["moveEntry","moveEntry"])
+            #expect(before[2].update.trace?.flatMap(\.operations).map(\.kind) == ["moveEntry","moveEntry"])
+            #expect(before[3].update.trace?.flatMap(\.operations).filter { $0.kind == "copyEntry" }.count == 2)
+            #expect(before[3].update.trace?.flatMap(\.operations).contains { $0.kind == "editSource" } == true)
+            #expect(before[4].update.trace?.flatMap(\.operations).map(\.kind) == ["removeEntry","removeEntry"])
             await coordinator.close(); await tree.close()
             let reopenedTree = try await makeTree(initial,update:"up_initial")
             let reopened = try UpdateCoordinator(workingTree:reopenedTree,transport:transport,stateRoot:root,
@@ -2188,7 +2188,7 @@ extension SourceSessionPublicationTests {
             let after = try await SourceAdmissionQueue(tree:treeID.rawValue,stateRoot:root).retained()
             #expect(Array(after.prefix(before.count)) == before)
             #expect(after.last?.candidate.root == before[3].candidate.root)
-            #expect(after.last?.update.operations == nil) // Creation from private Trash.
+            #expect(after.last?.update.trace == nil) // Creation from private Trash.
             await reopened.close(); await reopenedTree.close()
         }
     }

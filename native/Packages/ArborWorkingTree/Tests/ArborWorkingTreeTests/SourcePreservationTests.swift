@@ -21,7 +21,7 @@ func sourcePreservationFixtures() throws {
             let intent = try WorkspaceDocumentIntent(basis:.init(reference:reference,source:value.source,contentRevision:"r"),patch:patch,source:value.replacement)
             let record = try SourceAdmissionRecord(tree:"tr_lineage",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,sourcePath:"/note.md",intent:intent)
             try record.validate()
-            #expect(record.update.operations?.first?.fields["lineage"] == .array(value.lineage.map { part in .object([
+            #expect(record.update.trace?.first?.operations.first?.fields["lineage"] == .array(value.lineage.map { part in .object([
                 "source":.object(["material":.object(["kind":.string("basis"),"path":.string("/note.md"),"object":.string(hash)]),"range":.array(part.source.map(WireSemanticValue.integer))]),
                 "range":.array(part.replacement.map(WireSemanticValue.integer))
             ]) }))
@@ -48,7 +48,7 @@ func sourceCopyFixtures() async throws {
         let reference = WorkspaceReference(tree:"tr_copy",path:"/note")
         let intent = try WorkspaceDocumentIntent(basis:.init(reference:reference,source:value.source,contentRevision:"r"),patch:patch,source:value.replacement)
         let record = try SourceAdmissionRecord(tree:"tr_copy",basis:.accepted(.init(root:hash,update:"basis")),graph:graph,sourcePath:"/note.md",intent:intent)
-        #expect(record.update.operations?.filter { $0.kind == "copySource" }.count == value.copies.count)
+        #expect(record.update.trace?.flatMap(\.operations).filter { $0.kind == "copySource" }.count == value.copies.count)
         let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
         defer { try? FileManager.default.removeItem(at:root) }
         try await SourceAdmissionQueue(tree:"tr_copy",stateRoot:root).retain(record)

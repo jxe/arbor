@@ -48,22 +48,28 @@
         {
           "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
           "change": "change-a",
-          "operations": [
+          "trace": [
             {
-              "kind": "editSource",
-              "key": "edit-0",
-              "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
-                "range": [
-                  0,
-                  6
-                ]
-              },
-              "text": "After"
+              "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+              "after": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "operations": [
+                {
+                  "kind": "editSource",
+                  "key": "edit-0",
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                    },
+                    "range": [
+                      0,
+                      6
+                    ]
+                  },
+                  "text": "After"
+                }
+              ]
             }
           ],
           "resolves": [],
@@ -91,22 +97,28 @@
         {
           "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
           "change": "change-a",
-          "operations": [
+          "trace": [
             {
-              "kind": "editSource",
-              "key": "edit-0",
-              "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
-                "range": [
-                  0,
-                  6
-                ]
-              },
-              "text": "After"
+              "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+              "after": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "operations": [
+                {
+                  "kind": "editSource",
+                  "key": "edit-0",
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                    },
+                    "range": [
+                      0,
+                      6
+                    ]
+                  },
+                  "text": "After"
+                }
+              ]
             }
           ],
           "resolves": [],
@@ -129,22 +141,28 @@
         {
           "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
           "change": "change-b",
-          "operations": [
+          "trace": [
             {
-              "kind": "editSource",
-              "key": "edit-0",
-              "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2"
-                },
-                "range": [
-                  0,
-                  5
-                ]
-              },
-              "text": "After"
+              "before": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "after": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "operations": [
+                {
+                  "kind": "editSource",
+                  "key": "edit-0",
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2"
+                    },
+                    "range": [
+                      0,
+                      5
+                    ]
+                  },
+                  "text": "After"
+                }
+              ]
             }
           ],
           "resolves": [],
@@ -159,22 +177,28 @@
         {
           "candidate": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
           "change": "change-c",
-          "operations": [
+          "trace": [
             {
-              "kind": "editSource",
-              "key": "edit-0",
-              "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
-                "range": [
-                  0,
-                  6
-                ]
-              },
-              "text": "After"
+              "before": "sha256:4f7f67da2eb3798525a9263c0cb713e6edad0f25a8ffa9a7425aab7ba7b3de68",
+              "after": "sha256:99c541898d73ae021bf79ec4c6f0b4332acee591440ff7542f71f83ccd3b89da",
+              "operations": [
+                {
+                  "kind": "editSource",
+                  "key": "edit-0",
+                  "source": {
+                    "material": {
+                      "kind": "basis",
+                      "path": "/nested/note.md",
+                      "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
+                    },
+                    "range": [
+                      0,
+                      6
+                    ]
+                  },
+                  "text": "After"
+                }
+              ]
             }
           ],
           "resolves": [],

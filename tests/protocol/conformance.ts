@@ -132,7 +132,7 @@ try {
         const operations: SourceOperation[] = [{ key: "replace", kind: "editSource", source: { material: { kind: "basis", path: "/page.md", object: file } }, text }];
         const result = await executeExactSourceEdits(basis.root, operations, async hash => objects.get(hash)!);
         for (const object of result.generated) objects.set(...object);
-        return { change: crypto.randomUUID(), candidate: result.root, operations, resolves: [], objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
+        return { change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basis.root, after: result.root, operations }], resolves: [], objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
       }
       await owner.submitUpdates(tree, { base: basis.update, updates: [await replacement("First retained choice\n")] });
       const conflict = (await owner.submitUpdates(tree, { base: basis.update, updates: [await replacement("Hidden retained choice\n")] })).results[0]!.update;
