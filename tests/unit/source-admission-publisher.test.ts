@@ -108,30 +108,3 @@ test("captured source admits offline after a watch-equivalent advance without re
   expect(await session.admit(intent)).toEqual(acknowledged);
   expect(await queue.retained()).toHaveLength(1);
 }));
-
-
-test("transaction undo is durable offline and retry returns the reconciled projection", async () => scenario(async root => {
-  const { SourceDocumentSession } = await import("@arbor/canopy-client");
-  const queue = new SourceAdmissionQueue("tree", root), wire = transport(), initial = graph("base");
-  let offline = true, installed = false;
-  const server = {...wire, async submitUpdates(tree: string, request: UpdateRequest) {
-    if (offline) throw Error("offline");
-    return wire.submitUpdates(tree, request);
-  }};
-  const reader = {async descriptor() {return installed ? wire.current : {...wire.current,tree:{...wire.current.tree,root:initial.root as CurrentTree["tree"]["root"],update:"r1"}};},
-    async snapshot() {return installed ? wire.peer : initial;}};
-  const publisher = new SourceAdmissionPublisher(queue,server,async()=>{installed=true;});
-  const session = new SourceDocumentSession(queue,publisher,reader,"/note","/note.md");
-  const basis = await session.snapshot(), edits = [{offset:0,length:4,replacement:"mine"}];
-  const after = await session.admit({basis,edits,source:"mine",transactions:[{id:"typing",basisSource:"base",source:"mine",edits,inverses:[]}]});
-  const undoEdits = [{offset:0,length:4,replacement:"base"}];
-  const undo = {basis:after,edits:undoEdits,source:"base",transactions:[{id:"undo",basisSource:"mine",source:"base",edits:undoEdits,inverses:["typing"]}]};
-  await expect(session.admit(undo)).rejects.toThrow("offline");
-  const retained = await new SourceAdmissionQueue("tree",root).retained();
-  expect(retained.map(record=>record.change)).toEqual(["typing","undo-0"]);
-  expect(retained[1]!.update.operations).toEqual([{key:"undo-0",kind:"undoOperation",target:{change:"typing",operation:"edit-0"}}]);
-  offline = false;
-  expect((await session.admit(undo)).source).toBe("peer");
-  expect(await publisher.pending()).toEqual([]);
-  expect(await queue.retained()).toEqual(retained);
-}));

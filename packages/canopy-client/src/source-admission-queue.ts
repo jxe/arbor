@@ -1,33 +1,37 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { applySourceEdits, type SourceEdit } from "@arbor/core";
+import { applySourceEdits, canonicalCBORHash, type SourceEdit } from "@arbor/core";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeWireDirectory,
   encodeWireDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
   encodeObjectEnvelopes, type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@arbor/wire";
 
 export type SourceAdmissionBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
-export interface SourceTransaction {
-  id: string; basisSource: string; source: string; edits: SourceEdit[]; inverses: string[];
-}
 export interface SourceAdmissionIntent {
   basis: { tree: string; path: string; revision: string; source: string };
   edits: SourceEdit[];
   source: string;
-  transactions?: SourceTransaction[];
 }
-export interface SourcePageCreation { transaction: string; document: {tree: string; path: string}; removals: string[] }
+export interface SourcePageCreation { document: {tree: string; path: string}; removals: string[] }
+/** What a source record remembers of its editor capture: enough to serve the
+ * document's hidden candidate and recognize an exact retry, never the bytes. */
+export interface SourceDocumentCapture { path: string; basisRevision: string; intentDigest: string }
+/** Records keep hashes, the wire element, and a capture summary; undo is an
+ * ordinary edit and no document source or editor transaction is retained. */
 export interface SourceAdmissionRecord {
   creation?: SourcePageCreation;
-  transaction?: SourceTransaction; undoOf?: string;
   change: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshotJSON;
-  sourcePath: string | null; intent: SourceAdmissionIntent | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
+  sourcePath: string | null; document: SourceDocumentCapture | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
 }
 interface StoredSourceSnapshot { root: string; objects: string[] }
 type StoredSourceAdmissionRecord = Omit<SourceAdmissionRecord, "graph" | "candidate" | "update"> & {
   graph: StoredSourceSnapshot; candidate: StoredSourceSnapshot; update: CandidateUpdateJSON; updateObjects: string[];
+  /** Schema 2 fields, read once during migration and never written again. */
+  intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string;
 };
-interface SourceAdmissionJournal { schema: 2; tree: string; records: StoredSourceAdmissionRecord[]; releasedTransactions?: string[] }
+/** Schema 3 stores the wire element verbatim; schema 2 journals load once and are rewritten. */
+interface SourceAdmissionJournal { schema: 2 | 3; tree: string; records: StoredSourceAdmissionRecord[] }
+export function sourceIntentDigest(intent: SourceAdmissionIntent): string { return canonicalCBORHash(intent); }
 interface JournalFingerprint { size: number; modified: number; inode: number }
 /** Durable platform objects addressable by canonical wire hash. Source queues
  * keep only admission-created objects when this shared store is supplied. */
@@ -70,25 +74,14 @@ function operationEdits(edits: SourceEdit[]): SourceEdit[] {
 /** Builds only the exact authored candidate, never a merge with the current tree. */
 export function prepareSourceAdmission(input: {
   change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot;
-  sourcePath: string; intent: SourceAdmissionIntent; transaction?: SourceTransaction; undoTarget?: SourceAdmissionRecord;
-}): SourceAdmissionRecord & {intent: SourceAdmissionIntent; sourcePath: string} {
+  sourcePath: string; intent: SourceAdmissionIntent;
+}): SourceAdmissionRecord & {document: SourceDocumentCapture; sourcePath: string} {
   const { tree, sourcePath, intent, graph } = input;
-  if (input.transaction) {
-    const frame = input.transaction;
-    if (!frame.id || frame.inverses.includes(frame.id) || new Set(frame.inverses).size !== frame.inverses.length ||
-        applySourceEdits(frame.basisSource, frame.edits) !== frame.source) throw Error("Invalid editor transaction");
-    if (input.undoTarget) {
-      const target = input.undoTarget;
-      if (!target.transaction || !frame.inverses.includes(target.transaction.id) || target.tree !== tree ||
-          target.intent?.basis.path !== intent.basis.path) throw Error("Undo targets another document or transaction");
-    } else if (frame.basisSource !== intent.basis.source || frame.source !== intent.source ||
-        !equal(frame.edits, intent.edits)) throw Error("Transaction does not match intent");
-  } else if (input.undoTarget) throw Error("Missing undo transaction");
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   if (intent.basis.tree !== tree || typeof intent.basis.revision !== "string" || !intent.basis.revision ||
       typeof intent.basis.path !== "string" || typeof intent.basis.source !== "string" || typeof intent.source !== "string" ||
       decoder.decode(encoder.encode(intent.basis.source)) !== intent.basis.source ||
-      !Array.isArray(intent.edits) || (!intent.edits.length && !input.transaction) || intent.transactions !== undefined ||
+      !Array.isArray(intent.edits) || !intent.edits.length ||
       intent.edits.some(e => typeof e.replacement !== "string" || decoder.decode(encoder.encode(e.replacement)) !== e.replacement ||
         (e.expected !== undefined && (typeof e.expected !== "string" || decoder.decode(encoder.encode(e.expected)) !== e.expected))) ||
       applySourceEdits(intent.basis.source, intent.edits) !== intent.source) throw new Error("Invalid source intent");
@@ -148,7 +141,7 @@ export function prepareSourceAdmission(input: {
     }
     throw Error("Invalid copy path");
   }
-  let operations: SourceOperation[] = operationEdits(intent.edits).flatMap((edit, i) => {
+  const operations: SourceOperation[] = operationEdits(intent.edits).flatMap((edit, i) => {
     for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
     if(edit.length===0 && edit.copies?.length===1 && edit.copies[0]!.replacement[0]===0 && edit.copies[0]!.replacement[1]===encoder.encode(edit.replacement).length) {
       return [{key:`copy-${i}-0`,kind:"copySource",source:{material:copyMaterial(edit.copies[0]!),range:edit.copies[0]!.source},at:{material:{kind:"basis",path:sourcePath,object:file},range:[edit.offset,edit.offset]},side:"before"} as SourceOperation];
@@ -163,65 +156,29 @@ export function prepareSourceAdmission(input: {
     return result;
   });
 
-  if (input.undoTarget) {
-    const target = input.undoTarget;
-    if (graph.root !== target.candidate.root || root !== target.graph.root ||
-        input.basis.kind !== "authored" || input.basis.change !== target.change ||
-        (!target.update.operations && target.graph.root !== target.candidate.root)) throw Error("Invalid historical undo target");
-    operations = [...(target.update.operations ?? [])].reverse().map((operation, index) =>
-      ({kind: "undoOperation", key: `undo-${index}`, target: {change: target.change, operation: operation.key}}));
-  }
   const update = encodeCandidateUpdateJSON({ candidate: root, change, operations: file && operations.length ? operations : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   decodeCandidateUpdateJSON(update);
-  return JSON.parse(JSON.stringify({ change, tree, basis: input.basis, graph: snapshotJSON(graph), sourcePath, intent, candidate: snapshotJSON(candidate), update, ...(input.transaction ? {transaction: input.transaction} : {}), ...(input.undoTarget ? {undoOf: input.undoTarget.change} : {}) }));
+  const document: SourceDocumentCapture = { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) };
+  return JSON.parse(JSON.stringify({ change, tree, basis: input.basis, graph: snapshotJSON(graph), sourcePath, document, candidate: snapshotJSON(candidate), update }));
 }
 
-/** Undo names effects, while its candidate is proved against historical material. */
-export function prepareSourceInverse(target: SourceAdmissionRecord, change: string, transaction: SourceTransaction): SourceAdmissionRecord {
-  if (target.creation) return prepareCreationInverse(target, change, transaction);
-  if (!target.intent || !target.sourcePath) throw Error("Undo target is not source intent");
-  const basis = {...target.intent.basis, source: target.intent.source, revision: `undo-target:${target.change}`};
-  return prepareSourceAdmission({change, tree: target.tree, basis: {kind: "authored", change: target.change},
-    graph: decodeTreeSnapshotJSON(target.candidate), sourcePath: target.sourcePath, transaction, undoTarget: target,
-    intent: {basis, source: target.intent.basis.source,
-      edits: [{offset: 0, length: encoder.encode(basis.source).length, expected: basis.source, replacement: target.intent.basis.source}]}});
-}
-
-export function validateSourceTransactions(intent: SourceAdmissionIntent): void {
+export function validateSourceIntent(intent: SourceAdmissionIntent): void {
   if (applySourceEdits(intent.basis.source, intent.edits) !== intent.source) throw Error("Invalid source intent");
-  if (!intent.transactions) return;
-  let source = intent.basis.source;
-  const ids = new Set<string>();
-  if (!intent.transactions.length) throw Error("Empty transaction trace");
-  for (const frame of intent.transactions) {
-    if (!frame.id || ids.has(frame.id) || frame.inverses.includes(frame.id) || new Set(frame.inverses).size !== frame.inverses.length ||
-        frame.basisSource !== source || applySourceEdits(source, frame.edits) !== frame.source) throw Error("Invalid transaction trace");
-    ids.add(frame.id); source = frame.source;
-  }
-  if (source !== intent.source) throw Error("Transaction trace does not reproduce source");
 }
 
-/** Page creation is still a snapshot. Its explicit receipt proves the exact
- * removal that reverses it; undo never guesses which current file to delete. */
+/** Page creation is still a snapshot. Its record names the branch it introduced
+ * and proves that removing it restores the original graph: a validity check on
+ * the record. Undoing a conversion in the editor is a plain source edit. */
 export function preparePageCreation(input: {change: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation}): SourceAdmissionRecord {
   const {change,tree,basis,graph,candidate,creation} = input;
-  if (!creation.transaction || creation.document.tree !== tree) throw Error("Invalid creation scope");
+  if (creation.document.tree !== tree) throw Error("Invalid creation scope");
   const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change});
   if (removed.candidate.root !== graph.root) throw Error("Creation does not reproduce original graph");
   verifyTreeSnapshotGraph(graph,"sparse-files"); verifyTreeSnapshotGraph(candidate,"sparse-files");
   const update = encodeCandidateUpdateJSON({change,candidate:candidate.root,operations:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
-  return {change,tree,basis,graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,intent:null,creation:structuredClone(creation),update};
+  return {change,tree,basis,graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,document:null,creation:{document:{...creation.document},removals:[...creation.removals]},update};
 }
-function prepareCreationInverse(target: SourceAdmissionRecord, change: string, transaction: SourceTransaction): SourceAdmissionRecord {
-  const id = target.transaction?.id ?? target.creation?.transaction;
-  if (!transaction.id || new Set(transaction.inverses).size !== transaction.inverses.length || applySourceEdits(transaction.basisSource,transaction.edits) !== transaction.source || !id || !transaction.inverses.includes(id) || transaction.inverses.includes(transaction.id)) throw Error("Invalid structural inverse");
-  const graph = decodeTreeSnapshotJSON(target.candidate), candidate = decodeTreeSnapshotJSON(target.graph);
-  const operations: SourceOperation[] = target.update.operations ? target.update.operations.slice().reverse().map((op,index)=>({kind:"undoOperation",key:`undo-${index}`,target:{change:target.change,operation:op.key}})) : prepareEntryActions(graph,{transfers:[],removals:target.creation!.removals},{change}).operations;
-  const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,operations,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
-  return {change,tree:target.tree,basis:{kind:"authored",change:target.change},graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,intent:null,creation:structuredClone(target.creation!),transaction:structuredClone(transaction),undoOf:target.change,update};
-}
-
 export function prepareEntryAdmission(input: {
   change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate?: TreeSnapshot;
 }): SourceAdmissionRecord {
@@ -232,25 +189,35 @@ export function prepareEntryAdmission(input: {
   if(input.candidate && input.candidate.root!==candidate.root)throw Error("Entry intent does not reproduce candidate");
   const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,operations,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   decodeCandidateUpdateJSON(update);
-  return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,intent:null,...(input.entryActions ? {entryActions:structuredClone(input.entryActions)} : {entryTransfer:structuredClone(input.entryTransfer)}),candidate:snapshotJSON(candidate),update};
+  return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,document:null,...(input.entryActions ? {entryActions:structuredClone(input.entryActions)} : {entryTransfer:structuredClone(input.entryTransfer)}),candidate:snapshotJSON(candidate),update};
 }
 
-function rebuildAdmission(record: SourceAdmissionRecord, undoTarget?: SourceAdmissionRecord): SourceAdmissionRecord {
-  if(record.undoOf !== undoTarget?.change) throw Error("Missing retained undo target");
-  const graph=decodeTreeSnapshotJSON(record.graph);
-  if (record.creation) return undoTarget ? prepareCreationInverse(undoTarget,record.change,record.transaction!) : preparePageCreation({...record,graph,candidate:decodeTreeSnapshotJSON(record.candidate),creation:record.creation});
-  if(record.intent && record.sourcePath && !record.entryTransfer && !record.entryActions) return prepareSourceAdmission({...record,graph,undoTarget,intent:record.intent,sourcePath:record.sourcePath});
-  if(record.intent===null && record.sourcePath===null && (record.entryTransfer || record.entryActions)) return prepareEntryAdmission({...record,graph,candidate:decodeTreeSnapshotJSON(record.candidate),entryTransfer:record.entryTransfer});
-  throw Error("Incomplete captured intent");
+/** Structural integrity of one record: hash-checked graphs, a wire element
+ * naming this candidate and change, update objects drawn from the candidate. */
+export function validateSourceAdmission(record: SourceAdmissionRecord): void {
+  if (!record.change || record.update.change !== record.change || record.update.candidate !== record.candidate.root) throw new Error("Wire element does not name its record");
+  const graph = decodeTreeSnapshotJSON(record.graph), candidate = decodeTreeSnapshotJSON(record.candidate);
+  if (new Set(record.graph.objects.map(o => o.hash)).size !== record.graph.objects.length ||
+      new Set(record.candidate.objects.map(o => o.hash)).size !== record.candidate.objects.length) throw new Error("Duplicate snapshot object");
+  verifyTreeSnapshotGraph(graph, "sparse-files"); verifyTreeSnapshotGraph(candidate, "sparse-files");
+  for (const object of decodeCandidateUpdateJSON(record.update).objects) {
+    const present = candidate.objects.get(object.hash);
+    if (graph.objects.has(object.hash) || !present || !equal([...present], [...object.bytes])) throw new Error("Update object is not a new candidate object");
+  }
+  if ((record.document === null) !== (record.sourcePath === null)) throw new Error("Incomplete source intent");
+  if (record.creation) {
+    if (record.creation.document.tree !== record.tree || record.entryActions || record.entryTransfer) throw new Error("Invalid page creation");
+    const removed = prepareEntryActions(candidate,{transfers:[],removals:record.creation.removals},{change:record.change});
+    if (removed.candidate.root !== graph.root) throw new Error("Creation does not reproduce original graph");
+  }
+  if (record.entryTransfer && record.entryActions) throw new Error("Multiple entry intent representations");
 }
 
 export function validateSourceAdmissions(records: SourceAdmissionRecord[], tree: string): void {
   const prior = new Map<string, SourceAdmissionRecord>();
   for (const record of records) {
     if (record.tree !== tree || prior.has(record.change)) throw new Error("Invalid queue scope or duplicate identity");
-    if (new Set(record.graph.objects.map(o => o.hash)).size !== record.graph.objects.length) throw new Error("Duplicate basis object");
-    const rebuilt = rebuildAdmission(record, record.undoOf ? prior.get(record.undoOf) : undefined);
-    if (!equal(rebuilt, record)) throw new Error("Retained source candidate or operations changed");
+    validateSourceAdmission(record);
     if (record.basis.kind === "accepted") {
       if (!record.basis.update || record.basis.root !== record.graph.root) throw new Error("Accepted basis does not match graph");
     } else if (record.basis.kind !== "authored" || !equal(prior.get(record.basis.change)?.candidate, record.graph)) throw new Error("Missing or altered authored basis");
@@ -266,7 +233,6 @@ const writers = new Map<string, Promise<unknown>>();
 export class SourceAdmissionQueue {
   readonly path: string;
   readonly objectsPath: string;
-  private releasedTransactions = new Set<string>();
   private records?: SourceAdmissionRecord[];
   private fingerprint?: JournalFingerprint;
   private readonly objects = new Map<string, Uint8Array>();
@@ -297,20 +263,20 @@ export class SourceAdmissionQueue {
     writers.set(this.path, next);
     try { await next; } finally { if (writers.get(this.path) === next) writers.delete(this.path); }
   }
-  /** Remove settled records unless a pending authored descendant still needs them. */
-  async compact(settled: ReadonlySet<string>, preservingSettledTail = true, releasingTransactions: ReadonlySet<string> = new Set()): Promise<boolean> {
+  /** Remove settled records unless a pending authored descendant still needs
+   * them. The newest record per open document and its ancestry stay while the
+   * tail is preserved; nothing else survives acceptance. */
+  async compact(settled: ReadonlySet<string>, preservingSettledTail = true): Promise<boolean> {
     const previous = writers.get(this.path) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(async () => {
       await this.load();
       const records = this.records!;
-      const beforeReleased = new Set(this.releasedTransactions);
-      for (const id of releasingTransactions) this.releasedTransactions.add(id);
-      const required = new Set(records.filter(record => (!settled.has(record.change) || ((record.transaction?.id ?? record.creation?.transaction) !== undefined && !this.releasedTransactions.has((record.transaction?.id ?? record.creation?.transaction)!)))).map(record => record.change));
+      const required = new Set(records.filter(record => !settled.has(record.change)).map(record => record.change));
       if (preservingSettledTail && records.length) {
         required.add(records.at(-1)!.change);
         const documents = new Set<string>();
-        for (const record of records.slice().reverse()) if (record.intent && !documents.has(record.intent.basis.path)) {
-          documents.add(record.intent.basis.path); required.add(record.change);
+        for (const record of records.slice().reverse()) if (record.document && !documents.has(record.document.path)) {
+          documents.add(record.document.path); required.add(record.change);
         }
       }
       let changed = true;
@@ -321,9 +287,7 @@ export class SourceAdmissionQueue {
         }
       }
       const retained = records.filter(record => required.has(record.change));
-      if (retained.length !== records.length || this.releasedTransactions.size !== beforeReleased.size) {
-        try { await this.write(retained); } catch (error) { this.releasedTransactions = beforeReleased; throw error; }
-      }
+      if (retained.length !== records.length) await this.write(retained);
       return retained.length === 0;
     });
     writers.set(this.path, next);
@@ -350,8 +314,8 @@ export class SourceAdmissionQueue {
       throw error;
     }
     if (Array.isArray(value)) {
-      const legacy = value as SourceAdmissionRecord[];
-      if (legacy.length && legacy.every(record => typeof record.change === "string" && !record.transaction && !record.creation && settled.has(record.change))) {
+      const legacy = (value as Array<SourceAdmissionRecord & { intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string }>).map(record => this.upgraded(record));
+      if (legacy.length && legacy.every(record => typeof record.change === "string" && settled.has(record.change))) {
         await this.write([]); return;
       }
       validateSourceAdmissions(legacy, this.tree);
@@ -361,20 +325,27 @@ export class SourceAdmissionQueue {
       return;
     }
     const journal = value as Partial<SourceAdmissionJournal>;
-    if (journal.schema !== 2 || journal.tree !== this.tree || !Array.isArray(journal.records)) throw new Error("Invalid source admission journal");
-    if (journal.records.length && journal.records.every(record => typeof record.change === "string" && !record.transaction && !record.creation && settled.has(record.change))) {
+    if ((journal.schema !== 2 && journal.schema !== 3) || journal.tree !== this.tree || !Array.isArray(journal.records)) throw new Error("Invalid source admission journal");
+    if (journal.records.length && journal.records.every(record => typeof record.change === "string" && settled.has(record.change))) {
       await this.write([]); return;
     }
-    if (journal.releasedTransactions !== undefined && (!Array.isArray(journal.releasedTransactions) || journal.releasedTransactions.some(id => typeof id !== "string"))) throw Error("Invalid undo horizon");
-    this.releasedTransactions = new Set(journal.releasedTransactions ?? []);
     const hashes = new Set(journal.records.flatMap(record => [...record.graph.objects, ...record.candidate.objects, ...record.updateObjects]));
     await Promise.all([...hashes].map(async hash => {
       if (!this.objects.has(hash)) this.objects.set(hash, await this.objectBytes(hash));
     }));
-    const records = journal.records.map(record => this.materialize(record));
+    const records = journal.records.map(record => this.upgraded(this.materialize(record)));
     validateSourceAdmissions(records, this.tree);
+    if (journal.schema !== 3) { await this.write(records); return; }
     this.records = records;
     this.fingerprint = await this.currentFingerprint();
+  }
+
+  /** Drop schema 2 fields; keep a capture summary derived from the stored intent. */
+  private upgraded(record: SourceAdmissionRecord & { intent?: SourceAdmissionIntent | null; transaction?: unknown; undoOf?: string }): SourceAdmissionRecord {
+    const { intent, transaction: _transaction, undoOf: _undoOf, ...rest } = record;
+    const creation = rest.creation ? { document: { ...rest.creation.document }, removals: [...rest.creation.removals] } : undefined;
+    const document = rest.document ?? (intent ? { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) } : null);
+    return { ...rest, ...(creation ? { creation } : {}), document } as SourceAdmissionRecord;
   }
 
   private async write(records: SourceAdmissionRecord[], selfContained = false): Promise<void> {
@@ -391,7 +362,7 @@ export class SourceAdmissionQueue {
     }
     await mkdir(this.objectsPath, { recursive: true, mode: 0o700 });
     await Promise.all([...presented].map(([hash, bytes]) => this.writeObject(hash, bytes)));
-    const journal: SourceAdmissionJournal = { schema: 2, tree: this.tree, records: records.map(record => this.stored(record)), releasedTransactions: [...this.releasedTransactions].filter(id => records.some(r => (r.transaction?.id ?? r.creation?.transaction) === id)).sort() };
+    const journal: SourceAdmissionJournal = { schema: 3, tree: this.tree, records: records.map(record => this.stored(record)) };
     const directory = dirname(this.path), temporary = `${this.path}.${crypto.randomUUID()}.tmp`;
     await mkdir(directory, { recursive: true, mode: 0o700 });
     try {
@@ -428,8 +399,7 @@ export class SourceAdmissionQueue {
     const update = { ...stored.update, objects: encodeObjectEnvelopes(updateObjects.map(hash => {
       const bytes = this.objects.get(hash); if (!bytes) throw new Error(`Missing source admission object ${hash}`); return [hash, bytes] as const;
     })) };
-    const value = { ...stored, update, graph: snapshot(record.graph), candidate: snapshot(record.candidate) };
-    return value;
+    return { ...stored, update, graph: snapshot(record.graph), candidate: snapshot(record.candidate) } as SourceAdmissionRecord;
   }
 
   private objectPath(hash: string): string {

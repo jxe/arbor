@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareSourceInverse, type SourceTransaction, prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionRecord } from "@arbor/canopy-client";
+import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionIntent, type SourceAdmissionRecord } from "@arbor/canopy-client";
 import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type TreeSnapshot } from "@arbor/wire";
 import { executeExactSourceEdits } from "../../packages/canopy/src/updates/source-edits.ts";
 import { decodeCandidateUpdateJSON } from "@arbor/wire";
@@ -14,16 +14,23 @@ function initial(): TreeSnapshot {
   const root = encodeWireDirectory({ type: "directory", entries: [{ name: "nested", directory }] });
   return { root: hashObject(root), objects: new Map([[hash, file], [directory, nested], [hashObject(root), root]]) };
 }
-function records(): Array<ReturnType<typeof prepareSourceAdmission>> {
-  const result: Array<ReturnType<typeof prepareSourceAdmission>> = [];
+type Prepared = ReturnType<typeof prepareSourceAdmission> & { intent: SourceAdmissionIntent };
+/** Records carry no sources; tests keep the captured intent beside each one,
+ * non-enumerable so it never reaches the journal or equality checks. */
+function withIntent(record: ReturnType<typeof prepareSourceAdmission>, intent: SourceAdmissionIntent): Prepared {
+  Object.defineProperty(record, "intent", { value: intent, enumerable: false });
+  return record as Prepared;
+}
+function records(): Prepared[] {
+  const result: Prepared[] = [];
   for (const change of fixture.changes) {
     const parent = result.find(r => r.change === change.basis.change), graph = parent ? decodeTreeSnapshotJSON(parent.candidate) : initial();
-    const source = parent?.intent?.source ?? fixture.source;
+    const source = parent?.intent.source ?? fixture.source;
     const bytes = Buffer.from(source), candidate = Buffer.concat([bytes.subarray(0, change.offset), Buffer.from(change.replacement), bytes.subarray(change.offset + change.length)]).toString();
-    result.push(prepareSourceAdmission({ change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
-      basis: parent ? change.basis : { ...change.basis, root: graph.root },
-      intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: change.revision, source },
-        edits: [{ offset: change.offset, length: change.length, expected: change.expected, replacement: change.replacement }], source: candidate } }));
+    const intent: SourceAdmissionIntent = { basis: { tree: fixture.tree, path: "/nested/note", revision: change.revision, source },
+      edits: [{ offset: change.offset, length: change.length, expected: change.expected, replacement: change.replacement }], source: candidate };
+    result.push(withIntent(prepareSourceAdmission({ change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
+      basis: parent ? change.basis : { ...change.basis, root: graph.root }, intent }), intent));
   }
   return result;
 }
@@ -88,7 +95,7 @@ test("exact source guards reject split scalars, forged bases and boundary traver
   const [a] = records(), graph = initial();
   expect(() => prepareSourceAdmission({ ...a!, graph, intent: { ...a!.intent,
     edits: [{ offset: 8, length: 0, replacement: "" }], source: fixture.source } })).toThrow("scalar");
-  expect(() => prepareSourceAdmission({ ...a!, graph, sourcePath: "/nested/../note.md" })).toThrow("path");
+  expect(() => prepareSourceAdmission({ ...a!, graph, intent: a!.intent, sourcePath: "/nested/../note.md" })).toThrow("path");
   expect(() => prepareSourceAdmission({ ...a!, graph, intent: { ...a!.intent,
     basis: { ...a!.intent.basis, source: "Forged source" } } })).toThrow();
   await expect(q.retain({ ...a!, basis: { kind: "accepted", root: a!.candidate.root, update: "up_r1" } })).rejects.toThrow("basis");
@@ -125,14 +132,15 @@ test("journal references platform objects and compacts only dependency-free sett
   const platform = { bytes: async (hash: string) => initialGraph.objects.get(hash) };
   const q = new SourceAdmissionQueue(fixture.tree, root, platform);
   let graph = initialGraph;
-  const all: SourceAdmissionRecord[] = [];
+  const all: SourceAdmissionRecord[] = [], sources = new Map<string, string>();
   for (const change of fixture.changes) {
-    const parent = all.find(record => record.change === change.basis.change), source = parent?.intent?.source ?? fixture.source;
+    const parent = all.find(record => record.change === change.basis.change), source = (parent && sources.get(parent.change)) ?? fixture.source;
     graph = parent ? decodeTreeSnapshotJSON(parent.candidate) : initialGraph;
     const candidate = Buffer.concat([Buffer.from(source).subarray(0, change.offset), Buffer.from(change.replacement), Buffer.from(source).subarray(change.offset + change.length)]).toString();
     all.push(prepareSourceAdmission({ change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
       basis: parent ? change.basis : { ...change.basis, root: graph.root }, intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: change.revision, source },
         edits: [{ offset: change.offset, length: change.length, expected: change.expected, replacement: change.replacement }], source: candidate } }));
+    sources.set(change.change, candidate);
   }
   for (const record of all) await q.retain(record);
   expect((await stat(q.path)).size).toBeLessThan(100_000);
@@ -153,7 +161,7 @@ test("fully settled embedded-object journals upgrade directly to an empty hash j
   const legacySize = (await stat(q.path)).size;
   expect(await q.compact(new Set(all.map(record => record.change)), false)).toBe(true);
   expect((await stat(q.path)).size).toBeLessThan(legacySize);
-  expect(JSON.parse(await readFile(q.path, "utf8"))).toMatchObject({ schema: 2, tree: fixture.tree, records: [] });
+  expect(JSON.parse(await readFile(q.path, "utf8"))).toMatchObject({ schema: 3, tree: fixture.tree, records: [] });
 }));
 
 test("pending legacy migration remains self-contained when its old platform basis is gone", async () => withQueue(async (q, root) => {
@@ -295,37 +303,51 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
 }));
 
 
-test("causal undo and redo retain historical targets across settlement and restart", async () => {
-  const f = JSON.parse(await readFile(new URL("../../conformance/causal-undo.json", import.meta.url), "utf8"));
-  const root = await mkdtemp(join(tmpdir(), "causal-undo-"));
-  try {
-    const queue = new SourceAdmissionQueue(f.tree, root), all: SourceAdmissionRecord[] = [];
-    const file = Buffer.from(f.transactions[0].basisSource), hash = hashObject(file);
-    const nested = encodeWireDirectory({type:"directory",entries:[{name:"note.md",file:hash}]}), dir = hashObject(nested);
-    const bytes = encodeWireDirectory({type:"directory",entries:[{name:"nested",directory:dir}]}), rootHash = hashObject(bytes);
-    let graph = {root:rootHash,objects:new Map([[hash,file],[dir,nested],[rootHash,bytes]])} as TreeSnapshot;
-    for (const frame of f.transactions as SourceTransaction[]) {
-      if (frame.inverses.length) {
-        const targets = frame.inverses.flatMap(id => all.filter(record => record.transaction?.id === id).reverse());
-        all.push(...targets.map((target, index) => prepareSourceInverse(target, `${frame.id}-${index}`, frame)));
-      } else {
-        const parent = all.at(-1);
-        const record = prepareSourceAdmission({change:frame.id,tree:f.tree,sourcePath:f.sourcePath,graph,transaction:frame,
-          basis:parent?{kind:"authored",change:parent.change}:{kind:"accepted",root:graph.root,update:"r1"},
-          intent:{basis:{tree:f.tree,path:"/nested/note",revision:frame.id,source:frame.basisSource},source:frame.source,edits:frame.edits}});
-        all.push(record); graph = decodeTreeSnapshotJSON(record.candidate);
-      }
-    }
-    await queue.retain(all);
-    expect(all.slice(2).map(record=>record.undoOf)).toEqual(f.targets);
-    expect(all.slice(2).every(record=>record.update.operations?.every(op=>op.kind==="undoOperation"))).toBe(true);
-    await queue.compact(new Set(all.map(record=>record.change)), false);
-    expect(await new SourceAdmissionQueue(f.tree,root).retained()).toEqual(all);
-    const altered = structuredClone(all); altered[2]!.undoOf = "missing";
-    await expect(queue.retain(altered)).rejects.toThrow();
-    expect(await queue.retained()).toEqual(all);
-  } finally { await rm(root,{recursive:true,force:true}); }
-});
+test("undo is a plain edit; records keep no sources and settled records drop without a release step", async () => withQueue(async (queue, root) => {
+  const graph = initial(), text = fixture.source;
+  const edits = [{ offset: 0, length: 6, replacement: "After", expected: "Before" }], edited = "After" + text.slice(6);
+  const first = prepareSourceAdmission({ change: "edit", tree: fixture.tree, graph, sourcePath: fixture.sourcePath, basis: { kind: "accepted", root: graph.root, update: "up_r1" },
+    intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: "r1", source: text }, edits, source: edited } });
+  // The editor's undo is an ordinary patch against the latest candidate.
+  const undo = prepareSourceAdmission({ change: "undo", tree: fixture.tree, graph: decodeTreeSnapshotJSON(first.candidate), sourcePath: fixture.sourcePath,
+    basis: { kind: "authored", change: first.change },
+    intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: "c1", source: edited }, edits: [{ offset: 0, length: 5, replacement: "Before", expected: "After" }], source: text } });
+  expect(undo.update.operations?.every(op => op.kind === "editSource")).toBe(true);
+  expect(undo.candidate.root).toBe(graph.root);
+  expect(JSON.stringify(undo)).not.toContain(text.trim());
+  expect(undo.document.intentDigest).toMatch(/^sha256:/);
+  await queue.retain([first, undo]);
+  expect(await new SourceAdmissionQueue(fixture.tree, root).retained()).toEqual([first, undo]);
+  const journal = JSON.parse(await readFile(join(root, "sync", "source-admissions.json"), "utf8"));
+  expect(journal.schema).toBe(3);
+  expect(journal.records.every((record: Record<string, unknown>) => !("intent" in record) && !("transaction" in record) && !("undoOf" in record))).toBe(true);
+  // Settled records go once nothing pending depends on them; the preserved
+  // tail keeps the newest record per document and its authored ancestry.
+  await queue.compact(new Set([first.change]));
+  expect((await queue.retained()).map(record => record.change)).toEqual([first.change, undo.change]);
+  await queue.compact(new Set([first.change, undo.change]));
+  expect((await queue.retained()).map(record => record.change)).toEqual([first.change, undo.change]);
+  expect(await queue.compact(new Set([first.change, undo.change]), false)).toBe(true);
+  expect(await queue.retained()).toEqual([]);
+}));
+
+test("a schema 2 journal loads through its stored wire elements and is rewritten as schema 3", async () => withQueue(async (queue, root) => {
+  const [a] = records();
+  await queue.retain(a!);
+  const path = join(root, "sync", "source-admissions.json");
+  const journal = JSON.parse(await readFile(path, "utf8"));
+  journal.schema = 2;
+  journal.records[0].intent = a!.intent;
+  journal.records[0].transaction = { id: "legacy", basisSource: a!.intent.basis.source, source: a!.intent.source, edits: a!.intent.edits, inverses: [] };
+  delete journal.records[0].document;
+  journal.releasedTransactions = [];
+  await writeFile(path, JSON.stringify(journal));
+  const reopened = new SourceAdmissionQueue(fixture.tree, root);
+  const [loaded] = await reopened.retained();
+  expect(loaded).toEqual(a);
+  expect(loaded!.document?.intentDigest).toBe(a!.document.intentDigest);
+  expect(JSON.parse(await readFile(path, "utf8")).schema).toBe(3);
+}));
 
 test("cross-document copies bind the captured source path and reject changed source bytes", () => {
   const graph = initial(), original = fixture.source as string;
@@ -338,23 +360,6 @@ test("cross-document copies bind the captured source path and reject changed sou
   expect(()=>build("Changed")).toThrow();
 });
 
-test("undo collection releases expired groups but retains pending inverse dependencies", async () => withQueue(async (queue, root) => {
-  const graph=initial(), text=fixture.source;
-  const frame:SourceTransaction={id:"collect-a",basisSource:text,source:text+"x",edits:[{offset:Buffer.byteLength(text),length:0,replacement:"x"}],inverses:[]};
-  const a=prepareSourceAdmission({change:frame.id,tree:fixture.tree,graph,sourcePath:fixture.sourcePath,basis:{kind:"accepted",root:graph.root,update:"r1"},transaction:frame,intent:{basis:{tree:fixture.tree,path:"/nested/note",revision:"r1",source:text},edits:frame.edits,source:frame.source}});
-  const inverse=prepareSourceInverse(a,"collect-undo",{id:"collect-undo",basisSource:frame.source,source:text,edits:[{offset:Buffer.byteLength(text),length:1,replacement:""}],inverses:[frame.id]});
-  await queue.retain([a,inverse]);
-  const expired=new Set([frame.id,"collect-undo"]);
-  await queue.compact(new Set([a.change]),false,new Set([frame.id]));
-  expect(await queue.retained()).toHaveLength(2);
-  await queue.compact(new Set([a.change,inverse.change]),false,new Set([frame.id]));
-  expect(await queue.retained()).toHaveLength(2);
-  await queue.compact(new Set([a.change]),false,expired);
-  const reopened = new SourceAdmissionQueue(fixture.tree,root);
-  expect(await reopened.compact(new Set([a.change,inverse.change]),false)).toBe(true);
-  expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([]);
-}));
-
 test("shared cross-document fixture validates exact UTF-8 material", async () => {
   const f=await Bun.file(new URL("../../conformance/cross-document-copy.json",import.meta.url)).json();
   const source=Buffer.from(f.original), destination=Buffer.from(f.destination);
@@ -364,7 +369,7 @@ test("shared cross-document fixture validates exact UTF-8 material", async () =>
   expect(record.update.operations?.[0]).toMatchObject({kind:"copySource",source:{material:{path:f.sourcePath},range:f.edit.copies[0].source}});
 });
 
-test("page creation undo and redo validate and recover exact entry targets",async()=>{
+test("page creation records reproduce their original graph without an undo transaction",async()=>{
   const f=await Bun.file(new URL("../../conformance/page-conversion-undo.json",import.meta.url)).json();
   const {preparePageCreation}=await import("@arbor/canopy-client");
   const source=Buffer.from(f.source),fileSource=hashObject(source);
@@ -375,16 +380,12 @@ test("page creation undo and redo validate and recover exact entry targets",asyn
   const directory=encodeWireDirectory({type:"directory",entries:[{name:f.createdPath.slice(1),file},{name:"nested",directory:nestedHash}]});
   const candidate={root:hashObject(directory),objects:new Map([...graph.objects].filter(([h])=>h!==graph.root))};
   candidate.objects.set(file,bytes);candidate.objects.set(candidate.root,directory);
-  const created=preparePageCreation({change:"creation",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{transaction:f.transaction,document:{tree:f.tree,path:f.document},removals:[f.createdPath]}});
-  const frame=(v:any):SourceTransaction=>({...v,edits:[{offset:0,length:Buffer.byteLength(v.basisSource),replacement:v.source}]});
-  const undo=prepareSourceInverse(created,f.undo.id,frame(f.undo));
-  const redo=prepareSourceInverse(undo,f.redo.id,frame(f.redo));
-  const root=await mkdtemp(join(tmpdir(),"page-undo-"));
+  const created=preparePageCreation({change:"creation",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:[f.createdPath]}});
+  expect(()=>preparePageCreation({change:"wrong",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:["/elsewhere"]}})).toThrow();
+  const root=await mkdtemp(join(tmpdir(),"page-creation-"));
   try {
     const queue=new SourceAdmissionQueue(f.tree,root);
-    await queue.retain([created,undo,redo]);
-    expect(undo.update.operations?.[0]).toMatchObject({kind:"removeEntry",source:{material:{path:f.createdPath}}});
-    expect(redo.update.operations?.[0]).toMatchObject({kind:"undoOperation",target:{change:undo.change}});
-    expect(await new SourceAdmissionQueue(f.tree,root).retained()).toEqual([created,undo,redo]);
+    await queue.retain([created]);
+    expect(await new SourceAdmissionQueue(f.tree,root).retained()).toEqual([created]);
   } finally {await rm(root,{recursive:true,force:true});}
 });

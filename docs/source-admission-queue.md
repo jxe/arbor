@@ -420,8 +420,10 @@ Source edits against an accepted basis now ship the edited file as an object
 delta rather than the whole file when the delta is smaller; chained authored
 records still send the file, since their base is not retained server-side.
 
-`conformance/causal-undo.json` and `conformance/page-conversion-undo.json` are
-retired with this change; the TypeScript queue mirror follows separately.
+`conformance/causal-undo.json` is retired with this change. The TypeScript queue
+mirrors the same cut: no transactions or inverses, schema 3 journals with a
+capture summary, and release-free compaction. `conformance/page-conversion-undo.json`
+remains as the page-creation fixture for both queues.
 
 ## Cross-document copies and page-conversion undo
 

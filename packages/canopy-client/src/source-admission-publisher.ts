@@ -13,12 +13,6 @@ const publishers = new Map<string, Promise<unknown>>();
  */
 export class SourceAdmissionPublisher {
   readonly path: string;
-  private readonly releasedTransactions = new Set<string>();
-
-  async releaseUndoTransactions(ids: ReadonlySet<string>): Promise<void> {
-    for (const id of ids) this.releasedTransactions.add(id);
-    await this.queue.compact(new Set(await this.settled()), true, this.releasedTransactions);
-  }
   constructor(readonly queue: SourceAdmissionQueue,
     private readonly transport: Pick<WireClient, "submitUpdates" | "descriptor" | "snapshot">,
     private readonly install: (current: CurrentTree, snapshot: TreeSnapshot) => Promise<void>) {
@@ -27,7 +21,7 @@ export class SourceAdmissionPublisher {
 
   async pending(): Promise<string[]> {
     const settled = await this.settled();
-    await this.queue.compact(new Set(settled), true, this.releasedTransactions);
+    await this.queue.compact(new Set(settled), true);
     const records = await this.queue.retained();
     return records.filter(record => !settled.includes(record.change)).map(record => record.change);
   }
@@ -76,7 +70,7 @@ export class SourceAdmissionPublisher {
     await this.install(current, snapshot);
     const changes = [...new Set([...(await this.settled()), ...request.updates.map(update => update.change)])];
     await this.writeSettled(changes);
-    await this.queue.compact(new Set(changes), true, this.releasedTransactions);
+    await this.queue.compact(new Set(changes), true);
     const retained = new Set((await this.queue.retained()).map(record => record.change));
     await this.writeSettled(changes.filter(change => retained.has(change)));
     return true;
