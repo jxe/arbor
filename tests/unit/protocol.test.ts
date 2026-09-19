@@ -6,7 +6,7 @@ import type {
   SyncConflictWorkspace,
   WorkspaceEvent,
 } from "@arbor/core";
-import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
+import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit } from "@arbor/core";
 import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
 import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireDirectory, hashObject, updateRequestDigests } from "@arbor/wire";
 import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "@arbor/arborsync-client";
@@ -338,5 +338,45 @@ describe("canonical descriptor helpers", () => {
     const bootstrap = await json<TreeBootstrap>("bootstrap.json");
     expect(canonicalHTTPURL(bootstrap.tree.canonical!)).toBe("https://notes.example/~joe/notes");
     expect(canonicalArborLocator(bootstrap.tree.canonical!)).toBe("arbor://notes.example/~joe/notes");
+  });
+});
+
+describe("plain source edit composition", () => {
+  const chain = (source: string, generations: PlainSourceEdit[][]) => {
+    let current = source;
+    for (const edits of generations) current = applySourceEdits(current, edits);
+    const composed = composeSourceEdits(generations);
+    expect(applySourceEdits(source, composed)).toBe(current);
+    return composed;
+  };
+  test("a typing burst composes to one edit over the original", () => {
+    expect(chain("Before 🪴\r\n", [
+      [{ offset: 0, length: 0, replacement: "A" }],
+      [{ offset: 1, length: 0, replacement: "B" }],
+      [{ offset: 2, length: 6, replacement: "After" }],
+    ])).toEqual([{ offset: 0, length: 6, replacement: "ABAfter" }]);
+  });
+  test("edits inside an earlier insertion split it without the intermediate bytes", () => {
+    expect(chain("Before plant", [
+      [{ offset: 0, length: 6, replacement: "Start" }],
+      [{ offset: 1, length: 2, replacement: "TA" }, { offset: 10, length: 1, replacement: "T!" }],
+    ])).toEqual([{ offset: 0, length: 6, replacement: "STArt" }, { offset: 11, length: 1, replacement: "T!" }]);
+  });
+  test("deleting what a generation inserted leaves nothing; deleting original bytes is one edit", () => {
+    expect(chain("abc", [[{ offset: 0, length: 0, replacement: "X" }], [{ offset: 0, length: 1, replacement: "" }]])).toEqual([]);
+    expect(chain("Before 🪴\r\n", [
+      [{ offset: 13, length: 0, replacement: "Z" }],
+      [{ offset: 7, length: 4, replacement: "" }],
+    ])).toEqual([{ offset: 7, length: 4, replacement: "" }, { offset: 13, length: 0, replacement: "Z" }]);
+  });
+  test("adjacent and same-anchor inserts merge into one edit", () => {
+    expect(chain("ab", [
+      [{ offset: 1, length: 0, replacement: "x" }, { offset: 1, length: 0, replacement: "y" }],
+      [{ offset: 3, length: 0, replacement: "z" }, { offset: 3, length: 1, replacement: "B" }],
+    ])).toEqual([{ offset: 1, length: 1, replacement: "xyzB" }]);
+  });
+  test("overlapping or backwards generations are refused", () => {
+    expect(() => composeSourceEdits([[{ offset: 2, length: 1, replacement: "" }, { offset: 1, length: 0, replacement: "x" }]])).toThrow();
+    expect(() => composeSourceEdits([[{ offset: 0, length: -1, replacement: "" }]])).toThrow();
   });
 });

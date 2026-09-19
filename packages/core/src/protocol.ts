@@ -536,3 +536,99 @@ export function stableJSONString(value: unknown): string {
 export function semanticRequestDigest(identity: unknown): Hash {
   return canonicalCBORHash(identity);
 }
+
+/** A plain byte replacement over one source: what a lineage-free, copy-free
+ * `SourceEdit` states and what an `editSource` operation carries. */
+export interface PlainSourceEdit { offset: number; length: number; replacement: string }
+
+/**
+ * Composes generations of plain edits into one generation over the original
+ * source. Generation `n` is stated over the source generation `n - 1`
+ * produced; the result is stated over the source generation 0 started from and
+ * produces exactly what the last generation produced. It needs no intermediate
+ * bytes: the original is modelled as pieces that are either copied ranges of
+ * it or inserted text, and each generation only splits, removes or interleaves
+ * pieces. Copied pieces stay in original order, so the composed edits are
+ * ascending, non-adjacent and never share an anchor.
+ *
+ * The same rule runs in `@arbor/canopy-client` (`compactTrace`), in the Swift
+ * queue and in Canopy's `composeFrames`, and `conformance/source-admission-queue.json`
+ * holds the shared vectors. Only plain edits compose; lineage and copies name
+ * the generation they were captured against and are never rebased here.
+ */
+export function composeSourceEdits(generations: ReadonlyArray<ReadonlyArray<PlainSourceEdit>>): PlainSourceEdit[] {
+  type Piece = { copy: [number, number] } | { text: Uint8Array };
+  const encoder = new TextEncoder(), decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  const size = (piece: Piece) => "copy" in piece ? piece.copy[1] - piece.copy[0] : piece.text.length;
+  // The original's tail is open-ended: no generation may reach past the real end.
+  const OPEN = Number.MAX_SAFE_INTEGER;
+  let pieces: Piece[] = [{ copy: [0, OPEN] }];
+  for (const edits of generations) {
+    let cursor = 0;
+    for (const edit of edits) {
+      if (!Number.isSafeInteger(edit.offset) || !Number.isSafeInteger(edit.length) || edit.offset < cursor || edit.length < 0) throw new SourceEditError("Composed source edits overlap or run backwards");
+      cursor = edit.offset + edit.length;
+    }
+    // Split the pieces at every edit boundary so no piece straddles one.
+    const boundaries = [...new Set(edits.flatMap((edit) => [edit.offset, edit.offset + edit.length]))].sort((a, b) => a - b);
+    const split: Piece[] = [];
+    let position = 0, next = 0;
+    for (const piece of pieces) {
+      let start = position, remaining = piece;
+      while (next < boundaries.length && boundaries[next]! <= start) next++;
+      while (next < boundaries.length && boundaries[next]! < start + size(remaining)) {
+        const at = boundaries[next]! - start;
+        if ("copy" in remaining) {
+          split.push({ copy: [remaining.copy[0], remaining.copy[0] + at] });
+          remaining = { copy: [remaining.copy[0] + at, remaining.copy[1]] };
+        } else {
+          split.push({ text: remaining.text.subarray(0, at) });
+          remaining = { text: remaining.text.subarray(at) };
+        }
+        start += at; next++;
+      }
+      split.push(remaining);
+      position += size(piece);
+    }
+    // Walk the split pieces, dropping what each edit replaces and inserting its text.
+    const applied: Piece[] = [];
+    let index = 0, skipUntil = 0;
+    position = 0;
+    const flush = () => {
+      while (index < edits.length && edits[index]!.offset === position) {
+        const edit = edits[index++]!;
+        if (edit.replacement) applied.push({ text: encoder.encode(edit.replacement) });
+        skipUntil = Math.max(skipUntil, edit.offset + edit.length);
+      }
+    };
+    for (const piece of split) {
+      flush();
+      if (position >= skipUntil && size(piece) > 0) applied.push(piece);
+      position += size(piece);
+    }
+    flush();
+    if (index < edits.length) throw new SourceEditError("Composed source edit lies past the end of its source");
+    pieces = applied;
+  }
+  // Read the pieces back as edits over the original: every gap between copied
+  // ranges, together with the text inserted there, is one edit.
+  const composed: PlainSourceEdit[] = [];
+  let base = 0;
+  const inserted: Uint8Array[] = [];
+  const emit = (end: number) => {
+    if (end > base || inserted.length) {
+      const text = new Uint8Array(inserted.reduce((total, chunk) => total + chunk.length, 0));
+      let at = 0;
+      for (const chunk of inserted) { text.set(chunk, at); at += chunk.length; }
+      composed.push({ offset: base, length: end - base, replacement: decoder.decode(text) });
+      inserted.length = 0;
+    }
+  };
+  for (const piece of pieces) {
+    if ("text" in piece) { inserted.push(piece.text); continue; }
+    emit(piece.copy[0]);
+    base = piece.copy[1];
+  }
+  if (base !== OPEN) throw new SourceEditError("Composed source edits removed the open tail");
+  return composed;
+}

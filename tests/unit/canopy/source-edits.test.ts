@@ -151,7 +151,7 @@ describe("authored source traces", () => {
     await expect(validateSourceTrace([frames[0]!, { ...frames[1]!, operations: [{ ...b, key: "a" }] }], load)).rejects.toThrow("duplicate operation key");
   });
 
-  test("disjoint frames compose into one frame; overlapping ones do not", async () => {
+  test("disjoint frames compose into one frame keyed in output order", async () => {
     const start = pair("abc", "xyz"), objects = new Map(start.objects);
     const load = async (hash: string) => { const value = objects.get(hash); if (!value) throw Error("Object missing"); return value; };
     const a = edit("a", "/a.md", start.fileA, [0, 1], "A");
@@ -167,15 +167,43 @@ describe("authored source traces", () => {
     const composed = await composeFrames(frames, load);
     expect(composed.before).toBe(start.root);
     expect(composed.after).toBe(second.root);
-    expect(composed.operations.map(o => o.key)).toEqual(["a", "b"]);
+    expect(composed.operations.map(o => o.key)).toEqual(["edit-0-0", "edit-0-1"]);
+    expect(composed.operations.map(o => o.kind === "editSource" && o.source.material.kind === "basis" && o.source.material.path)).toEqual(["/a.md", "/b.md"]);
     expect((await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load)).root).toBe(second.root);
     expect(await composeFrames([frames[0]!], load)).toBe(frames[0]!);
-    // A second edit of the same file would need its references rebased.
-    const again = await executeExactSourceEdits(first.root, [edit("a2", "/a.md", hashObject(new TextEncoder().encode("Abc")), [1, 2], "B")], load);
-    for (const [hash, bytes] of again.generated) objects.set(hash, bytes);
-    await expect(composeFrames([
-      frames[0]!,
-      { before: first.root, after: again.root, operations: [edit("a2", "/a.md", hashObject(new TextEncoder().encode("Abc")), [1, 2], "B")] },
-    ], load)).rejects.toBeInstanceOf(UnsupportedSourceEdit);
+    // Lineage names the generation it was captured against and is never rebased.
+    const preserved: SourceOperation = { key: "b2", kind: "editSource", source: b.source, text: "y",
+      lineage: [{ source: { material: { kind: "basis", path: "/b.md", object: start.fileB }, range: [1, 2] }, range: [0, 1] }] };
+    await expect(composeFrames([frames[0]!, { ...frames[1]!, operations: [preserved] }], load)).rejects.toBeInstanceOf(UnsupportedSourceEdit);
+  });
+
+  test("a second edit of the same file composes by range over the first, without its bytes", async () => {
+    const start = pair("Before plant", "xyz"), objects = new Map(start.objects);
+    const load = async (hash: string) => { const value = objects.get(hash); if (!value) throw Error("Object missing"); return value; };
+    const g1 = [edit("edit-0-0", "/a.md", start.fileA, [0, 6], "After")];
+    const first = await executeExactSourceEdits(start.root, g1, load);
+    for (const [hash, bytes] of first.generated) objects.set(hash, bytes);
+    const middle = hashObject(new TextEncoder().encode("After plant"));
+    // Edit inside the first generation's insertion and append at the end.
+    const g2 = [edit("edit-1-0", "/a.md", middle, [1, 3], "FT"), edit("edit-1-1", "/a.md", middle, [11, 11], "!")];
+    const second = await executeExactSourceEdits(first.root, g2, load);
+    for (const [hash, bytes] of second.generated) objects.set(hash, bytes);
+    expect(second.root).toBe(pair("AFTer plant!", "xyz").root);
+    const composed = await composeFrames([
+      { before: start.root, after: first.root, operations: g1 },
+      { before: first.root, after: second.root, operations: g2 },
+    ], load);
+    expect(composed.operations).toEqual([
+      edit("edit-0-0", "/a.md", start.fileA, [0, 6], "AFTer"),
+      edit("edit-0-1", "/a.md", start.fileA, [12, 12], "!"),
+    ]);
+    expect((await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load)).root).toBe(second.root);
+    // Typing and deleting it again composes to nothing: the chain is a no-op frame.
+    const undone = await composeFrames([
+      { before: start.root, after: first.root, operations: g1 },
+      { before: first.root, after: start.root, operations: [edit("edit-1-0", "/a.md", middle, [0, 5], "Before")] },
+    ], load);
+    expect(undone.operations).toEqual([]);
+    expect(undone.before).toBe(undone.after);
   });
 });
