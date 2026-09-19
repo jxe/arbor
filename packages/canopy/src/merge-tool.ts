@@ -40,6 +40,12 @@ export interface MergeToolOptions {
   onTiming?: (phase: string, milliseconds: number) => void;
   /** Shared object store to read through (Canopy passes its cached store). */
   objects?: ObjectStore;
+  /** Optional diagnostic counters per job; no request content or identities. */
+  onCount?: (name: string, value: number) => void;
+  /** History-proof cache ceiling; default 256 MB. */
+  historyCacheBytes?: number;
+  /** Validated-state proof memory ceiling; default 64 MB. */
+  stateProofBytes?: number;
   timeoutMs?: number;
   /** Presentation policy; source choices remain coupled when the format requires it. */
   contentChoices?: "source" | "file";
@@ -54,7 +60,7 @@ export class MergeTool {
   private readonly jobs = new Set<Promise<unknown>>();
   private closing = false;
   private readonly retentionCache = new RetentionCache();
-  private readonly historyValidation = new StateMapValidationCache();
+  private readonly historyValidation: StateMapValidationCache;
   private readonly validatedStates = new Map<string, StateProof>();
   private validatedBytes = 0;
   private readonly resultProofs = new WeakMap<object, StateProof>();
@@ -62,12 +68,16 @@ export class MergeTool {
     const proof = this.resultProofs.get(ref) ?? this.validatedStates.get(JSON.stringify([tree, ref.object, ref.state]));
     return proof?.state.tree === tree && proof.hash === ref.state && proof.object === ref.object ? proof : undefined;
   }
+  private proofStats = { remembered: 0, rejected: 0, evicted: 0, hits: 0, validated: 0 };
   private rememberProof(key: string, proof: StateProof) {
-    if (proof.bytes > 16 * 1024 * 1024) return;
+    const limit = this.options.stateProofBytes ?? 64 * 1024 * 1024;
+    if (proof.bytes > limit) { this.proofStats.rejected++; return; }
+    this.proofStats.remembered++;
     this.validatedBytes -= this.validatedStates.get(key)?.bytes ?? 0;
     this.validatedStates.delete(key);
     this.validatedStates.set(key, proof); this.validatedBytes += proof.bytes;
-    while (this.validatedStates.size > 8 || this.validatedBytes > 16 * 1024 * 1024) {
+    while (this.validatedStates.size > 8 || this.validatedBytes > limit) {
+      this.proofStats.evicted++;
       const oldest = this.validatedStates.keys().next().value!;
       this.validatedBytes -= this.validatedStates.get(oldest)!.bytes;
       this.validatedStates.delete(oldest);
@@ -102,6 +112,7 @@ export class MergeTool {
     )
       throw new Error("Invalid merge worker limits");
     this.shared = options.objects ?? new ObjectStore(join(dataRoot, "objects"));
+    this.historyValidation = new StateMapValidationCache(options.historyCacheBytes ?? 256 * 1024 * 1024);
   }
 
   evaluate(request: CheckpointBatchRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{response:CheckpointBatchResponse;objects:Map<ObjectHash,Uint8Array>}>;
@@ -309,10 +320,12 @@ export class MergeTool {
         // Pin input proofs for this job: publishing its output proof must not
         // evict the very current state that the final decision check still uses.
         const jobProofs = new Map(this.validatedStates);
+        const historyBefore = { ...this.historyValidation.stats }, proofsBefore = { ...this.proofStats };
         const validate = async (ref: {object: string; state: string}) => {
           const key = JSON.stringify([tree, ref.object, ref.state]);
           const known = jobProofs.get(key);
-          if (known) return known.state;
+          if (known) { this.proofStats.hits++; return known.state; }
+          this.proofStats.validated++;
           const dependencies = new Set<string>();
           let stateBytes = 0, references: ReadonlySet<string> = new Set();
           const priorRef = "current" in request ? request.current : undefined;
@@ -387,6 +400,17 @@ export class MergeTool {
           this.rememberProof(key, proof);
         }
         mark("validate-state");
+        try {
+          const count = this.options.onCount;
+          if (count) {
+            const history = this.historyValidation.stats, proofs = this.proofStats;
+            for (const k of Object.keys(history) as Array<keyof typeof history>) count(`history-${k}`, history[k] - historyBefore[k]);
+            for (const k of Object.keys(proofs) as Array<keyof typeof proofs>) count(`proof-${k}`, proofs[k] - proofsBefore[k]);
+            count("history-mb", Math.round(this.historyValidation.size.bytes / 1048576));
+            count("proof-mb", Math.round(this.validatedBytes / 1048576));
+            count("proof-bytes-last", Math.round((jobProofs.get(JSON.stringify([tree, response.result.object, response.result.state]))?.bytes ?? 0) / 1048576));
+          }
+        } catch { /* diagnostics only */ }
         await this.verifyRetention(roots, available, jobProofs, trusted);
         mark("retention");
       }

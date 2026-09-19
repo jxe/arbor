@@ -223,16 +223,24 @@ export class StateMapValidationCache {
     { proof: MapProof | RecordProof; weight: number }
   >();
   private weight = 0;
+  /** Cumulative diagnostics; callers diff snapshots. */
+  readonly stats = { hits: 0, misses: 0, sets: 0, rejected: 0, evictions: 0 };
   constructor(private readonly maxBytes = 64 * 1024 * 1024) {}
+  /** Current accounted weight and entry count. */
+  get size(): { bytes: number; entries: number } {
+    return { bytes: this.weight, entries: this.entries.size };
+  }
   get(key: string): MapProof | RecordProof | undefined {
     const entry = this.entries.get(key);
-    if (!entry) return undefined;
+    if (!entry) { this.stats.misses++; return undefined; }
+    this.stats.hits++;
     this.entries.delete(key);
     this.entries.set(key, entry);
     return entry.proof;
   }
   set(key: string, proof: MapProof | RecordProof, weight: number) {
-    if (weight > this.maxBytes) return;
+    if (weight > this.maxBytes) { this.stats.rejected++; return; }
+    this.stats.sets++;
     const prior = this.entries.get(key);
     if (prior) this.weight -= prior.weight;
     this.entries.delete(key);
@@ -242,6 +250,7 @@ export class StateMapValidationCache {
       const oldest = this.entries.keys().next().value!;
       this.weight -= this.entries.get(oldest)!.weight;
       this.entries.delete(oldest);
+      this.stats.evictions++;
     }
   }
 }

@@ -496,6 +496,7 @@ export async function serveCanopy(options: {
           const countersBefore = canopy.objectCounters();
           return await withPhaseTimer(timer, async () => {
             const body = await request.json() as Record<string, unknown>;
+            timer.mark("body");
             const update = decodeUpdateRequestJSON(body);
             const tree = canopy.get(treeID);
             const link = linkDigest(request);

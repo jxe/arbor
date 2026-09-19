@@ -233,7 +233,10 @@ export class CanopyDaemon implements AsyncDisposable {
     this.mergeTool = new MergeTool(dataRoot, {
       persistent: !mergeTool?.command && !process.env.ARBOR_MERGE_EXECUTABLE,
       onTiming: (phase, ms) => phaseTimer()?.add(`worker-${phase}`, ms),
+      onCount: (name, value) => phaseTimer()?.count(name, value),
       objects: this.objects,
+      historyCacheBytes: megabytes("ARBOR_HISTORY_CACHE_MB", 256),
+      stateProofBytes: megabytes("ARBOR_STATE_PROOF_MB", 64),
       ...mergeTool,
     });
     this.semantic = new SemanticMerge(
@@ -2642,6 +2645,10 @@ function dirnameURL(path: string): string {
 
 /** Immutable object cache size; `ARBOR_OBJECT_CACHE_MB` overrides the 256 MB default. */
 function objectCacheBytes(): number {
-  const configured = Number(process.env.ARBOR_OBJECT_CACHE_MB);
-  return (Number.isFinite(configured) && configured >= 0 ? configured : 256) * 1024 * 1024;
+  return megabytes("ARBOR_OBJECT_CACHE_MB", 256);
+}
+
+function megabytes(variable: string, fallback: number): number {
+  const configured = Number(process.env[variable]);
+  return (Number.isFinite(configured) && configured >= 0 ? configured : fallback) * 1024 * 1024;
 }
