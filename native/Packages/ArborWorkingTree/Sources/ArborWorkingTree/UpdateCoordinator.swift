@@ -1294,15 +1294,15 @@ public actor UpdateCoordinator {
         log.notice("retain begin edits=\(intent.patch.edits.count) transactions=\(intent.patch.transactions?.count ?? 0) bytes=\(intent.source.utf8.count)")
         // The journal rewrite is client-side latency the editor waits on; report
         // it beside the network events so it can be weighed against them.
-        var note = WireNetworkLogEntry(kind: .note, name: "admission-retain", tree: try? await workingTree.treeID().rawValue)
+        var note = WireNetworkLogEntry(kind: .note, name: "admission-retain")
         note.bytesIn = intent.patch.edits.count
         do {
             let result = try await task.value
             note.durationMs = Date().timeIntervalSince(note.at) * 1000
-            if let url = try? files.sourceAdmissionsURL, let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int {
+            // Journal size only; never read the journal back on this path.
+            if let size = try? FileManager.default.attributesOfItem(atPath: files.sourceAdmissionsURL.path)[.size] as? Int {
                 note.bytesOut = size
             }
-            note.updateIDs = (try? await sourceQueue?.retained().count).map { ["records:\($0)"] }
             WireNetworkLog.current?.record(note)
             log.notice("retain succeeded")
             return result

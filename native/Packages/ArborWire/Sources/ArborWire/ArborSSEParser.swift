@@ -18,7 +18,7 @@ public struct ArborSSEParser: Sendable {
         while let boundary = nextBoundary() {
             let bytes = buffer.prefix(boundary.start)
             buffer.removeSubrange(0..<boundary.end)
-            if !bytes.isEmpty { frames.append(try parse(Data(bytes))) }
+            if !bytes.isEmpty, let frame = try parse(Data(bytes)) { frames.append(frame) }
         }
         return frames
     }
@@ -49,16 +49,18 @@ public struct ArborSSEParser: Sendable {
         return nil
     }
 
-    private func parse(_ bytes: Data) throws -> ArborSSEFrame {
+    /// Comment-only blocks (`: ready`, `: keepalive`) carry no event.
+    private func parse(_ bytes: Data) throws -> ArborSSEFrame? {
         guard let string = String(data: bytes, encoding: .utf8) else {
             throw ArborWireValidationError.malformedSSE("Frame is not UTF-8")
         }
         var id: String?
         var event: String?
         var data: [String] = []
+        var sawComment = false
         for rawLine in string.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
-            if line.hasPrefix(":") { continue }
+            if line.hasPrefix(":") { sawComment = true; continue }
             let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             let field = String(parts[0])
             var value = parts.count == 2 ? String(parts[1]) : ""
@@ -71,7 +73,10 @@ public struct ArborSSEParser: Sendable {
             default: break
             }
         }
-        guard !data.isEmpty else { throw ArborWireValidationError.malformedSSE("Frame has no data") }
+        guard !data.isEmpty else {
+            if sawComment && id == nil && event == nil { return nil }
+            throw ArborWireValidationError.malformedSSE("Frame has no data")
+        }
         return ArborSSEFrame(id: id, event: event, data: data.joined(separator: "\n"))
     }
 }

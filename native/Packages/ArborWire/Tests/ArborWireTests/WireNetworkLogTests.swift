@@ -74,4 +74,15 @@ struct WireNetworkLogTests {
         #expect(lines[1].contains("status=201"))
         #expect(lines[1].contains("server=total:150 body:20"))
     }
+
+    @Test("Comment-only SSE blocks are skipped; empty frames still fail")
+    func skipsCommentBlocks() throws {
+        var parser = ArborSSEParser()
+        #expect(try parser.append(Data(": ready\n\n".utf8)).isEmpty)
+        #expect(try parser.append(Data(": keepalive\n\n: another\n\n".utf8)).isEmpty)
+        let frames = try parser.append(Data(": comment\nid: 7\nevent: tree.update\ndata: {}\n\n".utf8))
+        #expect(frames.map(\.id) == ["7"])
+        var strict = ArborSSEParser()
+        #expect(throws: ArborWireValidationError.self) { try strict.append(Data("id: 8\n\n".utf8)) }
+    }
 }

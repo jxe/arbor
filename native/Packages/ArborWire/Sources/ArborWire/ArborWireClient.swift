@@ -278,6 +278,8 @@ public actor ArborWireClient {
     public func watch(tree: String, lastEventID: String? = nil) async throws -> AsyncThrowingStream<WireWatchEvent, Error> {
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        // Ask for an immediate comment and periodic keepalives; this parser skips them.
+        request.setValue("1", forHTTPHeaderField: "Arbor-Watch-Keepalive")
         if let lastEventID { request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID") }
         let session = session
         let finalRequest = request
