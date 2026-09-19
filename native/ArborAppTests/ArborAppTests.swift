@@ -223,6 +223,35 @@ struct ArborAppTests {
         #expect(diagnostic.synchronizationOverride == nil)
     }
 
+    @Test("Working-tree failure reports an exact recoverable local copy")
+    func recoverableWorkingTreeFailureDiagnostic() throws {
+        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+            WorkspaceProviderError.invalidAction("Captured editor intent changed"),
+            processKind: .supervised,
+            localRecovery: .retained
+        ))
+
+        #expect(diagnostic.conditionLabel == "Working-tree admission failed")
+        #expect(diagnostic.bannerMessage.contains("retained in local recovery"))
+        #expect(diagnostic.editSafetyDetail.contains("recoverable on this device"))
+        #expect(diagnostic.technicalDetail == "Captured editor intent changed")
+        #expect(diagnostic.explanation.contains("placed Arbor file"))
+    }
+
+    @Test("Private recovery failure distinguishes working-tree durability")
+    func privateRecoveryFailureDiagnostic() throws {
+        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+            CocoaError(.fileWriteNoPermission),
+            processKind: .supervised,
+            localRecovery: .failed
+        ))
+
+        #expect(diagnostic.conditionLabel == "Private recovery failed")
+        #expect(diagnostic.bannerMessage.contains("private recovery copy"))
+        #expect(diagnostic.editSafetyDetail.contains("only if working-tree admission succeeds"))
+        #expect(diagnostic.explanation.contains("does not by itself mean"))
+    }
+
     @Test("Automatic synchronization recognizes transient network failures")
     func automaticSyncTransientNetworkErrors() {
         for error in [

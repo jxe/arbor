@@ -30,6 +30,7 @@ public final class ArborDocumentBinding {
     public var lastError: Error? { recoveryError ?? saveError }
     private var recoveryStore: EditorRecoveryStore?
     private var recoveryRevision: EditorRecoveryStore.Revision?
+    private var recoverySource: String?
     public private(set) var conflict: WorkspaceDocumentConflict?
     public private(set) var lastEnqueuedSource: String?
     public private(set) var acceptedTitle: String
@@ -38,6 +39,8 @@ public final class ArborDocumentBinding {
     private var accepted: WorkspaceDocumentSnapshot
     private var basisLedgers: [String: ArborSourceLedger] = [:]
     private var authoredBlocks: [Int: [Block]] = [:]
+    private var authoredLedgers: [Int: ArborSourceLedger] = [:]
+    private var authoredPreservesIntent: [Int: Bool] = [:]
     private var copySources: [BlockID: BlockID] = [:]
     private var authoredCopies: [Int: [BlockID: BlockID]] = [:]
     private var transactionLedger: ArborSourceLedger?
@@ -61,6 +64,13 @@ public final class ArborDocumentBinding {
     private var directoryProjection: (reference: WorkspaceReference, children: [WorkspaceNode])?
 
     public var generation: Int { machine.generation }
+    /// True only when the private recovery journal contains the exact latest
+    /// source handed to the admission machine. A working-tree failure can
+    /// therefore be presented without implying that the edit exists only in
+    /// memory.
+    public var latestEditIsRetainedInRecovery: Bool {
+        recoveryError == nil && recoveryRevision != nil && recoverySource == lastEnqueuedSource
+    }
     /// True from the first uncommitted authored generation until Arbor Sync acknowledges the latest one.
     public var isSaving: Bool { !machine.isSettled }
     /// The machine state, for lifecycle callers and tests.
@@ -138,6 +148,7 @@ public final class ArborDocumentBinding {
                try (captured == nil || recoveryStore.intent(recoveryRevision)?.patch == captured),
                !recoveryStore.isSaved(recoveryRevision) || source == accepted.source { return }
             recoveryRevision = try recoveryStore.record(reference: reference, source: source, base: accepted, patch: captured)
+            recoverySource = source
             recoveryError = nil
         } catch { trace("recovery checkpoint failed: \(String(describing: error))"); recoveryError = error }
     }
@@ -163,6 +174,7 @@ public final class ArborDocumentBinding {
         let source = try store.source(record)
         trace("restore draft=\(record.id) source=\(Self.sourceID(source)) bytes=\(source.utf8.count) retainsBasis=\(retainsBasis)")
         recoveryRevision = record
+        recoverySource = source
         if !retainsBasis, source == accepted.source {
             try store.markSaved(record)
             return
@@ -285,10 +297,15 @@ public final class ArborDocumentBinding {
             basisLedgers[accepted.contentRevision] = basis
         }
         captureTransactionEvidence()
-        authoredTransactions[machine.generation + 1] = pendingTransactions
-        authoredCopies[machine.generation + 1] = copySources
-        authoredBlocks[machine.generation + 1] = document.children
+        let generation = machine.generation + 1
+        authoredTransactions[generation] = pendingTransactions
+        authoredCopies[generation] = copySources
+        authoredBlocks[generation] = document.children
         let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
+        let preservesIntent = !pendingTransactions.isEmpty
+            || admission.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }
+        authoredLedgers[generation] = nextLedger
+        authoredPreservesIntent[generation] = preservesIntent
         lastEnqueuedSource = admission.source
         ledger = nextLedger
         // Editing does not resolve a blocked admission. Keep the warning and
@@ -300,7 +317,7 @@ public final class ArborDocumentBinding {
             pendingConflict = conflict
         }
         checkpoint(source: admission.source)
-        dispatch(.edit(source: admission.source, preservesIntent: !pendingTransactions.isEmpty || admission.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }))
+        dispatch(.edit(source: admission.source, preservesIntent: preservesIntent))
     }
 
     /// Force the latest authored generation through and await local durability.
@@ -536,13 +553,32 @@ public final class ArborDocumentBinding {
         if let basis = basisLedgers[baseRevision], basis.source.utf8.elementsEqual(baseSource.utf8),
            let blocks = authoredBlocks[generation] {
             let (captured, next) = ArborMarkdownCodec.admission(blocks: blocks, ledger: basis, copies: authoredCopies[generation] ?? [:])
-            guard captured.source.utf8.elementsEqual(source.utf8) else {
+            let reconstructedPreservesIntent = !(authoredTransactions[generation] ?? []).isEmpty
+                || captured.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }
+            if captured.source.utf8.elementsEqual(source.utf8) {
+                patch = captured.patch
+                authoredLedger = next
+            } else if authoredPreservesIntent[generation] != true && !reconstructedPreservesIntent {
+                // The reducer can coalesce an intermediate generation while
+                // exact Markdown layout from that generation remains in the
+                // successor ledger. Re-encoding the successor directly from
+                // the accepted prefix can then normalize bytes (for example,
+                // a blank line before a newly nested list item). For ordinary
+                // byte edits, admit the exact captured source against the
+                // authoritative basis and retain its exact ledger. Operations
+                // carrying lineage, copy, or transaction intent still fail
+                // closed rather than silently degrading that intent.
+                trace("captured bytes changed; using exact-source patch captured=\(Self.sourceID(captured.source)) expected=\(Self.sourceID(source))")
+                patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
+                if let exact = authoredLedgers[generation], exact.source.utf8.elementsEqual(source.utf8) {
+                    authoredLedger = exact
+                }
+            } else {
                 trace("captured intent mismatch captured=\(Self.sourceID(captured.source)) expected=\(Self.sourceID(source))")
                 pendingFailure = WorkspaceProviderError.invalidAction("Captured editor intent changed")
                 dispatch(.admissionFailed(generation: generation, error: .init(message: "Captured editor intent changed", retryable: false)))
                 return
             }
-            patch = captured.patch; authoredLedger = next
         } else if let intent = recoveredIntent, intent.basis.contentRevision == baseRevision,
            intent.basis.source.utf8.elementsEqual(baseSource.utf8), intent.source.utf8.elementsEqual(source.utf8) {
             patch = intent.patch; authoredLedger = recoveredLedger
@@ -582,6 +618,8 @@ public final class ArborDocumentBinding {
             pendingTransactions.removeAll { admittedTransactionIDs.contains($0.id) }
             authoredTransactions = authoredTransactions.filter { $0.key > generation }
             authoredBlocks = authoredBlocks.filter { $0.key > generation }
+            authoredLedgers = authoredLedgers.filter { $0.key > generation }
+            authoredPreservesIntent = authoredPreservesIntent.filter { $0.key > generation }
             authoredCopies = authoredCopies.filter { $0.key > generation }
             finishAdmission(generation: generation, snapshot: confirmed)
             await collectUndoHistory()
@@ -692,6 +730,8 @@ public final class ArborDocumentBinding {
         pendingFailure = nil
         if machine.isSettled {
             authoredBlocks.removeAll()
+            authoredLedgers.removeAll()
+            authoredPreservesIntent.removeAll()
             authoredCopies.removeAll()
             authoredTransactions.removeAll()
             transactionLedger = nil

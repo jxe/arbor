@@ -1040,7 +1040,7 @@ struct ArborSyncStatusView: View {
                                 .foregroundStyle(.orange)
                         }
                         if let diagnostic {
-                            Text("The latest edit remains in this session but has not reached durable provider storage. Retry before closing or navigating away.")
+                            Text(diagnostic.editSafetyDetail)
                                 .font(.caption)
                                 .foregroundStyle(.red)
                             LabeledContent("Cause", value: diagnostic.conditionLabel)
@@ -1089,12 +1089,27 @@ struct ArborSyncStatusView: View {
     var saveStatus: String {
         if binding?.isSaving == true { return "Retaining edit locally" }
         if binding?.conflict != nil { return "Conflict needs a choice" }
-        if binding?.lastError != nil { return "Latest edit not retained locally" }
+        if binding?.lastError != nil {
+            if binding?.recoveryError != nil { return "Private recovery failed" }
+            return binding?.latestEditIsRetainedInRecovery == true
+                ? "Retained in recovery; working tree pending"
+                : "Latest edit not retained locally"
+        }
         return "Retained locally"
     }
 
     private var diagnostic: ArborSaveDiagnostic? {
-        ArborSaveDiagnostic.describe(binding?.lastError, processKind: arborsyncProcessKind)
+        ArborSaveDiagnostic.describe(
+            binding?.lastError,
+            processKind: arborsyncProcessKind,
+            localRecovery: localRecovery
+        )
+    }
+
+    private var localRecovery: ArborSaveDiagnostic.LocalRecovery {
+        guard let binding else { return .unknown }
+        if binding.recoveryError != nil { return .failed }
+        return binding.latestEditIsRetainedInRecovery ? .retained : .unavailable
     }
 
     var overallStatusTitle: String {
@@ -1105,7 +1120,7 @@ struct ArborSyncStatusView: View {
     }
 
     private var overallStatusDetail: String {
-        if diagnostic != nil { return "The latest edit has not reached durable storage." }
+        if let diagnostic { return diagnostic.bannerMessage }
         if binding?.conflict != nil { return "Resolve the current document conflict to continue." }
         if sync.state != .current { return sync.detail ?? synchronizationDetail }
         return "This client has no unpublished document or working-tree changes."

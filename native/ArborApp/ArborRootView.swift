@@ -2147,7 +2147,11 @@ struct ArborRootView: View {
             )
         } else if let diagnostic = ArborSaveDiagnostic.describe(
             model.binding?.lastError,
-            processKind: workspace.arborsyncProcessKind
+            processKind: workspace.arborsyncProcessKind,
+            localRecovery: model.binding.map {
+                if $0.recoveryError != nil { return .failed }
+                return $0.latestEditIsRetainedInRecovery ? .retained : .unavailable
+            } ?? .unknown
         ) {
             ArborAttentionBanner(
                 message: diagnostic.bannerMessage,

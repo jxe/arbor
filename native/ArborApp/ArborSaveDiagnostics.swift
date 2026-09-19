@@ -7,6 +7,13 @@ enum ArborSyncProcessKind: Sendable, Equatable {
 }
 
 struct ArborSaveDiagnostic: Equatable {
+    enum LocalRecovery: Equatable {
+        case retained
+        case failed
+        case unavailable
+        case unknown
+    }
+
     enum Kind: Equatable {
         case daemonUnreachable
         case daemonTimedOut
@@ -19,6 +26,7 @@ struct ArborSaveDiagnostic: Equatable {
     let conditionLabel: String
     let explanation: String
     let recovery: String
+    let editSafetyDetail: String
     let technicalDetail: String
     let synchronizationOverride: String?
 
@@ -39,7 +47,8 @@ struct ArborSaveDiagnostic: Equatable {
     static func describe(
         _ error: Error?,
         processKind: ArborSyncProcessKind?,
-        context: Context = .save
+        context: Context = .save,
+        localRecovery: LocalRecovery = .unknown
     ) -> ArborSaveDiagnostic? {
         guard let error else { return nil }
 
@@ -51,6 +60,7 @@ struct ArborSaveDiagnostic: Equatable {
                     conditionLabel: "Request rejected by Arbor Sync",
                     explanation: "The local daemon responded with HTTP \(serverError.status), so this is not a connection failure.",
                     recovery: "Correct the reported problem, then reconnect.",
+                    editSafetyDetail: "The tree did not open.",
                     technicalDetail: "\(serverError.value.code): \(serverError.localizedDescription)",
                     synchronizationOverride: nil
                 )
@@ -71,20 +81,58 @@ struct ArborSaveDiagnostic: Equatable {
                 conditionLabel: "Tree could not be opened",
                 explanation: "Opening the tree failed before a working tree existed. This is not known to be a local-daemon connection failure.",
                 recovery: "Correct the reported problem, then reconnect to arborsync.",
+                editSafetyDetail: "The tree did not open.",
                 technicalDetail: error.localizedDescription,
                 synchronizationOverride: nil
             )
         }
 
-        return ArborSaveDiagnostic(
-            kind: .providerFailure,
-            bannerMessage: "Native could not retain the latest document edit locally.",
-            conditionLabel: "Native durability failed",
-            explanation: "Native returned an error while retaining its private recovery or working-tree update state. It did not write the placed Arbor file, and this is not a daemon outage.",
-            recovery: "Keep this window open, correct the reported problem, then choose Retry.",
-            technicalDetail: error.localizedDescription,
-            synchronizationOverride: nil
-        )
+        switch localRecovery {
+        case .retained:
+            return ArborSaveDiagnostic(
+                kind: .providerFailure,
+                bannerMessage: "The latest edit is retained in local recovery, but working-tree admission failed.",
+                conditionLabel: "Working-tree admission failed",
+                explanation: "Native saved an exact private recovery copy on this device, but returned an error while retaining the working-tree update. It did not write the placed Arbor file, and this is not a daemon outage.",
+                recovery: "Retry while this window remains open. If Arbor restarts first, reopening this document restores the private recovery copy.",
+                editSafetyDetail: "The exact latest edit is recoverable on this device, but it has not reached the working tree or placed file.",
+                technicalDetail: error.localizedDescription,
+                synchronizationOverride: nil
+            )
+        case .failed:
+            return ArborSaveDiagnostic(
+                kind: .providerFailure,
+                bannerMessage: "Arbor could not retain a private recovery copy of the latest edit.",
+                conditionLabel: "Private recovery failed",
+                explanation: "Native could not confirm an exact private recovery copy of the latest edit on this device. This does not by itself mean that working-tree admission failed; that status is reported separately.",
+                recovery: "Keep this window open, correct the reported storage problem, then choose Retry before closing or navigating away unless the working tree has retained the edit.",
+                editSafetyDetail: "Private recovery is unavailable. The edit is recoverable after this window closes only if working-tree admission succeeds.",
+                technicalDetail: error.localizedDescription,
+                synchronizationOverride: nil
+            )
+        case .unavailable:
+            return ArborSaveDiagnostic(
+                kind: .providerFailure,
+                bannerMessage: "Working-tree admission failed, and no private recovery copy is available.",
+                conditionLabel: "Working-tree admission failed",
+                explanation: "Native returned an error while retaining the working-tree update, and this session has no exact private recovery copy. It did not write the placed Arbor file, and this is not a daemon outage.",
+                recovery: "Keep this window open, correct the reported problem, then choose Retry before closing or navigating away.",
+                editSafetyDetail: "The latest edit remains only in this editor session and may be lost if the window closes.",
+                technicalDetail: error.localizedDescription,
+                synchronizationOverride: nil
+            )
+        case .unknown:
+            return ArborSaveDiagnostic(
+                kind: .providerFailure,
+                bannerMessage: "Native could not confirm local durability for the latest document edit.",
+                conditionLabel: "Native durability failed",
+                explanation: "Native returned an error while retaining private recovery or working-tree update state. It did not write the placed Arbor file, and this is not a daemon outage.",
+                recovery: "Keep this window open, correct the reported problem, then choose Retry.",
+                editSafetyDetail: "The latest edit remains in this editor session; its recovery status is unknown.",
+                technicalDetail: error.localizedDescription,
+                synchronizationOverride: nil
+            )
+        }
     }
 
     private static func unreachable(
@@ -119,6 +167,7 @@ struct ArborSaveDiagnostic: Equatable {
             recovery: processKind == .external
                 ? "Restart the external daemon at the same loopback address, then reconnect to arborsync."
                 : "Reconnect to arborsync from Sync Status; the app relaunches its helper when none is listening.",
+            editSafetyDetail: "The tree did not open.",
             technicalDetail: error.localizedDescription,
             synchronizationOverride: "Unavailable"
         )
@@ -139,6 +188,7 @@ struct ArborSaveDiagnostic: Equatable {
             conditionLabel: "Local daemon timed out",
             explanation: management,
             recovery: "Check that Arbor Sync is responsive, then reconnect to arborsync.",
+            editSafetyDetail: "The tree did not open.",
             technicalDetail: error.localizedDescription,
             synchronizationOverride: "Unavailable"
         )

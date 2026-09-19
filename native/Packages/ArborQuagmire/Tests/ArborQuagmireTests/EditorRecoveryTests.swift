@@ -128,7 +128,10 @@ struct EditorRecoveryTests {
         var first: ArborDocumentBinding? = try await .open(reference: session.reference, session: session, recoveryRoot: root)
         edit(try #require(first), "First offline edit")
         await first?.flush()
+        #expect(first?.lastError != nil)
+        #expect(first?.latestEditIsRetainedInRecovery == true)
         edit(try #require(first), "Hours of offline work")
+        #expect(first?.latestEditIsRetainedInRecovery == true)
         first = nil
         await session.setFailing(false)
         await session.replace("Remote change\n")
@@ -193,6 +196,49 @@ struct EditorRecoveryTests {
         await binding.close()
     }
 
+    @Test("A coalesced list successor retains exact intermediate formatting")
+    func coalescedListSuccessorPreservesExactSource() async throws {
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let session = RecoverySession(source: "Before\n\nAfter\n")
+        await session.pauseNextAdmission()
+        let binding = try await ArborDocumentBinding.open(
+            reference: session.reference,
+            session: session,
+            recoveryRoot: root
+        )
+
+        let bullet = Block.bullet(text: AttributedString())
+        binding.document.transaction(name: "Insert list item") {
+            _ = binding.document.insertSubtree(bullet, at: .init(parent: nil, position: 1))
+        }
+        binding.admitCurrentGeneration()
+        let flushing = Task { await binding.flush() }
+        for _ in 0..<200 where !(await session.isPaused) {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(await session.isPaused)
+
+        binding.document.transaction(name: "Type list item") {
+            _ = binding.document.setText(bullet.id, AttributedString("the conflict stuff is buggy / weird"))
+        }
+        binding.admitCurrentGeneration()
+        binding.document.transaction(name: "Continue list") {
+            _ = binding.document.insertSubtree(
+                .bullet(text: AttributedString()),
+                at: .init(parent: bullet.id, position: 0)
+            )
+        }
+        binding.admitCurrentGeneration()
+        let expected = try #require(binding.lastEnqueuedSource)
+        #expect(expected.contains("- the conflict stuff is buggy / weird\n\n  - \n\n"))
+        await session.resumeAdmission()
+        await flushing.value
+
+        #expect(binding.lastError == nil)
+        #expect(await session.snapshot().source == expected)
+        await binding.close()
+    }
+
     @Test("Recovery is tree scoped, follows stable identity through moves, and verifies exact source bytes")
     func identityAndIntegrity() throws {
         let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
@@ -236,7 +282,9 @@ private actor RecoverySession: WorkspaceDocumentSession {
     func pauseNextAdmission() { pause = true }
     func resumeAdmission() { continuation?.resume(); continuation = nil }
     var current: WorkspaceDocumentSnapshot
-    init() { current = .init(reference: reference, source: "Before\n", contentRevision: "initial") }
+    init(source: String = "Before\n") {
+        current = .init(reference: reference, source: source, contentRevision: "initial")
+    }
     private var acceptsIntent = false
     private var rejectRetained: Bool?
     func rejectRetainedAdmission(stalePatch: Bool) { rejectRetained = stalePatch }
