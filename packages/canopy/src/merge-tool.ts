@@ -38,6 +38,8 @@ export interface MergeToolOptions {
   persistent?: boolean;
   /** Optional phase timings; no request content or object identities. */
   onTiming?: (phase: string, milliseconds: number) => void;
+  /** Shared object store to read through (Canopy passes its cached store). */
+  objects?: ObjectStore;
   timeoutMs?: number;
   /** Presentation policy; source choices remain coupled when the format requires it. */
   contentChoices?: "source" | "file";
@@ -76,9 +78,10 @@ export class MergeTool {
   validatedState(tree: string, ref: {object: string; state: string}): IntentState | undefined {
     return this.validationProof(tree, ref)?.state;
   }
-  verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, proofs: ReadonlyMap<string, StateProof> = this.validatedStates) {
+  verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, proofs: ReadonlyMap<string, StateProof> = this.validatedStates, trusted: ReadonlySet<string> = new Set()) {
     return verifyIntentRetention(roots, (hash) => this.shared.load(hash, available), {
       cache: this.retentionCache, durable: (hash) => !available.has(hash),
+      trusted: (hash) => trusted.has(hash),
       state: (hash) => {
         for (const proof of proofs.values())
           if (proof.hash === hash) return {value: proof.state, dependencies: proof.dependencies, references: proof.references};
@@ -98,7 +101,7 @@ export class MergeTool {
       (options.timeoutMs ?? 30_000) < 1
     )
       throw new Error("Invalid merge worker limits");
-    this.shared = new ObjectStore(join(dataRoot, "objects"));
+    this.shared = options.objects ?? new ObjectStore(join(dataRoot, "objects"));
   }
 
   evaluate(request: CheckpointBatchRequest, inputs: ReadonlyMap<ObjectHash, Uint8Array>): Promise<{response:CheckpointBatchResponse;objects:Map<ObjectHash,Uint8Array>}>;
@@ -181,12 +184,16 @@ export class MergeTool {
       try { this.options.onTiming?.(phase, now - phaseStart); } catch { /* diagnostics cannot affect acceptance */ }
       phaseStart = now;
     };
-    // Prime a bounded verified frontier from durable input states. Proposed
-    // intermediates are excluded: they may disappear when this job fails.
+    // Input states come from Canopy's own accepted records or from output this
+    // process already validated and published; they are never client-supplied.
+    // Those present in durable storage are trusted leaves for the output walk
+    // rather than re-audited history. Proposed intermediates are excluded:
+    // they may disappear when this job fails.
     const retained = ["base" in request ? request.base : undefined, "current" in request ? request.current : undefined]
       .flatMap((ref) => ref && typeof ref === "object" && "state" in ref && typeof ref.state === "string" ? [ref.state] : []);
+    const trusted = new Set<string>();
     for (const state of new Set(retained)) {
-      if (await this.shared.find(state)) await this.verifyRetention([state], new Map());
+      if (await this.shared.find(state)) trusted.add(state);
     }
     mark("retained-inputs");
     const jobs = join(this.dataRoot, "merge-jobs");
@@ -380,7 +387,7 @@ export class MergeTool {
           this.rememberProof(key, proof);
         }
         mark("validate-state");
-        await this.verifyRetention(roots, available, jobProofs);
+        await this.verifyRetention(roots, available, jobProofs, trusted);
         mark("retention");
       }
       healthy = true;

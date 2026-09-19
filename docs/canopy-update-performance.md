@@ -44,8 +44,28 @@ object identities. In the unit suite, a warm fast-forward now records about
 acceptance store after preflight records zero.
 
 The removed duplicate write-permission check in the update route is a small
-constant saving. Live numbers after deployment are recorded below once
-captured.
+constant saving.
+
+### Live attribution after the first deployment
+
+Live phase records showed the write path at about 30 ms (roughly 65 fsyncs per
+edit, down from several hundred), and two remaining costs. Warm requests spent
+840–1110 ms in Canopy's validation of the worker's output state, which reads
+objects from the volume; the same phase measures about 10 ms locally. The
+first edit after the deployment spent about 70 s verifying the retained
+history of its input states cold, and requests queued behind it; this is the
+source of the earlier 40 s spikes after every restart.
+
+Two changes follow. Canopy's object store now keeps a bounded in-memory cache
+of hash-verified immutable bytes (256 MB by default, `ARBOR_OBJECT_CACHE_MB`
+overrides) and the merge tool reads through the same store; read counts,
+bytes, and time appear in the per-request record. Retention verification now
+treats a job's input states as trusted leaves when they are present in
+durable storage: those states came from Canopy's own accepted records or from
+output this process already validated and published, never from a client, so
+their history is not re-audited on every request. The requested output roots
+are never trusted, staged bytes are still re-read until durable, and the full
+integrity audit passes no trusted set and still walks everything.
 
 ## Tree readers and watch catch-up
 

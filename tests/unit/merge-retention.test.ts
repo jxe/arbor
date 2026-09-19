@@ -57,7 +57,7 @@ function fixture() {
     if (!bytes) throw Error("Missing object");
     return bytes;
   };
-  return { objects, file, state, load, reads: () => reads };
+  return { objects, file, state, load, reads: () => reads, directoryOf: () => directory };
 }
 
 test("warm typed dependency validation reads no old bytes and returns the exact closure", async () => {
@@ -312,4 +312,30 @@ test("fresh audit shares history across records and union traversal without trus
   expect(await unionAudit([f.state])).toEqual(await verifyIntentRetention([f.state],f.load));
   f.objects.delete(f.file);
   await expect(retentionAudit(f.load)(roots,true)).rejects.toThrow("Missing object");
+});
+
+test("a trusted accepted input state stops the history walk; a requested root is never trusted", async () => {
+  // Accepted state A owns a hidden file; a change record links new state B to A.
+  const f = fixture();
+  const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); f.objects.set(hash, bytes); return hash; };
+  const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+  const change = put(encode({ base: { state: f.state, object: f.directoryOf() }, incoming: { object: f.directoryOf() } }));
+  const later = put(encode({
+    format: "arbor-merge-intent-state", tree: "tr_test", root: "root",
+    nodes: { root: { id: "root", parent: null, name: "", kind: "directory", object: f.directoryOf(), active: true } },
+    outputs: {}, alternatives: {}, origins: {}, effects: {}, changes: { edit: change }, decisions: [],
+  }));
+  const walked = await verifyIntentRetention([later], f.load, { cache: new RetentionCache(), durable: () => true });
+  expect(walked.has(f.state)).toBe(true);
+  expect(walked.has(f.file)).toBe(true);
+  const loaded: string[] = [];
+  const trusted = await verifyIntentRetention([later], async (hash) => { loaded.push(hash); return f.load(hash); }, {
+    cache: new RetentionCache(), durable: () => true, trusted: (hash) => hash === f.state,
+  });
+  expect(loaded).not.toContain(f.state);
+  expect(trusted.has(f.file)).toBe(true); // reachable through B's own root directory
+  expect(loaded).toContain(later);
+  // Trusting the requested root itself changes nothing: it is still verified.
+  f.objects.delete(f.file);
+  await expect(verifyIntentRetention([later], f.load, { cache: new RetentionCache(), durable: () => true, trusted: () => true })).rejects.toThrow("Missing object");
 });

@@ -229,9 +229,11 @@ export class CanopyDaemon implements AsyncDisposable {
     mergeTool?: MergeToolOptions
   ) {
     this.db = db;
+    this.objects = new ObjectStore(join(dataRoot, "objects"), { cacheBytes: objectCacheBytes() });
     this.mergeTool = new MergeTool(dataRoot, {
       persistent: !mergeTool?.command && !process.env.ARBOR_MERGE_EXECUTABLE,
       onTiming: (phase, ms) => phaseTimer()?.add(`worker-${phase}`, ms),
+      objects: this.objects,
       ...mergeTool,
     });
     this.semantic = new SemanticMerge(
@@ -242,7 +244,6 @@ export class CanopyDaemon implements AsyncDisposable {
     );
     this.acceptedStore = new AcceptedUpdateStore(db);
     this.observations = new ObservationLog(db);
-    this.objects = new ObjectStore(join(dataRoot, "objects"), { cacheBytes: objectCacheBytes() });
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
       tree: (id) => this.get(id),
