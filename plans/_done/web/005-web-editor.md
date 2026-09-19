@@ -1,3 +1,5 @@
+> **Superseded 2026-09-19** by [Web 025](../../web/025-arbor-web.md) and its [surface inventory](../../web/surfaces.md). Kept as the historical record; do not execute from this file.
+
 ---
 id: pmfd95
 ---

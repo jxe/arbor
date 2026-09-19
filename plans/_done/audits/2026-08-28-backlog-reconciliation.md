@@ -12,7 +12,7 @@ owner. It is not an active queue.
 | Mixed `removeTreePlacement` mutation batches | Superseded: placement removal is now a client configuration action that edits one device YAML document, not a protocol mutation operation. |
 | One-pass percent decoding | Existing [Security 002](../../security/002-path-decoding.md). |
 | Expose the old v0.8 `system:` shape | Superseded by the reviewed narrow system projection (`credentials`, `visited`, and `diagnostics`) plus ordinary account-configuration trees and `system:connections/...` locators. |
-| Copied-subtree identity and link semantics | Folded into [Smaller project 005](../../web/005-web-editor.md#structural-and-lifecycle-constraints). |
+| Copied-subtree identity and link semantics | Folded into [Smaller project 005](../web/005-web-editor.md#structural-and-lifecycle-constraints). |
 | Share runtime protocol decoding | Kept as a conditional item and admission rule in [Cleanups](../../README.md#cleanups). |
 | Remove pre-Canopy readers | Moved to [Cleanups](../../README.md#cleanups) with explicit deployment and retention gates. |
 

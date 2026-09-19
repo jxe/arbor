@@ -63,7 +63,7 @@ undo stack after restart is separate from retaining already-authored undo reques
 - Keep publication running while accepted choices remain unresolved. Explicit guarded review
   resolves choices; ordinary editing and equal bytes do not.
 
-Browser integration belongs to [Web 023](../web/023-rebuild-the-web-editor-on-the-working-tree.md).
+Browser integration belongs to [Web 025](../web/025-arbor-web.md) (formerly Web 023).
 Installation of already-built work belongs to [release verification](../verification/release-and-soak.md).
 Neither is unfinished Native command capture in this plan.
 

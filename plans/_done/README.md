@@ -22,6 +22,8 @@ leaving them among active projects and themes.
   under their historical identifiers.
 - [`applications/`](applications/README.md) points from completed application
   phases to their durable outcome records.
+- [`web/`](web/README.md) preserves the web plans superseded by Web 025 under
+  their historical identifiers.
 - [`interfaces/`](interfaces/README.md) preserves completed and explicitly
   retired interface milestones after they leave the active queue.
 - [`audits/`](audits/README.md) preserves dated audit and backlog snapshots after

@@ -11,7 +11,7 @@ Historical identifier: **Native 024**. The filename number is preserved; this pl
 - **Priority**: P2 — restores non-tree browsing
 - **Effort**: M
 - **Risk**: LOW
-- **Depends on**: Native 022 (for the Mac editor); Web 023 (for the web editor)
+- **Depends on**: Native 022 (for the Mac editor); Web 025 (for the web editor)
 - **Category**: product completion
 - **Planned at**: Arbor `c134a85`, 2026-09-09
 

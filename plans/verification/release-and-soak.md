@@ -43,7 +43,7 @@ These gates remain unconfirmed by this cleanup. Dated evidence is required to cl
 elapsed calendar time alone is insufficient.
 
 - [ ] **Native 022:** record completion of the original ordinary-use working-tree soak before
-  starting Web 023. The working-tree switch and subsequent Mac/iPhone source-mode installation
+  starting Web 025. The working-tree switch and subsequent Mac/iPhone source-mode installation
   are already live. Do not repeat the old re-place or rollout instructions.
 - [ ] **Arbor Sync 001:** record the remaining raw-byte protocol soak, including ordinary use on
   both platforms. [Migration 005](../../migrations/005-file-bytes-are-the-object/README.md) already
