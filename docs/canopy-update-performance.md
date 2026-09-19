@@ -2,6 +2,50 @@
 
 September 18, 2026: accepted-prefix reuse and Native payload omission are deployed to Canopy and installed on Mac/iPhone.
 That deployed change requires no schema, Wire, client, or permissions migration.
+September 19, 2026: batched durable object writes, `synchronous = NORMAL`, and per-request phase logging; no schema, Wire, or client change.
+
+## Durable writes and live attribution (2026-09-19)
+
+Live Railway updates measured 1.1–1.6 s (median 1.4 s, p90 4.6 s) while the
+same fast-forward measured 74–76 ms on a local production copy. The difference
+is the cost of `fsync` on the mounted volume, not compute: durable object
+publication issued three sequential fsyncs per object (file, shard directory,
+parent directory), repeated them for objects that were already durable, and a
+fast-forward durably stored largely the same object set up to three times
+(worker persistence, preflight, acceptance). A real update adds roughly 30–90
+objects, so one acceptance issued several hundred serial fsyncs. On macOS,
+Node's `fsync` does not force a full flush, which is why local samples never
+showed this.
+
+`ObjectStore.store` now writes and syncs files with bounded parallelism, syncs
+each shard directory and the objects root once per batch, and remembers which
+hashes this process has already made durable so a repeated durable publish of
+the same object issues no fsync. Ordering is unchanged: file bytes are synced
+before any directory entry, and every directory entry before `store` resolves,
+so the SQLite commit that follows still only names durable objects. Scratch
+`stage` remains unsynced. A staged or pre-existing object is synced once on its
+first durable publish and then remembered. Unit tests count fsyncs per batch:
+one per new file, one per shard directory, one for the root, and zero on a
+repeat.
+
+The Canopy database now uses `PRAGMA synchronous = NORMAL` under WAL. Commits
+no longer fsync individually; the WAL is synced at checkpoints. A process crash
+loses nothing. An operating-system crash can lose the most recent commits but
+cannot corrupt the database; because objects are synced before the commit that
+names them, a lost commit leaves only unreferenced objects.
+
+Each update request now logs one structured line (tree, status, batch size,
+total and per-phase milliseconds, objects considered, files written, fsyncs)
+and returns the same phases in a `Server-Timing` header. Merge worker phase
+timings, previously an unused callback, feed the same record. The log is
+silent under the test runner and never contains request content, subjects, or
+object identities. In the unit suite, a warm fast-forward now records about
+2N+1 fsyncs for N new objects (previously 3N per store pass) and the durable
+acceptance store after preflight records zero.
+
+The removed duplicate write-permission check in the update route is a small
+constant saving. Live numbers after deployment are recorded below once
+captured.
 
 ## Tree readers and watch catch-up
 

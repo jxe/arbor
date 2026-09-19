@@ -15,6 +15,7 @@ import {
 } from "./canopy.ts";
 import { encodeWatchFrames } from "./updates/watch-frames.ts";
 import type { ObservationRecord } from "./updates/observations.ts";
+import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
 import {
   decodeUpdateRequestJSON,
   encodeAcceptedTransitionJSON,
@@ -26,8 +27,14 @@ import { escapeHTML, renderPublicDataPage, renderPublicMarkdownPage, type Public
 import { WireProjection, wireCollectionFileRowMarkdown, wireCollectionFileRowTitle } from "@arbor/wire-projection";
 
 
-function json(value: unknown, status = 200): Response {
-  return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return Response.json(value, { status, headers: { "cache-control": "no-store", ...headers } });
+}
+
+/** One structured line per update request; silent under the test runner. */
+function logUpdate(record: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === "test") return;
+  console.log(JSON.stringify(record));
 }
 
 function immutableHeaders(request: Request, etag: string): HeadersInit {
@@ -485,27 +492,47 @@ export async function serveCanopy(options: {
         if (updates) {
           if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
           const treeID = decodeURIComponent(updates[1]!);
-          const body = await request.json() as Record<string, unknown>;
-          const update = decodeUpdateRequestJSON(body);
-          const tree = canopy.get(treeID);
-          // A null base activates a reserved tree, which has no descriptor yet;
-          // Canopy checks the reservation and the administrator device.
-          const direct = !execution && tree && !canopy.canWrite(account, treeID, linkDigest(request))
-            ? canopy.scopedCaller(account, treeID, authentication?.subject ?? "public", () => !authentication || canopy.authenticationIsActive(authentication), linkDigest(request)) : undefined;
-          const permitted = tree
-            ? canopy.canWrite(account, treeID, linkDigest(request)) || canopy.execution.canSubmit(treeID) || (direct && canopy.execution.run(direct, () => canopy.execution.canSubmit(treeID)))
-            : update.base === null && authentication !== null;
-          if (!permitted) return new Response("Not found", { status: 404 });
-          const result = await canopy.execution.run(execution ?? direct, () => canopy.submitUpdate(
-            treeID,
-            update,
-            account,
-            linkDigest(request),
-            authentication?.subject,
-            authentication ?? undefined,
-          ));
-          if (direct && !canopy.execution.covered(direct)) return wireError("permission-denied", "Authorization changed before receipt disclosure", 403);
-          return json(updateJSON(result.result), result.status);
+          const timer = new PhaseTimer();
+          const writesBefore = canopy.objectWrites();
+          return await withPhaseTimer(timer, async () => {
+            const body = await request.json() as Record<string, unknown>;
+            const update = decodeUpdateRequestJSON(body);
+            const tree = canopy.get(treeID);
+            const link = linkDigest(request);
+            const writable = tree ? canopy.canWrite(account, treeID, link) : false;
+            // A null base activates a reserved tree, which has no descriptor yet;
+            // Canopy checks the reservation and the administrator device.
+            const direct = !execution && tree && !writable
+              ? canopy.scopedCaller(account, treeID, authentication?.subject ?? "public", () => !authentication || canopy.authenticationIsActive(authentication), link) : undefined;
+            const permitted = tree
+              ? writable || canopy.execution.canSubmit(treeID) || (direct && canopy.execution.run(direct, () => canopy.execution.canSubmit(treeID)))
+              : update.base === null && authentication !== null;
+            if (!permitted) return new Response("Not found", { status: 404 });
+            timer.mark("parse-auth");
+            let result: Awaited<ReturnType<typeof canopy.submitUpdate>>;
+            try {
+              result = await canopy.execution.run(execution ?? direct, () => canopy.submitUpdate(
+                treeID,
+                update,
+                account,
+                link,
+                authentication?.subject,
+                authentication ?? undefined,
+              ));
+            } catch (error) {
+              logUpdate({ event: "update", tree: treeID, status: "error", updates: update.updates.length, ...timer.summary() });
+              throw error;
+            }
+            if (direct && !canopy.execution.covered(direct)) return wireError("permission-denied", "Authorization changed before receipt disclosure", 403);
+            const response = json(updateJSON(result.result), result.status, { "server-timing": timer.serverTiming() });
+            timer.mark("respond");
+            const writes = canopy.objectWrites();
+            for (const key of ["objects", "written", "fsyncs"] as const) timer.count(key, writes[key] - writesBefore[key]);
+            // Diagnostics only: tree identity, outcome, and durations. No subjects,
+            // request content, or object identities.
+            logUpdate({ event: "update", tree: treeID, status: result.status, updates: update.updates.length, ...timer.summary() });
+            return response;
+          });
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {

@@ -179,60 +179,112 @@ export class ObjectStore {
     await this.publish(objects, false);
   }
 
+  /** Cumulative write-side counters for diagnostics; callers diff snapshots. */
+  readonly writes: ObjectWriteCounters = { objects: 0, written: 0, fsyncs: 0 };
+
+  /** Hashes this process has already made durable, so a repeated durable
+   * publish of the same object re-verifies bytes but issues no further fsync.
+   * Bounded: forgetting an entry only costs one redundant sync. */
+  private readonly durable = new Set<ObjectHash>();
+
   private async publish(objects: Iterable<{ hash: ObjectHash; bytes: Uint8Array }>, durable: boolean): Promise<void> {
+    const unique = new Map<ObjectHash, Uint8Array>();
     for (const object of objects) {
       if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
-      const path = this.path(object.hash);
+      unique.set(object.hash, object.bytes);
+    }
+    this.writes.objects += unique.size;
+    // Directories whose entries changed or whose files were only staged
+    // before; each is synced once after every file in it is complete.
+    const directories = new Set<string>();
+    await mapLimit(unique, WRITE_CONCURRENCY, async ([hash, bytes]) => {
+      const path = this.path(hash);
       const directory = dirname(path);
-      try {
-        const existing = new Uint8Array(await readFile(path));
-        if (hashObject(existing) !== object.hash) {
-          throw new Error(`Stored object hash mismatch: ${object.hash}`);
-        }
+      // Stored bytes are always re-checked; only the fsync is skipped once
+      // this process has made the object durable.
+      if (await this.verifyExisting(path, hash)) {
         // An existing object may have been published as scratch data. Complete
         // file and directory durability without rewriting identical bytes.
-        if (durable) {
-          await syncPath(path);
-          await syncPath(directory);
-          await syncPath(dirname(directory));
-        }
-        continue;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        if (durable && !this.durable.has(hash)) { await this.sync(path); directories.add(directory); }
+        return;
       }
       await mkdir(directory, { recursive: true });
       const temporary = `${path}.${crypto.randomUUID()}.tmp`;
       try {
         const file = await open(temporary, "wx", 0o600);
         try {
-          await file.writeFile(object.bytes);
-          if (durable) await file.sync();
+          await file.writeFile(bytes);
+          if (durable) { this.writes.fsyncs++; await file.sync(); }
         } finally {
           await file.close();
         }
+        this.writes.written++;
         try {
           // A hard link publishes the complete inode without ever replacing
           // an immutable object that another writer may have published first.
           await link(temporary, path);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-          const existing = new Uint8Array(await readFile(path));
-          if (hashObject(existing) !== object.hash) {
-            throw new Error(`Stored object hash mismatch: ${object.hash}`);
-          }
-          if (durable) await syncPath(path);
+          if (!await this.verifyExisting(path, hash)) throw new Error(`Stored object vanished: ${hash}`);
+          if (durable) await this.sync(path);
         }
-        await unlink(temporary);
-        if (durable) {
-          await syncPath(directory);
-          // The shard may itself be new, so flush its parent as well.
-          await syncPath(dirname(directory));
-        }
+        if (durable) directories.add(directory);
       } finally {
         await unlink(temporary).catch((error) => {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         });
       }
+    });
+    if (!durable) return;
+    // Bytes are on disk before any directory entry is synced, and every entry
+    // is synced before this resolves, so a subsequent database commit only
+    // names durable objects. Shards may themselves be new, so flush the root.
+    await mapLimit(directories, WRITE_CONCURRENCY, (directory) => this.sync(directory));
+    if (directories.size) await this.sync(this.root);
+    for (const hash of unique.keys()) this.durable.add(hash);
+    if (this.durable.size > DURABLE_MEMORY) {
+      for (const hash of this.durable) {
+        if (this.durable.size <= DURABLE_MEMORY / 2) break;
+        this.durable.delete(hash);
+      }
     }
   }
+
+  private async verifyExisting(path: string, hash: ObjectHash): Promise<boolean> {
+    let existing: Uint8Array;
+    try {
+      existing = new Uint8Array(await readFile(path));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+    if (hashObject(existing) !== hash) throw new Error(`Stored object hash mismatch: ${hash}`);
+    return true;
+  }
+
+  private async sync(path: string): Promise<void> {
+    this.writes.fsyncs++;
+    await syncPath(path);
+  }
+}
+
+export interface ObjectWriteCounters {
+  /** Objects a durable or scratch publish considered, including repeats. */
+  objects: number;
+  /** New files written. */
+  written: number;
+  /** fsync calls issued. */
+  fsyncs: number;
+}
+
+const WRITE_CONCURRENCY = 32;
+const DURABLE_MEMORY = 200_000;
+
+async function mapLimit<T>(items: Iterable<T>, limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  const queue = [...items];
+  let index = 0;
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (index < queue.length) await task(queue[index++]!);
+  });
+  await Promise.all(workers);
 }

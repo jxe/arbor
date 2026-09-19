@@ -204,6 +204,11 @@ export function openCanopyDatabase(path: string): Database {
     throw error;
   }
   db.run("PRAGMA journal_mode = WAL");
+  // WAL with NORMAL syncs at checkpoints rather than on every commit: a process
+  // crash loses nothing, an OS crash can lose the last commits but never
+  // corrupts. Objects are fsynced before the commit that names them, so a
+  // lost commit leaves only unreferenced objects.
+  db.run("PRAGMA synchronous = NORMAL");
   db.run("PRAGMA foreign_keys = ON");
   return db;
 }

@@ -69,6 +69,7 @@ import { rootProfileFacts } from "./profile.ts";
 import type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { openCanopyDatabase, resourcePolicyFormatKey } from "./schema.ts";
+import { markPhase, phaseTimer } from "./updates/timing.ts";
 
 export type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 
@@ -230,6 +231,7 @@ export class CanopyDaemon implements AsyncDisposable {
     this.db = db;
     this.mergeTool = new MergeTool(dataRoot, {
       persistent: !mergeTool?.command && !process.env.ARBOR_MERGE_EXECUTABLE,
+      onTiming: (phase, ms) => phaseTimer()?.add(`worker-${phase}`, ms),
       ...mergeTool,
     });
     this.semantic = new SemanticMerge(
@@ -1150,6 +1152,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const queued = previous.then(() => turn);
     this.updateLocks.set(treeID, queued);
     await previous;
+    markPhase("lock-wait");
     try {
       return await this.submitUpdatesLocked(
         treeID,
@@ -1217,6 +1220,7 @@ export class CanopyDaemon implements AsyncDisposable {
         if (this.acceptedRequest(treeID, policy.subject, digests[index]!)) { recordedThrough = index; break; }
       }
     }
+    markPhase("receipts");
     const intents = new Map<number, { basis: StateRef; evaluated: Evaluated; guards: string[] }>();
     if (
       request.base &&
@@ -1268,6 +1272,7 @@ export class CanopyDaemon implements AsyncDisposable {
         this.update(request.base)!,
         objects
       );
+      markPhase("preflight-state");
       for (const [index, update] of request.updates.entries()) {
         for (const object of update.objects) objects.set(object.hash, object.bytes);
         if (index <= recordedThrough) {
@@ -1312,6 +1317,7 @@ export class CanopyDaemon implements AsyncDisposable {
               objects,
               keys
             );
+            markPhase("preflight-evaluate");
             intents.set(index, { basis, evaluated: validated, guards: keys });
             basis = validated.authored;
           } catch (error) {
@@ -1372,6 +1378,7 @@ export class CanopyDaemon implements AsyncDisposable {
       await this.objects.store(
         [...objects].map(([hash, bytes]) => ({ hash, bytes }))
       );
+      markPhase("preflight-store");
     }
     let basisUpdate = request.base;
     let submittedConflicts = request.base ? new ConflictStore(this.db).get(request.base) : null;
@@ -1492,7 +1499,9 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("Authored change identity is already bound to a different accepted request");
     }
     await this.validateGraph(request.candidate, proposed, tree.ref);
+    markPhase("validate-graph");
     await policy.validateCandidate(request.candidate, proposed);
+    markPhase("validate-candidate");
     const semanticCurrent = this.currentUpdate(treeID)!;
     if (
       !tree.policy.startsWith("account-config-") &&
@@ -1538,6 +1547,7 @@ export class CanopyDaemon implements AsyncDisposable {
               merge: policy.merge ?? ((base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed)),
             }
           );
+      markPhase("reconcile");
       const conflictStore = new ConflictStore(this.db);
       const currentConflicts = conflictStore.get(remoteUpdate.id);
       let conflictState: ConflictState | undefined;
@@ -1740,9 +1750,11 @@ export class CanopyDaemon implements AsyncDisposable {
       await this.objects.store(request.objects);
       await this.objects.store(reconstructed);
       await this.objects.store([...reconciled.generated].map(([hash, bytes]) => ({ hash, bytes })));
+      markPhase("accepted-store");
       const now = Date.now();
       const prepared = await policy.prepareCommit(remoteTree, nextRoot, now);
       const transition = await this.acceptedTransitionPayload(remoteTree.ref, nextRoot);
+      markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
           tree: treeID,
@@ -1765,8 +1777,10 @@ export class CanopyDaemon implements AsyncDisposable {
         prepared.withinTransaction
       );
       if (!accepted) continue;
+      markPhase("commit");
       prepared.afterCommit?.(accepted);
       this.notifyAccepted(accepted);
+      markPhase("notify");
       return {
         status: 201,
         authoredConflicts: authoredView(accepted.id),
@@ -1818,6 +1832,7 @@ export class CanopyDaemon implements AsyncDisposable {
           },
         };
       const currentState = await this.semantic.state(current, proposed);
+      markPhase("current-state");
       let result: StateRef,
         authored: StateRef,
         evidence: Evaluated["evidence"] | null = null;
@@ -1908,6 +1923,7 @@ export class CanopyDaemon implements AsyncDisposable {
         for (const [hash, bytes] of author.objects) proposed.set(hash, bytes);
         authored = author.response.result;
       }
+      markPhase("evaluate");
       const mergeState = await this.semantic.record(
         tree.id,
         result,
@@ -1916,14 +1932,17 @@ export class CanopyDaemon implements AsyncDisposable {
         proposed,
         evidence
       );
+      markPhase("record");
       await policy.validateAccepted(
         this.get(tree.id)!,
         result.object,
         proposed
       );
+      markPhase("validate-accepted");
       await this.objects.store(
         [...proposed].map(([hash, bytes]) => ({ hash, bytes }))
       );
+      markPhase("accepted-store");
       const now = Date.now(),
         commit = await policy.prepareCommit(
           this.get(tree.id)!,
@@ -1934,6 +1953,7 @@ export class CanopyDaemon implements AsyncDisposable {
         current.root,
         result.object
       );
+      markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
           tree: tree.id,
@@ -1955,8 +1975,10 @@ export class CanopyDaemon implements AsyncDisposable {
         commit.withinTransaction
       );
       if (!accepted) continue;
+      markPhase("commit");
       commit.afterCommit?.(accepted);
       this.notifyAccepted(accepted);
+      markPhase("notify");
       return {
         status: 201,
         result: await this.withReconciliation(
@@ -2178,6 +2200,11 @@ export class CanopyDaemon implements AsyncDisposable {
 
   async object(hash: ObjectHash): Promise<Uint8Array> {
     return this.objects.read(hash);
+  }
+
+  /** Snapshot of cumulative object write counters, for request diagnostics. */
+  objectWrites(): { objects: number; written: number; fsyncs: number } {
+    return { ...this.objects.writes };
   }
 
   /** Verify SQLite plus every object reachable from retained accepted history. */
