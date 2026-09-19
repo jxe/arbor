@@ -232,3 +232,15 @@ test("snapshot ambiguity and accepted identity commit atomically", async () => {
     await running.canopy.verifyIntegrity();
   } finally { db.close(); }
 });
+
+test("health checks only the database while integrity audits history in one shared run", async () => {
+  const health = await fetch(`${running.url}/.arbor/health`);
+  expect(health.status).toBe(200);
+  expect(await health.json()).toEqual({ status: "ok" });
+  const first = running.canopy.verifyIntegrity();
+  expect(running.canopy.verifyIntegrity()).toBe(first);
+  await first;
+  const integrity = await fetch(`${running.url}/.arbor/integrity`);
+  expect(integrity.status).toBe(200);
+  expect(await integrity.json()).toEqual({ status: "ok" });
+});

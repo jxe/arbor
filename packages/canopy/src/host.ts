@@ -278,6 +278,16 @@ export async function serveCanopy(options: {
         }
         if (request.method === "GET" && url.pathname === "/.arbor/health") {
           try {
+            canopy.verifyDatabase();
+            return json({ status: "ok" });
+          } catch (error) {
+            console.error("Arbor canopy database check failed", error);
+            return wireError("internal-error", "Canopy database check failed", 503, true);
+          }
+        }
+        if (request.method === "GET" && url.pathname === "/.arbor/integrity") {
+          server.timeout(request, 0);
+          try {
             await canopy.verifyIntegrity();
             return json({ status: "ok" });
           } catch (error) {

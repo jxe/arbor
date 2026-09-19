@@ -2241,12 +2241,25 @@ export class CanopyDaemon implements AsyncDisposable {
     };
   }
 
-  /** Verify SQLite plus every object reachable from retained accepted history. */
-  async verifyIntegrity(): Promise<void> {
+  /** Cheap readiness: SQLite answers and its pages are consistent. */
+  verifyDatabase(): void {
     const rows = this.db.query("PRAGMA quick_check").all() as Array<Record<string, unknown>>;
     if (rows.length !== 1 || Object.values(rows[0] ?? {})[0] !== "ok") {
       throw new Error("Canopy SQLite integrity check failed");
     }
+  }
+
+  private integrityRun: Promise<void> | null = null;
+
+  /** Verify SQLite plus every object reachable from retained accepted history.
+   * This walks all retained history, so concurrent callers share one run. */
+  verifyIntegrity(): Promise<void> {
+    this.integrityRun ??= this.auditIntegrity().finally(() => { this.integrityRun = null; });
+    return this.integrityRun;
+  }
+
+  private async auditIntegrity(): Promise<void> {
+    this.verifyDatabase();
     const roots = (this.db.query("SELECT DISTINCT root FROM accepted_updates").all() as Array<{ root: ObjectHash }>)
       .map(({ root }) => root);
     await this.objects.verifyReachable([

@@ -195,10 +195,16 @@ changing.
 
 ```text
 GET /.arbor/health
+GET /.arbor/integrity
 GET /.arbor/account
 GET /.arbor/trees
 GET /.well-known/arbor[/{path}]
 ```
+
+`health` is a cheap readiness check that answers `{"status":"ok"}` while the
+server's own database is consistent; poll it freely. `integrity` audits every
+object reachable from retained history and can take minutes on a large server;
+concurrent requests share one audit, and it is for operators, not polling.
 
 Authenticated account and tree-list reads use explicit envelopes carrying
 `observedThrough`; bare arrays and descriptors are not mutable responses. The
