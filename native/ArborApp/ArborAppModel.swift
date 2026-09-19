@@ -453,39 +453,6 @@ final class ArborWorkspaceState {
 #endif
     }
 
-    func createShareLink(tree: String, access: String) async throws -> NativeAccessLink {
-#if os(iOS)
-        guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else {
-            throw ArborWireValidationError.invalidValue("The tree is not placed on this iPhone")
-        }
-        return try await NativeAccountService(
-            origin: placement.origin,
-            configurationTree: placement.configurationTree
-        ).createAccessLink(tree: tree, access: access)
-#else
-        var generator = SystemRandomNumberGenerator()
-        let bytes = (0..<32).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
-        let secret = Data(bytes).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-        let digest = "sha256:" + SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
-        let updated = try await setShareAccess(
-            tree: tree,
-            target: .existing(.link(digest: digest)),
-            access: access
-        )
-        guard var components = URLComponents(string: updated.canonical) else {
-            throw ArborWireValidationError.invalidValue("The tree has no valid canonical URL")
-        }
-        components.fragment = "arbor-access=\(secret)"
-        guard let url = components.url else {
-            throw ArborWireValidationError.invalidValue("The access-link URL could not be created")
-        }
-        return NativeAccessLink(url: url)
-#endif
-    }
-
 #if os(macOS)
     // MARK: Account configuration on disk
     //
@@ -778,25 +745,6 @@ final class ArborWorkspaceState {
         try await client.synchronize(configurationTree: account.configurationTree)
         await refreshLocalArborSyncOverview()
         generation += 1
-    }
-
-    /// Create a folder and promote it to a placed tree in one step.
-    func createLocalTree(
-        path: String,
-        account: ArborShareAccount,
-        canonical: String,
-        publicAccess: String
-    ) async throws {
-        let folder = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) {
-            guard isDirectory.boolValue else {
-                throw ArborWireValidationError.invalidValue("\(folder.path) is a file, not a folder")
-            }
-        } else {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        }
-        try await promoteLocalFolder(path: folder.path, account: account, canonical: canonical, publicAccess: publicAccess)
     }
 
     // MARK: Control-mode daemon
@@ -1278,14 +1226,6 @@ final class ArborWorkspaceState {
         }
         if let comment = value.range(of: " #") { return String(value[..<comment.lowerBound]) }
         return value
-    }
-
-    private func latestObservationCursor(_ cursors: [String]) -> String {
-        cursors.max { lhs, rhs in
-            let left = Int(lhs.split(separator: ":").last ?? "") ?? 0
-            let right = Int(rhs.split(separator: ":").last ?? "") ?? 0
-            return left < right
-        } ?? ""
     }
 
     private func startLocalOverviewWatch(after cursor: String) {

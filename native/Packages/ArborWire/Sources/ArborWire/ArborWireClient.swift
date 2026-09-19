@@ -554,18 +554,6 @@ private func canonicalUpdateIntent(
     ]))
 }
 
-public func updateRequestDigest(
-    tree: String,
-    base: WireUpdateBase,
-    candidate: String,
-    change: String,
-    trace: [WireTraceFrame]? = nil,
-    resolves: [WireResolutionDeclaration] = [],
-    ifCurrent: String? = nil
-) -> String {
-    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, change: change, trace: trace, resolves: resolves, ifCurrent: ifCurrent))
-}
-
 public func updateRequestDigests(
     tree: String,
     base: WireUpdateBase,

@@ -241,12 +241,6 @@ public actor WorkingTree {
         return WireSnapshot(root: sparse.root, objects: objects)
     }
 
-    /// Bytes the tree's own overlay holds for `hash`, or `nil`; never consults the platform.
-    public func overlayBytes(hash: String) throws -> Data? {
-        try requireOpen()
-        return try overlay.storedBytes(hash)
-    }
-
     /// Whether the last read of `node`'s bytes found no store able to serve them.
     func isKnownMissing(_ node: WorkingTreeNode) -> Bool {
         guard case let .hash(hash, _, _)? = node.ref else { return false }
@@ -311,29 +305,6 @@ public actor WorkingTree {
         try requireOpen()
         guard control.pendingRoot == nil else { throw WorkingTreeError.pendingLocalChanges }
         try replaceWithAccepted(replacement, mutation: "system-replacement")
-    }
-
-    /// Atomically install a reviewed conflict candidate while retaining it as
-    /// pending work against the separately verified accepted authority root.
-    public func replacePendingFromSystem(
-        _ replacement: WorkingTreeSystemReplacement,
-        acceptedRoot: String,
-        acceptedUpdate: String,
-        acceptedCursor: String? = nil
-    ) throws {
-        try requireOpen()
-        guard control.pendingRoot != nil, !acceptedUpdate.isEmpty else { throw WorkingTreeError.pendingLocalChanges }
-        let replacementState = try state(from: replacement)
-        let computed = try WorkingTreeWireCodec.snapshot(for: replacementState)
-        guard computed.root == replacement.root else { throw WorkingTreeError.corruptState("System replacement root mismatch") }
-        try transact(
-            mutation: "resolve-sync-conflict",
-            pageKey: "_system",
-            accepted: (acceptedRoot, acceptedUpdate, acceptedCursor),
-            retainsPendingAgainstAcceptedBase: true
-        ) { next in
-            next = replacementState
-        }
     }
 
     private func replaceWithAccepted(_ replacement: WorkingTreeSystemReplacement, mutation: String) throws {

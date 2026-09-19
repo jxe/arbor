@@ -6,47 +6,6 @@ import Testing
 
 @Suite("Workspace provider contract", .serialized)
 struct ProviderContractTests {
-#if os(macOS)
-    @Test("Bookmark restore migrates the former sandbox preferences domain")
-    func bookmarkMigrationFromSandboxPreferences() async throws {
-        let rootURL = FileManager.default.temporaryDirectory
-            .appending(path: "ArborBookmarkMigration-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let currentDomain = "org.nxhx.ArborTests.BookmarkCurrent.\(UUID().uuidString)"
-        let currentDefaults = try #require(UserDefaults(suiteName: currentDomain))
-        defer {
-            UserDefaults.standard.removePersistentDomain(forName: currentDomain)
-        }
-
-        let key = "native-workspace-bookmark-v1"
-        let bookmark = try rootURL.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: [.isDirectoryKey],
-            relativeTo: nil
-        )
-        let legacyURL = rootURL.appending(path: "legacy.plist")
-        let plist = try PropertyListSerialization.data(
-            fromPropertyList: [key: bookmark],
-            format: .binary,
-            options: 0
-        )
-        try plist.write(to: legacyURL)
-
-        let migratedStore = SecurityScopedWorkspaceBookmarkStore(
-            defaults: currentDefaults,
-            key: key,
-            legacyPreferencesURL: legacyURL
-        )
-        let restored = try #require(try await migratedStore.load())
-
-        #expect(restored.standardizedFileURL == rootURL.standardizedFileURL)
-        let reloadedDefaults = try #require(UserDefaults(suiteName: currentDomain))
-        #expect(reloadedDefaults.data(forKey: key) == bookmark)
-    }
-#endif
-
     @Test("In-memory provider")
     func inMemory() async throws {
         let provider = InMemoryWorkspaceProvider.sample()

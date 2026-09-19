@@ -18,15 +18,6 @@ struct UpdateControlFiles: Sendable {
         try Self.createPrivateDirectory(directory)
     }
 
-    func withSourceAdmissionsLock<T>(_ action: () throws -> T) throws -> T {
-        let descriptor = Darwin.open(directory.appending(path: "source-admissions.lock").path, O_RDWR | O_CREAT, 0o600)
-        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        defer { flock(descriptor, LOCK_UN) }
-        return try action()
-    }
-
     func lockSourceAdmissions() throws -> Int32 {
         let descriptor = Darwin.open(directory.appending(path: "source-admissions.lock").path, O_RDWR | O_CREAT, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }

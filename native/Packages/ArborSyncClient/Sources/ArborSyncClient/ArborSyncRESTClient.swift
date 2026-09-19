@@ -177,12 +177,6 @@ public actor ArborSyncRESTClient {
         return data
     }
 
-    public func forgetLocalAccount() async throws {
-        var request = URLRequest(url: url("/v1/local/forget"))
-        request.httpMethod = "POST"
-        let _: ForgetResult = try await perform(request)
-    }
-
     public func observations(after initialCursor: String) -> AsyncThrowingStream<WorkspaceEvent, Error> {
         let baseURL = self.baseURL
         let session = self.session
@@ -321,7 +315,6 @@ public actor ArborSyncRESTClient {
     }
 }
 
-private struct ForgetResult: Decodable { var forgotten: Bool }
 private struct LocalResyncObservation: Decodable { var cursor: String; var tree: String; var kind: String }
 
 private struct TreeBootstrapEnvelope: Decodable {

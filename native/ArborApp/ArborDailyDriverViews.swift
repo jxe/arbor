@@ -80,63 +80,6 @@ extension FocusedValues {
     }
 }
 
-struct ArborSidebarRow: View {
-    let node: WorkspaceNode
-    let isCurrent: Bool
-    let open: () -> Void
-    let openInNewTab: () -> Void
-    let movePage: () -> Void
-    let trash: () -> Void
-
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 8) {
-                if let emoji = arborSidebarTitleParts(node.title).emoji {
-                    Text(emoji)
-                        .frame(width: 16)
-                } else {
-                    Image(systemName: symbol)
-                        .frame(width: 16)
-                        .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
-                }
-                Text(arborSidebarTitleParts(node.title).text)
-#if os(macOS)
-                    .font(.system(size: 14))
-#endif
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if case .placeholder = node.surface {
-                    Text("offline")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .fontWeight(isCurrent ? .semibold : .regular)
-        .listRowBackground(isCurrent ? Color.accentColor.opacity(0.12) : Color.clear)
-        .contextMenu {
-            Button("Open", systemImage: "arrow.right", action: open)
-            Button("Open in New Tab", systemImage: "plus.square.on.square", action: openInNewTab)
-            if node.isWritable {
-                Divider()
-                if node.surface.supportsDocumentSession,
-                   node.reference.path != "/",
-                   !node.reference.path.hasPrefix("/Trash/") {
-                    Button("Move Page…", systemImage: "folder", action: movePage)
-                }
-                Button("Move to Trash", systemImage: "trash", role: .destructive, action: trash)
-            }
-        }
-        .accessibilityLabel(node.title)
-        .accessibilityValue(isCurrent ? "Current page" : surfaceLabel)
-        .arborBlockDropDestination(
-            !isCurrent && node.isWritable && node.surface.supportsDocumentSession
-                ? ArborDocumentReferenceCodec.encode(node.reference)
-                : nil
-        )
-    }
 
     private var symbol: String {
         switch node.surface {

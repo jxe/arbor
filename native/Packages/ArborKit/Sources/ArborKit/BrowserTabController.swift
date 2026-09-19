@@ -128,8 +128,6 @@ public final class BrowserTabController {
             tab.current = location
         }
     }
-    public func setLaunchLocation(_ location: WorkspaceLocation) { launchLocation = location }
-
     public func replaceCurrent(with location: WorkspaceLocation) {
         mutateSelected { $0.current = location }
     }

@@ -114,10 +114,6 @@ public struct WireSafeResourceAccessRule: Codable, Sendable, Hashable {
     public var allow: [WireResourceOperation]
     public var within: String?
 }
-public struct WireResourcePolicyProjection: Codable, Sendable {
-    public var policy: [WireSafeResourceAccessRule]?
-}
-
 public struct WireTreeAccessSnapshot: Codable, Sendable {
     public var snapshot: [WireAccessEntry]
     public var policy: [WireSafeResourceAccessRule]?
