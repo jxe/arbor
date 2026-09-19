@@ -43,6 +43,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Canopy 006 — Attribute accepted updates and show line provenance](canopy/006-line-provenance.md) — **P2 · PLANNED; depends on Canopy 007 and coordinates retained-root policy with Canopy 001.** Reuse Canopy's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
 - [Canopy 007 — Surface accepted document history from Canopy](canopy/007-canopy-document-history.md) — **P1 · PLANNED; execute before Canopy 006 and coordinate retained-root policy with Canopy 001.** Surface accepted document history and restore-as-new-change from Canopy while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
 - [Canopy 009](canopy/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
+- [Canopy 010 — Operations as evidence frames; history loaded lazily](canopy/010-operation-frames-and-lazy-history.md) — **P1 · PLANNED (approved 2026-09-19).** Optional root-to-root operation frames on the wire, one frame per editor generation coalesced by concatenation, and a server that loads history by touched page with a deletion watermark instead of scanning it whole; collapsing old history is deferred.
 
 ## CLI and external agents
 
