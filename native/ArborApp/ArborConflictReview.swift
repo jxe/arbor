@@ -107,7 +107,24 @@ final class ArborConflictReviewModel {
             guard generation == refreshGeneration else { return }
             if self.snapshot != snapshot { self.snapshot = snapshot }
             rebaseOpenDraft(onto: snapshot)
+            await discardSettledDrafts()
         } catch { if generation == refreshGeneration { message = error.localizedDescription } }
+    }
+
+    /// A draft whose choice was resolved (here or elsewhere) and that holds no
+    /// composed source has nothing left to keep; drop it so it no longer
+    /// lingers as a "retained draft". Drafts with composed text stay until
+    /// discarded explicitly.
+    private func discardSettledDrafts() async {
+        guard snapshot != nil, !pending, !saving else { return }
+        for settled in retainedDrafts where settled.id != draft?.id || !expanded {
+            let composed = settled.decisions.contains { settled.selection(for: $0.id)?.source != nil }
+            guard !composed else { continue }
+            do {
+                try await coordinator.discardReviewDraft(settled.id)
+                drafts.removeAll { $0.id == settled.id }
+            } catch { continue }
+        }
     }
 
     /// An unrelated accepted update moves the snapshot state without changing

@@ -1664,11 +1664,17 @@ final class ArborAppModel {
     }
 
     func resetForWorkspace() async {
+        // Before a tree is shown (launch is still restoring, or nothing is
+        // open) there is no page to load; the window shows the launch view.
+        guard workspace.launchPhase.showsTree else { return }
         guard observedWorkspaceGeneration != workspace.generation else {
             if node == nil { await load() }
             return
         }
         observedWorkspaceGeneration = workspace.generation
+        // A failure against the provider being replaced must not show as
+        // "Unable to open" while the new provider's page loads.
+        errorMessage = nil
         editorHost?.resolveMoveRequest(with: nil)
         editorHost?.resolveStructuralMoveRequest(with: nil)
         await releaseAllPagePresentations()

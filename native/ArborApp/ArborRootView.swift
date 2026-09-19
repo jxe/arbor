@@ -1179,13 +1179,12 @@ struct ArborRootView: View {
         ZStack {
             VStack(spacing: 0) {
                 // With nothing to review the entry lives only in File ▸ Review Choices….
-                if let review = workspace.conflictReview,
-                   !review.decisions.isEmpty || !review.retainedDrafts.isEmpty || review.pending {
+                if let review = workspace.conflictReview, !review.decisions.isEmpty || review.pending {
                     Button(action: showChoiceReview) {
                         HStack {
                             Label("Review choices", systemImage: "arrow.triangle.branch")
                             Spacer()
-                            Text("\(review.decisions.count + review.retainedDrafts.count)")
+                            Text("\(review.decisions.count)")
                                 .monospacedDigit().foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -1589,7 +1588,7 @@ struct ArborRootView: View {
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: showStatusPanel,
             reviewChoices: showChoiceReview,
-            reviewChoiceCount: workspace.conflictReview.map { $0.decisions.count + $0.retainedDrafts.count },
+            reviewChoiceCount: workspace.conflictReview.map(\.decisions.count),
             showAccounts: showAccountsPanel,
             movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
             movePageToTrash: { trashConfirmationPresented = true },

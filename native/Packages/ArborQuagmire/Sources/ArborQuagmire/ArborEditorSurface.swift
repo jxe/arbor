@@ -52,6 +52,12 @@ public struct ArborEditorSurface<Footer: View>: View {
             footer
         }
         .accessories(accessories, reveal: accessoryReveal)
+        // EditorView keeps its key monitor, commands, undo history and document
+        // hooks in @State for the document it first appeared with. A new
+        // binding at the same place in the view tree (a page reloaded in place
+        // over a replaced provider) must get a fresh editor, never inherit one
+        // still attached to the closed document.
+        .id(ObjectIdentifier(binding))
     }
 }
 
