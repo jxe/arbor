@@ -467,9 +467,11 @@ merged frame is keyed `edit-<k>-<i>` with `k` the run's first frame index, is
 proven against the generation sources it spans before it replaces the chain,
 and a run that ends at the root it started from yields no frame. Frames with
 lineage, copies or operation material are never merged. A typing burst
-therefore arrives as one frame; a burst whose last generation nested a list
-item (the Markdown-normalization case) arrives as two, the second carrying the
-lineage. The same rule runs in Canopy's `composeFrames`;
+therefore arrives as one frame, and so does the Markdown-normalization burst
+that used to fail closed (insert a list item, type into it, nest it: three
+plain insertions whose re-encoding against the oldest basis differed); a block
+reorder in the same burst keeps its lineage in a second frame against the exact
+intermediate root. The same rule runs in Canopy's `composeFrames`;
 `conformance/source-admission-queue.json` (`traces`) holds the vectors all
 three execute. A trace that would still exceed the wire's 64 frames or 1024
 operations is dropped to `trace: null`: exact bytes stay authoritative.

@@ -239,6 +239,56 @@ struct EditorRecoveryTests {
         await binding.close()
     }
 
+    @Test("A retained draft keeps its generations and recovery replays them as one chain")
+    func recoveredGenerationsReplayAsFrames() async throws {
+        let root = try root(); defer { try? FileManager.default.removeItem(at: root) }
+        let session = RecoverySession(source: "Before\n\nAfter\n")
+        await session.enableIntentRetention()
+        await session.rejectRetainedAdmission(stalePatch: true)
+        var binding: ArborDocumentBinding? = try await .open(reference: session.reference, session: session, debounce: .seconds(60), recoveryRoot: root)
+        let bullet = Block.bullet(text: AttributedString())
+        binding?.document.transaction(name: "Insert list item") { _ = binding?.document.insertSubtree(bullet, at: .init(parent: nil, position: 1)) }
+        binding?.admitCurrentGeneration()
+        binding?.document.transaction(name: "Type list item") { _ = binding?.document.setText(bullet.id, AttributedString("typed")) }
+        binding?.admitCurrentGeneration()
+        binding?.document.transaction(name: "Continue list") {
+            _ = binding?.document.insertSubtree(.bullet(text: AttributedString()), at: .init(parent: bullet.id, position: 0))
+        }
+        binding?.admitCurrentGeneration()
+        binding?.document.transaction(name: "Reorder") {
+            if let document = binding?.document { _ = document.replaceChildrenReconciled(Array(document.children.reversed())) }
+        }
+        binding?.admitCurrentGeneration()
+        let expected = try #require(binding?.lastEnqueuedSource)
+        await binding?.flush()
+        // The provider rejected the chain; the journal retains it as captured.
+        #expect(binding?.lastError != nil)
+        let store = try EditorRecoveryStore(root: root, reference: session.reference)
+        let record = try #require(try store.revisions().first)
+        let retained = try #require(try store.intent(record))
+        #expect(retained.generations.count == 4)
+        #expect(retained.source == expected)
+        // The three list edits are plain insertions; the reorder carries lineage
+        // against the exact source the third generation produced.
+        let lineage = retained.generations.map { $0.patch.edits.contains { !($0.lineage ?? []).isEmpty } }
+        #expect(lineage == [false, false, false, true], Comment(rawValue: "\(lineage)"))
+        await binding?.close(); binding = nil
+
+        // Reopen against a provider that accepts: the chain is replayed as the
+        // machine's generations and admitted as one multi-generation intent.
+        let reopened = RecoverySession(source: "Before\n\nAfter\n")
+        await reopened.enableIntentRetention()
+        let restored = try await ArborDocumentBinding.open(reference: reopened.reference, session: reopened, debounce: .seconds(60), recoveryRoot: root)
+        #expect(restored.admissionState.pendingGenerations.count == 4)
+        await restored.flush()
+        #expect(restored.lastError == nil)
+        let admitted = try #require(await reopened.retainedIntent)
+        #expect(admitted.generations == retained.generations)
+        #expect(admitted.source == expected)
+        #expect(await reopened.snapshot().source == expected)
+        await restored.close()
+    }
+
     @Test("Recovery is tree scoped, follows stable identity through moves, and verifies exact source bytes")
     func identityAndIntegrity() throws {
         let root = try root(); defer { try? FileManager.default.removeItem(at: root) }

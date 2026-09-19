@@ -17,6 +17,15 @@ struct EditorRecoveryStore {
         var summary: String?
         /// Absent in legacy records; never infer move/copy intent from those snapshots.
         var patch: WorkspaceDocumentPatch?
+        /// The generations the editor captured since the base, each with its
+        /// patch against the previous one's source; recovery replays them as
+        /// frames. Absent when the draft was recorded as one step.
+        var generations: [Generation]?
+    }
+
+    struct Generation: Codable, Sendable {
+        var patch: WorkspaceDocumentPatch
+        var sourceHash: String
     }
 
     let directory: URL
@@ -34,9 +43,14 @@ struct EditorRecoveryStore {
         }
     }
 
-    func record(reference: WorkspaceReference, source: String, base: WorkspaceDocumentSnapshot, patch: WorkspaceDocumentPatch? = nil) throws -> Revision {
-        let exactPatch = patch ?? ArborMarkdownCodec.patch(from: base.source, to: source, revision: base.contentRevision)
-        _ = try WorkspaceDocumentIntent(basis: base, patch: exactPatch, source: source)
+    /// `generations` is the chain the editor captured from `base` to `source`;
+    /// a single generation is stored as the record's patch, a longer one as
+    /// generations beside a whole-step patch. Nil records one plain step.
+    func record(reference: WorkspaceReference, source: String, base: WorkspaceDocumentSnapshot,
+                generations: [WorkspaceDocumentGeneration]? = nil) throws -> Revision {
+        let chain = (generations?.count ?? 0) > 1 ? generations! : []
+        let exactPatch = generations?.count == 1 ? generations![0].patch : ArborMarkdownCodec.patch(from: base.source, to: source, revision: base.contentRevision)
+        _ = try WorkspaceDocumentIntent(basis: base, patch: exactPatch, source: source, generations: chain)
         let oldLines = Set(base.source.split(separator: "\n").map(String.init))
         let changedLine = source.split(separator: "\n").first {
             !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !oldLines.contains(String($0))
@@ -45,7 +59,8 @@ struct EditorRecoveryStore {
             id: UUID().uuidString, reference: reference, timestamp: Date(),
             sourceHash: try store(source), baseHash: try store(base.source), baseRevision: base.contentRevision,
             summary: changedLine.map { String($0.prefix(100)) },
-            patch: exactPatch
+            patch: exactPatch,
+            generations: chain.isEmpty ? nil : try chain.map { Generation(patch: $0.patch, sourceHash: try store($0.source)) }
         )
         try write(try JSONEncoder().encode(revision), to: directory.appending(path: revision.id + ".json"))
         return revision
@@ -55,7 +70,8 @@ struct EditorRecoveryStore {
         guard let patch = revision.patch else { return nil }
         return try WorkspaceDocumentIntent(
             basis: .init(reference: revision.reference, source: base(revision), contentRevision: revision.baseRevision),
-            patch: patch, source: source(revision))
+            patch: patch, source: source(revision),
+            generations: try (revision.generations ?? []).map { .init(patch: $0.patch, source: try source(hash: $0.sourceHash)) })
     }
 
     func source(_ revision: Revision) throws -> String { try source(hash: revision.sourceHash) }

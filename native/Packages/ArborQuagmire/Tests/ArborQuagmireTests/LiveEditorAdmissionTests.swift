@@ -352,5 +352,55 @@ extension LiveEditorAdmissionTests {
         await binding.close(); await coordinator.close(); await tree.close()
     }
 
-
+    /// The Markdown-normalization case that used to fail closed: a list item is
+    /// inserted, typed into, then nested within one debounced burst, so the
+    /// last generation's exact layout differs from a re-encoding against the
+    /// oldest basis. Each generation is now its own frame; the three plain
+    /// insertions compact into one, and a block reorder in the same burst
+    /// keeps its lineage in a second frame against the exact intermediate root.
+    @Test("A coalesced burst that nests a list item and reorders publishes two frames with lineage in the second and is accepted")
+    func coalescedListNormalizationFrames() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let address = env["ARBOR_SOURCE_TEST_URL"], let url = URL(string: address),
+              let token = env["ARBOR_SOURCE_TEST_TOKEN"], let treeID = env["ARBOR_SOURCE_TEST_TREE"] else { return }
+        let root = FileManager.default.temporaryDirectory.appending(path: "coalesced-frames-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = ArborWireClient(origin: url, credential: token)
+        let reference = try await freshUndoPage(client: client, tree: treeID)
+        let tree = try await place(client.descriptor(tree: treeID), client: client)
+        let coordinator = try UpdateCoordinator(workingTree: tree, transport: ArborWireReplicaTransport(client: client),
+            stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+        let session = try await WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator).openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session, debounce: .seconds(3600), recoveryRoot: root.appending(path: "editor"))
+        let document = binding.document
+        let bullet = Block.bullet(text: AttributedString())
+        document.transaction(name: "Insert list item") { _ = document.insertSubtree(bullet, at: .init(parent: nil, position: 1)) }
+        binding.admitCurrentGeneration()
+        document.transaction(name: "Type list item") { _ = document.setText(bullet.id, AttributedString("the conflict stuff is buggy / weird")) }
+        binding.admitCurrentGeneration()
+        document.transaction(name: "Continue list") {
+            _ = document.insertSubtree(.bullet(text: AttributedString()), at: .init(parent: bullet.id, position: 0))
+        }
+        binding.admitCurrentGeneration()
+        #expect(binding.lastEnqueuedSource?.contains("- the conflict stuff is buggy / weird\n\n  - \n\n") == true)
+        document.transaction(name: "Reorder") { _ = document.replaceChildrenReconciled(Array(document.children.reversed())) }
+        binding.admitCurrentGeneration()
+        let expected = try #require(binding.lastEnqueuedSource)
+        #expect(binding.admissionState.pendingGenerations.count == 4)
+        await binding.flush()
+        #expect(binding.lastError == nil, Comment(rawValue: String(describing: binding.lastError)))
+        #expect(try await session.snapshot().source == expected)
+        let queue = try await SourceAdmissionQueue(tree: treeID, stateRoot: root)
+        let record = try #require(try await queue.retained().last { $0.document?.reference == reference })
+        let frames = try #require(record.update.trace)
+        #expect(frames.count == 2, Comment(rawValue: "frames=\(frames.count)"))
+        #expect(frames.first?.operations.allSatisfy { $0.kind == "editSource" && $0.fields["lineage"] == nil } == true)
+        #expect(frames.last?.operations.contains { ($0.fields["lineage"].map { $0 != .array([]) } ?? false) } == true)
+        #expect(frames.first?.before == record.graph.root && frames.last?.after == record.candidate.root)
+        // Canopy validates the chain frame by frame and accepts it.
+        let accepted = try await coordinator.syncOnce()
+        #expect(accepted.state == .current, Comment(rawValue: String(describing: accepted)))
+        #expect(try await session.snapshot().source == expected)
+        await binding.close(); await coordinator.close(); await tree.close()
+    }
 }

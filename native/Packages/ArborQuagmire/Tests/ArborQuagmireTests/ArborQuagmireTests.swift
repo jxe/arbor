@@ -1489,8 +1489,17 @@ private actor RecordingAdmissionSession: WorkspaceDocumentSession {
         )
     }
 
+    private var intents: [WorkspaceDocumentIntent] = []
+    func admit(intent: WorkspaceDocumentIntent) throws -> WorkspaceDocumentSnapshot {
+        try intent.validate()
+        intents.append(intent)
+        return try admit(patch: intent.patch)
+    }
+
     func admissionCount() -> Int { admissions }
     func admittedPatches() -> [WorkspaceDocumentPatch] { patches }
+    /// Every intent admitted, with the generation chain the editor captured.
+    func admittedIntents() -> [WorkspaceDocumentIntent] { intents }
     func flush() {}
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
@@ -1735,8 +1744,9 @@ func reorderedSourceLineage() throws {
     defer { try? FileManager.default.removeItem(at:root) }
     let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
     let store = try EditorRecoveryStore(root:root,reference:reference)
-    let revision = try store.record(reference:reference,source:admission.source,base:.init(reference:reference,source:source,contentRevision:"r"),patch:admission.patch)
+    let revision = try store.record(reference:reference,source:admission.source,base:.init(reference:reference,source:source,contentRevision:"r"),generations:[.init(patch:admission.patch,source:admission.source)])
     #expect(try store.intent(revision)?.patch == admission.patch)
+    #expect(try store.intent(revision)?.generations.isEmpty == true)
 }
 
 @Test("Reordering equal-byte blocks still retains distinct source intent")
@@ -1783,17 +1793,22 @@ func boundSourceCopy(position: Int) async throws {
         _ = binding.document.insertSubtree(.paragraph(text:AttributedString("later")),at:.init(parent:nil,position:binding.document.children.count))
     }
     await binding.flush()
-    let patches = await session.admittedPatches()
-    #expect(patches.count == 1)
-    #expect(patches[0].edits.flatMap { $0.copies ?? [] }.count == 1)
-    let copy = try #require(patches[0].edits.first?.copies?.first)
+    // One admission carries both generations; the copy stays in the generation
+    // that captured it rather than being re-derived across the append.
+    let intents = await session.admittedIntents()
+    #expect(intents.count == 1)
+    let intent = try #require(intents.first)
+    #expect(intent.generations.count == 2)
+    let captured = intent.generations.map(\.patch)
+    #expect(captured.flatMap(\.edits).flatMap { $0.copies ?? [] }.count == 1)
+    #expect(captured.first?.edits.contains { !($0.copies ?? []).isEmpty } == true)
+    let copy = try #require(captured.flatMap(\.edits).first { !($0.copies ?? []).isEmpty }?.copies?.first)
     #expect(Data(source.utf8).subdata(in:copy.source) == Data("Café\r\n\r\n".utf8))
     let directory = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
     defer { try? FileManager.default.removeItem(at:directory) }
     let store = try EditorRecoveryStore(root:directory,reference:reference)
-    let result = try patches[0].applying(to:source)
-    let revision = try store.record(reference:reference,source:result,base:.init(reference:reference,source:source,contentRevision:"r1"),patch:patches[0])
-    #expect(try EditorRecoveryStore(root:directory,reference:reference).intent(revision)?.patch == patches[0])
+    let revision = try store.record(reference:reference,source:intent.source,base:.init(reference:reference,source:source,contentRevision:"r1"),generations:intent.generations)
+    #expect(try EditorRecoveryStore(root:directory,reference:reference).intent(revision)?.generations == intent.generations)
     #expect(binding.lastError == nil)
     await binding.close()
 }
