@@ -10,6 +10,10 @@
  * Admission is working-tree durability, not accepted history: the update
  * machine (`@arbor/canopy-client` `reduceUpdate`, spec/09) publishes the
  * durable heads afterwards, and the two machines compose in sequence.
+ *
+ * A submission is the list of editor generations since the last admission.
+ * The caller admits the whole list at once and may emit one frame per
+ * generation (plan 010 Phase 3), so nothing is re-derived across a burst.
  */
 
 /** Reference debounce for the current web and native editors. */
@@ -22,10 +26,18 @@ export interface AdmissionAccepted<S> {
   revision: string;
 }
 
-export interface AdmissionSubmission<S> {
+/** One committed editor generation and the source it produced. */
+export interface AdmissionGeneration<S> {
   preservesIntent?: boolean;
   generation: number;
   source: S;
+}
+
+/** The generations since the last admission, in authored order (never empty).
+ * `generation` and `source` mirror the newest one: what an acknowledgement
+ * names and the candidate the submission produces. */
+export interface AdmissionSubmission<S> extends AdmissionGeneration<S> {
+  generations: AdmissionGeneration<S>[];
 }
 
 export interface AdmissionObservation<S> {
@@ -85,7 +97,8 @@ export type AdmissionEvent<S> =
 export type AdmissionEffect<S> =
   | { type: "schedule"; delay: number }
   | { type: "cancelTimer" }
-  | { type: "admit"; generation: number; source: S; baseRevision: string; baseSource: S }
+  /** Admit every generation since the base, in order; `generation` and `source` are the newest. */
+  | { type: "admit"; generation: number; source: S; generations: AdmissionGeneration<S>[]; baseRevision: string; baseSource: S }
   /** The working tree acknowledged the exact tree already in the editor; advance source authority without replacing it. */
   | { type: "acknowledge"; result: AdmissionResult<S> }
   /** Replace the editor with authoritative content. */
@@ -130,11 +143,39 @@ export function admissionIsSettled<S>(state: AdmissionState<S>): boolean {
   return state.kind !== "dirty" && state.kind !== "submitting" && state.kind !== "submitting-dirty";
 }
 
-function admitEffect<S>(state: Base<S>, submission: AdmissionSubmission<S>): AdmissionEffect<S> {
+/** Every generation since `accepted`, in authored order: what a recovery
+ * checkpoint retains and what the next admission will carry. */
+export function pendingAdmissionGenerations<S>(state: AdmissionState<S>): AdmissionGeneration<S>[] {
+  switch (state.kind) {
+    case "dirty": return state.latest.generations;
+    case "submitting": return state.submitted.generations;
+    case "submitting-dirty": return [...state.submitted.generations, ...state.latest.generations];
+    case "conflict": return [...state.submitted.generations, ...(state.latest?.generations ?? [])];
+    case "failed": return [...state.pending.generations, ...(state.latest?.generations ?? [])];
+    default: return [];
+  }
+}
+
+function submission<S>(generations: AdmissionGeneration<S>[]): AdmissionSubmission<S> {
+  const newest = generations[generations.length - 1]!;
+  const preservesIntent = generations.some((generation) => generation.preservesIntent);
+  return { generation: newest.generation, source: newest.source, ...(preservesIntent ? { preservesIntent: true } : {}), generations };
+}
+
+function appended<S>(current: AdmissionSubmission<S> | undefined, generation: AdmissionGeneration<S>): AdmissionSubmission<S> {
+  return submission([...(current?.generations ?? []), generation]);
+}
+
+function chained<S>(first: AdmissionSubmission<S>, later: AdmissionSubmission<S> | undefined): AdmissionSubmission<S> {
+  return later ? submission([...first.generations, ...later.generations]) : first;
+}
+
+function admitEffect<S>(state: Base<S>, submitted: AdmissionSubmission<S>): AdmissionEffect<S> {
   return {
     type: "admit",
-    generation: submission.generation,
-    source: submission.source,
+    generation: submitted.generation,
+    source: submitted.source,
+    generations: submitted.generations,
     baseRevision: state.accepted.revision,
     baseSource: state.accepted.source,
   };
@@ -166,21 +207,22 @@ export function reduceAdmission<S>(
   switch (event.type) {
     case "edit": {
       const generation = state.generation + 1;
-      const latest = { generation, source: event.source, ...(event.preservesIntent ? {preservesIntent:true} : {}) };
+      const edited: AdmissionGeneration<S> = { generation, source: event.source, ...(event.preservesIntent ? {preservesIntent:true} : {}) };
       switch (state.kind) {
         case "clean":
         case "dirty":
           return {
-            state: { ...base(state), generation, kind: "dirty", latest, timer: true },
+            state: { ...base(state), generation, kind: "dirty", latest: appended(state.kind === "dirty" ? state.latest : undefined, edited), timer: true },
             effects: [{ type: "schedule", delay: debounce }],
           };
         case "submitting":
         case "submitting-dirty":
-          return { state: { ...base(state), generation, kind: "submitting-dirty", submitted: state.submitted, latest }, effects: [] };
+          return { state: { ...base(state), generation, kind: "submitting-dirty", submitted: state.submitted,
+            latest: appended(state.kind === "submitting-dirty" ? state.latest : undefined, edited) }, effects: [] };
         case "conflict":
-          return { state: { ...state, generation, latest }, effects: [] };
+          return { state: { ...state, generation, latest: appended(state.latest, edited) }, effects: [] };
         case "failed":
-          return { state: { ...state, generation, latest }, effects: [] };
+          return { state: { ...state, generation, latest: appended(state.latest, edited) }, effects: [] };
       }
       return { state, effects: [] };
     }
@@ -197,8 +239,9 @@ export function reduceAdmission<S>(
           return { ...transition, effects: [{ type: "cancelTimer" }, ...transition.effects] };
         }
         case "failed":
-          // The caller asked for durability; retry the exact pending source once.
-          return submit(state, state.latest ?? state.pending, options);
+          // The caller asked for durability; generations edited after the
+          // failure continue the pending chain.
+          return submit(state, chained(state.pending, state.latest), options);
         default:
           return { state, effects: [] };
       }
@@ -211,7 +254,7 @@ export function reduceAdmission<S>(
       const next: Base<S> = { accepted, generation: state.generation };
       const effects: AdmissionEffect<S>[] = [{ type: "acknowledge", result: event.result }];
       if (state.kind === "submitting-dirty") {
-        // Derive the successor's patch from the admitted source and submit it at once.
+        // The successor's generations were captured against the admitted source; submit them at once.
         const transition = submit({ ...next, kind: "clean" }, state.latest, options);
         return { state: transition.state, effects: [...effects, ...transition.effects] };
       }
@@ -279,7 +322,7 @@ export function reduceAdmission<S>(
 
     case "retry": {
       if (state.kind !== "failed") return { state, effects: [] };
-      return submit(state, state.latest ?? state.pending, options);
+      return submit(state, chained(state.pending, state.latest), options);
     }
 
     case "resolveConflict": {
@@ -291,11 +334,10 @@ export function reduceAdmission<S>(
           effects: [{ type: "apply", source: state.current.source, revision: state.current.revision }],
         };
       }
-      // Keep the submitted (or newer local) source and resubmit it against the current revision.
+      // Keep the submitted chain (and anything edited since) and resubmit it against the current revision.
       const accepted = state.current ? acceptedFrom(state.current) : state.accepted;
       const rebased: Base<S> = { accepted, generation: state.generation };
-      const latest = state.latest ?? state.submitted;
-      return submit({ ...rebased, kind: "clean" }, latest, options);
+      return submit({ ...rebased, kind: "clean" }, chained(state.submitted, state.latest), options);
     }
 
     case "close": {

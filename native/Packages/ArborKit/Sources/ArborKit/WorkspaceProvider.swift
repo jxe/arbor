@@ -218,27 +218,55 @@ public struct WorkspaceDocumentPatch: Hashable, Codable, Sendable {
     }
 }
 
+/// One editor generation inside a coalesced intent: the patch captured against
+/// the previous generation's source and the exact source it produced.
+public struct WorkspaceDocumentGeneration: Hashable, Codable, Sendable {
+    public var patch: WorkspaceDocumentPatch
+    public var source: String
+    public init(patch: WorkspaceDocumentPatch, source: String) { self.patch = patch; self.source = source }
+}
+
 /// Exact authored source and its guarded edit, independent of the session's latest projection.
 /// A provider must bind this basis to retained tree history before publishing it.
+///
+/// `patch` always takes the basis to `source` in one step; it is what a
+/// provider without frame support applies and what a delta is built from.
+/// `generations`, when present, is the same change as the editor captured it:
+/// one patch per generation, each against the source the previous one
+/// produced, ending at `source`. A publication queue emits one frame per
+/// generation from it (spec/09), so no claim is ever re-derived across
+/// generations.
 public struct WorkspaceDocumentIntent: Hashable, Codable, Sendable {
     public let basis: WorkspaceDocumentSnapshot
     public let patch: WorkspaceDocumentPatch
     public let source: String
+    public let generations: [WorkspaceDocumentGeneration]
 
-    public init(basis: WorkspaceDocumentSnapshot, patch: WorkspaceDocumentPatch, source: String) throws {
+    public init(basis: WorkspaceDocumentSnapshot, patch: WorkspaceDocumentPatch, source: String,
+                generations: [WorkspaceDocumentGeneration] = []) throws {
         self.basis = basis
         self.patch = patch
         self.source = source
+        self.generations = generations
         try validate()
     }
 
-    private enum CodingKeys: String, CodingKey { case basis, patch, source }
+    private enum CodingKeys: String, CodingKey { case basis, patch, source, generations }
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(basis: values.decode(WorkspaceDocumentSnapshot.self, forKey: .basis),
                       patch: values.decode(WorkspaceDocumentPatch.self, forKey: .patch),
-                      source: values.decode(String.self, forKey: .source))
+                      source: values.decode(String.self, forKey: .source),
+                      generations: values.decodeIfPresent([WorkspaceDocumentGeneration].self, forKey: .generations) ?? [])
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(basis, forKey: .basis)
+        try container.encode(patch, forKey: .patch)
+        try container.encode(source, forKey: .source)
+        if !generations.isEmpty { try container.encode(generations, forKey: .generations) }
     }
 
     /// The same invariant applies to fresh intents and recovered records.
@@ -248,6 +276,20 @@ public struct WorkspaceDocumentIntent: Hashable, Codable, Sendable {
         }
         guard try Data(patch.applying(to: basis.source).utf8) == Data(source.utf8) else {
             throw WorkspaceProviderError.invalidAction("Source intent does not produce its declared candidate")
+        }
+        // Every generation reproduces the next exactly and the chain ends at the candidate.
+        var previous = basis.source
+        for generation in generations {
+            guard generation.patch.baseContentRevision == basis.contentRevision else {
+                throw WorkspacePatchError.staleRevision(expected: generation.patch.baseContentRevision, actual: basis.contentRevision)
+            }
+            guard try Data(generation.patch.applying(to: previous).utf8) == Data(generation.source.utf8) else {
+                throw WorkspaceProviderError.invalidAction("Source generation does not produce its declared source")
+            }
+            previous = generation.source
+        }
+        guard generations.isEmpty || Data(previous.utf8) == Data(source.utf8) else {
+            throw WorkspaceProviderError.invalidAction("Source generations do not end at the declared candidate")
         }
     }
 }

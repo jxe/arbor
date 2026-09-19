@@ -56,6 +56,28 @@ struct WorkspaceCoordinatorTests {
         }
     }
 
+    @Test("Coalesced generations must chain exactly from the basis to the candidate")
+    func sourceIntentGenerations() throws {
+        let basis = WorkspaceDocumentSnapshot(reference: .init(tree: "tr_one", path: "/page"), source: "Before", contentRevision: "r1")
+        let whole = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<6, replacement: "After!")])
+        let first = WorkspaceDocumentGeneration(patch: .init(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<6, replacement: "After")]), source: "After")
+        let second = WorkspaceDocumentGeneration(patch: .init(baseContentRevision: "r1", edits: [.init(utf8Range: 5..<5, replacement: "!")]), source: "After!")
+        let intent = try WorkspaceDocumentIntent(basis: basis, patch: whole, source: "After!", generations: [first, second])
+        #expect(intent.generations.count == 2)
+        let decoded = try JSONDecoder().decode(WorkspaceDocumentIntent.self, from: JSONEncoder().encode(intent))
+        #expect(decoded == intent)
+        // A single-step intent encodes without the field and decodes as before.
+        let single = try WorkspaceDocumentIntent(basis: basis, patch: whole, source: "After!")
+        #expect(!String(decoding: try JSONEncoder().encode(single), as: UTF8.self).contains("generations"))
+        #expect(try JSONDecoder().decode(WorkspaceDocumentIntent.self, from: JSONEncoder().encode(single)) == single)
+        // The chain must end at the candidate, and each link must reproduce the next.
+        #expect(throws: (any Error).self) { try WorkspaceDocumentIntent(basis: basis, patch: whole, source: "After!", generations: [first]) }
+        #expect(throws: (any Error).self) {
+            try WorkspaceDocumentIntent(basis: basis, patch: whole, source: "After!", generations: [first, .init(patch: second.patch, source: "Other")])
+        }
+        #expect(throws: (any Error).self) { try WorkspaceDocumentIntent(basis: basis, patch: whole, source: "After!", generations: [second, first]) }
+    }
+
     @Test("Range-guarded source patches preserve untouched UTF-8 bytes")
     func sourcePatch() throws {
         let source = "---\r\nid: pg_patch\r\n---\r\n\r\n# Héllo\r\n\r\nKeep exactly.\r\n"

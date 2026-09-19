@@ -12,6 +12,11 @@ import Foundation
 /// the durable heads afterwards, and the two machines compose in sequence.
 /// It executes the same `document-admission` fixture scenarios as the
 /// TypeScript reducer in `@arbor/core`.
+///
+/// A submission is the list of editor generations since the last admission,
+/// each with the patch the editor captured against its predecessor. The host
+/// admits the whole list at once and emits one frame per generation (plan
+/// 010 Phase 3), so nothing is re-derived across a debounced burst.
 public enum DocumentAdmissionMachine {
     /// Reference debounce for the current native and web editors.
     public static let debounce: Duration = .milliseconds(250)
@@ -26,17 +31,44 @@ public enum DocumentAdmissionMachine {
         }
     }
 
-    public struct Submission: Sendable, Equatable {
+    /// One editor generation: the source it produced and, when the editor
+    /// captured one, the patch from the previous generation's source to it.
+    public struct Generation: Sendable, Equatable {
         public var generation: Int
         public var source: String
-
         public var preservesIntent: Bool
+        public var patch: WorkspaceDocumentPatch?
 
-        public init(generation: Int, source: String, preservesIntent: Bool = false) {
+        public init(generation: Int, source: String, preservesIntent: Bool = false, patch: WorkspaceDocumentPatch? = nil) {
             self.generation = generation
             self.source = source
             self.preservesIntent = preservesIntent
+            self.patch = patch
         }
+    }
+
+    /// The generations since the last admission, in authored order; never empty.
+    public struct Submission: Sendable, Equatable {
+        public var generations: [Generation]
+
+        public init(generations: [Generation]) {
+            precondition(!generations.isEmpty, "A submission carries at least one generation")
+            self.generations = generations
+        }
+
+        public init(generation: Int, source: String, preservesIntent: Bool = false, patch: WorkspaceDocumentPatch? = nil) {
+            self.init(generations: [Generation(generation: generation, source: source, preservesIntent: preservesIntent, patch: patch)])
+        }
+
+        /// The newest generation number: what an acknowledgement must name.
+        public var generation: Int { generations.last!.generation }
+        /// The newest source: the candidate this submission produces.
+        public var source: String { generations.last!.source }
+        /// Whether any generation carries lineage or copy intent that equal bytes must not erase.
+        public var preservesIntent: Bool { generations.contains { $0.preservesIntent } }
+
+        func appending(_ generation: Generation) -> Submission { Submission(generations: generations + [generation]) }
+        func appending(_ later: Submission?) -> Submission { later.map { Submission(generations: generations + $0.generations) } ?? self }
     }
 
     public struct Observation: Sendable, Equatable {
@@ -133,10 +165,25 @@ public enum DocumentAdmissionMachine {
         }
 
         public var anchor: Anchor { Anchor(generation: generation, revision: accepted.revision) }
+
+        /// Every generation since `accepted`, in authored order: what a
+        /// recovery checkpoint retains and what the next admission will carry.
+        public var pendingGenerations: [Generation] {
+            switch phase {
+            case .clean, .closed: []
+            case let .dirty(latest): latest.generations
+            case let .submitting(submitted): submitted.generations
+            case let .submittingDirty(submitted, latest): submitted.generations + latest.generations
+            case let .conflict(submitted, _, latest): submitted.generations + (latest?.generations ?? [])
+            case let .failed(pending, _, latest): pending.generations + (latest?.generations ?? [])
+            }
+        }
     }
 
     public enum Event: Sendable, Equatable {
-        case edit(source: String, preservesIntent: Bool = false)
+        /// A committed editor generation. `patch` is the edit as captured
+        /// against the previous generation's source, when the editor has one.
+        case edit(source: String, preservesIntent: Bool = false, patch: WorkspaceDocumentPatch? = nil)
         case debounceElapsed
         /// Explicit Save, navigation, focus loss, backgrounding, or close: admit the latest source now.
         case flush
@@ -152,7 +199,8 @@ public enum DocumentAdmissionMachine {
     public enum Effect: Sendable, Equatable {
         case schedule(Duration)
         case cancelTimer
-        case admit(generation: Int, source: String, baseRevision: String, baseSource: String)
+        /// Admit every generation since the base, in order; the last one is the candidate.
+        case admit(generations: [Generation], baseRevision: String, baseSource: String)
         /// The working tree acknowledged the exact tree already in the editor; advance source authority without replacing it.
         case acknowledge(Result)
         /// Replace the editor with authoritative content.
@@ -182,21 +230,29 @@ public enum DocumentAdmissionMachine {
         if case .closed = state.phase { return (state, []) }
 
         switch event {
-        case let .edit(source, preservesIntent):
+        case let .edit(source, preservesIntent, patch):
             next.generation = state.generation + 1
-            let latest = Submission(generation: next.generation, source: source, preservesIntent: preservesIntent)
+            let generation = Generation(generation: next.generation, source: source, preservesIntent: preservesIntent, patch: patch)
             switch state.phase {
-            case .clean, .dirty:
-                next.phase = .dirty(latest: latest)
+            case .clean:
+                next.phase = .dirty(latest: Submission(generations: [generation]))
                 return (next, [.schedule(debounce)])
-            case let .submitting(submitted), let .submittingDirty(submitted, _):
-                next.phase = .submittingDirty(submitted: submitted, latest: latest)
+            case let .dirty(latest):
+                next.phase = .dirty(latest: latest.appending(generation))
+                return (next, [.schedule(debounce)])
+            case let .submitting(submitted):
+                next.phase = .submittingDirty(submitted: submitted, latest: Submission(generations: [generation]))
                 return (next, [])
-            case let .conflict(submitted, current, _):
-                next.phase = .conflict(submitted: submitted, current: current, latest: latest)
+            case let .submittingDirty(submitted, latest):
+                next.phase = .submittingDirty(submitted: submitted, latest: latest.appending(generation))
                 return (next, [])
-            case let .failed(pending, error, _):
-                next.phase = .failed(pending: pending, error: error, latest: latest)
+            case let .conflict(submitted, current, latest):
+                next.phase = .conflict(submitted: submitted, current: current,
+                                       latest: latest?.appending(generation) ?? Submission(generations: [generation]))
+                return (next, [])
+            case let .failed(pending, error, latest):
+                next.phase = .failed(pending: pending, error: error,
+                                     latest: latest?.appending(generation) ?? Submission(generations: [generation]))
                 return (next, [])
             case .closed:
                 return (state, [])
@@ -212,7 +268,8 @@ public enum DocumentAdmissionMachine {
                 let (submitted, effects) = submit(next, latest)
                 return (submitted, [.cancelTimer] + effects)
             case let .failed(pending, _, latest):
-                return submit(next, latest ?? pending)
+                // Generations edited after the failure continue the pending chain.
+                return submit(next, pending.appending(latest))
             default:
                 return (state, [])
             }
@@ -286,7 +343,7 @@ public enum DocumentAdmissionMachine {
 
         case .retry:
             guard case let .failed(pending, _, latest) = state.phase else { return (state, []) }
-            return submit(next, latest ?? pending)
+            return submit(next, pending.appending(latest))
 
         case let .resolveConflict(keepSubmitted):
             guard case let .conflict(submitted, current, latest) = state.phase else { return (state, []) }
@@ -298,7 +355,7 @@ public enum DocumentAdmissionMachine {
             }
             if let current { next.accepted = accepted(from: current) }
             next.phase = .clean
-            return submit(next, latest ?? submitted)
+            return submit(next, submitted.appending(latest))
 
         case .close:
             next.phase = .closed
@@ -315,8 +372,7 @@ public enum DocumentAdmissionMachine {
         }
         next.phase = .submitting(submitted: latest)
         return (next, [.admit(
-            generation: latest.generation,
-            source: latest.source,
+            generations: latest.generations,
             baseRevision: state.accepted.revision,
             baseSource: state.accepted.source
         )])
@@ -362,8 +418,24 @@ extension DocumentAdmissionMachine.Accepted {
     var fixtureRepresentation: [String: Any] { ["source": source, "revision": revision] }
 }
 
-extension DocumentAdmissionMachine.Submission {
+extension DocumentAdmissionMachine.Generation {
     var fixtureRepresentation: [String: Any] { ["generation": generation, "source": source] }
+}
+
+extension DocumentAdmissionMachine.Submission {
+    var fixtureRepresentation: [String: Any] {
+        ["generation": generation, "source": source, "generations": generations.map(\.fixtureRepresentation)]
+    }
+}
+
+extension DocumentAdmissionMachine.Effect {
+    /// A dictionary view of an `admit` effect for the shared fixture.
+    public var fixtureRepresentation: [String: Any]? {
+        guard case let .admit(generations, baseRevision, baseSource) = self else { return nil }
+        return ["generation": generations.last!.generation, "source": generations.last!.source,
+                "baseRevision": baseRevision, "baseSource": baseSource,
+                "generations": generations.map(\.fixtureRepresentation)]
+    }
 }
 
 extension DocumentAdmissionMachine.Observation {

@@ -260,8 +260,25 @@
             { "event": { "type": "edit", "source": "s13" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "edit", "source": "s14" }, "state": "dirty", "effects": ["schedule"] },
             { "event": { "type": "edit", "source": "s15" }, "state": "dirty", "effects": ["schedule"], "expect": { "generation": 15, "latest.source": "s15" } },
-            { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"], "expect": { "submitted.source": "s15", "submitted.generation": 15 } },
+            { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"], "expect": { "submitted.source": "s15", "submitted.generation": 15 }, "effectExpect": { "0.generations.0.source": "s1", "0.generations.14.source": "s15", "0.generations.14.generation": 15 } },
             { "event": { "type": "admitted", "generation": 15, "result": { "source": "s15", "revision": "r1" } }, "state": "clean", "effects": ["acknowledge"], "expect": { "accepted.revision": "r1" } }
+          ]
+        },
+        {
+          "name": "every generation since the last admission rides in one request: successors, failures and retries keep the chain in authored order",
+          "initial": { "accepted": { "source": "s0", "revision": "r0" } },
+          "steps": [
+            { "event": { "type": "edit", "source": "s1" }, "state": "dirty", "effects": ["schedule"], "expect": { "latest.generations.0.source": "s1" } },
+            { "event": { "type": "edit", "source": "s2" }, "state": "dirty", "effects": ["schedule"], "expect": { "latest.source": "s2", "latest.generations.1.generation": 2 } },
+            { "event": { "type": "debounceElapsed" }, "state": "submitting", "effects": ["admit"], "effectExpect": { "0.source": "s2", "0.generation": 2, "0.baseSource": "s0", "0.generations.0.source": "s1", "0.generations.1.source": "s2" } },
+            { "event": { "type": "edit", "source": "s3" }, "state": "submitting-dirty", "effects": [], "expect": { "submitted.generations.0.source": "s1", "latest.generations.0.source": "s3" } },
+            { "event": { "type": "edit", "source": "s4" }, "state": "submitting-dirty", "effects": [], "expect": { "latest.generations.1.source": "s4" } },
+            { "event": { "type": "admissionFailed", "generation": 2, "error": { "message": "offline", "retryable": true } }, "state": "failed", "effects": ["surfaceFailure"], "expect": { "pending.source": "s2", "latest.source": "s4" } },
+            { "event": { "type": "edit", "source": "s5" }, "state": "failed", "effects": [], "expect": { "latest.generations.2.source": "s5" } },
+            { "event": { "type": "retry" }, "state": "submitting", "effects": ["admit"], "effectExpect": { "0.baseSource": "s0", "0.generation": 5, "0.generations.0.source": "s1", "0.generations.1.source": "s2", "0.generations.2.source": "s3", "0.generations.3.source": "s4", "0.generations.4.source": "s5" } },
+            { "event": { "type": "edit", "source": "s6" }, "state": "submitting-dirty", "effects": [] },
+            { "event": { "type": "admitted", "generation": 5, "result": { "source": "s5", "revision": "r1" } }, "state": "submitting", "effects": ["acknowledge", "admit"], "effectExpect": { "1.baseSource": "s5", "1.baseRevision": "r1", "1.generation": 6, "1.generations.0.source": "s6", "1.generations.0.generation": 6 } },
+            { "event": { "type": "admitted", "generation": 6, "result": { "source": "s6", "revision": "r2" } }, "state": "clean", "effects": ["acknowledge"], "expect": { "accepted.revision": "r2" } }
           ]
         },
         {

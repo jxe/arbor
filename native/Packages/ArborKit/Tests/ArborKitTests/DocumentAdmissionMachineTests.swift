@@ -45,10 +45,7 @@ struct DocumentAdmissionMachineTests {
                 #expect(effects.map(\.kind) == (step["effects"] as? [String] ?? []), Comment(rawValue: label))
                 var effectValues: [String: Any] = [:]
                 for (i, effect) in effects.enumerated() {
-                    if case let .admit(generation, source, revision, baseSource) = effect {
-                        effectValues[String(i)] = ["generation": generation, "source": source,
-                                                   "baseRevision": revision, "baseSource": baseSource]
-                    }
+                    if let representation = effect.fixtureRepresentation { effectValues[String(i)] = representation }
                 }
                 for (path, expected) in step["effectExpect"] as? [String: Any] ?? [:] {
                     #expect(Self.equal(Self.value(at: path, in: effectValues), expected), Comment(rawValue: "\(label): effect \(path)"))
@@ -119,8 +116,11 @@ struct DocumentAdmissionMachineTests {
     private static func value(at path: String, in representation: [String: Any]) -> Any? {
         var current: Any? = representation
         for key in path.split(separator: ".") {
-            guard let dictionary = current as? [String: Any] else { return nil }
-            current = dictionary[String(key)]
+            if let list = current as? [Any], let index = Int(key) {
+                current = list.indices.contains(index) ? list[index] : nil
+            } else if let dictionary = current as? [String: Any] {
+                current = dictionary[String(key)]
+            } else { return nil }
         }
         return current
     }
