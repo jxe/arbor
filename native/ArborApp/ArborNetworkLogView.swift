@@ -21,7 +21,7 @@ struct ArborNetworkLogView: View {
 
     private var visible: [WireNetworkLogEntry] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return entries.reversed().filter { entry in
+        return entries.sorted { $0.at > $1.at }.filter { entry in
             guard kinds.contains(entry.kind) else { return false }
             guard !needle.isEmpty else { return true }
             return [entry.name, entry.tree ?? "", entry.error ?? "", entry.cursor ?? "",
@@ -161,6 +161,7 @@ struct ArborNetworkLogView: View {
         case .watchFrame: "frame"
         case .watchDisconnect: "disconnect"
         case .read: "read"
+        case .note: "note"
         }
     }
 
@@ -172,6 +173,7 @@ struct ArborNetworkLogView: View {
         case .watchFrame: return .teal
         case .watchDisconnect: return .orange
         case .read: return .gray
+        case .note: return .purple
         }
     }
 

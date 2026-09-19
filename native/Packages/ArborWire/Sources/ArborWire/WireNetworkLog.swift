@@ -12,6 +12,9 @@ public struct WireNetworkLogEntry: Codable, Sendable, Identifiable, Equatable {
         case watchFrame = "watch-frame"
         case watchDisconnect = "watch-disconnect"
         case read
+        /// Client-side diagnostic with no request of its own (for example why a
+        /// delta was not sent); `name` says what, `error` says why.
+        case note
     }
 
     public var id: String

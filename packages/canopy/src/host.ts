@@ -27,6 +27,9 @@ import { escapeHTML, renderPublicDataPage, renderPublicMarkdownPage, type Public
 import { WireProjection, wireCollectionFileRowMarkdown, wireCollectionFileRowTitle } from "@arbor/wire-projection";
 
 
+/** Comment frames keep watch streams alive across proxy idle timeouts. */
+const WATCH_KEEPALIVE_MS = 20_000;
+
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store", ...headers } });
 }
@@ -614,7 +617,17 @@ export async function serveCanopy(options: {
               const position = canopy.observationPosition(tree.id, lastEventID);
               if (!position.retained) return resync("The requested cursor is no longer retained");
               delivered = position.through;
-              if (execution) controller.enqueue(encoder.encode(": authorized\n\n"));
+              // Send bytes at once so headers flush through proxies and the client
+              // can tell an open stream from a stalled connect; then keep the
+              // connection warm through proxy idle timeouts.
+              controller.enqueue(encoder.encode(execution ? ": authorized\n\n" : ": ready\n\n"));
+              const keepalive = setInterval(() => {
+                if (closed) return;
+                try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* closing */ }
+              }, WATCH_KEEPALIVE_MS);
+              keepalive.unref?.();
+              const stopTimers = stop;
+              stop = () => { clearInterval(keepalive); stopTimers(); };
             },
             async pull(controller) {
               try {

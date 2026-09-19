@@ -264,7 +264,19 @@ public actor UpdateCoordinator {
            control.attempt?.allRequestDigests.contains(requestDigest) == true {
             // The watch won the response race, or the response was lost. Replaying
             // the exact durable request obtains the server's stored response.
-            return try await synchronize(admission: nil)
+            let presentation = try await synchronize(admission: nil)
+            try await recordObservedCursor(event)
+            return presentation
+        }
+        if let requestDigest = event.requestDigest, control.attempt == nil,
+           control.sourceAcceptedChanges != nil || heads.acceptedUpdate != nil,
+           event.tree.update.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8),
+           event.tree.root == heads.acceptedRoot {
+            // Our own accepted update, already installed from its response: only
+            // the observation cursor is new, so a reconnect need not replay it.
+            _ = requestDigest
+            try await recordObservedCursor(event)
+            return try await presentation()
         }
         let reviewPending = try files.loadReview().attempt != nil
         if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil || reviewPending {
@@ -278,6 +290,18 @@ public actor UpdateCoordinator {
         } catch is ArborWireValidationError {
             return try await pullCurrentSnapshot(treeID: event.tree.id, priorHeads: heads)
         }
+    }
+
+    /// Advance the persisted watch cursor to `event` when the replica already
+    /// holds exactly that accepted state; otherwise leave it for a later apply.
+    private func recordObservedCursor(_ event: WireWatchEvent) async throws {
+        let latest = try await workingTree.heads()
+        guard latest.pendingRoot == nil,
+              latest.materializedRoot == event.tree.root,
+              latest.acceptedRoot == event.tree.root,
+              latest.acceptedUpdate.map({ event.tree.update.utf8.elementsEqual($0.utf8) }) == true,
+              latest.acceptedCursor.map({ event.id.utf8.elementsEqual($0.utf8) }) != true else { return }
+        try await workingTree.recordAccepted(root: event.tree.root, update: event.tree.update, cursor: event.id)
     }
 
     private func applyAcceptedTransitions(
@@ -733,39 +757,44 @@ public actor UpdateCoordinator {
         base: WireUpdateBase,
         candidate: (root: String, objects: [WireObjectEnvelope])
     ) async throws -> WireObjectDelta? {
-        guard let admission,
-              admission.baseWasAccepted,
-              admission.baseRoot == base.root,
-              heads.acceptedRoot == admission.baseRoot,
-              heads.materializedRoot == admission.candidateRoot,
-              heads.pendingRoot == admission.candidateRoot,
-              heads.generation == admission.generation,
-              candidate.root == admission.candidateRoot,
-              let resultEnvelope = candidate.objects.first(where: { $0.hash == admission.resultFile }),
-              !candidate.objects.contains(where: { $0.hash == admission.baseFile }) else {
+        func skip(_ reason: String) -> WireObjectDelta? {
+            var entry = WireNetworkLogEntry(kind: .note, name: "delta-skipped", tree: base.root.isEmpty ? nil : nil)
+            entry.error = reason
+            entry.bytesOut = candidate.objects.reduce(0) { $0 + $1.bytes.count }
+            entry.bytesIn = candidate.objects.count
+            WireNetworkLog.current?.record(entry)
             return nil
         }
+        guard let admission else { return skip("no patch admission for this candidate") }
+        guard admission.baseWasAccepted else { return skip("patch base was not an accepted state") }
+        guard admission.baseRoot == base.root else { return skip("patch base root differs from request base") }
+        guard heads.acceptedRoot == admission.baseRoot else { return skip("accepted root moved since the patch") }
+        guard heads.materializedRoot == admission.candidateRoot, heads.pendingRoot == admission.candidateRoot else { return skip("replica heads differ from the patch candidate") }
+        guard heads.generation == admission.generation else { return skip("replica generation changed") }
+        guard candidate.root == admission.candidateRoot else { return skip("candidate root differs from the patch candidate") }
+        guard let resultEnvelope = candidate.objects.first(where: { $0.hash == admission.resultFile }) else { return skip("result file is not among candidate objects") }
+        guard !candidate.objects.contains(where: { $0.hash == admission.baseFile }) else { return skip("base file is being sent as a candidate object; retained-object walk likely failed") }
         // The base file's bytes come through the object store (overlay, then
         // platform). A miss is not an error: the full result object is sent.
         let baseBytes: Data
-        do { baseBytes = try await workingTree.objectBytes(hash: admission.baseFile) } catch { return nil }
+        do { baseBytes = try await workingTree.objectBytes(hash: admission.baseFile) } catch { return skip("base file bytes unavailable: \(error)") }
         guard case let .file(basePayload) = try WireObjectCodec.decode(baseBytes, kind: .file),
               let baseSource = String(data: basePayload, encoding: .utf8) else {
-            return nil
+            return skip("base file is not UTF-8 text")
         }
         let resultSource: String
         do { resultSource = try admission.patch.applying(to: baseSource) }
-        catch { return nil }
+        catch { return skip("patch does not apply to base: \(error)") }
         let resultPayload = Data(resultSource.utf8)
         let reconstructed = try WireObjectCodec.encode(.file(resultPayload))
         guard WireObjectCodec.hash(reconstructed) == admission.resultFile,
-              reconstructed == resultEnvelope.bytes else { return nil }
+              reconstructed == resultEnvelope.bytes else { return skip("patched result does not match the candidate file") }
 
         var instructions: [WireObjectDeltaInstruction] = []
         var cursor = 0
         for edit in admission.patch.edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
             let lower = edit.utf8Range.lowerBound
-            guard lower >= cursor, edit.utf8Range.upperBound <= basePayload.count else { return nil }
+            guard lower >= cursor, edit.utf8Range.upperBound <= basePayload.count else { return skip("patch edits overlap or exceed the base") }
             if lower > cursor { instructions.append(.copy(offset: cursor, length: lower - cursor)) }
             let replacement = Data(edit.replacement.utf8)
             if !replacement.isEmpty { instructions.append(.insert(replacement)) }
@@ -777,11 +806,11 @@ public actor UpdateCoordinator {
         let delta: WireObjectDelta
         do {
             delta = try WireObjectDelta(base: admission.baseFile, result: admission.resultFile, instructions: instructions).validated()
-            guard try delta.apply(to: baseBytes) == reconstructed else { return nil }
-        } catch { return nil }
+            guard try delta.apply(to: baseBytes) == reconstructed else { return skip("delta does not reproduce the result") }
+        } catch { return skip("delta is invalid: \(error)") }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard try encoder.encode(delta).count < encoder.encode(resultEnvelope).count else { return nil }
+        guard try encoder.encode(delta).count < encoder.encode(resultEnvelope).count else { return skip("delta is not smaller than the file") }
         return delta
     }
 
@@ -1263,11 +1292,24 @@ public actor UpdateCoordinator {
         admissionTail = Task { _ = try? await task.value }
         let log = Logger(subsystem: "org.arbor.native", category: "SourceAdmission")
         log.notice("retain begin edits=\(intent.patch.edits.count) transactions=\(intent.patch.transactions?.count ?? 0) bytes=\(intent.source.utf8.count)")
+        // The journal rewrite is client-side latency the editor waits on; report
+        // it beside the network events so it can be weighed against them.
+        var note = WireNetworkLogEntry(kind: .note, name: "admission-retain", tree: try? await workingTree.treeID().rawValue)
+        note.bytesIn = intent.patch.edits.count
         do {
             let result = try await task.value
+            note.durationMs = Date().timeIntervalSince(note.at) * 1000
+            if let url = try? files.sourceAdmissionsURL, let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int {
+                note.bytesOut = size
+            }
+            note.updateIDs = (try? await sourceQueue?.retained().count).map { ["records:\($0)"] }
+            WireNetworkLog.current?.record(note)
             log.notice("retain succeeded")
             return result
         } catch {
+            note.durationMs = Date().timeIntervalSince(note.at) * 1000
+            note.error = String(describing: error)
+            WireNetworkLog.current?.record(note)
             log.error("retain failed: \(String(describing: error), privacy: .public)")
             throw error
         }
