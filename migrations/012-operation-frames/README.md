@@ -46,3 +46,11 @@ bun run test:migration migrations/012-operation-frames
 Then, on the isolated copy with the matched server/client artifacts, take one
 live edit from Mac and one from iPhone and confirm the update log records
 `trace-frames: 1` and the same accepted roots as before.
+
+## Rehearsal log
+
+2026-09-19, live backup `arbor-012-frames-20260919` (sha256 `169869ce…2867`, schema 13,
+406 authored changes, 1620 accepted updates): migrated 406 rows; rerun reported
+`migrated: false`; `compare-canopy-roots` showed all five tree roots unchanged; the
+new `canopyd` opened the schema-14 copy and warmed. Native clients were not exercised
+offline; they are first checked against the live server after cutover.
