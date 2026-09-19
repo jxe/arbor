@@ -132,7 +132,6 @@ const LEGACY_PRIVATE_ENTRIES = [
   "workspaces.json",
   "LinkPreviews",
   "Hunch Rehearsals",
-  ".DS_Store",
 ] as const;
 
 /** Restart-safe alpha migration of implementation-only state into the reserved mount. */

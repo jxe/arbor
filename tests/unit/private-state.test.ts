@@ -103,16 +103,28 @@ describe("Arbor private state", () => {
     await mkdir(join(state, "LinkPreviews"));
     await mkdir(join(state, "Hunch Rehearsals"));
     await writeFile(join(state, "workspaces.json"), "{}\n");
-    await writeFile(join(state, ".DS_Store"), "finder state");
 
     await prepareArborDataRoot();
 
     for (const name of [
-      "system", "sync", "workspaces", "workspaces.json", "LinkPreviews", "Hunch Rehearsals", ".DS_Store",
+      "system", "sync", "workspaces", "workspaces.json", "LinkPreviews", "Hunch Rehearsals",
     ]) {
       await expect(stat(join(state, name))).rejects.toMatchObject({ code: "ENOENT" });
       expect(await stat(join(state, ".state", name))).toBeTruthy();
     }
+  });
+
+  test("leaves Finder metadata in place even when the reserved mount has its own", async () => {
+    const state = await temp("arbor-private-state-finder-");
+    process.env.ARBOR_DATA_HOME = state;
+    await mkdir(join(state, ".state"));
+    await writeFile(join(state, ".state", ".DS_Store"), "moved finder state");
+    await writeFile(join(state, ".DS_Store"), "new finder state");
+
+    await prepareArborDataRoot();
+
+    expect(await readFile(join(state, ".DS_Store"), "utf8")).toBe("new finder state");
+    expect(await readFile(join(state, ".state", ".DS_Store"), "utf8")).toBe("moved finder state");
   });
 
   test("removes an empty legacy cache directory when migrated state already exists", async () => {
