@@ -1208,14 +1208,19 @@ struct ArborRootView: View {
         closeIOSSidebar()
 #endif
         Task {
+            var page: WorkspaceReference?
             if let path = decision.path {
                 let reference = WorkspaceReference(tree: workspace.home.tree, path: reviewLogicalPath(path))
                 // Deleted entries still have a review even when no live page exists.
-                if (try? await workspace.provider.resolve(reference)) != nil {
-                    await model.navigate(to: reference)
-                }
+                if (try? await workspace.provider.resolve(reference)) != nil { page = reference }
             }
-            await review.select(decision)
+            // Load the choice first, then switch page and selection in the same
+            // main-actor turn, so the panel never renders against the wrong
+            // page or at an intermediate size.
+            await review.select(decision, expand: false)
+            guard review.selectedID == decision.id else { return }
+            if let page { await model.navigate(to: page) }
+            review.expanded = true
             reviewAccessoryReveal = EditorAccessoryReveal("accepted-choices")
         }
     }
@@ -1790,11 +1795,14 @@ struct ArborRootView: View {
                 }
                 if review.expanded {
 #if os(macOS)
-                    ScrollView {
-                        ArborChoiceReviewPanel(review: review,
-                            previous: { stepReviewChoice(-1) }, next: { stepReviewChoice(1) })
-                    }
-                    .frame(maxHeight: 440)
+                    // A choice with no editable page here (a deleted entry or a
+                    // directory) uses the same panel at the editor's column width.
+                    ArborChoiceReviewPanel(review: review,
+                        previous: { stepReviewChoice(-1) }, next: { stepReviewChoice(1) })
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .frame(maxWidth: ArborStyle.editorTheme.layout.maxContentWidth)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 20).padding(.vertical, 12)
                     Divider()
 #endif
                 } else if !choices.isEmpty {
@@ -1803,13 +1811,7 @@ struct ArborRootView: View {
                             Label("\(choices.count) unresolved \(choices.count == 1 ? "choice" : "choices")", systemImage: "arrow.triangle.branch")
                         }.buttonStyle(.plain)
                         Spacer()
-                        Button("Review in tree") { reviewingChoices = true
-#if os(macOS)
-                            columnVisibility = .all
-#else
-                            withAnimation { sidebarRevealProgress = 1 }
-#endif
-                        }.buttonStyle(.plain)
+                        Button("Review in tree", action: showChoiceReview).buttonStyle(.plain)
                     }.font(.callout).padding(.horizontal, 20).padding(.vertical, 10)
                     Divider()
                 }
@@ -2013,19 +2015,27 @@ struct ArborRootView: View {
     private func reviewAccessories(for location: WorkspaceLocation) -> [EditorAccessory] {
         guard location == model.currentLocation, hostsReviewAccessory(location), let review = workspace.conflictReview else { return [] }
         let choices = review.decisions.filter { $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false }
-        guard !choices.isEmpty || review.expanded else { return [] }
+        guard !choices.isEmpty || review.showingAppliedResult else { return [] }
         return [EditorAccessory(
             id: "accepted-choices", anchor: .document, accessibilityLabel: "Review alternatives",
             isExpanded: Binding(get: { review.expanded }, set: { expanded in
                 if expanded, !choices.contains(where: { $0.id == review.selectedID }), let first = choices.first { openReviewChoice(first) }
                 else { review.expanded = expanded }
             }), marker: {
-                Label("\(choices.count) unresolved \(choices.count == 1 ? "choice" : "choices")", systemImage: "arrow.triangle.branch")
-                    .font(.callout)
+                // The marker is the panel's disclosure control, so the panel
+                // itself shows no second close button.
+                Label {
+                    Text(choices.isEmpty ? "Choice resolved"
+                         : "\(choices.count) unresolved \(choices.count == 1 ? "choice" : "choices")")
+                } icon: {
+                    Image(systemName: review.expanded ? "chevron.down" : "chevron.right")
+                }
+                .font(.callout)
             }, detail: {
 #if os(macOS)
                 ArborChoiceReviewPanel(review: review,
-                    previous: { stepReviewChoice(-1) }, next: { stepReviewChoice(1) })
+                    previous: { stepReviewChoice(-1) }, next: { stepReviewChoice(1) }, showsClose: false)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
 #else
                 EmptyView()
 #endif

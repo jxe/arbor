@@ -119,49 +119,65 @@ final class ArborConflictReviewModel {
         save(rebased)
     }
 
-    func select(_ decision: ConflictReviewDecision) async {
+    /// Selects a decision. Its alternatives load before anything is published,
+    /// so the panel appears (or switches) once, at its final shape.
+    func select(_ decision: ConflictReviewDecision, expand: Bool = true) async {
         guard let snapshot else { return }
         do { try await flushDraft() } catch { message = error.localizedDescription; return }
-        selectedID = decision.id; completedID = nil; expanded = true; message = nil
-        preview = nil
-        draft = drafts.first(where: { $0.decisions.contains { $0.id == decision.id } })
+        let next = drafts.first(where: { $0.decisions.contains { $0.id == decision.id } })
             ?? .init(snapshot: snapshot, decision: decision, alternative: decision.selected)
-        await loadContents()
+        await show(next, selecting: decision.id, expand: expand)
     }
 
     func openRetained(_ value: ConflictReviewDraft) async {
         do { try await flushDraft() } catch { message = error.localizedDescription; return }
-        selectedID = value.id; draft = value; preview = nil; expanded = true; message = nil
-        await loadContents()
+        await show(value, selecting: value.id, expand: true)
+    }
+
+    private func show(_ next: ConflictReviewDraft, selecting id: String, expand: Bool) async {
+        guard let decision = next.decisions.first(where: { $0.id == id }) else { return }
+        selectionGeneration += 1
+        let generation = selectionGeneration
+        let loaded = await fetchContents(of: decision, state: next.snapshot.state)
+        guard generation == selectionGeneration else { return }
+        selectedID = id; draft = next; completedID = nil; preview = nil
+        contents = loaded.contents; directories = loaded.directories; message = loaded.message
+        if expand { expanded = true }
     }
 
     private func loadContents() async {
         selectionGeneration += 1
         let generation = selectionGeneration
-        contents = [:]; directories = [:]
-        guard let draft else { return }
-        guard let decision = selectedDecision else { return }
+        guard let draft, let decision = selectedDecision else { return }
+        let loaded = await fetchContents(of: decision, state: draft.snapshot.state)
+        guard generation == selectionGeneration else { return }
+        contents = loaded.contents; directories = loaded.directories
+        if let message = loaded.message { self.message = message }
+    }
+
+    private func fetchContents(of decision: ConflictReviewDecision, state: String) async
+        -> (contents: [String: Data], directories: [String: [WireDirectoryEntry]], message: String?) {
+        var contents: [String: Data] = [:]
+        var directories: [String: [WireDirectoryEntry]] = [:]
+        var message: String?
         for alternative in decision.alternatives {
             do {
-                let bytes = try await coordinator.reviewContent(alternative, decision: decision.id, state: draft.snapshot.state)
-                guard generation == selectionGeneration else { return }
-                if let bytes { contents[alternative.id] = bytes }
+                if let bytes = try await coordinator.reviewContent(alternative, decision: decision.id, state: state) {
+                    contents[alternative.id] = bytes
+                }
                 if alternative.value.directory != nil {
-                    let entries = try await coordinator.reviewDirectory(alternative, decision: decision.id, state: draft.snapshot.state)
-                    guard generation == selectionGeneration else { return }
-                    directories[alternative.id] = entries
+                    directories[alternative.id] = try await coordinator.reviewDirectory(alternative, decision: decision.id, state: state)
                 }
             } catch {
-                guard generation == selectionGeneration else { return }
                 message = "Some alternatives could not be loaded: \(error.localizedDescription)"
             }
         }
+        return (contents, directories, message)
     }
 
     func selectMember(_ id: String) async {
-        guard draft?.decisions.contains(where: { $0.id == id }) == true else { return }
-        selectedID = id
-        await loadContents()
+        guard let draft, draft.decisions.contains(where: { $0.id == id }) else { return }
+        await show(draft, selecting: id, expand: expanded)
     }
     func choose(_ id: String) {
         guard var value = draft, let decision = selectedDecision else { return }
@@ -262,9 +278,15 @@ final class ArborConflictReviewModel {
 }
 
 struct ArborChoiceReviewPanel: View {
+    /// Every source presentation (comparison, composition, directory listing,
+    /// placeholders) shares one height so switching between them never reflows
+    /// the page.
+    static let sourceHeight: CGFloat = 240
     @Bindable var review: ArborConflictReviewModel
     var previous: () -> Void
     var next: () -> Void
+    /// False when a disclosure marker above the panel already collapses it.
+    var showsClose = true
     @State private var discardComposition = false
     @State private var discardDraft = false
 
@@ -283,7 +305,9 @@ struct ArborChoiceReviewPanel: View {
                     .keyboardShortcut(.upArrow, modifiers: [.command, .option])
                 Button(action: next) { Image(systemName: "chevron.down") }.accessibilityLabel("Next choice")
                     .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                Button { review.expanded = false } label: { Image(systemName: "xmark") }.accessibilityLabel("Close review")
+                if showsClose {
+                    Button { review.expanded = false } label: { Image(systemName: "xmark") }.accessibilityLabel("Close review")
+                }
             }
             if let draft = review.draft, let decision = review.selectedDecision {
                 if draft.decisions.count > 1 {
@@ -323,7 +347,7 @@ struct ArborChoiceReviewPanel: View {
                     if selection.source != nil {
                         Text(review.draftRetentionLabel).font(.caption)
                         TextEditor(text: Binding(get: { review.selection?.source ?? "" }, set: { review.edit($0) }))
-                            .font(.body.monospaced()).frame(minHeight: 120, idealHeight: 200, maxHeight: 300)
+                            .font(.body.monospaced()).frame(height: ArborChoiceReviewPanel.sourceHeight)
                             .accessibilityLabel("Proposed resolution source")
                             .disabled(review.showingAppliedResult || review.pending)
                         if !review.showingAppliedResult {
@@ -338,9 +362,10 @@ struct ArborChoiceReviewPanel: View {
                                         Label(entry.name, systemImage: entry.directory != nil ? "folder" : entry.tree != nil ? "link" : "doc")
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
-                            }.frame(maxHeight: 220)
+                            }.frame(height: ArborChoiceReviewPanel.sourceHeight)
                         } else if alternative.value.absent == true {
                             Label("This version removes the entry.", systemImage: "trash")
+                                .frame(maxWidth: .infinity, minHeight: ArborChoiceReviewPanel.sourceHeight)
                         } else if let data = review.contents[alternative.id], let text = String(data: data, encoding: .utf8), alternative.value.file != nil || alternative.value.text != nil {
                             ArborChoiceSourceComparison(
                                 current: review.contents[decision.selected].flatMap { String(data: $0, encoding: .utf8) },
@@ -348,7 +373,11 @@ struct ArborChoiceReviewPanel: View {
                             Button("Compose a result") { review.compose() }.disabled(review.showingAppliedResult || review.pending)
                         } else if let data = review.contents[alternative.id] {
                             Text("Binary content · \(data.count.formatted()) bytes")
-                        } else { Text(alternative.summary).foregroundStyle(.secondary) }
+                                .frame(maxWidth: .infinity, minHeight: ArborChoiceReviewPanel.sourceHeight)
+                        } else {
+                            Text(alternative.summary).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: ArborChoiceReviewPanel.sourceHeight)
+                        }
                     }
                     if let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
                        decision.path != "/", alternative.value.absent != true, selection.remove != true,
@@ -533,20 +562,24 @@ private struct ArborChoiceSourceComparison: View {
     let proposed: String
     let sameAlternative: Bool
     @State private var showCurrent = false
+    @State private var viewportWidth: CGFloat = 0
     var body: some View {
         let displayed = showCurrent && !sameAlternative ? current ?? proposed : proposed
         let comparison = ArborSourceLineComparison(
             displayed: displayed,
             baseline: sameAlternative ? nil : (showCurrent ? proposed : current))
         VStack(alignment: .leading, spacing: 6) {
-            if !sameAlternative, current != nil {
-                HStack {
-                    Button(showCurrent ? "Show proposed version" : "Compare with currently displayed") { showCurrent.toggle() }
-                    Spacer()
+            // One header row in every mode keeps the comparison's height fixed.
+            HStack {
+                Text(showCurrent && !sameAlternative ? "Currently displayed" : "Proposed result").font(.caption).bold()
+                Spacer()
+                if !sameAlternative, current != nil {
                     Text(comparison.status).font(.caption).foregroundStyle(.secondary)
+                    Button(showCurrent ? "Show proposed" : "Compare with displayed") { showCurrent.toggle() }
+                        .controlSize(.small)
                 }
             }
-            Text(showCurrent && !sameAlternative ? "Currently displayed" : "Proposed result").font(.caption).bold()
+            .frame(height: 22)
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(comparison.lines.indices, id: \.self) { index in
@@ -555,12 +588,14 @@ private struct ArborChoiceSourceComparison: View {
                             .foregroundStyle(Color.primary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: true, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // Highlight bands span at least the visible width.
+                            .frame(minWidth: max(viewportWidth - 16, 0), alignment: .leading)
                             .background(comparison.changedLines.contains(index) ? Color.accentColor.opacity(0.25) : Color.clear)
                     }
                 }.padding(8)
             }
-            .frame(minHeight: 80, idealHeight: 180, maxHeight: 260)
+            .onGeometryChange(for: CGFloat.self, of: \.size.width) { viewportWidth = $0 }
+            .frame(height: ArborChoiceReviewPanel.sourceHeight - 40)
             .background(.background, in: RoundedRectangle(cornerRadius: 8))
         }
     }
