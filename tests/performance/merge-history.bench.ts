@@ -31,9 +31,22 @@ for (let edit = 1; edit <= 256; edit++) {
   ).result;
   text = next;
   if (!checkpoints.has(edit)) continue;
+  let stateBytes = 0;
+  const loadStart = performance.now();
   const state = await loadIntentState(
     current.state,
     async (hash) => fixture.objects.get(hash)!,
+    undefined,
+    undefined,
+    { bytes: (count) => (stateBytes = count), references: () => {} },
+  );
+  const loadMs = performance.now() - loadStart;
+  // Entries per history field: what a full evaluator materializes today and
+  // what lazy loading (plan 010, Phase 4) must stop touching whole.
+  const historyEntries = Object.fromEntries(
+    (["outputs", "effects", "origins", "alternatives", "changes"] as const).map(
+      (field) => [field, Object.keys(state[field]).length],
+    ),
   );
   const effectNodes = Object.values(state.effects).flatMap((effect) => [
     ...Object.values(effect.before),
@@ -66,9 +79,12 @@ for (let edit = 1; edit <= 256; edit++) {
       ).size,
       effectBytes: new TextEncoder().encode(JSON.stringify(state.effects))
         .length,
+      historyEntries,
+      stateBytes,
+      stateLoadMs: loadMs,
       validationReads: reads,
       validationBytes: bytes,
-      validationMs: performance.now() - start,
+      coldValidationMs: performance.now() - start,
     }),
   );
 }

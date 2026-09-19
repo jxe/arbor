@@ -4,6 +4,44 @@ September 18, 2026: accepted-prefix reuse and Native payload omission are deploy
 That deployed change requires no schema, Wire, client, or permissions migration.
 September 19, 2026: batched durable object writes, `synchronous = NORMAL`, and per-request phase logging; no schema, Wire, or client change.
 
+## Baseline before operation frames (2026-09-19)
+
+Phase 0 of [plan 010](../plans/canopy/010-operation-frames-and-lazy-history.md)
+records what an edit costs before operations become frames and history is loaded
+lazily. Nothing here changes behaviour.
+
+The per-request update log line now also carries `body-bytes` (the encoded
+request body) and `trace-ops` (authored operations across the request's
+updates). `trace-frames` follows with the wire change in Phase 2. As before, the
+line contains no request content, subjects, or object identities.
+
+`bun tests/performance/merge-history.bench.ts` (synthetic, in-memory: one file,
+one-byte append per update; no server, volume, or network) now also reports
+history map entry counts per field, the bytes `loadIntentState` expands, and the
+cold `validateIntentState` time with no history proof cache. On a Mac with
+Bun 1.3.x:
+
+| Edits | History entries per field (outputs / effects / origins / changes) | `loadIntentState` bytes | State load ms | Cold validation reads | Cold validation bytes | Cold validation ms |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 16 | 98,749 | 2.5 | 118 | 65,716 | 1.6 |
+| 32 | 32 | 295,097 | 2.8 | 300 | 175,228 | 2.8 |
+| 64 | 64 | 945,233 | 5.5 | 599 | 351,222 | 7.1 |
+| 128 | 128 | 3,277,073 | 16.0 | 1,175 | 708,459 | 23.4 |
+| 256 | 256 | 12,131,130 | 55.6 | 2,629 | 1,488,988 | 80.8 |
+
+`alternatives` is empty throughout this single-file append sequence. Every
+history field grows one entry per edit, and the bytes a full evaluator expands
+grow super-linearly with history length: at 256 edits one edit's evaluator load
+is 12.1 MB of state for a one-byte change, which is the synthetic counterpart of
+the ~11.5 MB measured on the conflict-carrying production copy above. Cold
+validation reads and bytes grow linearly with history; its time does not, since
+the expanded logical view is rebuilt each time.
+
+These are the numbers Phase 4's lazy history and deletion watermark must move:
+expected after that phase is a load proportional to the pages an edit touches
+rather than to history length. Live-tree numbers for the same fields are
+recorded once Phase 2 ships `trace-frames` to the server.
+
 ## Durable writes and live attribution (2026-09-19)
 
 Live Railway updates measured 1.1–1.6 s (median 1.4 s, p90 4.6 s) while the

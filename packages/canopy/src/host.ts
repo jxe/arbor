@@ -498,9 +498,15 @@ export async function serveCanopy(options: {
           const timer = new PhaseTimer();
           const countersBefore = canopy.objectCounters();
           return await withPhaseTimer(timer, async () => {
-            const body = await request.json() as Record<string, unknown>;
+            // Read the body as text so the request's encoded size can be
+            // recorded; `trace-ops` counts the authored operations carried
+            // with it. Both are diagnostics, never content.
+            const raw = await request.text();
+            const body = JSON.parse(raw) as Record<string, unknown>;
             timer.mark("body");
+            timer.count("body-bytes", new TextEncoder().encode(raw).length);
             const update = decodeUpdateRequestJSON(body);
+            timer.count("trace-ops", update.updates.reduce((sum, element) => sum + (element.operations?.length ?? 0), 0));
             const tree = canopy.get(treeID);
             const link = linkDigest(request);
             const writable = tree ? canopy.canWrite(account, treeID, link) : false;
