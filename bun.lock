@@ -5,141 +5,95 @@
     "": {
       "name": "arbor",
       "dependencies": {
-        "@arbor/cli": "workspace:*",
-        "@arbor/data": "workspace:*",
-        "@blocknote/core": "0.52.1",
-        "@blocknote/mantine": "0.52.1",
-        "@blocknote/react": "0.52.1",
-        "@mantine/core": "8.3.10",
-        "@noble/hashes": "^2.2.0",
-        "@parcel/watcher": "2.5.1",
-        "@tiptap/pm": "3.28.0",
-        "csv-parse": "6.1.0",
-        "katex": "0.18.1",
-        "quickjs-emscripten": "0.32.0",
-        "react": "19.2.4",
-        "react-dom": "19.2.4",
-        "yaml": "2.8.2",
-        "zod": "4.3.6",
+        "@overstory/apps-runtime": "workspace:*",
+        "@overstory/arborsync": "workspace:*",
+        "@overstory/arborsync-client": "workspace:*",
+        "@overstory/canopy-web": "workspace:*",
+        "@overstory/canopyd": "workspace:*",
+        "@overstory/canopyd-merge": "workspace:*",
+        "@overstory/cli": "workspace:*",
+        "@overstory/client": "workspace:*",
+        "@overstory/fs": "workspace:*",
+        "@overstory/object-store": "workspace:*",
+        "@overstory/protocol": "workspace:*",
       },
       "devDependencies": {
+        "@noble/hashes": "^2.2.0",
         "@types/bun": "1.3.10",
-        "@types/react": "19.2.14",
-        "@types/react-dom": "19.2.3",
         "@vitejs/plugin-react": "5.1.4",
         "typescript": "5.9.3",
         "vite": "7.3.1",
+        "yaml": "2.8.2",
+        "zod": "4.3.6",
+      },
+    },
+    "packages/apps-runtime": {
+      "name": "@overstory/apps-runtime",
+      "version": "0.1.0",
+      "dependencies": {
+        "@overstory/protocol": "workspace:*",
+        "csv-parse": "6.1.0",
+        "quickjs-emscripten": "0.32.0",
+        "yaml": "2.8.2",
+        "zod": "4.3.6",
       },
     },
     "packages/arborsync": {
-      "name": "@arbor/arborsync",
+      "name": "@overstory/arborsync",
       "version": "0.1.0",
-      "bin": {
-        "arborsync": "./src/cli.ts",
-      },
       "dependencies": {
-        "@arbor/canopy-client": "workspace:*",
-        "@arbor/core": "workspace:*",
-        "@arbor/editor": "workspace:*",
-        "@arbor/fs": "workspace:*",
-        "@arbor/stores": "workspace:*",
-        "@arbor/wire": "workspace:*",
+        "@overstory/apps-runtime": "workspace:*",
+        "@overstory/client": "workspace:*",
+        "@overstory/fs": "workspace:*",
+        "@overstory/protocol": "workspace:*",
         "zod": "4.3.6",
       },
     },
     "packages/arborsync-client": {
-      "name": "@arbor/arborsync-client",
+      "name": "@overstory/arborsync-client",
       "version": "0.1.0",
       "dependencies": {
-        "@arbor/core": "workspace:*",
+        "@overstory/protocol": "workspace:*",
       },
     },
-    "packages/canopy": {
-      "name": "@arbor/canopy",
+    "packages/canopy-web": {
+      "name": "@overstory/canopy-web",
       "version": "0.1.0",
-      "bin": {
-        "canopyd": "./src/cli.ts",
-      },
       "dependencies": {
-        "@arbor/core": "workspace:*",
-        "@arbor/data": "workspace:*",
-        "@arbor/editor": "workspace:*",
-        "@arbor/merge": "workspace:*",
-        "@arbor/object-store": "workspace:*",
-        "@arbor/stores": "workspace:*",
-        "@arbor/wire": "workspace:*",
-        "@arbor/wire-projection": "workspace:*",
+        "@blocknote/core": "0.52.1",
+        "@blocknote/mantine": "0.52.1",
+        "@blocknote/react": "0.52.1",
+        "@mantine/core": "8.3.10",
+        "@overstory/arborsync-client": "workspace:*",
+        "@overstory/protocol": "workspace:*",
+        "@tiptap/pm": "3.28.0",
+        "katex": "0.18.1",
+        "lucide-react": "^1.31.0",
+        "react": "19.2.4",
+        "react-dom": "19.2.4",
+      },
+      "devDependencies": {
+        "@types/react": "19.2.14",
+        "@types/react-dom": "19.2.3",
       },
     },
-    "packages/canopy-client": {
-      "name": "@arbor/canopy-client",
+    "packages/canopyd": {
+      "name": "@overstory/canopyd",
       "version": "0.1.0",
       "dependencies": {
-        "@arbor/core": "workspace:*",
-        "@arbor/fs": "workspace:*",
-        "@arbor/stores": "workspace:*",
-        "@arbor/wire": "workspace:*",
+        "@overstory/apps-runtime": "workspace:*",
+        "@overstory/canopyd-merge": "workspace:*",
+        "@overstory/object-store": "workspace:*",
+        "@overstory/protocol": "workspace:*",
       },
     },
-    "packages/cli": {
-      "name": "@arbor/cli",
-      "version": "0.1.0",
-      "bin": {
-        "arbor": "./src/index.ts",
-      },
-      "dependencies": {
-        "@arbor/arborsync": "workspace:*",
-        "@arbor/arborsync-client": "workspace:*",
-        "@arbor/core": "workspace:*",
-        "@arbor/fs": "workspace:*",
-        "@arbor/stores": "workspace:*",
-        "@arbor/wire": "workspace:*",
-        "yaml": "2.8.2",
-      },
-    },
-    "packages/core": {
-      "name": "@arbor/core",
+    "packages/canopyd-merge": {
+      "name": "@overstory/canopyd-merge",
       "version": "0.1.0",
       "dependencies": {
-        "@noble/hashes": "^2.2.0",
-      },
-    },
-    "packages/data": {
-      "name": "@arbor/data",
-      "version": "0.1.0",
-      "dependencies": {
-        "@arbor/core": "workspace:*",
-      },
-    },
-    "packages/editor": {
-      "name": "@arbor/editor",
-      "version": "0.1.0",
-      "dependencies": {
-        "@arbor/core": "workspace:*",
-        "yaml": "2.8.2",
-      },
-    },
-    "packages/fs": {
-      "name": "@arbor/fs",
-      "version": "0.1.0",
-      "dependencies": {
-        "@arbor/core": "workspace:*",
-        "@arbor/editor": "workspace:*",
-        "@arbor/wire": "workspace:*",
-        "@parcel/watcher": "2.5.1",
-      },
-    },
-    "packages/merge": {
-      "name": "@arbor/merge",
-      "version": "0.1.0",
-      "bin": {
-        "arbor-merge": "./src/cli.ts",
-      },
-      "dependencies": {
-        "@arbor/core": "workspace:*",
-        "@arbor/object-store": "workspace:*",
-        "@arbor/stores": "workspace:*",
-        "@arbor/wire": "workspace:*",
+        "@overstory/apps-runtime": "workspace:*",
+        "@overstory/object-store": "workspace:*",
+        "@overstory/protocol": "workspace:*",
         "saxes": "6.0.0",
         "tree-sitter-wasms": "0.1.13",
         "web-tree-sitter": "0.20.8",
@@ -147,94 +101,50 @@
         "zod": "4.3.6",
       },
     },
-    "packages/object-store": {
-      "name": "@arbor/object-store",
+    "packages/cli": {
+      "name": "@overstory/cli",
       "version": "0.1.0",
       "dependencies": {
-        "@arbor/wire": "workspace:*",
-      },
-    },
-    "packages/render": {
-      "name": "@arbor/render",
-      "version": "0.1.0",
-      "dependencies": {
-        "@arbor/arborsync-client": "workspace:*",
-        "@arbor/core": "workspace:*",
-        "@arbor/editor": "workspace:*",
-        "@blocknote/core": "0.52.1",
-        "@blocknote/mantine": "0.52.1",
-        "@blocknote/react": "0.52.1",
-        "@mantine/core": "8.3.10",
-        "@tiptap/pm": "3.28.0",
-        "katex": "0.18.1",
-        "lucide-react": "^1.31.0",
-        "react": "19.2.4",
-        "react-dom": "19.2.4",
-      },
-    },
-    "packages/stores": {
-      "name": "@arbor/stores",
-      "version": "0.1.0",
-      "dependencies": {
-        "@arbor/core": "workspace:*",
-        "@arbor/data": "workspace:*",
-        "@arbor/editor": "workspace:*",
-        "@arbor/fs": "workspace:*",
-        "csv-parse": "6.1.0",
-        "quickjs-emscripten": "0.32.0",
+        "@overstory/arborsync": "workspace:*",
+        "@overstory/arborsync-client": "workspace:*",
+        "@overstory/fs": "workspace:*",
+        "@overstory/protocol": "workspace:*",
         "yaml": "2.8.2",
-        "zod": "4.3.6",
       },
     },
-    "packages/wire": {
-      "name": "@arbor/wire",
+    "packages/client": {
+      "name": "@overstory/client",
       "version": "0.1.0",
       "dependencies": {
-        "@arbor/core": "workspace:*",
+        "@overstory/fs": "workspace:*",
+        "@overstory/protocol": "workspace:*",
       },
     },
-    "packages/wire-projection": {
-      "name": "@arbor/wire-projection",
+    "packages/fs": {
+      "name": "@overstory/fs",
       "version": "0.1.0",
       "dependencies": {
-        "@arbor/core": "workspace:*",
-        "@arbor/editor": "workspace:*",
-        "@arbor/stores": "workspace:*",
-        "@arbor/wire": "workspace:*",
+        "@overstory/protocol": "workspace:*",
+        "@parcel/watcher": "2.5.1",
+      },
+    },
+    "packages/object-store": {
+      "name": "@overstory/object-store",
+      "version": "0.1.0",
+      "dependencies": {
+        "@overstory/protocol": "workspace:*",
+      },
+    },
+    "packages/protocol": {
+      "name": "@overstory/protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@noble/hashes": "^2.2.0",
+        "yaml": "2.8.2",
       },
     },
   },
   "packages": {
-    "@arbor/arborsync": ["@arbor/arborsync@workspace:packages/arborsync"],
-
-    "@arbor/arborsync-client": ["@arbor/arborsync-client@workspace:packages/arborsync-client"],
-
-    "@arbor/canopy": ["@arbor/canopy@workspace:packages/canopy"],
-
-    "@arbor/canopy-client": ["@arbor/canopy-client@workspace:packages/canopy-client"],
-
-    "@arbor/cli": ["@arbor/cli@workspace:packages/cli"],
-
-    "@arbor/core": ["@arbor/core@workspace:packages/core"],
-
-    "@arbor/data": ["@arbor/data@workspace:packages/data"],
-
-    "@arbor/editor": ["@arbor/editor@workspace:packages/editor"],
-
-    "@arbor/fs": ["@arbor/fs@workspace:packages/fs"],
-
-    "@arbor/merge": ["@arbor/merge@workspace:packages/merge"],
-
-    "@arbor/object-store": ["@arbor/object-store@workspace:packages/object-store"],
-
-    "@arbor/render": ["@arbor/render@workspace:packages/render"],
-
-    "@arbor/stores": ["@arbor/stores@workspace:packages/stores"],
-
-    "@arbor/wire": ["@arbor/wire@workspace:packages/wire"],
-
-    "@arbor/wire-projection": ["@arbor/wire-projection@workspace:packages/wire-projection"],
-
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
     "@babel/compat-data": ["@babel/compat-data@7.29.7", "", {}, "sha512-locTkQyKvwIEgBzVrn8693ebc97F2U8ZHjbXwDXJ5Fn2TCpNwTlKcaKLkdHop5c/icOFE7qt7Q9JC5hnKNa6Gg=="],
@@ -372,6 +282,28 @@
     "@mantine/hooks": ["@mantine/hooks@8.3.10", "", { "peerDependencies": { "react": "^18.x || ^19.x" } }, "sha512-bv+yYHl+keTIvakiDzVJMIjW+o8/Px0G3EdpCMFG+U2ux6SwQqluqoq+/kqrTtT6RaLvQ0fMxjpIULF2cu/xAg=="],
 
     "@noble/hashes": ["@noble/hashes@2.2.0", "", {}, "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="],
+
+    "@overstory/apps-runtime": ["@overstory/apps-runtime@workspace:packages/apps-runtime"],
+
+    "@overstory/arborsync": ["@overstory/arborsync@workspace:packages/arborsync"],
+
+    "@overstory/arborsync-client": ["@overstory/arborsync-client@workspace:packages/arborsync-client"],
+
+    "@overstory/canopy-web": ["@overstory/canopy-web@workspace:packages/canopy-web"],
+
+    "@overstory/canopyd": ["@overstory/canopyd@workspace:packages/canopyd"],
+
+    "@overstory/canopyd-merge": ["@overstory/canopyd-merge@workspace:packages/canopyd-merge"],
+
+    "@overstory/cli": ["@overstory/cli@workspace:packages/cli"],
+
+    "@overstory/client": ["@overstory/client@workspace:packages/client"],
+
+    "@overstory/fs": ["@overstory/fs@workspace:packages/fs"],
+
+    "@overstory/object-store": ["@overstory/object-store@workspace:packages/object-store"],
+
+    "@overstory/protocol": ["@overstory/protocol@workspace:packages/protocol"],
 
     "@parcel/watcher": ["@parcel/watcher@2.5.1", "", { "dependencies": { "detect-libc": "^1.0.3", "is-glob": "^4.0.3", "micromatch": "^4.0.5", "node-addon-api": "^7.0.0" }, "optionalDependencies": { "@parcel/watcher-android-arm64": "2.5.1", "@parcel/watcher-darwin-arm64": "2.5.1", "@parcel/watcher-darwin-x64": "2.5.1", "@parcel/watcher-freebsd-x64": "2.5.1", "@parcel/watcher-linux-arm-glibc": "2.5.1", "@parcel/watcher-linux-arm-musl": "2.5.1", "@parcel/watcher-linux-arm64-glibc": "2.5.1", "@parcel/watcher-linux-arm64-musl": "2.5.1", "@parcel/watcher-linux-x64-glibc": "2.5.1", "@parcel/watcher-linux-x64-musl": "2.5.1", "@parcel/watcher-win32-arm64": "2.5.1", "@parcel/watcher-win32-ia32": "2.5.1", "@parcel/watcher-win32-x64": "2.5.1" } }, "sha512-dfUnCxiN9H4ap84DvD2ubjw+3vUNpstxa0TneY/Paat8a3R4uQZDLSvWjmznAY/DoahqTHl9V46HF/Zs3F29pg=="],
 

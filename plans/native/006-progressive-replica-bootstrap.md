@@ -3,7 +3,7 @@
 Historical identifier: **Reliability 006**. The filename number is preserved; this plan now belongs to native.
 
 > **Rescoped by Native 022 (completed plan, deleted; see git history)**:
-> the client is `WorkingTree` (package `ArborWorkingTree`), placement is
+> the client is `WorkingTree` (package `CanopyWorkingTree`), placement is
 > `WorkingTreePlacementService.place`, and steady-state synchronization is
 > `UpdateCoordinator`. This plan applies to iOS placement and to visits, where
 > the complete accepted snapshot still comes from Canopy in one body. On the
@@ -29,9 +29,9 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 >
 > ```sh
 > git diff --stat 9b7da49..HEAD -- \
->   native/ArborApp \
->   native/Packages/CanopyClient native/Packages/ArborWire \
->   packages/canopy packages/wire tests docs spec/01-tree-operations.md
+>   canopy-swift/CanopyApp \
+>   canopy-swift/Packages/OverstoryClient canopy-swift/Packages/Overstory \
+>   packages/canopyd packages/protocol tests docs spec/01-tree-operations.md
 > git status --short
 > ```
 >
@@ -187,7 +187,7 @@ Required invariants:
 **In scope**:
 
 - a bootstrap reducer, durable checkpoint types, and placement effect runner
-  under `native/Packages/CanopyClient/Sources/CanopyClient/`
+  under `canopy-swift/Packages/OverstoryClient/Sources/OverstoryClient/`
 - `ReplicaPlacementService` migration to that runner and a typed progress/
   preview/result API
 - `ArborWireClient` object fetch reuse plus streamed/resumable snapshot download
@@ -268,7 +268,7 @@ needed here.
 ETag stability, exact reconstructed bytes, and unchanged full-response bytes;
 `bun run test:protocol` passes.
 
-### Step 3: Stream, checkpoint, and resume in ArborWire
+### Step 3: Stream, checkpoint, and resume in Overstory
 
 Add a transport method which exposes response metadata and streams bytes to an
 explicit staging URL. Implement strict resume validation from Step 1, atomic
@@ -283,7 +283,7 @@ children, cycles, and a root mismatch exactly as the existing in-memory API
 does. Make `snapshot(tree:root:)` call the same validation core so there is one
 security boundary.
 
-**Verify**: `swift test --package-path native/Packages/ArborWire` passes with
+**Verify**: `swift test --package-path canopy-swift/Packages/Overstory` passes with
 stubbed split-body delivery, progress, resume, cancellation, response timeout,
 inactivity timeout, malformed ranges, and all existing codec vectors.
 
@@ -300,7 +300,7 @@ Change `ArborWorkspaceState.place` so a wire-format mismatch or replacement
 never deletes the current replica/sync state before the new staging replica is
 ready. Emit a typed installed handoff containing the pinned root/update/cursor.
 
-**Verify**: `swift test --package-path native/Packages/CanopyClient` passes with
+**Verify**: `swift test --package-path canopy-swift/Packages/OverstoryClient` passes with
 restart/fault injection at every durable boundary, exact partial reuse, corrupt
 partial recovery, no mutation of an existing replica on failure, exact snapshot
 round-trip, and one handoff only after successful promotion.
@@ -353,14 +353,14 @@ bun run typecheck
 bun run test:protocol
 bun run test
 bun run build
-swift test --package-path native/Packages/ArborWire
-swift test --package-path native/Packages/ArborReplica
-swift test --package-path native/Packages/CanopyClient
+swift test --package-path canopy-swift/Packages/Overstory
+swift test --package-path canopy-swift/Packages/ArborReplica
+swift test --package-path canopy-swift/Packages/OverstoryClient
 tools/test-arbor-quagmire-local.sh
 git diff --check
 ```
 
-For iOS, build the ignored `native/Arbor.local.xcworkspace` so the sibling
+For iOS, build the ignored `canopy-swift/Arbor.local.xcworkspace` so the sibling
 Quagmire checkout overrides the exact published package pin. Test a fresh
 placement with Network Link Conditioner or a throttled local server, interrupt
 it after measurable progress, relaunch, and verify the second request resumes
@@ -431,4 +431,4 @@ Stop and report rather than improvising if:
   with explicit offline, editing, search, link, and conflict semantics. Do not
   gradually turn this preview into an undocumented partial replica.
 - A future native client should reuse the bootstrap reducer/effect contract,
-  but platform presentation remains outside ArborWire and ArborReplica.
+  but platform presentation remains outside Overstory and ArborReplica.

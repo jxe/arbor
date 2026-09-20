@@ -7,8 +7,8 @@ Source implementation status is distinct from installed/deployed behavior.
 
 ## Native release and hands-on review
 
-Owners: Native [008](../native/008-complete-native-move-copy-undo-capture.md) for operation capture and Native
-[010](../native/010-client-conflict-review.md) for review behavior.
+Owners: Native [008](../canopy-swift/008-complete-native-move-copy-undo-capture.md) for operation capture and Native
+[010](../canopy-swift/010-client-conflict-review.md) for review behavior.
 
 - [ ] Install the tested rejected-update retirement, broader operation capture and accepted-choice
   review when Joe can quit both apps. Verify the exact selected revision and destination server

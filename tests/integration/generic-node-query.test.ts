@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { Workspace } from "@arbor/arborsync";
-import { arbor, NodeLiveQueryBroker, NodeQueryEngine, query, RegisteredQueryRuntime, SQLiteQueryEngine, type ProfileResolver } from "arbor/data";
+import { Workspace } from "@overstory/arborsync";
+import { arbor, NodeLiveQueryBroker, NodeQueryEngine, query, RegisteredQueryRuntime, SQLiteQueryEngine, type ProfileResolver } from "overstory/data";
 
 let root: string;
 let state: string;

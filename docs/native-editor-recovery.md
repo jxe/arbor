@@ -82,8 +82,8 @@ edit offline, reconnect without Sync Now, verify server/peer convergence, then
 verify the page's local History survives reopening. Preserve real user text
 before intentionally testing process interruption.
 
-Automated verification for this change: all 47 ArborQuagmire tests and all 62
-ArborWorkingTree tests pass; the protocol gate passes; the macOS app/test target
+Automated verification for this change: all 47 CanopyEditor tests and all 62
+CanopyWorkingTree tests pass; the protocol gate passes; the macOS app/test target
 build and iOS Simulator app build pass. The repository-wide relative-link check
 finds no new broken references (24 pre-existing), and `git diff --check` passes.
 The running user app was not replaced or restarted. Live offline/reconnect

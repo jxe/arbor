@@ -1,6 +1,6 @@
 # Security 003: Harden Canopy responses and rate limiting
 
-> **Drift check**: inspect `packages/canopy/src/host.ts`,
+> **Drift check**: inspect `packages/canopyd/src/host.ts`,
 > `tests/integration/canopy`, and `deploy/` before editing. This plan was
 > reconciled after the authority-to-Canopy rename; stop if a shared response
 > policy or trusted-proxy abstraction has since landed.
@@ -16,7 +16,7 @@
 
 ## Current evidence
 
-`packages/canopy/src/host.ts` centralizes JSON and HTML helpers, but security
+`packages/canopyd/src/host.ts` centralizes JSON and HTML helpers, but security
 headers are not applied consistently to JSON, SSE, immutable objects, Markdown,
 ordinary stored files, and plain error responses. The ordinary-file branch can
 return stored bytes without a declared content type.
@@ -49,7 +49,7 @@ Out of scope:
 
 ### 1. Apply one safe header policy
 
-Introduce one helper in `packages/canopy/src/host.ts` and use it from JSON,
+Introduce one helper in `packages/canopyd/src/host.ts` and use it from JSON,
 HTML, SSE, object, Markdown, ordinary-file, and plain error responses.
 
 At minimum, every response carries:
@@ -91,7 +91,7 @@ under- or over-counting trusted hops in `deploy/README.md`.
 
 ### 4. Prove the public behavior
 
-Add focused tests under `tests/integration/canopy/` for:
+Add focused tests under `tests/integration/canopyd/` for:
 
 1. headers on JSON, HTML, Markdown, SSE, immutable object, ordinary file, 404,
    and authorization-error responses;

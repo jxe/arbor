@@ -1,5 +1,5 @@
-import { useQuery } from "arbor/react"
-import { arbor, query } from "arbor/data"
+import { useQuery } from "overstory/react"
+import { arbor, query } from "overstory/data"
 import { ListGrid } from "./shared"
 
 const arbor_profiles = arbor("../data/arbor_profiles").children

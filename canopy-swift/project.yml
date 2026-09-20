@@ -1,0 +1,159 @@
+name: Canopy
+options:
+  bundleIdPrefix: org.nxhx
+  deploymentTarget:
+    iOS: "27.0"
+    macOS: "27.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_STRICT_CONCURRENCY: complete
+
+packages:
+  CanopyAppKit:
+    path: Packages/CanopyAppKit
+  CanopyWorkingTree:
+    path: Packages/CanopyWorkingTree
+  OverstoryObjectStore:
+    path: Packages/OverstoryObjectStore
+  Overstory:
+    path: Packages/Overstory
+  OverstoryClient:
+    path: Packages/OverstoryClient
+  CanopyEditor:
+    path: Packages/CanopyEditor
+  Quagmire:
+    url: https://github.com/jxe/quagmire.git
+    exactVersion: 0.8.0
+  ArborSyncClient:
+    path: Packages/ArborSyncClient
+
+targets:
+  Canopy:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: CanopyApp
+        excludes:
+          - arborsync-service.c
+          - org.nxhx.Arbor.arborsync.plist
+    dependencies:
+      - package: CanopyAppKit
+      - package: CanopyWorkingTree
+      - package: OverstoryObjectStore
+      - package: Overstory
+      - package: OverstoryClient
+      - package: CanopyEditor
+      - package: ArborSyncClient
+      - package: Quagmire
+        product: QuagmireExtras
+    info:
+      path: CanopyApp/Info.plist
+      properties:
+        CFBundleDisplayName: Canopy
+        LSMultipleInstancesProhibited: true
+        LSApplicationCategoryType: public.app-category.productivity
+        NSCameraUsageDescription: Scan one-time Arbor device-pairing QR codes.
+        NSMicrophoneUsageDescription: Record voice notes to add to Arbor pages.
+        NSSpeechRecognitionUsageDescription: Transcribe voice notes into Arbor pages.
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nxhx.Arbor
+        PRODUCT_MODULE_NAME: CanopyApp
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: B7P78ULCXS
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": CanopyApp/Canopy.entitlements
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
+    preBuildScripts:
+      - name: Build arborsync helper
+        basedOnDependencyAnalysis: false
+        script: |
+          if [[ "$PLATFORM_NAME" != "macosx" ]]; then
+            exit 0
+          fi
+          BUN_PATH="${BUN_EXECUTABLE:-$(command -v bun)}"
+          if [[ -z "$BUN_PATH" || ! -x "$BUN_PATH" ]]; then
+            echo "error: Bun is required to build the bundled arborsync helper"
+            exit 1
+          fi
+          HELPER_PATH="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/arborsync"
+          SERVICE_PATH="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/arborsync-service"
+          HELPER_RESOURCES="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/arborsync"
+          AGENT_DIRECTORY="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents"
+          MODULES_PATH="$HELPER_RESOURCES/node_modules/@parcel"
+          mkdir -p "$(dirname "$HELPER_PATH")" "$MODULES_PATH" "$AGENT_DIRECTORY"
+          /usr/bin/ditto "$BUN_PATH" "$HELPER_PATH"
+          "$BUN_PATH" build --target=bun --external @parcel/watcher \
+            "$SRCROOT/../packages/arborsync/src/cli.ts" \
+            --outfile "$HELPER_RESOURCES/arborsync.js"
+          WATCHER_JS_SOURCE="$(cd "$SRCROOT/../packages/fs/node_modules/@parcel/watcher" && pwd -P)"
+          /usr/bin/ditto "$WATCHER_JS_SOURCE" "$MODULES_PATH/watcher"
+          "$BUN_PATH" build --target=bun --format=cjs \
+            "$WATCHER_JS_SOURCE/wrapper.js" \
+            --outfile "$MODULES_PATH/watcher/wrapper.js"
+          HELPER_ARCH="$CURRENT_ARCH"
+          if [[ -z "$HELPER_ARCH" || "$HELPER_ARCH" == "undefined_arch" ]]; then
+            HELPER_ARCH="$(uname -m)"
+          fi
+          case "$HELPER_ARCH" in
+            arm64) WATCHER_PACKAGE="watcher-darwin-arm64" ;;
+            x86_64) WATCHER_PACKAGE="watcher-darwin-x64" ;;
+            *) echo "error: Unsupported arborsync helper architecture: $HELPER_ARCH"; exit 1 ;;
+          esac
+          WATCHER_NATIVE_SOURCE="$(find "$SRCROOT/../node_modules/.bun" -type d -path "*/node_modules/@parcel/$WATCHER_PACKAGE" -print -quit)"
+          if [[ -z "$WATCHER_NATIVE_SOURCE" ]]; then
+            echo "error: Missing @parcel/$WATCHER_PACKAGE; run bun install"
+            exit 1
+          fi
+          /usr/bin/ditto "$WATCHER_NATIVE_SOURCE" "$MODULES_PATH/$WATCHER_PACKAGE"
+          /usr/bin/xcrun --sdk macosx clang -Os -arch "$HELPER_ARCH" \
+            -mmacosx-version-min="$MACOSX_DEPLOYMENT_TARGET" \
+            "$SRCROOT/CanopyApp/arborsync-service.c" -o "$SERVICE_PATH"
+          /usr/bin/ditto "$SRCROOT/CanopyApp/org.nxhx.Arbor.arborsync.plist" \
+            "$AGENT_DIRECTORY/org.nxhx.Arbor.arborsync.plist"
+          SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          /usr/bin/codesign --force --sign "$SIGN_IDENTITY" \
+            "$MODULES_PATH/$WATCHER_PACKAGE/watcher.node"
+          /usr/bin/codesign --force --sign "$SIGN_IDENTITY" \
+            --entitlements "$SRCROOT/CanopyApp/arborsync.entitlements" \
+            "$HELPER_PATH"
+          /usr/bin/codesign --force --sign "$SIGN_IDENTITY" "$SERVICE_PATH"
+
+  CanopyAppTests:
+    type: bundle.unit-test
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: CanopyAppTests
+    dependencies:
+      - target: Canopy
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nxhx.ArborTests
+        GENERATE_INFOPLIST_FILE: YES
+        "TEST_HOST[sdk=macosx*]": "$(BUILT_PRODUCTS_DIR)/Canopy.app/Contents/MacOS/Canopy"
+        "BUNDLE_LOADER[sdk=macosx*]": "$(TEST_HOST)"
+
+schemes:
+  Canopy:
+    build:
+      targets:
+        Canopy: all
+        CanopyAppTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      environmentVariables:
+        ARBOR_TEST_BUNDLED_HELPER: "1"
+        ARBOR_DATA_HOME: "/tmp/ArborNativeAppTests"
+      targets:
+        - CanopyAppTests

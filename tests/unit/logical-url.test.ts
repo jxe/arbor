@@ -15,7 +15,7 @@ import {
   pageIDStableKey,
   type ResolvedLink,
   type ResolvedNodeTarget,
-} from "@arbor/core";
+} from "@overstory/protocol";
 
 interface UrlCase {
   base: string;

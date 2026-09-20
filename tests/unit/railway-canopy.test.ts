@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { serveMaintenance } from "../../packages/canopy/src/cli.ts";
+import { serveMaintenance } from "../../packages/canopyd/src/cli.ts";
 import { dnsLines, parseCanopyDeploymentConfig } from "../../deploy/railway-canopy.ts";
 
 const valid = [

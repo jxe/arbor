@@ -1,8 +1,7 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
-import { isPageID, nodePathFromPhysical } from "@arbor/core";
-import { toTreePath } from "@arbor/core/path";
-import { parseMarkdown } from "@arbor/editor";
+import { isPageID, nodePathFromPhysical, parseMarkdown } from "@overstory/protocol";
+import { toTreePath } from "@overstory/protocol/path";
 
 /**
  * Directory names that are never part of an Arbor tree's authored content:

@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { revisionOf } from "@arbor/core";
-import { FsConflictError, FsInjectedCrashError, WorkspaceFS } from "@arbor/fs";
+import { revisionOf } from "@overstory/protocol";
+import { FsConflictError, FsInjectedCrashError, WorkspaceFS } from "@overstory/fs";
 
 const opened: WorkspaceFS[] = [];
 const directories: string[] = [];

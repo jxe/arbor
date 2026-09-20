@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { mergeWireTrees, type MergeResult } from "@arbor/canopy";
-import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
+import { mergeWireTrees, type MergeResult } from "@overstory/canopyd";
+import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import {
   applyTransitionPayload,
   compareWireNames,
@@ -15,7 +15,7 @@ import {
   verifyTreeSnapshotGraph,
   type ObjectHash,
   type TreeSnapshot,
-} from "@arbor/wire";
+} from "@overstory/protocol";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 

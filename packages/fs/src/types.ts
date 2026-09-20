@@ -1,4 +1,4 @@
-import type { Diagnostic, MarkdownDocument, Materialization, NodeWriteRequest } from "@arbor/core";
+import type { Diagnostic, MarkdownDocument, Materialization, NodeWriteRequest } from "@overstory/protocol";
 
 export type FsBodySource = "sibling" | "index" | null;
 export type FsNodeKind = "missing" | "file" | "markdown" | "directory";

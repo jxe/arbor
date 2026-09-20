@@ -2,8 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ObjectStore } from "@arbor/object-store";
-import { hashObject } from "@arbor/wire";
+import { ObjectStore } from "@overstory/object-store";
+import { hashObject } from "@overstory/protocol";
 
 let directory: string;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "object-durability-")); });

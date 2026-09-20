@@ -20,9 +20,9 @@ flight per tree.
 The shared fixture
 [`conformance/client-state-machines.json`](../conformance/client-state-machines.json)
 freezes the transition scenarios under `working-tree-updates`. The reference
-reducers are `UpdateMachine` in `ArborWorkingTree` (Swift, run by
-`UpdateCoordinator`) and `reduceUpdate` in `@arbor/canopy-client` (TypeScript,
-run by the daemon's `TreeSynchronizer`; it moves to `@arbor/working-tree` in
+reducers are `UpdateMachine` in `CanopyWorkingTree` (Swift, run by
+`UpdateCoordinator`) and `reduceUpdate` in `@overstory/client` (TypeScript,
+run by the daemon's `TreeSynchronizer`; it moves to `@overstory/working-tree` in
 Plan B).
 
 Every state below is durable: a client restarted in any of them resumes

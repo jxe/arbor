@@ -7,7 +7,7 @@ import {
   replaceFrontmatter,
   serializeMarkdown,
   sourceSettingDocumentIcon,
-} from "@arbor/editor";
+} from "@overstory/protocol";
 
 describe("Markdown source preservation", () => {
   test("display titles use the authored H1 and preserve its emoji", () => {

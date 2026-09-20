@@ -25,17 +25,17 @@ Use the smallest focused tests while developing, then run the relevant gates fro
 
 ## Quagmire development
 
-- Keep the committed Quagmire dependencies in `native/project.yml` and
-  `native/Packages/ArborQuagmire/Package.swift` pinned to the same exact GitHub
+- Keep the committed Quagmire dependencies in `canopy-swift/project.yml` and
+  `canopy-swift/Packages/CanopyEditor/Package.swift` pinned to the same exact GitHub
   release. Never commit a local path in either source of truth.
-- Local Arbor app development uses the ignored
-  `native/Arbor.local.xcworkspace`, which contains `Arbor.xcodeproj` and the
+- Local Canopy app development uses the ignored
+  `canopy-swift/Canopy.local.xcworkspace`, which contains `Canopy.xcodeproj` and the
   sibling `../../quagmire` checkout. Open and build that workspace so Xcode's
   local package overrides the released dependency without changing published
   project metadata.
-- Standalone `ArborQuagmire` package tests have separate SwiftPM state. Put that
+- Standalone `CanopyEditor` package tests have separate SwiftPM state. Put that
   package in editable mode with
-  `swift package --package-path native/Packages/ArborQuagmire edit quagmire --path /Users/joe/src/quagmire`,
+  `swift package --package-path canopy-swift/Packages/CanopyEditor edit quagmire --path ../quagmire`,
   then run its tests through `tools/test-arbor-quagmire-local.sh`. Raw SwiftPM
   test commands rewrite the tracked lockfile while the dependency is editable;
   the wrapper preserves the published resolution around the local test.
@@ -45,5 +45,5 @@ Use the smallest focused tests while developing, then run the relevant gates fro
   with the edited Quagmire dependency omitted.
 - Test coordinated changes locally before releasing Quagmire. Once the tested
   revision is tagged, update both exact Arbor pins, regenerate
-  `native/Arbor.xcodeproj` from `native/project.yml`, and commit that dependency
+  `canopy-swift/Canopy.xcodeproj` from `canopy-swift/project.yml`, and commit that dependency
   bump separately. A second remote-package build is not part of this workflow.

@@ -1,15 +1,13 @@
 {
-  "name": "@arbor/fs",
+  "name": "@overstory/fs",
   "version": "0.1.0",
+  "description": "Materializing Overstory trees on a filesystem: write journal, discovery, atomic file operations, and watching. Used by Arbor Sync and by the client library.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./file-ops": "./src/file-ops.ts"
+    ".": "./src/index.ts"
   },
   "dependencies": {
-    "@arbor/core": "workspace:*",
-    "@arbor/editor": "workspace:*",
-    "@parcel/watcher": "2.5.1",
-    "@arbor/wire": "workspace:*"
+    "@overstory/protocol": "workspace:*",
+    "@parcel/watcher": "2.5.1"
   }
 }

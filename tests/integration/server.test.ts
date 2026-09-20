@@ -1,12 +1,12 @@
-import { encodeWireDirectory } from "@arbor/wire";
+import { encodeWireDirectory } from "@overstory/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { serveArborSyncControl, serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient } from "@arbor/arborsync-client";
-import type { Workspace } from "@arbor/arborsync";
+import { serveArborSyncControl, serveArborSync } from "@overstory/arborsync";
+import { ArborSyncRESTClient } from "@overstory/arborsync-client";
+import type { Workspace } from "@overstory/arborsync";
 
 let root: string;
 let state: string;
@@ -160,8 +160,8 @@ describe("arborsync object route", () => {
   const validHash = (hex: string) => `sha256:${hex.repeat(64 / hex.length)}`;
 
   async function indexedSnapshot() {
-    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
-    const { hashObject, decodeWireDirectory } = await import("@arbor/wire");
+    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
+    const { hashObject, decodeWireDirectory } = await import("@overstory/protocol");
     const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, activeWorkspace.objectIndex()));
     return { snapshot, hashObject, decodeWireDirectory };
   }
@@ -199,8 +199,8 @@ describe("arborsync object route", () => {
   });
 
   test("serves objects held only by the stored pending update body", async () => {
-    const { hashObject } = await import("@arbor/wire");
-    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
+    const { hashObject } = await import("@overstory/protocol");
+    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@overstory/client");
     const bytes = new TextEncoder().encode("pending-only-object");
     const hash = hashObject(bytes);
     await savePendingTreeUpdate(scope, pendingFromSnapshot(null, { root: hash, objects: new Map([[hash, bytes]]) }));
@@ -214,9 +214,9 @@ describe("arborsync object route", () => {
   });
 
   test("fetches through to Canopy for an unplaced tree named by origin", async () => {
-    const { serveCanopy } = await import("@arbor/canopy");
-    const { WireClient, hashObject } = await import("@arbor/wire");
-    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
+    const { serveCanopy } = await import("@overstory/canopyd");
+    const { WireClient, hashObject } = await import("@overstory/protocol");
+    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
     const canopyRoot = await mkdtemp(join(tmpdir(), "arbor-object-canopy-"));
     const token = "object-route-owner";
     const canopy = await serveCanopy({
@@ -279,18 +279,18 @@ describe("arborsync bootstrap and credential routes", () => {
   let previousHome: string | undefined;
   let treeDir: string;
   let tree: string;
-  let canopy: Awaited<ReturnType<typeof import("@arbor/canopy")["serveCanopy"]>>;
+  let canopy: Awaited<ReturnType<typeof import("@overstory/canopyd")["serveCanopy"]>>;
   let daemon: Awaited<ReturnType<typeof serveArborSync>>;
   let placedClient: ArborSyncRESTClient;
   let placedBase: string;
 
   beforeAll(async () => {
-    const { serveCanopy } = await import("@arbor/canopy");
-    const { WireClient } = await import("@arbor/wire");
-    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
-    const { generateArborID, canonicalArborLocator } = await import("@arbor/core");
-    const { CommunityConfigStore, saveCurrentDeviceID } = await import("@arbor/stores");
-    const { readAccountConfigGraph, snapshotAccountConfig } = await import("../../packages/canopy/src/account-policy.ts");
+    const { serveCanopy } = await import("@overstory/canopyd");
+    const { WireClient } = await import("@overstory/protocol");
+    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
+    const { generateArborID, canonicalArborLocator } = await import("@overstory/protocol");
+    const { CommunityConfigStore, saveCurrentDeviceID } = await import("@overstory/protocol");
+    const { readAccountConfigGraph, snapshotAccountConfig } = await import("../../packages/canopyd/src/account-policy.ts");
 
     sandbox = await mkdtemp(join(tmpdir(), "arbor-bootstrap-route-"));
     home = join(sandbox, "home");
@@ -369,12 +369,12 @@ describe("arborsync bootstrap and credential routes", () => {
   });
 
   async function folderSnapshot() {
-    const { resolveSnapshot, snapshotDirectory } = await import("@arbor/fs");
+    const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
     return resolveSnapshot(await snapshotDirectory(treeDir));
   }
 
   test("bootstraps a clean placed tree with a sparse spine and local page dates", async () => {
-    const { decodeSparseSnapshotBundle, decodeWireDirectory, hashObject } = await import("@arbor/wire");
+    const { decodeSparseSnapshotBundle, decodeWireDirectory, hashObject } = await import("@overstory/protocol");
     await utimes(join(treeDir, "note.md"), new Date("2026-09-15T10:00:00Z"), new Date("2026-09-15T10:00:00Z"));
     await utimes(join(treeDir, "sub", "child.md"), new Date("2026-09-14T10:00:00Z"), new Date("2026-09-14T10:00:00Z"));
     const bootstrap = await placedClient.bootstrap(tree);
@@ -458,8 +458,8 @@ describe("arborsync bootstrap and credential routes", () => {
   });
 
   test("bootstraps the accepted Canopy root while the folder has a pending edit", async () => {
-    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
-    const { decodeSparseSnapshotBundle, decodeWireDirectory } = await import("@arbor/wire");
+    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@overstory/client");
+    const { decodeSparseSnapshotBundle, decodeWireDirectory } = await import("@overstory/protocol");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
     const localModifiedAt = (await stat(join(treeDir, "note.md"))).mtimeMs;
@@ -481,8 +481,8 @@ describe("arborsync bootstrap and credential routes", () => {
   });
 
   test("daemon conflict state does not block an accepted-root bootstrap", async () => {
-    const { saveTreeConflict, clearTreeConflict } = await import("@arbor/canopy-client");
-    const { decodeSparseSnapshotBundle } = await import("@arbor/wire");
+    const { saveTreeConflict, clearTreeConflict } = await import("@overstory/client");
+    const { decodeSparseSnapshotBundle } = await import("@overstory/protocol");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await saveTreeConflict(tree, {
       error: "conflict",
@@ -512,8 +512,8 @@ describe("arborsync bootstrap and credential routes", () => {
   });
 
   test("stale daemon pending state does not block an accepted-root bootstrap", async () => {
-    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@arbor/canopy-client");
-    const { hashObject } = await import("@arbor/wire");
+    const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@overstory/client");
+    const { hashObject } = await import("@overstory/protocol");
     const snapshot = await folderSnapshot();
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     // Stale base: the chain no longer starts at the accepted update.

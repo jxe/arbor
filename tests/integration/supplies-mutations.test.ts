@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { revisionOf, semanticRequestDigest, type MutationHandleRef, type MutationResultReceipt, type QueryStreamEvent } from "@arbor/core";
+import { revisionOf, semanticRequestDigest, type MutationHandleRef, type MutationResultReceipt, type QueryStreamEvent } from "@overstory/protocol";
 import { z } from "zod";
 import {
   arbor,
@@ -17,9 +17,9 @@ import {
   SQLiteStoreBroker,
   type MutationHandle,
   type ProfileResolver,
-} from "arbor/data";
+} from "overstory/data";
 
-mock.module("arbor/react", () => ({
+mock.module("overstory/react", () => ({
   Markdown: () => null,
   skipQuery: Symbol("skip-query"),
   useMutationAction: () => [{}, () => undefined, false],

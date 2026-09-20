@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SourceAdmissionPublisher, SourceAdmissionQueue, prepareSourceAdmission } from "@arbor/canopy-client";
+import { SourceAdmissionPublisher, SourceAdmissionQueue, prepareSourceAdmission } from "@overstory/client";
 import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, updateRequestDigests,
-  type CurrentTree, type TreeSnapshot, type UpdateRequest, type UpdateResponse } from "@arbor/wire";
+  type CurrentTree, type TreeSnapshot, type UpdateRequest, type UpdateResponse } from "@overstory/protocol";
 
 function graph(source: string): TreeSnapshot {
   const bytes = Buffer.from(source), file = hashObject(bytes);
@@ -91,7 +91,7 @@ test("bad receipts, old rejections and corrupt settlement never discard retained
 }));
 
 test("captured source admits offline after a watch-equivalent advance without relabeling its basis", async () => scenario(async root => {
-  const { SourceDocumentSession } = await import("@arbor/canopy-client");
+  const { SourceDocumentSession } = await import("@overstory/client");
   const queue = new SourceAdmissionQueue("tree", root), wire = transport();
   let offline = false;
   const initial = graph("base");

@@ -1,4 +1,4 @@
-import { encodeSSEFrame, type EventCursor, type WorkspaceChange, type WorkspaceEvent } from "@arbor/core";
+import { encodeSSEFrame, type EventCursor, type WorkspaceChange, type WorkspaceEvent } from "@overstory/protocol";
 
 export class ResyncRequiredError extends Error {
   constructor(public cursor: string) {

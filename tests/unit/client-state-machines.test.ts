@@ -1,13 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  initialAdmissionState,
-  reduceAdmission,
-  type AdmissionEvent,
-  type AdmissionState,
-} from "@arbor/core";
-import { reduceUpdate, type UpdateEvent, type UpdateState } from "@arbor/canopy-client";
+
+import { initialAdmissionState, reduceAdmission, type AdmissionEvent, type AdmissionState, reduceUpdate, type UpdateEvent, type UpdateState } from "@overstory/client";
 
 interface Step {
   event: Record<string, unknown>;

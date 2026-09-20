@@ -11,17 +11,11 @@ import type {
   SnapshotEnvelope,
   SyncConflictResolution,
   SyncConflictWorkspace,
-} from "@arbor/core";
-import { SYSTEM_TREE, canonicalNodePath } from "@arbor/core";
-import { materializeTree, resolveSnapshot, snapshotDirectory } from "@arbor/fs";
-import {
-  loadLocalPlacements,
-  replaceLocalPlacement,
-  type LocalPlacement,
-  type SharedTreePlacement,
-} from "@arbor/stores";
-import { WireClient, hashObject, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@arbor/wire";
-import { resolveUserPath } from "@arbor/canopy-client";
+} from "@overstory/protocol";
+import { SYSTEM_TREE, canonicalNodePath, WireClient, hashObject, compareWireNames, decodeWireDirectory, encodeSparseSnapshotBundle, verifyTreeSnapshotGraph, type ObjectHash, type RemoteTreeDescriptor } from "@overstory/protocol";
+import { materializeTree, resolveSnapshot, snapshotDirectory } from "@overstory/fs";
+import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement, type SharedTreePlacement } from "./state/index.ts";
+import { resolveUserPath } from "@overstory/client";
 import { EventBus } from "./events.ts";
 import { TreeObjectCache } from "./object-cache.ts";
 import {
@@ -33,12 +27,12 @@ import {
   saveTreeConflictMaterial,
   treeConflict,
   treeConflictMaterial,
-} from "@arbor/canopy-client";
+} from "@overstory/client";
 import { TreeManager } from "./tree-manager.ts";
-import { TreeSynchronizer } from "@arbor/canopy-client";
+import { TreeSynchronizer } from "@overstory/client";
 import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
-export { resolveUserPath } from "@arbor/canopy-client";
+export { resolveUserPath } from "@overstory/client";
 
 /** What a loopback client needs to open a placed tree as its own working tree. */
 export type BootstrapTreeDescriptor = Pick<
@@ -449,7 +443,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return result;
   }
 
-  /** The claimed accounts of this data home; the projection lives in `@arbor/stores` so the CLI can read it directly. */
+  /** The claimed accounts of this data home; the projection lives in `@overstory/arborsync/state` so the CLI can read it directly. */
   private async conflictReviewMaterial(tree: string) {
     const conflict = await treeConflict(tree);
     if (!conflict) throw new ProtocolError("not-found", `Tree has no stored synchronization conflict: ${tree}`, 404);

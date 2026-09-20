@@ -11,8 +11,8 @@ import type {
   SyncConflictWorkspace,
   TreeRef,
   WorkspaceEvent,
-} from "@arbor/core";
-import { parseSSEStream, type ParsedSSEFrame } from "@arbor/core/sse";
+} from "@overstory/protocol";
+import { parseSSEStream, type ParsedSSEFrame } from "@overstory/protocol/sse";
 
 export type {
   ArborErrorCode,
@@ -25,7 +25,7 @@ export type {
   SyncConflictWorkspace,
   TreeRef,
   WorkspaceEvent,
-} from "@arbor/core";
+} from "@overstory/protocol";
 
 /**
  * The TypeScript client of the daemon's control surface: status, trees,
@@ -72,7 +72,7 @@ export interface ArborSyncRESTClientOptions {
 
 // Account, identity, and pairing values are the shared vocabulary in @arbor/core:
 // Arbor Sync reports exactly what Canopy's Wire and the data-home stores use.
-export type { LocalAccountSummary, PairingOffer, ProfileIdentity } from "@arbor/core";
+export type { LocalAccountSummary, PairingOffer, ProfileIdentity } from "@overstory/protocol";
 
 /** `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own working tree. */
 export type BootstrapTreeDescriptor = Pick<

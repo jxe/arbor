@@ -2,7 +2,7 @@ import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { chmod, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { stableJSONString } from "@arbor/core";
+import { stableJSONString } from "@overstory/protocol";
 
 export const CLOUD_BUNDLE_PREFIX = "arbor-cloud-v1";
 export const MAX_CLOUD_BUNDLE_LENGTH = 32 * 1024;

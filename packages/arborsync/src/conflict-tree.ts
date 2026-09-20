@@ -1,5 +1,5 @@
-import type { SyncConflictContent } from "@arbor/core";
-import { compareWireNames, decodeWireDirectory, encodeWireDirectory, hashObject, verifyTreeSnapshotGraph, type ObjectHash, type WireEntryKind, type TreeSnapshot } from "@arbor/wire";
+import type { SyncConflictContent } from "@overstory/protocol";
+import { compareWireNames, decodeWireDirectory, encodeWireDirectory, hashObject, verifyTreeSnapshotGraph, type ObjectHash, type WireEntryKind, type TreeSnapshot } from "@overstory/protocol";
 
 type ConflictTarget = { kind: "object"; hash: ObjectHash; objectKind: WireEntryKind } | { kind: "boundary"; tree: string } | { kind: "missing" };
 

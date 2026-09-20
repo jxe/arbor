@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactNode } from "react"
-import { Markdown, useUser, type MutationActionError } from "arbor/react"
-import type { ResultOf } from "arbor/data"
+import { Markdown, useUser, type MutationActionError } from "overstory/react"
+import type { ResultOf } from "overstory/data"
 import type { myLists } from "../scripts/queries"
 import type { practiceSearch } from "./PracticeSearch"
 

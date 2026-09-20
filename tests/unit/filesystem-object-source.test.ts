@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtemp, realpath, mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshotDirectory } from "@arbor/fs";
-import { hashObject } from "@arbor/wire";
+import { snapshotDirectory } from "@overstory/fs";
+import { hashObject } from "@overstory/protocol";
 import { FilesystemObjectSource } from "../../packages/arborsync/src/filesystem-object-source.ts";
 
 const scope = { boundaries: new Map<string, string>(), exclusions: [] };

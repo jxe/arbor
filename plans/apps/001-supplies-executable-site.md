@@ -107,7 +107,7 @@ Gate: Apps 003's completion gate passes for `examples/supplies`.
 ## Remaining milestone 2 — local and Canopy execution
 
 1. Add an executable-document surface to shared REST, TypeScript, Swift, and
-   ArborKit models: source kind, coherent version, runnable/diagnostic state,
+   CanopyAppKit models: source kind, coherent version, runnable/diagnostic state,
    and execution URL. Source access remains separate.
 2. Have arborsync render an addressed executable node through ordinary Arbor
    tree/path/access resolution, SSR React with authorized initial results, and

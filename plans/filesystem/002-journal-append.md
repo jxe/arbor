@@ -112,7 +112,7 @@ Repo conventions:
 - Journal tests live in `tests/unit/journal.test.ts` (`bun:test`, `mkdtemp`
   into `tmpdir()`, an `afterEach` that removes created directories). That is
   your structural exemplar.
-- `WriteJournal` is imported in tests from `@arbor/arborsync` (see
+- `WriteJournal` is imported in tests from `@overstory/arborsync` (see
   `tests/unit/journal.test.ts:6`), not by relative path.
 
 ## Commands you will need

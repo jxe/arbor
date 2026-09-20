@@ -1,0 +1,24 @@
+{
+  "name": "@overstory/protocol",
+  "version": "0.1.0",
+  "description": "The Overstory protocol in code: identifiers, node model, canonical CBOR, hashing, logical paths and URLs, objects, snapshots, update contracts, resource policy, errors, HTTP/SSE transport, the Markdown and directory document format, and account, device, placement and resource configuration formats.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./hash": "./src/model/hash.ts",
+    "./logical-path": "./src/model/logical-path.ts",
+    "./logical-url": "./src/model/logical-url.ts",
+    "./node-key": "./src/model/node-key.ts",
+    "./node-model": "./src/model/node-model.ts",
+    "./sse": "./src/model/sse.ts",
+    "./utf8": "./src/model/utf8.ts",
+    "./path": "./src/model/path.ts",
+    "./file-ops": "./src/model/file-ops.ts",
+    "./account-config": "./src/config/account-config.ts",
+    "./account-config-v2": "./src/config/account-config-v2.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.2.0",
+    "yaml": "2.8.2"
+  }
+}

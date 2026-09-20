@@ -49,7 +49,7 @@ the newest Railway backup, `.backups/railway/20260919T155020Z/migrated`:
 
 ## Coupling found on 2026-09-20
 
-`Canopy.ensureAccountConfigTrees` (`packages/canopy/src/canopy.ts`) creates an
+`Canopy.ensureAccountConfigTrees` (`packages/canopyd/src/canopy.ts`) creates an
 `account-config-v1` configuration tree at startup for any account that lacks
 one. `serveCanopy({ accounts: [...] })` relies on it, and eleven test files
 plus `tools/hcloud-sync-lab.ts` seed their Canopy that way and then read the
@@ -69,11 +69,11 @@ Execute instead as one change with this order, verifying at each step:
    script. Local installation uses `accounts/<cfg>/` + `placements.yaml` +
    `CanopyAccountStore`, as `cli-sync.test.ts` already does via
    `LocalAccountService.claimCanopyAccount`.
-3. Then delete: `packages/canopy/src/account-policy.ts`,
-   `packages/merge/src/account.ts`, the `AnyAccountConfigGraph`/`v2Graph`
+3. Then delete: `packages/canopyd/src/account-policy.ts`,
+   `packages/canopyd-merge/src/account.ts`, the `AnyAccountConfigGraph`/`v2Graph`
    branches in `canopy.ts`, `account-config-v1` in `model.ts`,
    `merge/src/{index,contract,summary}.ts`, `docs/merge-tool.md` wording.
-4. Then the local adapter: `packages/stores/src/account-config.ts` (keep
+4. Then the local adapter: `packages/protocol/src/config/account-config.ts` (keep
    nothing; `/v1/status` drops `deviceID`, which only fixtures set),
    `loadLegacySingletonTreeRegistry` and the `plural` flag in `trees.ts` and
    `tree-manager.ts`, `CommunityConfigStore` and `communityCredentialName` in
@@ -94,21 +94,21 @@ account locator.
 
 Runtime code still accepts and creates the former model alongside v2:
 
-- `packages/stores/src/account-config.ts` parses and watches root-level
+- `packages/protocol/src/config/account-config.ts` parses and watches root-level
   `account.yaml`, `trees.yaml`, and `devices/`;
-- `packages/stores/src/trees.ts` retains the complete singleton tree-registry
+- `packages/arborsync/src/state/trees.ts` retains the complete singleton tree-registry
   adapter and its private community record;
-- `packages/stores/src/server-config.ts` retains `CommunityConfigStore` and an
+- `packages/protocol/src/config/server-config.ts` retains `CommunityConfigStore` and an
   opportunistic legacy credential-reference migration;
-- `packages/canopy-client/src/account-bootstrap.ts` still depends on the singleton
+- `packages/client/src/account-bootstrap.ts` still depends on the singleton
   community record for compatibility paths, although public claiming now uses
   the plural-account bootstrap and the old Swift claim convenience is gone;
-- `packages/canopy/src/account-policy.ts` and branches in `canopy.ts` continue
+- `packages/canopyd/src/account-policy.ts` and branches in `canopy.ts` continue
   to validate, authorize, merge, create, and serve `account-config-v1` trees;
 - tests, E2E setup, protocol fixtures, and the hcloud lab still construct v1
   account graphs even though production state has migrated.
 
-Separately, `packages/stores/src/private-state.ts` still moves seven old
+Separately, `packages/protocol/src/config/private-state.ts` still moves seven old
 root-level private entries beneath `.state` on every startup and accepts the
 old string-valued or missing-`rootID` workspace registry shapes. These are
 one-time alpha readers, not durable product formats.
@@ -188,7 +188,7 @@ Commit this phase independently after focused store and workspace tests pass.
 ### 2. Remove the local singleton account adapter
 
 - Delete the v1 account/device/tree parser and watcher in
-  `packages/stores/src/account-config.ts` and remove its barrel exports.
+  `packages/protocol/src/config/account-config.ts` and remove its barrel exports.
 - Delete `loadLegacySingletonTreeRegistry`, its fallback, the `plural: false`
   projection, and the optional singleton `configuration` result. Keep only the
   plural account and local-placement projection.
@@ -207,7 +207,7 @@ failed local-adapter change must remain easy to revert and diagnose.
 
 ### 3. Remove Canopy's v1 account policy
 
-- Delete `packages/canopy/src/account-policy.ts` and use the v2 graph directly
+- Delete `packages/canopyd/src/account-policy.ts` and use the v2 graph directly
   instead of `AnyAccountConfigGraph`, `v2Graph`, and paired v1/v2 branches.
 - Remove the v1 claim/create path, v1 pairing behavior, v1 activation rule,
   v1 authorization/merge branches, and `account-config-v1` from the model.
@@ -247,16 +247,16 @@ suites while each phase still exists:
 
 ```sh
 bun test tests/unit/private-state.test.ts tests/unit/trees.test.ts
-bun test tests/unit/canopy/account-policy-v2.test.ts
-bun test tests/integration/canopy/update-host.test.ts tests/integration/canopy/community-hosting.test.ts tests/integration/self-sync.test.ts
+bun test tests/unit/canopyd/account-policy-v2.test.ts
+bun test tests/integration/canopyd/update-host.test.ts tests/integration/canopyd/community-hosting.test.ts tests/integration/self-sync.test.ts
 bun run typecheck
 bun run test:protocol
 bun test
 bun run build
-swift test --package-path native/Packages/ArborSyncClient
-swift test --package-path native/Packages/ArborWire
-xcodebuild build -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
+swift test --package-path canopy-swift/Packages/ArborSyncClient
+swift test --package-path canopy-swift/Packages/Overstory
+xcodebuild build -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 

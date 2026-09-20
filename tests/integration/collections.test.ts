@@ -3,11 +3,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { canonicalStableKey, type JSONValue } from "@arbor/core";
-import {
-  ProjectionProviderHost,
-  detectProjection,
-} from "@arbor/stores";
+import { canonicalStableKey, type JSONValue } from "@overstory/protocol";
+import { ProjectionProviderHost, detectProjection } from "@overstory/arborsync/state";
 
 let root: string;
 const providerContext = { tree: "tr_test", observedThrough: "test:0", writable: true } as const;

@@ -4,7 +4,7 @@ This document describes how to work on the reference implementation. It is not a
 
 ## Requirements and setup
 
-The TypeScript workspace uses Bun 1.3.14 (pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Arbor web (`packages/render`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
+The TypeScript workspace uses Bun 1.3.14 (pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Arbor web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
 
 ```sh
 bun install
@@ -27,9 +27,9 @@ src/
 └── quagmire/
 ```
 
-Create a local Xcode workspace named `native/Arbor.local.xcworkspace`, add
-`native/Arbor.xcodeproj` and the sibling Quagmire package to it, and build the
-`Arbor` scheme from that workspace. The workspace is ignored by Git. Xcode
+Create a local Xcode workspace named `canopy-swift/Canopy.local.xcworkspace`, add
+`canopy-swift/Canopy.xcodeproj` and the sibling Quagmire package to it, and build the
+`Canopy` scheme from that workspace. The workspace is ignored by Git. Xcode
 treats the local package as an override for the remote dependency with the same
 identity, so Arbor uses the Quagmire working tree while its published project
 continues to point at the stable tag.
@@ -39,11 +39,11 @@ both macOS and physical-iPhone builds. It includes the local Quagmire checkout i
 its build fingerprint, so an editor change invalidates a previously cached Arbor
 build.
 
-The standalone `ArborQuagmire` package has its own SwiftPM dependency state. Put
+The standalone `CanopyEditor` package has its own SwiftPM dependency state. Put
 it in editable mode once if you run its tests directly:
 
 ```sh
-cd native/Packages/ArborQuagmire
+cd canopy-swift/Packages/CanopyEditor
 swift package edit quagmire --path ../../../../quagmire
 ```
 
@@ -58,19 +58,19 @@ The wrapper retains local editable resolution for the build, then restores the
 tracked published lock exactly so local testing does not dirty the repository.
 
 After a tested Quagmire revision is released, first leave the standalone
-package's editable mode, update the exact version in both `native/project.yml`
-and `native/Packages/ArborQuagmire/Package.swift`, regenerate the project and
+package's editable mode, update the exact version in both `canopy-swift/project.yml`
+and `canopy-swift/Packages/CanopyEditor/Package.swift`, regenerate the project and
 standalone lock, then restore the local override:
 
 ```sh
-swift package --package-path native/Packages/ArborQuagmire unedit quagmire
-xcodegen generate --spec native/project.yml --project native
-swift package --package-path native/Packages/ArborQuagmire resolve
-swift package --package-path native/Packages/ArborQuagmire edit quagmire \
-  --path /Users/joe/src/quagmire
+swift package --package-path canopy-swift/Packages/CanopyEditor unedit quagmire
+xcodegen generate --spec canopy-swift/project.yml --project canopy-swift
+swift package --package-path canopy-swift/Packages/CanopyEditor resolve
+swift package --package-path canopy-swift/Packages/CanopyEditor edit quagmire \
+  --path ../quagmire
 ```
 
-Commit `native/Packages/ArborQuagmire/Package.resolved` with the matching
+Commit `canopy-swift/Packages/CanopyEditor/Package.resolved` with the matching
 Quagmire pin and generated project. Editable mode remains local SwiftPM state;
 use the test wrapper above after restoring it so SwiftPM cannot leave the
 lockfile dirty.
@@ -79,7 +79,7 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
 ## Repository map
 
 - `packages/` — the TypeScript logical model, providers, stores, Wire implementation, Canopy, the Canopy client library, Arbor Sync, the Arbor Sync client, CLI, editor, renderer, and data runtime.
-- `native/` — the Swift clients, synchronization packages, and native Arbor application.
+- `canopy-swift/` — the Swift clients, synchronization packages, and native Arbor application.
 - `spec.md` and `spec/` — portable normative contracts and conformance vocabulary.
 - `conformance/` — language-neutral protocol fixtures.
 - `tests/` — Bun unit, integration, protocol, performance, and browser tests.
@@ -100,7 +100,7 @@ bun run test
 bun run test:protocol
 bun run build
 bun run test:performance
-swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path canopy-swift/Packages/ArborSyncClient
 git diff --check
 ```
 

@@ -6,7 +6,7 @@
 > report — do not improvise. When done, update this plan's entry in
 > `plans/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/render/src/App.tsx packages/core/src/protocol.ts`
+> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/arborsync/src/state/indexer.ts packages/canopy-web/src/App.tsx packages/protocol/src/model/protocol.ts`
 > Note the working tree was already dirty when this plan was written, so also
 > run `git status --short` on those paths. If the excerpts under "Current
 > state" do not match the live code, treat it as a STOP condition.
@@ -23,14 +23,14 @@
 ## Rescope (Native 022 Phase 7, 2026-09-09)
 
 The daemon's search route (`GET /v1/search`) and its FTS5 index
-(`packages/stores/src/indexer.ts`, tables `files`/`docs`/`links`) were deleted
-with the editor path; `packages/stores/src/object-index.ts` keeps only the
+(`packages/arborsync/src/state/indexer.ts`, tables `files`/`docs`/`links`) were deleted
+with the editor path; `packages/arborsync/src/state/object-index.ts` keeps only the
 object rows, and Arbor web is out of service until Native 022 Plan B. The
 "Current state" excerpts below describe the deleted code and are kept as the
 historical rationale. The requirement stands: search excerpts are inert data
 and highlights are rendered as elements, never as HTML strings. It applies now
 to the native search index (`ArborApp`'s search over its working tree) and,
-when Plan B rebuilds the web editor on `@arbor/working-tree`, to the client
+when Plan B rebuilds the web editor on `@overstory/working-tree`, to the client
 text index it introduces. Rewrite the steps against that code before executing.
 
 ## Why this matters
@@ -53,11 +53,11 @@ React elements rather than by an HTML string.
 
 Files involved:
 
-- `packages/stores/src/indexer.ts` — SQLite FTS5 index; `search()` produces the excerpt.
-- `packages/render/src/App.tsx` — Arbor web shell; renders the search results list.
-- `packages/core/src/protocol.ts` — shared protocol types; `SearchResult` shape crosses the REST boundary.
+- `packages/arborsync/src/state/indexer.ts` — SQLite FTS5 index; `search()` produces the excerpt.
+- `packages/canopy-web/src/App.tsx` — Arbor web shell; renders the search results list.
+- `packages/protocol/src/model/protocol.ts` — shared protocol types; `SearchResult` shape crosses the REST boundary.
 
-The excerpt is produced at `packages/stores/src/indexer.ts:136-143`:
+The excerpt is produced at `packages/arborsync/src/state/indexer.ts:136-143`:
 
 ```ts
   search(query: string, limit = 30, offset = 0): SearchResult[] {
@@ -70,7 +70,7 @@ The excerpt is produced at `packages/stores/src/indexer.ts:136-143`:
   }
 ```
 
-It is consumed at `packages/render/src/App.tsx:951`, inside the search results
+It is consumed at `packages/canopy-web/src/App.tsx:951`, inside the search results
 `.map(...)` — the relevant fragment is the final `<span>`:
 
 ```tsx
@@ -82,16 +82,16 @@ Repo conventions to match:
 - Dense, single-statement-per-line TypeScript; no semicolon-free style; long
   lines are normal in this repo. Match the surrounding density rather than
   reformatting.
-- Types shared across the REST boundary live in `packages/core/src/protocol.ts`.
+- Types shared across the REST boundary live in `packages/protocol/src/model/protocol.ts`.
   If you change the wire shape of a search result, change it there, not in a
   local interface.
 - Unit tests live in `tests/unit/*.test.ts` and use `bun:test`. Use
   `tests/unit/journal.test.ts` as the structural exemplar: `describe`/`test`,
   `mkdtemp` into `tmpdir()` for on-disk fixtures, and an `afterEach` that
   removes created directories.
-- `packages/stores/src/indexer.ts` already styles highlight markup with the
+- `packages/arborsync/src/state/indexer.ts` already styles highlight markup with the
   `<mark>` element; the CSS for search results lives in
-  `packages/render/src/styles.css` (search for `search` selectors). Preserve
+  `packages/canopy-web/src/styles.css` (search for `search` selectors). Preserve
   the visual result — highlighted match inside the excerpt.
 
 ## Commands you will need
@@ -110,9 +110,9 @@ long-lived server.
 
 **In scope** (the only files you should modify):
 
-- `packages/stores/src/indexer.ts`
-- `packages/render/src/App.tsx`
-- `packages/core/src/protocol.ts` (only if you change the `SearchResult` shape)
+- `packages/arborsync/src/state/indexer.ts`
+- `packages/canopy-web/src/App.tsx`
+- `packages/protocol/src/model/protocol.ts` (only if you change the `SearchResult` shape)
 - `tests/unit/indexer.test.ts` (create)
 
 **Out of scope** (do NOT touch, even though they look related):
@@ -122,7 +122,7 @@ long-lived server.
 - The FTS5 schema and the `rebuild`/`indexFile` methods — indexing behavior is
   the subject of a separate plan (Speed 001 (completed plan, deleted; see git history)). Changing the schema here will
   collide with it.
-- `packages/render/src/PageEditor.tsx` and `blocks.tsx` — unrelated rendering
+- `packages/canopy-web/src/PageEditor.tsx` and `blocks.tsx` — unrelated rendering
   surfaces.
 - Any other `dangerouslySetInnerHTML` site you may find; if one exists outside
   `App.tsx:951`, report it rather than fixing it here.
@@ -138,7 +138,7 @@ long-lived server.
 
 ### Step 1: Return structured excerpt ranges instead of an HTML string
 
-In `packages/stores/src/indexer.ts`, change the `snippet()` call to emit
+In `packages/arborsync/src/state/indexer.ts`, change the `snippet()` call to emit
 sentinel delimiters that cannot occur in HTML-significant positions, then
 convert them into structure before returning.
 
@@ -167,22 +167,22 @@ the string and produces alternating segments, marking the ones that sat between
 the output text so they never reach the client.
 
 Have `search()` return `excerpt` as the segment array. Update the
-`SearchResult` type — it is declared in `packages/core/src/protocol.ts`; find it
-with `grep -rn "SearchResult" packages/core/src/protocol.ts` and change the
+`SearchResult` type — it is declared in `packages/protocol/src/model/protocol.ts`; find it
+with `grep -rn "SearchResult" packages/protocol/src/model/protocol.ts` and change the
 `excerpt` field's type there, exporting `SearchExcerptSegment` alongside it.
-If `SearchResult` turns out to be declared in `packages/stores/src/indexer.ts`
-instead, declare `SearchExcerptSegment` in `packages/core/src/protocol.ts`
+If `SearchResult` turns out to be declared in `packages/arborsync/src/state/indexer.ts`
+instead, declare `SearchExcerptSegment` in `packages/protocol/src/model/protocol.ts`
 anyway, since the value crosses the REST boundary.
 
 **Verify**: `bun run typecheck` → exits non-zero, with errors *only* at the
-consumer in `packages/render/src/App.tsx` (and any other consumer of
+consumer in `packages/canopy-web/src/App.tsx` (and any other consumer of
 `result.excerpt`). That is expected at this step; step 2 fixes it. Record which
 files errored — if a file outside the In-scope list errors, that is a STOP
 condition.
 
 ### Step 2: Render the excerpt as React elements
 
-In `packages/render/src/App.tsx:951`, replace the
+In `packages/canopy-web/src/App.tsx:951`, replace the
 `<span dangerouslySetInnerHTML={{ __html: result.excerpt }} />` with a span
 whose children are produced from the segment array:
 
@@ -202,9 +202,9 @@ Create `tests/unit/indexer.test.ts`, modeled structurally on
 `tests/unit/journal.test.ts` (bun:test, `mkdtemp` fixture, `afterEach` cleanup).
 
 Build a `WorkspaceIndex` against a temporary root and database path — check the
-constructor signature at `packages/stores/src/indexer.ts:63`
+constructor signature at `packages/arborsync/src/state/indexer.ts:63`
 (`constructor(private root: string, databasePath: string)`) and the export name
-in `packages/stores/src/index.ts`. Write a Markdown file into the temp root
+in `packages/arborsync/src/state/index.ts`. Write a Markdown file into the temp root
 whose body contains angle-bracket markup alongside a searchable word, index it
 (via `rebuild()` or `updateAbsolute()` — whichever the existing API makes
 straightforward), then call `search()` for that word.
@@ -250,7 +250,7 @@ ALL must hold:
 - [ ] `bun test` exits 0 and includes the new `tests/unit/indexer.test.ts` cases
 - [ ] `bun run build:web` exits 0
 - [ ] `grep -rn "dangerouslySetInnerHTML" packages/` returns no matches
-- [ ] `grep -n "<mark>" packages/stores/src/indexer.ts` returns no matches
+- [ ] `grep -n "<mark>" packages/arborsync/src/state/indexer.ts` returns no matches
 - [ ] `git status --short` shows no modified files outside the In-scope list
 - [ ] `plans/README.md` entry for Security 001 updated
 
@@ -258,10 +258,10 @@ ALL must hold:
 
 Stop and report back (do not improvise) if:
 
-- The code at `packages/stores/src/indexer.ts:136-143` or
-  `packages/render/src/App.tsx:951` does not match the excerpts above.
-- `SearchResult` turns out to be consumed by the Swift client under `native/`
-  (check with `grep -rn "excerpt" native/`). Changing a cross-language protocol
+- The code at `packages/arborsync/src/state/indexer.ts:136-143` or
+  `packages/canopy-web/src/App.tsx:951` does not match the excerpts above.
+- `SearchResult` turns out to be consumed by the Swift client under `canopy-swift/`
+  (check with `grep -rn "excerpt" canopy-swift/`). Changing a cross-language protocol
   shape requires updating the Swift client and the fixtures under
   `conformance/`, which is outside this plan's scope — report and
   stop, since a smaller fix (escape to an HTML string server-side) may be
@@ -277,7 +277,7 @@ Stop and report back (do not improvise) if:
   returns structure, not markup.
 - A reviewer should check that no code path reintroduces string concatenation
   of excerpt text into HTML, and that the `<mark>` styling in
-  `packages/render/src/styles.css` still applies (the element is now created by
+  `packages/canopy-web/src/styles.css` still applies (the element is now created by
   React rather than parsed from a string, but the selector is unchanged).
 - Deliberately deferred: the broader question of whether synced community
   content should be indexed at all, and whether arborsync should send a

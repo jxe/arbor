@@ -76,8 +76,8 @@ of the existing contract, not a new protocol version. Schema 10 is not deployed.
 
 ## Paired executable models
 
-- [TypeScript semantic model](../packages/wire/src/updates/authored-contract.ts).
-- [Swift semantic model](../native/Packages/ArborWire/Sources/ArborWire/WireAuthoredContract.swift).
+- [TypeScript semantic model](../packages/protocol/src/updates/authored-contract.ts).
+- [Swift semantic model](../canopy-swift/Packages/Overstory/Sources/Overstory/WireAuthoredContract.swift).
 - [Shared grammar and identity vectors](../conformance/wire-authored-updates.json).
 
 These models decode the semantic portion of requests and compute exact CBOR/digests.
@@ -90,8 +90,8 @@ bytes and digests; the experimental authority remains on its separate branch.
 
 ## Complete request codec
 
-The [TypeScript request codec](../packages/wire/src/updates/authored-transport.ts) and
-[Swift request codec](../native/Packages/ArborWire/Sources/ArborWire/WireAuthoredTransport.swift)
+The [TypeScript request codec](../packages/protocol/src/updates/authored-transport.ts) and
+[Swift request codec](../canopy-swift/Packages/Overstory/Sources/Overstory/WireAuthoredTransport.swift)
 combine authored semantics with complete objects and sparse deltas. They validate
 required fields, complete-object hashes, unique result hashes, canonical base64,
 delta quotas and activation restrictions. Semantic validation is shared with the
@@ -166,7 +166,7 @@ extracting the contract onto main; they are historical evidence, not main test c
 
 The target grammar has 43 shared positive/negative vectors with matching TS/Swift
 CBOR bytes and digests. The Wire unit suite passes 145 tests, the standalone Swift
-ArborWire suite passes 30, and the complete product suite passes 703. The existing
+Overstory suite passes 30, and the complete product suite passes 703. The existing
 cross-language/live protocol gate passes; it verifies continued deployed-format
 compatibility, not target operation execution. Type checking, repository-wide
 relative-file-link checks and `git diff --check` pass without new broken file links.
@@ -193,14 +193,14 @@ or response model: the specification requires retained rule identity, evaluated 
 and resulting decisions, with additional fields defined by each rule. Unknown fields
 cannot grant authority.
 
-[TypeScript read models](../packages/wire/src/updates/accepted-contract.ts),
-[Swift read models](../native/Packages/ArborWire/Sources/ArborWire/WireAcceptedContract.swift)
+[TypeScript read models](../packages/protocol/src/updates/accepted-contract.ts),
+[Swift read models](../canopy-swift/Packages/Overstory/Sources/Overstory/WireAcceptedContract.swift)
 and [shared read/chain vectors](../conformance/wire-accepted-state.json) validate the
 target shapes through the active HTTP codecs as well as standalone models. These checks do not prove
 projection correspondence, server authorization, paging traversal or semantic execution.
 Installation of the consolidated codecs remains part of the coordinated cutover.
 
-Historically, the experimental accepted-state consolidation passed 742 product tests, 32 standalone ArborWire
+Historically, the experimental accepted-state consolidation passed 742 product tests, 32 standalone Overstory
 Swift tests, type checking and the cross-language/live compatibility gate. The 37
 shared read/chain vectors cover opaque predecessor identity, same-root transitions,
 simplified outcomes, off-page dependencies and open rule-specific details. Additional
@@ -239,7 +239,7 @@ rollback. These are disposable fixtures and services, not checks of installed ap
 
 Verification: 685 product tests pass, followed by 48 focused client/authority/read
 checks after adding independent-cursor replay assertions. Type checking, 32 standalone
-ArborWire Swift tests and the full protocol gate pass; the latter includes 58
+Overstory Swift tests and the full protocol gate pass; the latter includes 58
 WorkingTree Swift tests. Both offline migration tests pass. An earlier concurrent
 full-suite run hit collection-sandbox and CLI timeouts; the unchanged full suite
 passed when rerun without the competing Swift build. No timeout or assertion was
@@ -284,7 +284,7 @@ Retain historical accepted identities, request digests and provenance while addi
 predecessor identity access; do not reset history to simplify adoption.
 
 Checkpoint verification: 683 product tests, 59 focused read tests, 33 standalone
-ArborWire Swift tests, type checking and the full protocol gate pass. The protocol
+Overstory Swift tests, type checking and the full protocol gate pass. The protocol
 gate also passes 58 WorkingTree Swift tests against disposable services. Repository
 file/section link checks introduce no new broken references; `git diff --check` passes.
 
@@ -298,7 +298,7 @@ is changed by this extraction. Continued implementation starts from main and fol
 Plan 011; live activation remains coordinated separately.
 
 Extraction was verified against main base `94a7002`: 552 product tests, 84 focused
-target-contract tests and 30 standalone ArborWire Swift tests pass. The full
+target-contract tests and 30 standalone Overstory Swift tests pass. The full
 cross-language/live protocol gate and type checking pass. Repository-wide file and
 section links introduce no new broken references, and `git diff --check` passes.
 The different product count reflects leaving experiment-only tests and the superseded
@@ -312,18 +312,18 @@ semantic evidence retention remains required. The shared read fixtures now conta
 32 cases, including explicit-null snapshot contribution validation through inspection.
 
 Verification: 547 product tests, 79 focused authored/read-contract tests, 30 standalone
-ArborWire Swift tests and type checking pass. Repository-wide relative file and section
+Overstory Swift tests and type checking pass. Repository-wide relative file and section
 links introduce no new broken references, and `git diff --check` passes. Active codecs,
 server behavior and deployment remain unchanged.
 
 The complete-request checkpoint passes 617 product tests, 70 focused transport tests,
-33 standalone ArborWire Swift tests, type checking and the full cross-language/live
+33 standalone Overstory Swift tests, type checking and the full cross-language/live
 protocol gate. Relative file/section checks introduce no new broken references and
 `git diff --check` passes. Live installations are unchanged.
 
 ## Active request adoption verification
 
-The request-side adoption passes 658 product tests, 32 standalone ArborWire Swift
+The request-side adoption passes 658 product tests, 32 standalone Overstory Swift
 tests, type checking and the full cross-language/live protocol gate. An additional
 native recovery regression passes: an uncertain request with a valid old-format
 digest remains byte-for-byte intact and is never submitted by the upgraded coordinator.

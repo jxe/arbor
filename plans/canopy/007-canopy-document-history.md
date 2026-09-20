@@ -14,16 +14,16 @@ Historical identifier: **Smaller project 007**. The filename number is preserved
 >
 > ```sh
 > git diff --stat 670a240..HEAD -- \
->   packages/canopy packages/wire packages/arborsync packages/fs \
->   native/Packages/ArborWire native/Packages/ArborKit \
->   native/Packages/ArborReplica native/Packages/ArborSyncClient \
->   native/Packages/ArborQuagmire native/ArborApp native/ArborAppTests \
+>   packages/canopyd packages/protocol packages/arborsync packages/fs \
+>   canopy-swift/Packages/Overstory canopy-swift/Packages/CanopyAppKit \
+>   canopy-swift/Packages/ArborReplica canopy-swift/Packages/ArborSyncClient \
+>   canopy-swift/Packages/CanopyEditor canopy-swift/CanopyApp canopy-swift/CanopyAppTests \
 >   spec docs conformance tests migrations plans/canopy plans/postgres plans/cleanups plans/cli plans/native plans/web
 > git status --short -- \
->   packages/canopy packages/wire packages/arborsync packages/fs \
->   native/Packages/ArborWire native/Packages/ArborKit \
->   native/Packages/ArborReplica native/Packages/ArborSyncClient \
->   native/Packages/ArborQuagmire native/ArborApp native/ArborAppTests \
+>   packages/canopyd packages/protocol packages/arborsync packages/fs \
+>   canopy-swift/Packages/Overstory canopy-swift/Packages/CanopyAppKit \
+>   canopy-swift/Packages/ArborReplica canopy-swift/Packages/ArborSyncClient \
+>   canopy-swift/Packages/CanopyEditor canopy-swift/CanopyApp canopy-swift/CanopyAppTests \
 >   spec docs conformance tests migrations plans/canopy plans/postgres plans/cleanups plans/cli plans/native plans/web
 > ```
 >
@@ -81,8 +81,8 @@ roots and therefore must own document history and recovery.
   per-block lost/purged content and Trash recovery. This journal is required for
   crash and external-filesystem recovery and stays in place.
 - Canopy already stores the linear accepted chain in
-  `packages/canopy/src/updates/store.ts` and retains accepted roots. In
-  `packages/canopy/src/canopy.ts`, `acceptedUpdates(treeID)` is explicitly
+  `packages/canopyd/src/updates/store.ts` and retains accepted roots. In
+  `packages/canopyd/src/canopy.ts`, `acceptedUpdates(treeID)` is explicitly
   internal, and `snapshotForRoot` accepts a known retained root. No Wire route
   currently enumerates history.
 - `spec/05-access-control.md` defines historical snapshots as known-root and
@@ -239,13 +239,13 @@ Expected implementation scope:
 
 - `spec/01-tree-operations.md`, `spec/05-access-control.md`, Wire/reference API
   docs, and language-neutral conformance fixtures;
-- `packages/canopy/src/`, `packages/wire/src/`, focused tests, and the next
+- `packages/canopyd/src/`, `packages/protocol/src/`, focused tests, and the next
   disposable `migrations/NNN-document-history/`;
 - `packages/arborsync/src/` and `packages/fs/src/` only to preserve and relabel
   filesystem recovery and, if required, add the thin authenticated proxy;
-- `native/Packages/ArborWire`, `ArborKit`, `ArborSyncClient`, and `ArborQuagmire`
+- `canopy-swift/Packages/Overstory`, `CanopyAppKit`, `ArborSyncClient`, and `CanopyEditor`
   session/binding code and tests; and
-- `native/ArborApp`, `native/ArborAppTests`, `docs/arborsync-api.md`,
+- `canopy-swift/CanopyApp`, `canopy-swift/CanopyAppTests`, `docs/arborsync-api.md`,
   `docs/reference-implementation.md`, and the two coordinated plan files.
 
 Out of scope:
@@ -283,7 +283,7 @@ stop/restart Arbor Sync, or launch the app unless Joe separately authorizes it.
 ```sh
 bun run typecheck
 bun run test:protocol
-swift test --package-path native/Packages/ArborWire
+swift test --package-path canopy-swift/Packages/Overstory
 ```
 
 Expected: all commands exit zero and TS/Swift accept and reject the same cases.
@@ -302,7 +302,7 @@ Expected: all commands exit zero and TS/Swift accept and reject the same cases.
 **Verify:**
 
 ```sh
-bun test tests/unit/canopy/update-store.test.ts tests/integration/canopy/update-host.test.ts
+bun test tests/unit/canopyd/update-store.test.ts tests/integration/canopyd/update-host.test.ts
 bun run typecheck
 ```
 
@@ -324,11 +324,11 @@ shows unchanged accepted rows, observations, roots, and object hashes.
 **Verify:**
 
 ```sh
-swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path canopy-swift/Packages/ArborSyncClient
 tools/test-arbor-quagmire-local.sh
 bun test tests/integration/server.test.ts
 rg -n 'client\.recovery|restoreRecovery|No local recovery history' \
-  native/Packages/ArborSyncClient native/ArborApp
+  canopy-swift/Packages/ArborSyncClient canopy-swift/CanopyApp
 ```
 
 Expected: tests exit zero; the final `rg` has no production History mapping
@@ -343,12 +343,12 @@ affected by the session/API changes:
 bun run typecheck
 bun run test:protocol
 bun test
-swift test --package-path native/Packages/ArborWire
-swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path canopy-swift/Packages/Overstory
+swift test --package-path canopy-swift/Packages/ArborSyncClient
 tools/test-arbor-quagmire-local.sh
-xcodebuild -workspace native/Arbor.local.xcworkspace -scheme Arbor -sdk macosx \
+xcodebuild -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -sdk macosx \
   -derivedDataPath /tmp/arbor-canopy-history-macos CODE_SIGNING_ALLOWED=NO build
-xcodebuild -workspace native/Arbor.local.xcworkspace -scheme Arbor -sdk iphonesimulator \
+xcodebuild -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -sdk iphonesimulator \
   -derivedDataPath /tmp/arbor-canopy-history-ios CODE_SIGNING_ALLOWED=NO build
 git diff --check
 ```

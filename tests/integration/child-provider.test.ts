@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { Workspace } from "@arbor/arborsync";
-import { canonicalStableKey } from "@arbor/core";
+import { Workspace } from "@overstory/arborsync";
+import { canonicalStableKey } from "@overstory/protocol";
 
 let root: string;
 let state: string;

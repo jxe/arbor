@@ -2,8 +2,8 @@ import { expect } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Workspace } from "@arbor/arborsync";
-import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
+import { Workspace } from "@overstory/arborsync";
+import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 const root = await mkdtemp(join(tmpdir(), "arbor-performance-tree-"));
 const state = await mkdtemp(join(tmpdir(), "arbor-performance-state-"));

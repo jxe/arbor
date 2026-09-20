@@ -46,7 +46,7 @@ opened and remains in its existing schema 2 state; it will select source mode wh
 opened if its legacy work is settled.
 
 The installed-client gate is passed. Removing compatibility recovery and its UI
-is the remaining cleanup in [008](../plans/native/008-complete-native-move-copy-undo-capture.md).
+is the remaining cleanup in [008](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md).
 Do not restore an older snapshot-only app over an active source journal: it cannot
 publish that journal. Backups are recovery evidence, not permission to discard
 work accepted or authored after the cutover.

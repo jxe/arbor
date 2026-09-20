@@ -1,7 +1,7 @@
 import type { BigIntStats } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
-import type { CollectionFileDescriptor, Hash } from "@arbor/core";
+import type { CollectionFileDescriptor, Hash } from "@overstory/protocol";
 import {
   compareWireNames,
   decodeWireDirectory,
@@ -13,9 +13,9 @@ import {
   type WireDirectoryEntry,
   type WireDirectory,
   type WireObjectSource,
-} from "@arbor/wire";
+} from "@overstory/protocol";
 import { IGNORED_WORKSPACE_DIRECTORIES } from "./discovery.ts";
-import { writeAtomic } from "./file-ops.ts";
+import { writeAtomic } from "@overstory/protocol/file-ops";
 
 export interface SnapshotCollectionFileDescription {
   format: CollectionFileDescriptor["format"];

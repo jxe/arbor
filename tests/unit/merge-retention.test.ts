@@ -1,15 +1,15 @@
 import { test, expect } from "bun:test";
-import { StateMapValidationCache } from "../../packages/merge/src/state-map.ts";
-import { encodeWireDirectory, hashObject } from "@arbor/wire";
+import { StateMapValidationCache } from "../../packages/canopyd-merge/src/state-map.ts";
+import { encodeWireDirectory, hashObject } from "@overstory/protocol";
 import {
   RetentionCache,
   retentionAudit,
   verifyIntentRetention,
-} from "../../packages/merge/src/retention.ts";
+} from "../../packages/canopyd-merge/src/retention.ts";
 import {
   loadIntentState,
   storeIntentState,
-} from "../../packages/merge/src/state-storage.ts";
+} from "../../packages/canopyd-merge/src/state-storage.ts";
 
 function fixture() {
   const objects = new Map<string, Uint8Array>();
@@ -356,7 +356,7 @@ test("a trusted accepted input state stops the history walk; a requested root is
 });
 
 async function indexedHistory() {
-  const { Fixture } = await import("./merge/fixture.ts");
+  const { Fixture } = await import("./canopyd-merge/fixture.ts");
   const f = new Fixture();
   let text = "one two three\n";
   let current: string | { object: string; state: string } = f.tree({ "a.md": text });

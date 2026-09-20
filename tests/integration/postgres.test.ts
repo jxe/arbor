@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ProjectionProviderHost, type ConnectionStore } from "@arbor/stores";
+import { ProjectionProviderHost, type ConnectionStore } from "@overstory/arborsync/state";
 
 const dsn = process.env.ARBOR_TEST_POSTGRES_DSN;
 

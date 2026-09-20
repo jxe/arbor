@@ -24,10 +24,10 @@ source-fidelity and crash-safety scenarios, not its retired client conflict mach
 review remains separate from the Native working tree.
 
 Before implementation inspect git status, current source and tests, especially
-[UpdateCoordinator](../../native/Packages/ArborWorkingTree/Sources/ArborWorkingTree/UpdateCoordinator.swift),
-[accepted inspection types](../../packages/wire/src/updates/accepted-contract.ts),
-[authored operations and resolution declarations](../../packages/wire/src/updates/authored-contract.ts),
-and the [live source-admission tests](../../native/Packages/ArborWorkingTree/Tests/ArborWorkingTreeTests/LiveSourceAdmissionTests.swift).
+[UpdateCoordinator](../../canopy-swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/UpdateCoordinator.swift),
+[accepted inspection types](../../packages/protocol/src/updates/accepted-contract.ts),
+[authored operations and resolution declarations](../../packages/protocol/src/updates/authored-contract.ts),
+and the [live source-admission tests](../../canopy-swift/Packages/CanopyWorkingTree/Tests/CanopyWorkingTreeTests/LiveSourceAdmissionTests.swift).
 Use the [deployed acceptance checkpoint](../../docs/accepted-entry-conflicts.md)
 and [queue checkpoint](../../docs/source-admission-queue.md) for implementation
 history, not as a substitute for checking current code.

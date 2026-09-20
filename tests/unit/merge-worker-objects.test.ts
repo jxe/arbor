@@ -2,9 +2,9 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ObjectStore } from "@arbor/object-store";
-import { hashObject } from "@arbor/wire";
-import { workerObjects } from "../../packages/merge/src/worker-objects.ts";
+import { ObjectStore } from "@overstory/object-store";
+import { hashObject } from "@overstory/protocol";
+import { workerObjects } from "../../packages/canopyd-merge/src/worker-objects.ts";
 let directory: string;
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "worker-objects-"));

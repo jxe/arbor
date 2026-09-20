@@ -1,17 +1,13 @@
 {
-  "name": "@arbor/cli",
+  "name": "@overstory/cli",
   "version": "0.1.0",
+  "description": "The arbor command: daemon, identity, placement, cloud sessions, and tree operations.",
   "type": "module",
-  "bin": {
-    "arbor": "./src/index.ts"
-  },
   "dependencies": {
-    "@arbor/arborsync": "workspace:*",
-    "@arbor/arborsync-client": "workspace:*",
-    "@arbor/core": "workspace:*",
-    "@arbor/fs": "workspace:*",
-    "@arbor/stores": "workspace:*",
-    "@arbor/wire": "workspace:*",
+    "@overstory/arborsync": "workspace:*",
+    "@overstory/arborsync-client": "workspace:*",
+    "@overstory/protocol": "workspace:*",
+    "@overstory/fs": "workspace:*",
     "yaml": "2.8.2"
   }
 }

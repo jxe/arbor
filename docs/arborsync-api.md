@@ -88,8 +88,8 @@ type LocatorResolution = {
 
 - Arbor Sync speaks the Wire vocabulary wherever the two overlap. `TreeDescriptor`,
   `LocatorResolution`, `PairingOffer`, `LocalAccountSummary`, and
-  `ProfileIdentity` are single definitions in `@arbor/core` (Swift:
-  `ArborWire` and `ArborSyncClient` share `WireCanonicalDescriptor`); a
+  `ProfileIdentity` are single definitions in `@overstory/protocol` (Swift:
+  `Overstory` and `ArborSyncClient` share `WireCanonicalDescriptor`); a
   local descriptor adds only what a local daemon knows.
 - `GET /v1/trees` returns `LocalTreeDescriptor`s. Hosted ordinary trees have
   non-null canonical data and the private account-configuration tree has
@@ -148,8 +148,8 @@ and reject missing, offline, conflicting, errored, or still-syncing targets.
 `POST /v1/placements/move` (`{ source, destination, check? }`)
 relocates one placed root on disk and in `placements.yaml` after an explicit
 synchronization boundary; `check: true` validates without moving.
-New TreeIDs are minted by the client (`generateArborID` in `@arbor/core`,
-`generateArborID(prefix:)` in `CanopyClient`): `tr_` plus 26 lowercase base32
+New TreeIDs are minted by the client (`generateArborID` in `@overstory/protocol`,
+`generateArborID(prefix:)` in `OverstoryClient`): `tr_` plus 26 lowercase base32
 characters encoding 128 random bits. Minting edits no file and reserves no
 server state, so it is not a daemon operation.
 

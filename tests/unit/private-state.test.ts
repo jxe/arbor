@@ -2,14 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  ARBOR_SYNC_STATE_VERSION,
-  AmbiguousWorkspaceIdentityError,
-  arborDataRoot,
-  prepareArborDataRoot,
-  workspaceIdentity,
-  workspaceState,
-} from "@arbor/stores";
+import { ARBOR_SYNC_STATE_VERSION, AmbiguousWorkspaceIdentityError, arborDataRoot, prepareArborDataRoot, workspaceIdentity, workspaceState } from "@overstory/protocol";
 
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 const temporary: string[] = [];

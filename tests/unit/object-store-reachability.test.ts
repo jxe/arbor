@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ObjectStore } from "../../packages/object-store/src/index.ts";
-import { encodeWireDirectory, hashObject, type WireDirectoryEntry } from "@arbor/wire";
+import { encodeWireDirectory, hashObject, type WireDirectoryEntry } from "@overstory/protocol";
 
 class ReadTrace extends ObjectStore {
   objects = new Map<string, Uint8Array>();

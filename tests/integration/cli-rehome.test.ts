@@ -1,14 +1,13 @@
-import { CommunityConfigStore } from "@arbor/stores";
+import { CommunityConfigStore, generateArborID, CanopyAccountStore, loadCanopyAccountConfigurations } from "@overstory/protocol";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon } from "@arbor/arborsync";
-import { serveArborSyncControl } from "@arbor/arborsync";
-import { serveCanopy } from "@arbor/canopy";
-import { generateArborID } from "@arbor/core";
-import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
+import { ArborSyncDaemon } from "@overstory/arborsync";
+import { serveArborSyncControl } from "@overstory/arborsync";
+import { serveCanopy } from "@overstory/canopyd";
+import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 
 let sandbox: string;
 let state: string;

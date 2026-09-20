@@ -6,7 +6,7 @@
 > report — do not improvise. When done, update this plan's entry in
 > `plans/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/core/src/logical-path.ts packages/core/src/logical-url.ts packages/arborsync/src/server.ts packages/fs/src/workspace-fs.ts`
+> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/protocol/src/model/logical-path.ts packages/protocol/src/model/logical-url.ts packages/arborsync/src/server.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
 > state" do not match the live code, treat it as a STOP condition.
 
@@ -47,13 +47,13 @@ today that invariant is violated in at least two places. This plan restores it.
 
 Files involved:
 
-- `packages/core/src/logical-path.ts` — `normalizeTreePath` / `canonicalNodePath`; the decode to remove.
-- `packages/core/src/logical-url.ts` — resolves authored links; calls the above.
+- `packages/protocol/src/model/logical-path.ts` — `normalizeTreePath` / `canonicalNodePath`; the decode to remove.
+- `packages/protocol/src/model/logical-url.ts` — resolves authored links; calls the above.
 - `packages/arborsync/src/server.ts` — HTTP boundary; already decodes before calling in.
 - `packages/fs/src/workspace-fs.ts` — directory listing; the 500 site.
 - `packages/arborsync/src/fs-service.ts` — local-scope listing; the silent-drop site.
 
-`packages/core/src/logical-path.ts:1-19`:
+`packages/protocol/src/model/logical-path.ts:1-19`:
 
 ```ts
 export class PathEscapeError extends Error {}
@@ -120,8 +120,8 @@ that test meaningful.
 
 Repo conventions:
 
-- `packages/core` is the browser-safe shared layer; the Swift client mirrors it
-  (`native/Packages/ArborSyncClient`). Prefer keeping `normalizeTreePath`'s exported
+- `packages/protocol` is the browser-safe shared layer; the Swift client mirrors it
+  (`canopy-swift/Packages/ArborSyncClient`). Prefer keeping `normalizeTreePath`'s exported
   signature unchanged.
 - Unit tests: `tests/unit/path.test.ts` and `tests/unit/logical-url.test.ts` are
   the existing exemplars for this area. `bun:test`, plain function calls.
@@ -141,8 +141,8 @@ Repo conventions:
 
 **In scope**:
 
-- `packages/core/src/logical-path.ts`
-- `packages/core/src/logical-url.ts` (only if it double-decodes — see step 2)
+- `packages/protocol/src/model/logical-path.ts`
+- `packages/protocol/src/model/logical-url.ts` (only if it double-decodes — see step 2)
 - `packages/arborsync/src/server.ts` (boundary decode + `URIError` handling)
 - `tests/unit/path.test.ts` (add cases)
 - `tests/integration/server.test.ts` (add a case)
@@ -153,9 +153,9 @@ Repo conventions:
   once `normalizeTreePath` stops decoding, their calls become correct as
   written. Do not "also fix" the try/catch asymmetry between them here; note
   it in your report instead.
-- `native/` — the Swift mirror of this logic. If the TypeScript contract
+- `canopy-swift/` — the Swift mirror of this logic. If the TypeScript contract
   changes in a way Swift must follow, report it; do not edit Swift in this plan.
-- `packages/render/src/App.tsx` — the client also builds URLs; leave it unless
+- `packages/canopy-web/src/App.tsx` — the client also builds URLs; leave it unless
   typecheck forces a change, and report it if it does.
 
 ## Git workflow
@@ -172,7 +172,7 @@ Repo conventions:
 ### Step 1: Reproduce both defects
 
 ```bash
-bun -e 'import { canonicalNodePath } from "./packages/core/src/logical-path.ts"; try { console.log("100%:", canonicalNodePath("/Q3 100%.md")); } catch (e) { console.log("100% THROWS:", e.constructor.name); } console.log("a%2Fb.md ->", canonicalNodePath("/a%2Fb.md"));'
+bun -e 'import { canonicalNodePath } from "./packages/protocol/src/model/logical-path.ts"; try { console.log("100%:", canonicalNodePath("/Q3 100%.md")); } catch (e) { console.log("100% THROWS:", e.constructor.name); } console.log("a%2Fb.md ->", canonicalNodePath("/a%2Fb.md"));'
 ```
 
 Expected before the fix: `100% THROWS: URIError` and `a%2Fb.md -> /a/b`.
@@ -182,7 +182,7 @@ been applied already — STOP and report.
 
 ### Step 2: Remove the decode from `normalizeTreePath`
 
-In `packages/core/src/logical-path.ts`, drop the `decodeURIComponent(...)` call.
+In `packages/protocol/src/model/logical-path.ts`, drop the `decodeURIComponent(...)` call.
 The first line becomes:
 
 ```ts
@@ -197,8 +197,8 @@ explicitly — one sentence, in the repo's voice, e.g.:
 `/** Normalizes an already-decoded logical path. Callers decode percent-encoding at the HTTP boundary. */`
 This contract line is the whole point of the change; do not skip it.
 
-Then check `packages/core/src/logical-url.ts` for its own `decodeURIComponent`
-calls (`grep -n "decodeURIComponent" packages/core/src/logical-url.ts`). If it
+Then check `packages/protocol/src/model/logical-url.ts` for its own `decodeURIComponent`
+calls (`grep -n "decodeURIComponent" packages/protocol/src/model/logical-url.ts`). If it
 decodes a path *before* passing it to `normalizeTreePath`/`canonicalNodePath`,
 that decode is now the single one for that path and should stay. If it decodes
 and the value also flows through the server's boundary decode, remove the inner
@@ -314,7 +314,7 @@ ALL must hold:
 
 - [ ] `bun run typecheck` exits 0
 - [ ] `bun test` exits 0
-- [ ] `grep -n "decodeURIComponent" packages/core/src/logical-path.ts` returns
+- [ ] `grep -n "decodeURIComponent" packages/protocol/src/model/logical-path.ts` returns
       no matches
 - [ ] `normalizeTreePath` carries a doc comment stating it takes an
       already-decoded path
@@ -333,7 +333,7 @@ Stop and report back (do not improvise) if:
 
 - The step 1 script already shows correct behavior.
 - After step 2, typecheck errors appear in files outside the In-scope list
-  (particularly `packages/render/` or `packages/arborsync-client/`) — that means another
+  (particularly `packages/canopy-web/` or `packages/arborsync-client/`) — that means another
   caller depends on the decoding behavior and the change needs re-scoping.
 - You find a **third** decode of the same path on any single request path that
   you cannot confidently attribute to one boundary. Report the call chain
@@ -350,8 +350,8 @@ Stop and report back (do not improvise) if:
   decoded logical paths.** Any future entry point that accepts a URL-shaped
   path (a new route, a new CLI argument, a new client) must decode at its own
   boundary and must run traversal rejection there.
-- `packages/core/src/logical-path.ts` is mirrored in Swift under
-  `native/Packages/ArborSyncClient`. If the Swift `normalizeTreePath` equivalent
+- `packages/protocol/src/model/logical-path.ts` is mirrored in Swift under
+  `canopy-swift/Packages/ArborSyncClient`. If the Swift `normalizeTreePath` equivalent
   also decodes, it now diverges from TypeScript — flag that in your report as
   follow-up work; the conformance suite may or may not catch it.
 - A reviewer should scrutinize step 3 hardest: the traversal rejection moving

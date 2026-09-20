@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
@@ -11,39 +15,17 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
-    "types": ["bun"],
-    "baseUrl": ".",
-    "paths": {
-      "@arbor/arborsync": ["packages/arborsync/src/index.ts"],
-      "@arbor/merge": ["packages/merge/src/index.ts"],
-      "@arbor/object-store": ["packages/object-store/src/index.ts"],
-      "@arbor/canopy": ["packages/canopy/src/index.ts"],
-      "@arbor/canopy-client": ["packages/canopy-client/src/index.ts"],
-      "@arbor/arborsync-client": ["packages/arborsync-client/src/index.ts"],
-      "@arbor/core": ["packages/core/src/index.ts"],
-      "@arbor/core/hash": ["packages/core/src/hash.ts"],
-      "@arbor/core/logical-path": ["packages/core/src/logical-path.ts"],
-      "@arbor/core/logical-url": ["packages/core/src/logical-url.ts"],
-      "@arbor/core/node-key": ["packages/core/src/node-key.ts"],
-      "@arbor/core/node-model": ["packages/core/src/node-model.ts"],
-      "@arbor/core/path": ["packages/core/src/path.ts"],
-      "@arbor/core/sse": ["packages/core/src/sse.ts"],
-      "@arbor/core/utf8": ["packages/core/src/utf8.ts"],
-      "@arbor/data": ["packages/data/src/index.ts"],
-      "@arbor/data/host": ["packages/data/src/host.ts"],
-      "@arbor/editor": ["packages/editor/src/index.ts"],
-      "@arbor/fs/file-ops": ["packages/fs/src/file-ops.ts"],
-      "@arbor/fs": ["packages/fs/src/index.ts"],
-      "@arbor/stores/schema": ["packages/stores/src/schema.ts"],
-      "@arbor/stores/wire-collection-file": ["packages/stores/src/wire-collection-file.ts"],
-      "@arbor/stores/account-config": ["packages/stores/src/account-config.ts"],
-      "@arbor/stores/account-config-v2": ["packages/stores/src/account-config-v2.ts"],
-      "@arbor/stores": ["packages/stores/src/index.ts"],
-      "@arbor/wire": ["packages/wire/src/index.ts"],
-      "@arbor/wire-projection": ["packages/wire-projection/src/index.ts"],
-      "arbor/data": ["packages/data/src/index.ts"]
-    }
+    "types": [
+      "bun"
+    ]
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts", "migrations/**/*.ts"],
-  "exclude": ["packages/render/**"]
+  "include": [
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "tests/**/*.ts",
+    "migrations/**/*.ts"
+  ],
+  "exclude": [
+    "packages/canopy-web/**"
+  ]
 }

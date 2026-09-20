@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachedArborSyncURL, openTarget } from "../../packages/cli/src/index.ts";
-import { resolveUserPath, serveArborSync } from "@arbor/arborsync";
-import { communityCredentialName } from "@arbor/stores";
+import { resolveUserPath, serveArborSync } from "@overstory/arborsync";
+import { communityCredentialName } from "@overstory/protocol";
 
 describe("arbor open operands", () => {
   test("rejects the removed --port option", async () => {

@@ -2,14 +2,13 @@
 // Run from the repository root: bun run tools/canonical-cbor-vectors.ts
 
 import { readFile, writeFile } from "node:fs/promises";
-import { canonicalCBORHash, encodeCanonicalCBOR } from "@arbor/core";
-import { canonicalUpdateIntent, encodeWireDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@arbor/wire";
+import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeWireDirectory, hashObject, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 const emptyDirectory = encodeWireDirectory({ type: "directory", entries: [] });
-// Historical wire-update-intent.json and wire-operations.json retain the previous
+// Historical protocol-update-intent.json and protocol-operations.json retain the previous
 // encoding's exact bytes and digests. Do not rehash them through the active codec.
-for (const path of ["conformance/wire-authored-updates.json", "conformance/wire-authored-transport.json"]) {
+for (const path of ["conformance/protocol-authored-updates.json", "conformance/protocol-authored-transport.json"]) {
   const fixture = JSON.parse(await readFile(path, "utf8"));
   for (const c of fixture.cases) {
     if (!c.valid) continue;
@@ -24,7 +23,7 @@ for (const path of ["conformance/wire-authored-updates.json", "conformance/wire-
   }
   await writeFile(path,JSON.stringify(fixture,null,2)+"\n");
 }
-const endpointsPath = "conformance/wire-endpoints.json";
+const endpointsPath = "conformance/protocol-endpoints.json";
 const endpoints = JSON.parse(await readFile(endpointsPath,"utf8"));
 for (const c of endpoints.cases) {
   if (!c.request.body?.updates) continue;
@@ -46,7 +45,7 @@ for (const path of ["tests/fixtures/arborsync/bootstrap.json", "tests/fixtures/a
 }
 
 // Object models are the symbolic source of truth; payloads are raw for files.
-const objectPath = "conformance/wire-objects.json";
+const objectPath = "conformance/protocol-objects.json";
 const objectVectors = JSON.parse(await readFile(objectPath, "utf8"));
 for (const vector of objectVectors.objects) {
   const bytes = vector.model.type === "file" ? Buffer.from(vector.model.bytesBase64, "base64") : encodeWireDirectory(vector.model);
@@ -104,4 +103,4 @@ const graphVectors = [
   graph("kind-conflict", "complete", [{ name: "dir", directory: graphDirectory.hash }, { name: "file", file: graphDirectory.hash }], [graphDirectory], false),
   graph("unreachable", "complete", [], [graphLeaf], false),
 ];
-await writeFile("conformance/wire-graphs.json", JSON.stringify({ version: 1, cases: graphVectors }, null, 2) + "\n");
+await writeFile("conformance/protocol-graphs.json", JSON.stringify({ version: 1, cases: graphVectors }, null, 2) + "\n");

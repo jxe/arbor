@@ -2,11 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Workspace } from "@arbor/arborsync";
-import type { MutationRequest } from "@arbor/core";
-import { MutationJournal } from "@arbor/fs";
-import { workspaceState } from "@arbor/stores";
-import { canonicalStableKey } from "@arbor/core";
+import { Workspace } from "@overstory/arborsync";
+import type { MutationRequest } from "@overstory/protocol";
+import { MutationJournal } from "@overstory/fs";
+import { workspaceState, canonicalStableKey } from "@overstory/protocol";
 
 const temporary: string[] = [];
 

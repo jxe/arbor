@@ -11,7 +11,7 @@ resolution are implemented; their rollout is tracked in [release and verificatio
 ## Existing evidence
 
 The isolated fragment storage proof (removed from the tree; see git history before 2026-09-20
-for `packages/canopy/src/experimental/conflict-fragments`) was representation evidence only.
+for `packages/canopyd/src/experimental/conflict-fragments`) was representation evidence only.
 The production merge authority now owns accepted/authored semantic state,
 hidden and undo material, and public inspection identities. Do not import the experiment's parallel
 authority, receipt API or owner table, or repeat the completed schema-12 migration.
@@ -25,8 +25,8 @@ measured representation cost before proposing a storage change. User deferral is
 revoked because the former client prerequisites have landed.
 
 - If the gap is transfer or format policy, use [Canopy 009](009-canopy-provenance-merges.md).
-- If it is client capture or review, use Native [008](../native/008-complete-native-move-copy-undo-capture.md)
-  or Native [010](../native/010-client-conflict-review.md).
+- If it is client capture or review, use Native [008](../canopy-swift/008-complete-native-move-copy-undo-capture.md)
+  or Native [010](../canopy-swift/010-client-conflict-review.md).
 - If it is retention, packing or garbage collection, use [Storage 001](001-pack-object-storage.md),
   preserving semantic roots, transitive hidden/undo material and staged transaction inputs/results.
 - Keep a task here only for a demonstrated production representation gap those owners cannot cover.

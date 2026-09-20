@@ -1,4 +1,4 @@
-import { WireHTTPError, WireTransportError, type ObjectHash } from "@arbor/wire";
+import { WireHTTPError, WireTransportError, type ObjectHash } from "@overstory/protocol";
 
 /** Local operational evidence, not a Wire response or retained user content. */
 export interface ObjectReadDiagnostic {

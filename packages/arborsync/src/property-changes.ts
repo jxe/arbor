@@ -1,4 +1,4 @@
-import { stableJSONString } from "@arbor/core";
+import { stableJSONString } from "@overstory/protocol";
 
 /** Exact top-level property names changed by a complete property-map write. */
 export function changedPropertyNames(

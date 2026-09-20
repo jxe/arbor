@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { revisionOf } from "@arbor/core";
+import { revisionOf } from "@overstory/protocol";
 import { z } from "zod";
 import {
   arbor,
@@ -14,9 +14,9 @@ import {
   type ProfileResolver,
   type QueryExecution,
   type ResolvedDatabaseLocation,
-} from "arbor/data";
+} from "overstory/data";
 
-mock.module("arbor/react", () => ({
+mock.module("overstory/react", () => ({
   Markdown: () => null,
   skipQuery: Symbol("skip-query"),
   useMutationAction: () => [{}, () => undefined, false],

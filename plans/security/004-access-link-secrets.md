@@ -8,8 +8,8 @@
 > browser verification from a passing build alone.
 
 > **Drift check:** inspect `packages/cli/src/index.ts`,
-> `packages/render/src/App.tsx`,
-> `packages/arborsync/src/service.ts`, `packages/stores/src/visits.ts`, the Wire
+> `packages/canopy-web/src/App.tsx`,
+> `packages/arborsync/src/service.ts`, `packages/arborsync/src/state/visits.ts`, the Wire
 > client request boundary, native URL handling, and `docs/client.md`. Stop if
 > browser and native recipients can already traverse a protected multi-page tree
 > with protected assets, edit when granted write access, survive ordinary
@@ -111,11 +111,11 @@ its `Can edit` choice stays absent until linked editing meets them too.
 Expected files include:
 
 - `packages/cli/src/index.ts`;
-- `packages/render/src/App.tsx`;
+- `packages/canopy-web/src/App.tsx`;
 - `packages/arborsync-client/src/index.ts`;
 - `packages/arborsync/src/server.ts` and `service.ts`;
-- `packages/wire/src/client.ts` if its request helper needs a link header;
-- `packages/stores/src/visits.ts`;
+- `packages/protocol/src/client.ts` if its request helper needs a link header;
+- `packages/arborsync/src/state/visits.ts`;
 - Canopy's bootstrap/session handling and protected asset responses;
 - native URL registration and open handling;
 - focused browser, native, and integration tests; and
@@ -150,11 +150,11 @@ Add tests proving:
 Run:
 
 ```sh
-bun test tests/integration/canopy/update-host.test.ts tests/integration/system-trees.test.ts
+bun test tests/integration/canopyd/update-host.test.ts tests/integration/system-trees.test.ts
 bun run typecheck
-swift test --package-path native/Packages/CanopyClient
-xcodebuild -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' build
-xcodebuild -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' build
+swift test --package-path canopy-swift/Packages/OverstoryClient
+xcodebuild -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' build
+xcodebuild -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' build
 git diff --check
 ```
 

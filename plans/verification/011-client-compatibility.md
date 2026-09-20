@@ -63,6 +63,6 @@ have passing evidence or an explicitly accepted scope decision.
 
 [Filesystem 011](../filesystem/011-independent-writes-after-rejection.md) separately owns
 scheduling independent work after rejection. Capture, server policy and Native review remain
-in [Native 008](../native/008-complete-native-move-copy-undo-capture.md),
+in [Native 008](../canopy-swift/008-complete-native-move-copy-undo-capture.md),
 [Canopy 009](../canopy/009-canopy-provenance-merges.md) and
-[Native 010](../native/010-client-conflict-review.md).
+[Native 010](../canopy-swift/010-client-conflict-review.md).

@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { hashObject } from "@arbor/wire";
+import { hashObject } from "@overstory/protocol";
 import {
   loadIntentState,
   storeIntentState,
   storeSharedIntentState,
-} from "../../packages/merge/src/state-storage.ts";
-import type { IntentState } from "../../packages/merge/src/intent-model.ts";
+} from "../../packages/canopyd-merge/src/state-storage.ts";
+import type { IntentState } from "../../packages/canopyd-merge/src/intent-model.ts";
 const bytes = (s: string) => new TextEncoder().encode(s);
 function state(count: number): IntentState {
   return {
@@ -100,7 +100,7 @@ test("retention includes every shared chunk, not only logical file dependencies"
 
 test("cached history validation equals full validation and reports all retained objects", async () => {
   const { StateMapValidationCache } = await import(
-    "../../packages/merge/src/state-map.ts"
+    "../../packages/canopyd-merge/src/state-map.ts"
   );
   const f = store(),
     cache = new StateMapValidationCache();
@@ -130,7 +130,7 @@ test("cached history validation equals full validation and reports all retained 
 
 test("cached validation retains history node-identity checks", async () => {
   const { StateMapValidationCache } = await import(
-    "../../packages/merge/src/state-map.ts"
+    "../../packages/canopyd-merge/src/state-map.ts"
   );
   const f = store(),
     original = state(1),

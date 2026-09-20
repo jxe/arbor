@@ -1,21 +1,18 @@
 {
-  "name": "@arbor/arborsync",
+  "name": "@overstory/arborsync",
   "version": "0.1.0",
+  "description": "Arbor Sync, the local daemon: workspace, tree manager, loopback HTTP service, events, daemon-local state, and the arborsync command.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./cli": "./src/cli.ts"
-  },
-  "bin": {
-    "arborsync": "./src/cli.ts"
+    "./cli": "./src/cli.ts",
+    "./state": "./src/state/index.ts"
   },
   "dependencies": {
-    "@arbor/canopy-client": "workspace:*",
-    "@arbor/core": "workspace:*",
-    "@arbor/editor": "workspace:*",
-    "@arbor/fs": "workspace:*",
-    "@arbor/stores": "workspace:*",
-    "@arbor/wire": "workspace:*",
+    "@overstory/protocol": "workspace:*",
+    "@overstory/client": "workspace:*",
+    "@overstory/fs": "workspace:*",
+    "@overstory/apps-runtime": "workspace:*",
     "zod": "4.3.6"
   }
 }

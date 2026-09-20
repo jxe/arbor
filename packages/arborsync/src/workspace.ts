@@ -1,8 +1,7 @@
-import type { LocalTreeDescriptor, TreeID } from "@arbor/core";
-import { nodePathFromPhysical, sha256 } from "@arbor/core";
-import { resolveTreePath, toTreePath } from "@arbor/core/path";
-import { type FsEvent, type SnapshotObjectIndex, WorkspaceFS } from "@arbor/fs";
-import { workspaceState } from "@arbor/stores";
+import type { LocalTreeDescriptor, TreeID } from "@overstory/protocol";
+import { nodePathFromPhysical, sha256, workspaceState } from "@overstory/protocol";
+import { resolveTreePath, toTreePath } from "@overstory/protocol/path";
+import { type FsEvent, type SnapshotObjectIndex, WorkspaceFS } from "@overstory/fs";
 import { basename, join } from "node:path";
 import { EventBus } from "./events.ts";
 import { FilesystemObjectSource } from "./filesystem-object-source.ts";
@@ -10,7 +9,7 @@ import { reportObjectRead } from "./object-read-diagnostics.ts";
 import { rootDisplayName } from "./root-title.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
 
-export { ProtocolError } from "@arbor/core";
+export { ProtocolError } from "@overstory/protocol";
 export { RevisionConflictError } from "./node-sampling.ts";
 
 export interface WorkspaceOptions {

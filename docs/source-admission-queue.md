@@ -2,7 +2,7 @@
 
 This is a client implementation checkpoint for the
 [exact authored basis contract](../spec/09-client-synchronization.md#exact-authored-basis).
-`SourceAdmissionQueue` exists in `ArborWorkingTree` and `@arbor/canopy-client`.
+`SourceAdmissionQueue` exists in `CanopyWorkingTree` and `@overstory/client`.
 The Swift queue is connected to document acknowledgement, recovery and publication
 behind `UpdateCoordinator.sourceOperationEmission` (default `false`). Native passes
 its coordinator to the provider, which selects this path only when explicitly enabled.
@@ -185,13 +185,13 @@ Native UI execution and the broader emitted source/structural forms remain relea
 gates; this does not enable installed-client emission.
 
 Verification for this checkpoint: `bun run typecheck`, `bun run test`,
-`bun run test:protocol`, the full `ArborWorkingTree` Swift suite,
+`bun run test:protocol`, the full `CanopyWorkingTree` Swift suite,
 `tools/test-arbor-quagmire-local.sh`, and a macOS `Arbor` build using the local
 workspace passed. Repository-wide relative-link/fragment checks introduced no
 new failures; existing broken links remain outside this change. No installed app
 or server was upgraded.
 
-Remaining work in [008](../plans/native/008-complete-native-move-copy-undo-capture.md):
+Remaining work in [008](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md):
 
 - Connect the TS session/publication APIs to a maintained editor host when that host is built; enforce exclusive state-directory ownership there.
 - Verify deployment of ancestor and merged-predecessor acceptance before installed-client activation.
@@ -310,7 +310,7 @@ macOS and iOS app builds. The first combined run exposed a fixed-duration wait i
 the existing filesystem-acknowledgement test; it now waits for the observed state
 with a bounded deadline. This cleanup has not been installed on either device.
 Canopy-backed Native review remains separate work in
-[Reliability 010](../plans/native/010-client-conflict-review.md).
+[Reliability 010](../plans/canopy-swift/010-client-conflict-review.md).
 
 ## Supported-operation capture checkpoint — September 17
 
@@ -372,8 +372,8 @@ This capture does not yet describe copies of newly authored or transformed sourc
 without a matching basis span, cross-document copies, or causal undo/redo. These
 need richer transaction capture rather than guesses from matching bytes. The
 Quagmire API addition and Arbor adapter are tested through the local override;
-release/pin status must be checked before installation. Remaining work stays in [Reliability 008](../plans/native/008-complete-native-move-copy-undo-capture.md).
-Native review UI remains [Reliability 010](../plans/native/010-client-conflict-review.md).
+release/pin status must be checked before installation. Remaining work stays in [Reliability 008](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md).
+Native review UI remains [Reliability 010](../plans/canopy-swift/010-client-conflict-review.md).
 
 Verification includes shared preservation fixtures, equal-byte editor admission,
 queue restart, compound sibling-body move/copy/removal, shadowed source fidelity,

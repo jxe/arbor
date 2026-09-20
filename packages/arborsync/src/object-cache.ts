@@ -1,6 +1,6 @@
 import { objectReadError, reportObjectRead, type ObjectReadReporter } from "./object-read-diagnostics.ts";
-import { pendingTreeUpdate } from "@arbor/canopy-client";
-import { decodeObjectEnvelopes, hashObject, type ObjectHash, type WireClient } from "@arbor/wire";
+import { pendingTreeUpdate } from "@overstory/client";
+import { decodeObjectEnvelopes, hashObject, type ObjectHash, type WireClient } from "@overstory/protocol";
 import type { Workspace } from "./workspace.ts";
 
 export const OBJECT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;

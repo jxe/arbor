@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
-import type { Diagnostic, MarkdownDocument } from "@arbor/core";
+import type { Diagnostic, MarkdownDocument } from "@overstory/protocol";
 import {
   compareUTF8,
   parentNodePath,
@@ -16,9 +16,9 @@ import {
   revisionOf,
   sha256,
   siblingMarkdownTreePath,
-} from "@arbor/core";
-import { directoryPlacementDiagnostics, mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
-import { commitPrepared, pathExists, prepareAtomic, removeIfExists, syncDirectory, transactionTemporaryPath, writeAtomic } from "./file-ops.ts";
+} from "@overstory/protocol";
+import { directoryPlacementDiagnostics, mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@overstory/protocol";
+import { commitPrepared, pathExists, prepareAtomic, removeIfExists, syncDirectory, transactionTemporaryPath, writeAtomic } from "@overstory/protocol/file-ops";
 import {
   discoverWorkspace,
   IGNORED_WORKSPACE_DIRECTORIES,
@@ -43,7 +43,7 @@ import {
   type ResolvedFsNode,
   type WorkspaceFSOptions,
 } from "./types.ts";
-import { ensureContainedPath, resolveTreePath, toTreePath } from "@arbor/core/path";
+import { ensureContainedPath, resolveTreePath, toTreePath } from "@overstory/protocol/path";
 
 const RESERVED = new Set(["schema.ts", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
 const IGNORED = IGNORED_WORKSPACE_DIRECTORIES;

@@ -8,7 +8,7 @@ import {
   type ObjectDelta,
   type ObjectHash,
   type TreeSnapshot,
-} from "@arbor/wire";
+} from "@overstory/protocol";
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 

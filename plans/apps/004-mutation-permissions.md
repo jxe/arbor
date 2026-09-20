@@ -48,10 +48,10 @@ public reads need no additional code grant. Revocation affects retries and strea
 
 ## Inspect before editing
 
-Read `packages/core/src/protocol.ts`, `packages/merge/src/account.ts`,
-`packages/canopy/src/account-policy.ts`, `host.ts`, access/group evaluation,
+Read `packages/protocol/src/model/protocol.ts`, `packages/canopyd-merge/src/account.ts`,
+`packages/canopyd/src/account-policy.ts`, `host.ts`, access/group evaluation,
 update acceptance and watch/object handlers. Inspect `tests/unit/account-config-v2.test.ts`,
-`tests/unit/canopy/group-access.test.ts`, source acceptance tests, Swift ArborWire
+`tests/unit/canopyd/group-access.test.ts`, source acceptance tests, Swift Overstory
 and configuration consumers, conformance account fixtures, and `migrations/README.md`.
 Inventory current deployed schema/version and actual configuration identities;
 do not reuse the obsolete schema 6 assumption in the former plan.
@@ -123,7 +123,7 @@ Use process/restart tests for persisted policy and invalidation reconnect.
 
 Run focused account/access/Canopy tests, then `bun run typecheck`, `bun run test`,
 `bun run test:protocol`, `bun run build`, affected Swift package suites including
-ArborWire and ArborSyncClient, the explicit migration suite, repository relative-link
+Overstory and ArborSyncClient, the explicit migration suite, repository relative-link
 check and `git diff --check`. Run applicable UI tests only where maintained; the
 web build is currently excluded per DEVELOPMENT.md. Document actual commands/results.
 

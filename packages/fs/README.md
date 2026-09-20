@@ -1,6 +1,6 @@
-# `@arbor/fs`
+# `@overstory/fs`
 
-`@arbor/fs` is Arbor's only server-side authority for workspace-content I/O. Arbor Sync owns search, collections, generated types, and link healing, but it resolves and mutates materialized content through `WorkspaceFS`.
+`@overstory/fs` is Arbor's only server-side authority for workspace-content I/O. Arbor Sync owns search, collections, generated types, and link healing, but it resolves and mutates materialized content through `WorkspaceFS`.
 
 ## Logical-node invariants
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { encodeObjectEnvelopes, encodeWireDirectory, hashObject, type TreeSnapshot } from "@arbor/wire";
+import { encodeObjectEnvelopes, encodeWireDirectory, hashObject, type TreeSnapshot } from "@overstory/protocol";
 import {
   decodeAdmissionBasis,
   decodeRawSyncState,

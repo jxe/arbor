@@ -1,11 +1,7 @@
-import type { ChildrenPage, Hash, JSONValue, LocalTreeDescriptor, NodeRef, NodeResponse, NodeSummary, TreeRef } from "@arbor/core";
-import { canonicalNodePath, revisionOf } from "@arbor/core";
-import {
-  ProjectionProviderHost,
-  type ProjectionPropertyPreparation,
-  type ProjectionReadSession,
-  type ProjectionWriteTarget,
-} from "@arbor/stores";
+import type { ChildrenPage, Hash, JSONValue, LocalTreeDescriptor, NodeRef, NodeResponse, NodeSummary, TreeRef } from "@overstory/protocol";
+import { canonicalNodePath, revisionOf } from "@overstory/protocol";
+import { ProjectionProviderHost, type ProjectionReadSession } from "./state/index.ts";
+import { type ProjectionPropertyPreparation, type ProjectionWriteTarget } from "@overstory/apps-runtime/collections";
 export interface PhysicalNodeSurface {
   readonly tree: TreeRef;
   enclosingTree?(): LocalTreeDescriptor | undefined;

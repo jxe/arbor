@@ -1,7 +1,7 @@
-import type { MutationReceipt } from "@arbor/core";
-import { ProtocolError } from "@arbor/core";
-import { CanopyAccountStore, ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "@arbor/stores";
-import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath, type AccountBootstrapDeps } from "@arbor/canopy-client";
+import type { MutationReceipt } from "@overstory/protocol";
+import { ProtocolError, CanopyAccountStore } from "@overstory/protocol";
+import { ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
+import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {

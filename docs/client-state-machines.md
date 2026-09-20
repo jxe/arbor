@@ -10,8 +10,8 @@ specified in [working-tree updates](../spec/09-client-synchronization.md);
 section 8 below describes its runner, the update coordinator, and what it
 adds around the reducer: the durable head, recovery, and watching.
 
-The reference implementations are `DocumentAdmissionMachine` in `ArborKit`
-(Swift) and `reduceAdmission` in `@arbor/core` (TypeScript). Both are pure
+The reference implementations are `DocumentAdmissionMachine` in `CanopyAppKit`
+(Swift) and `reduceAdmission` in `@overstory/protocol` (TypeScript). Both are pure
 reducers that execute every `document-admission` scenario in
 [`conformance/client-state-machines.json`](../conformance/client-state-machines.json);
 the editor host (`ArborDocumentBinding` today; the Plan B web editor later)
@@ -229,8 +229,8 @@ history boundaries.
 
 ## 8. The update machine and its coordinator
 
-The update machine is the pure reducer `UpdateMachine` (`ArborWorkingTree`)
-and `reduceUpdate` (`@arbor/canopy-client`, moving to `@arbor/working-tree`
+The update machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`)
+and `reduceUpdate` (`@overstory/client`, moving to `@overstory/working-tree`
 in Plan B). Both execute the `working-tree-updates` scenarios in
 [`conformance/client-state-machines.json`](../conformance/client-state-machines.json).
 Its transitions are the spec's; this section is about the runner around it.
@@ -278,7 +278,7 @@ control file, the loader rejects any non-null legacy `conflict` or `hold` field,
 even an unfamiliar payload, without rewriting the file. Historical backups and
 the previous client provide recovery for unexpected old work.
 
-**Watching.** `CanopyWatchRunner` (`CanopyClient`) follows one tree's watch
+**Watching.** `CanopyWatchRunner` (`OverstoryClient`) follows one tree's watch
 stream, feeds every event to the coordinator, reconnects with backoff, and
 recovers an expired cursor through `recoverWatchGap`. iOS, the Mac, and
 visits share it.

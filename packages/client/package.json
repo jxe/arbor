@@ -1,0 +1,11 @@
+{
+  "name": "@overstory/client",
+  "version": "0.1.0",
+  "description": "Client-side synchronization against an Overstory host: tree sync, account bootstrap, the update machine, the document admission machine, and the source admission queue.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@overstory/protocol": "workspace:*",
+    "@overstory/fs": "workspace:*"
+  }
+}

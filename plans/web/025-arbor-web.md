@@ -4,7 +4,7 @@
 >
 > **Companion**: [surfaces.md](surfaces.md) is the surface-by-surface inventory this plan builds from; every surface there names its phase here.
 >
-> **Drift check**: `git diff --stat HEAD -- packages/canopy-client packages/object-store packages/wire packages/wire-projection packages/render packages/editor packages/arborsync packages/canopy native/ArborApp native/Packages/ArborQuagmire conformance docs/client.md docs/arborsync-api.md` against the commit this plan is written at.
+> **Drift check**: `git diff --stat HEAD -- packages/canopy-client packages/object-store packages/wire packages/wire-projection packages/render packages/editor packages/arborsync packages/canopy canopy-swift/ArborApp canopy-swift/Packages/CanopyEditor conformance docs/client.md docs/arborsync-api.md` against the commit this plan is written at.
 
 ## Status
 
@@ -13,7 +13,7 @@
 - **Risk**: MEDIUM (B1), MEDIUM (B2: new Canopy surface and browser credential), LOW (B3)
 - **Depends on**: historical Native 022 (implemented and live); Native 022 soak closeout in [release and soak](../verification/release-and-soak.md)
 - **Supersedes**: Web 023 (completed plan, deleted; see git history) (its library and endpoint-removal steps are folded into B1 and B2 below), Web 008 (completed plan, deleted; see git history) (its parity targets are restated per surface in [surfaces.md](surfaces.md)), and the shell items of Web 005 (completed plan, deleted; see git history) (its remaining editor-depth items become the B3 backlog at the end of this plan). Moved to `_done/web/` on 2026-09-19.
-- **Written at**: 2026-09-19, native reference `native/ArborApp` and `native/Packages/ArborQuagmire` at HEAD
+- **Written at**: 2026-09-19, native reference `canopy-swift/ArborApp` and `canopy-swift/Packages/CanopyEditor` at HEAD
 
 ## Why this matters
 
@@ -23,7 +23,7 @@ Native 022 deleted the daemon's editor path, so `arbor open` serves a placeholde
 
 ### One bundle, two hosts
 
-`packages/web` (`@arbor/web`, renamed from `packages/render`) builds one Vite bundle. Everything host-specific sits behind one interface:
+`packages/canopy-web` (`@overstory/canopy-web`) builds one Vite bundle. Everything host-specific sits behind one interface:
 
 ```ts
 interface WebHost {
@@ -69,7 +69,7 @@ Mirror the Swift split so the two clients stay legible side by side:
 
 | Swift | TypeScript | Owns |
 |---|---|---|
-| `ArborWorkingTree`, `ArborObjectStore` | `@arbor/working-tree`, `@arbor/object-store` (browser-safe core; node stores under `./node`) | state, writes, `UpdateMachine`, `UpdateCoordinator`, `ObjectOverlay`, `LayeredObjectStore`, `DaemonObjectStore`, `CanopyObjectStore` |
+| `CanopyWorkingTree`, `OverstoryObjectStore` | `@overstory/working-tree`, `@overstory/object-store` (browser-safe core; node stores under `./node`) | state, writes, `UpdateMachine`, `UpdateCoordinator`, `ObjectOverlay`, `LayeredObjectStore`, `DaemonObjectStore`, `CanopyObjectStore` |
 | `ArborWorkspaceState` | `WorkspaceState` | launch phase, opened tree, trees list, accounts, sharing, credential, the coordinator |
 | `ArborAppModel` | `AppModel` | location, history, sidebar order and search, full-text search, backlinks, editor leases, title-rename proposals, trash prompts, History |
 | `ArborEditorHost` | `EditorHost` | document lookup/creation, mentions, assets, move/relocate, `persistCommit` into the admission machine |
@@ -79,7 +79,7 @@ These are plain TypeScript classes over a small observable store; React componen
 
 ### Editor engine
 
-Keep BlockNote as the interactive layer and `@arbor/editor` as the source-preserving Markdown adapter; both exist and already carry document-link rows, toggles, math, footnotes and raw-Markdown carrier blocks. Add the Quagmire behaviours as BlockNote extensions in the order [surfaces.md §4](surfaces.md#4-editor-pane) lists. Do not port Quagmire itself: a second bespoke engine would double the editor surface Joe maintains. Revisit only if block navigation mode proves impossible on ProseMirror; it does not.
+Keep BlockNote as the interactive layer and `@overstory/protocol` as the source-preserving Markdown adapter; both exist and already carry document-link rows, toggles, math, footnotes and raw-Markdown carrier blocks. Add the Quagmire behaviours as BlockNote extensions in the order [surfaces.md §4](surfaces.md#4-editor-pane) lists. Do not port Quagmire itself: a second bespoke engine would double the editor surface Joe maintains. Revisit only if block navigation mode proves impossible on ProseMirror; it does not.
 
 ### Browser credential on the Canopy host
 
@@ -103,10 +103,10 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 
 ### B1 — the local editor returns (`arbor open`)
 
-**Phase 0 — bookkeeping.** This file and [surfaces.md](surfaces.md). Rename `packages/render` to `packages/web` (`@arbor/web`) and fix `build:web`.
+**Phase 0 — bookkeeping.** This file and [surfaces.md](surfaces.md). The package is `packages/canopy-web` (`@overstory/canopy-web`); `build:web` still fails because the bundle imports `@overstory/arborsync-client/api`, which does not exist, and fixing it is part of Phase 1.
 
-**Phase 1 — libraries.** `@arbor/object-store`: split the browser-safe interface (`ObjectStore { bytes(hash) }`, `ObjectOverlay`, `LayeredObjectStore`, `MemoryOverlay.retain(roots)`) from the node filesystem store, which moves under `./node`; add `DaemonObjectStore` over `/v1/objects` and `CanopyObjectStore` over the Wire object route, both hash-verifying. `@arbor/working-tree`: state `{ tree, root, accepted?, generation, pending?, index: byPath, byPageID }` built from a bootstrap spine; content-addressed writes rewriting the spine to a new root; `WireProjection` for node semantics; `WorkingTreeStateStore` with memory and IndexedDB implementations; `UpdateMachine` moved from `@arbor/canopy-client` (re-exported for the daemon) and `UpdateCoordinator` mirroring Swift (`syncImmediately`, `syncOnce`, `observe`, `recoverWatchGap`); `CanopyWatchRunner` over `WireClient.watch`; `WireClient` takes a token provider and `onUnauthorized`. Node-bound parts of `@arbor/canopy-client` move behind `./node`. A client text index for page search, full-text search and backlinks, rendering excerpts as marked ranges, never HTML ([Security 001](../security/001-search-excerpts.md) lands here).
-*Verify*: both `@arbor/working-tree` and `ArborWorkingTree` pass `conformance/client-state-machines.json`; a write's root equals `snapshotDirectory` of the same files; envelopes ⊆ overlay; IndexedDB store contract tests in a browser.
+**Phase 1 — libraries.** `@overstory/object-store`: split the browser-safe interface (`ObjectStore { bytes(hash) }`, `ObjectOverlay`, `LayeredObjectStore`, `MemoryOverlay.retain(roots)`) from the node filesystem store, which moves under `./node`; add `DaemonObjectStore` over `/v1/objects` and `CanopyObjectStore` over the Wire object route, both hash-verifying. `@overstory/working-tree`: state `{ tree, root, accepted?, generation, pending?, index: byPath, byPageID }` built from a bootstrap spine; content-addressed writes rewriting the spine to a new root; `WireProjection` for node semantics; `WorkingTreeStateStore` with memory and IndexedDB implementations; `UpdateMachine` moved from `@overstory/client` (re-exported for the daemon) and `UpdateCoordinator` mirroring Swift (`syncImmediately`, `syncOnce`, `observe`, `recoverWatchGap`); `CanopyWatchRunner` over `WireClient.watch`; `WireClient` takes a token provider and `onUnauthorized`. Node-bound parts of `@overstory/client` move behind `./node`. A client text index for page search, full-text search and backlinks, rendering excerpts as marked ranges, never HTML ([Security 001](../security/001-search-excerpts.md) lands here).
+*Verify*: both `@overstory/working-tree` and `CanopyWorkingTree` pass `conformance/client-state-machines.json`; a write's root equals `snapshotDirectory` of the same files; envelopes ⊆ overlay; IndexedDB store contract tests in a browser.
 
 **Phase 2 — local host and app model.** `LocalHost` over `/v1/trees`, `/v1/bootstrap`, `/v1/objects`, `/v1/credential`, `/v1/accounts`. `WorkspaceState`, `AppModel`, `EditorHost` with tests. Canopy adds CORS on its existing routes (`Access-Control-Allow-Origin: *`, `Authorization` and `Arbor-Access-Link` allowed, preflight cached; the bearer is the authority, so no credentials mode) so a loopback origin can publish and watch directly; the daemon proxies nothing and gains no routes. The endpoint removals from Web 023 execute here, unchanged in substance: delete `POST /v1/me`, `POST /v1/local/forget`, `GET /v1/resolve` and filesystem-path byte serving (`?raw`, `/render` aliases, Referer scoping) together with their callers; keep `POST /v1/bootstrap/accounts`, explicit built-asset routes and app-shell navigation; assets resolve through the working tree and object store. `arbor open` drops its notice.
 *Verify*: `bun test tests/unit/local-handlers.test.ts tests/integration/server.test.ts`, `bun run test:protocol`, direct-resolver regressions for symlinks, nested boundaries and account-qualified locators; a filesystem path or `?raw` never returns placed-file bytes; the three removed routes answer `405 unsupported-operation`.
@@ -131,7 +131,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 
 ### B3 — choice review and editor depth
 
-**Phase 9 — conflict review.** Surface [13](surfaces.md#13-conflict-and-choice-review): `ConflictReviewModel` over the coordinator's inspection routes; choices entry and list in the sidebar; the review panel anchored above the document (no accessory API in BlockNote; a document-anchored panel is enough) with previous/next choice, alternatives, remove toggle, composed source, destination, preview, apply, discard, retained-draft states; per-document conflict view with **Current / Mine / Both / Edit**; the line comparison. Track [Native 010](../native/010-client-conflict-review.md) for finer source mapping; do not fork policy.
+**Phase 9 — conflict review.** Surface [13](surfaces.md#13-conflict-and-choice-review): `ConflictReviewModel` over the coordinator's inspection routes; choices entry and list in the sidebar; the review panel anchored above the document (no accessory API in BlockNote; a document-anchored panel is enough) with previous/next choice, alternatives, remove toggle, composed source, destination, preview, apply, discard, retained-draft states; per-document conflict view with **Current / Mine / Both / Edit**; the line comparison. Track [Native 010](../canopy-swift/010-client-conflict-review.md) for finer source mapping; do not fork policy.
 *Verify*: the live review scenarios from `docs/native-conflict-review.md` reproduced against disposable Canopy in Playwright.
 
 **Phase 10 — editor depth (the former Web 005 backlog, re-ranked).** Block navigation mode with contiguous selection; keyboard structural editing (Tab/Shift-Tab, ⌥↑/↓, ⌘↩, ⇧⌘P Move to sheet, Move Page sheet); heading folding with fold/unfold all; `:emoji` completion and document icon; Markdown-aware copy/paste; link previews; unsupported-block carrier display; drag handles with drop onto link rows and sidebar rows; multi-tab `SharedWorker` if the B1 soak asked for it. Each item is independently selectable after Phase 9.
@@ -145,7 +145,7 @@ bun run test:protocol
 bun run build
 bun run build:web
 bun run test:e2e
-swift test --package-path native/Packages/ArborWorkingTree
+swift test --package-path canopy-swift/Packages/CanopyWorkingTree
 git diff --check
 ```
 
@@ -153,7 +153,7 @@ git diff --check
 
 - `arbor open` on the Mac serves the editor from Arbor Sync; the browser opens the accepted-root bootstrap, edits through its own `UpdateCoordinator` against Canopy, never imports daemon client state and never calls a daemon editor route.
 - A browser with no daemon opens a tree's canonical URL on Canopy, pairs once, and edits with the same surfaces; deauthorizing it from the Mac ends that.
-- `@arbor/working-tree` and `ArborWorkingTree` pass the same fixture; `WorkspaceState`/`AppModel` have React-free tests.
+- `@overstory/working-tree` and `CanopyWorkingTree` pass the same fixture; `WorkspaceState`/`AppModel` have React-free tests.
 - Every surface in [surfaces.md](surfaces.md) marked B1/B2/B3 is implemented with the listed labels, states and actions, and every item marked *not ported* is absent by decision, not omission.
 - `POST /v1/me`, `POST /v1/local/forget`, `GET /v1/resolve` and filesystem-path byte serving are gone with their callers; `POST /v1/bootstrap/accounts` remains.
 - Docs and `status.md` describe the browser as the third working-tree client; the superseded plans are deleted (git history) and this plan carries their pointers.

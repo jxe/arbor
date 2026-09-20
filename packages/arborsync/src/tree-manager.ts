@@ -1,16 +1,7 @@
 import { mkdir, realpath, rename, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import { canonicalNodePath, type Diagnostic, type Hash, type LocalTreeDescriptor } from "@arbor/core";
-import {
-  AmbiguousWorkspaceIdentityError,
-  arborPrivateRoot,
-  loadTreeRegistry,
-  workspaceIdentity,
-  type TreePlacement,
-  watchTreeRegistry,
-  type SharedTreePlacement,
-  savePlacementSyncMetadata,
-} from "@arbor/stores";
+import { canonicalNodePath, type Diagnostic, type Hash, type LocalTreeDescriptor, AmbiguousWorkspaceIdentityError, arborPrivateRoot, workspaceIdentity } from "@overstory/protocol";
+import { loadTreeRegistry, type TreePlacement, watchTreeRegistry, type SharedTreePlacement, savePlacementSyncMetadata } from "./state/index.ts";
 import type { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
 import { Workspace, type WorkspaceOptions } from "./workspace.ts";

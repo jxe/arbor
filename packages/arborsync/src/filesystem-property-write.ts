@@ -5,14 +5,10 @@ import type {
   NodeRef,
   NodeResponse,
   NodeWriteRequest,
-} from "@arbor/core";
-import { stableJSONString, isPageID, parseCanonicalStableKey } from "@arbor/core";
-import { replaceFrontmatter } from "@arbor/editor";
-import type { FsWriteResult, WorkspaceFS } from "@arbor/fs";
-import {
-  ProjectionProviderError,
-  type ProjectionWriteTarget,
-} from "@arbor/stores";
+} from "@overstory/protocol";
+import { stableJSONString, isPageID, parseCanonicalStableKey, replaceFrontmatter } from "@overstory/protocol";
+import type { FsWriteResult, WorkspaceFS } from "@overstory/fs";
+import { ProjectionProviderError, type ProjectionWriteTarget } from "@overstory/apps-runtime/collections";
 import type { NodeProviderRouter } from "./node-provider-router.ts";
 import { expandedNodeProperties, type ExpandedNode } from "./node-sampling.ts";
 import { changedPropertyNames } from "./property-changes.ts";

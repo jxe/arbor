@@ -4,7 +4,7 @@ This records the completed tool-only scope of
 Reliability 013 (completed plan, deleted; see git history).
 It runs in `codex/merge-tool`; it is not deployed. Canopy integration is described in the [authority checkpoint](merge-authority-integration.md);
 future retention extensions remain in [009](../plans/canopy/009-canopy-provenance-merges.md), and editor capture is
-[008](../plans/native/008-complete-native-move-copy-undo-capture.md). No public Wire or client
+[008](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md). No public Wire or client
 state-machine change accompanies this implementation.
 
 ## One evaluator
@@ -99,14 +99,14 @@ forward instead of re-deriving it, and checks each frame's root as it goes.
 Its decline reasons are unchanged except for a new reason 8, a trace that does
 not start at the request's basis.
 
-`packages/canopy/src/updates/source-edits.ts` exposes the same shape for exact
+`packages/canopyd/src/updates/source-edits.ts` exposes the same shape for exact
 source execution: `validateSourceTrace` runs the per-frame candidate check with
 each frame's generated objects available to the next, and `composeFrames`
 collapses a chain of plain edits into one frame, proving the composition by
 executing it. The rule is the one both clients apply when they compact a trace
 (plan 010 Phase 3): every operation must be a lineage-free `editSource` over
 `basis` material with a range; per path, the generations compose through
-`composeSourceEdits` in `@arbor/core`, which needs no intermediate bytes
+`composeSourceEdits` in `@overstory/protocol`, which needs no intermediate bytes
 because it models the original as copied ranges and inserted text; the
 composed operations are keyed `edit-0-<i>` in output order and name each
 path's object in the first frame; and a plain chain that ends at the root it
@@ -269,7 +269,7 @@ history maps as read-through views:
 
 A base that is not editable takes the complete scan once; its result is
 editable from then on. The outcome is identical either way:
-`tests/unit/merge/lazy-history.test.ts` compares every accepted result, decision
+`tests/unit/canopyd-merge/lazy-history.test.ts` compares every accepted result, decision
 and operation list against an eager reference that reads and re-enforces all
 history (`mergeIntent(..., { eager: true })`). Authority validation in Canopy
 still reads whole states; making it lazy is Phase 5 of plan 010.

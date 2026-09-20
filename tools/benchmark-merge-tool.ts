@@ -1,6 +1,6 @@
 /** Disposable, repeatable rule workload; never opens Canopy data. */
 import { performance } from "node:perf_hooks";
-import { Fixture } from "../tests/unit/merge/fixture.ts";
+import { Fixture } from "../tests/unit/canopyd-merge/fixture.ts";
 const f = new Fixture(),
   source = "one two\n".repeat(8192),
   base = f.tree({ "large.txt": source });
@@ -52,7 +52,7 @@ console.log(
 
 // Parser initialization and repeated policy evaluation are measured separately.
 const { evaluateFormat } = await import(
-  "../packages/merge/src/format-rules.ts"
+  "../packages/canopyd-merge/src/format-rules.ts"
 );
 const encoder = new TextEncoder();
 for (const [path, source] of [

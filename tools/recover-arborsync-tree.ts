@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { accountWireClient } from "@arbor/canopy-client";
-import { decodeSnapshotBundle, encodeSnapshotBundle, type ObjectHash, type TreeSnapshot } from "@arbor/wire";
+import { accountWireClient } from "@overstory/client";
+import { decodeSnapshotBundle, encodeSnapshotBundle, type ObjectHash, type TreeSnapshot } from "@overstory/protocol";
 import {
   decodeAdmissionBasis,
   assertUnchangedCanopy,

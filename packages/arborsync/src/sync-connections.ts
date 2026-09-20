@@ -1,5 +1,6 @@
-import { accountWireClient, type AccountSelector, type AccountWireClient } from "@arbor/canopy-client";
-import { CanopyAccountStore, CommunityConfigStore, type SharedTreePlacement } from "@arbor/stores";
+import { accountWireClient, type AccountSelector, type AccountWireClient } from "@overstory/client";
+import { CanopyAccountStore, CommunityConfigStore } from "@overstory/protocol";
+import { type SharedTreePlacement } from "./state/index.ts";
 
 /** The sync engine selects connections; it never administers accounts. */
 export interface SyncConnections {

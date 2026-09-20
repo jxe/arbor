@@ -1,9 +1,10 @@
 {
-  "name": "@arbor/object-store",
+  "name": "@overstory/object-store",
   "version": "0.1.0",
+  "description": "Content-addressed on-disk store for Overstory protocol objects.",
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@arbor/wire": "workspace:*"
+    "@overstory/protocol": "workspace:*"
   }
 }

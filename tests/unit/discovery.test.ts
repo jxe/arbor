@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { discoverWorkspace, WorkspaceFS } from "@arbor/fs";
+import { discoverWorkspace, WorkspaceFS } from "@overstory/fs";
 
 const temporaryPaths: string[] = [];
 

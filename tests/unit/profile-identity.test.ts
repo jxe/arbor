@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { accountChallengeBytes, isPersonProfileTreeID, personProfileTreeID } from "@arbor/core";
+import { accountChallengeBytes, isPersonProfileTreeID, personProfileTreeID } from "@overstory/protocol";
 
 const ZERO_KEY_PROFILE = "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq";
 

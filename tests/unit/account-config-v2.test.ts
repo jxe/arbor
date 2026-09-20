@@ -2,17 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  accountCheckoutPath,
-  clearRehomeTransaction,
-  loadTreeRegistry,
-  parseAccountDevicesConfiguration,
-  parseCanopyAccountConfiguration,
-  parseHostedTreesConfiguration,
-  parseLocalPlacements,
-  saveCurrentAccountDeviceID,
-  saveRehomeTransaction,
-} from "@arbor/stores";
+import { accountCheckoutPath, parseAccountDevicesConfiguration, parseCanopyAccountConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID } from "@overstory/protocol";
+import { clearRehomeTransaction, loadTreeRegistry, parseLocalPlacements, saveRehomeTransaction } from "@overstory/arborsync/state";
 
 const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const tree = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb";

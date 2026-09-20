@@ -1,9 +1,7 @@
-import { encodeSSEFrame } from "@arbor/core";
-import { currentDeviceID } from "@arbor/stores";
+import { encodeSSEFrame, currentDeviceID, ProtocolError } from "@overstory/protocol";
 import { ResyncRequiredError } from "./events.ts";
 import type { ArborSyncDaemon } from "./service.ts";
 import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
-import { ProtocolError } from "@arbor/core";
 import { json, errorResponse } from "./http.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -116,7 +114,7 @@ export function syncHandler(service: SyncHTTPService, options: {
       if (typeof body.tree !== "string" || typeof body.identity !== "string" || !isRecord(body.resolutions)) {
         throw new ProtocolError("invalid-request", "Conflict resolution requires tree, identity, and resolutions", 400);
       }
-      const resolutions: Record<string, import("@arbor/core").SyncConflictResolution> = {};
+      const resolutions: Record<string, import("@overstory/protocol").SyncConflictResolution> = {};
       for (const [path, value] of Object.entries(body.resolutions)) {
         if (!isRecord(value) || typeof value.choice !== "string") {
           throw new ProtocolError("invalid-request", `Invalid conflict resolution for ${path}`, 400);

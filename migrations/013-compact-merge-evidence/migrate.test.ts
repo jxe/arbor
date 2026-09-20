@@ -3,12 +3,11 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeWireDirectory, hashObject, type ObjectHash } from "@arbor/wire";
-import { stableJSONString } from "@arbor/core";
-import { createCanopySchema, AUTHORITY_SCHEMA } from "../../packages/canopy/src/schema.ts";
-import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
-import { retentionAudit } from "../../packages/merge/src/retention.ts";
-import { loadIntentState, storeIntentState } from "../../packages/merge/src/state-storage.ts";
+import { encodeWireDirectory, hashObject, type ObjectHash, stableJSONString } from "@overstory/protocol";
+import { createCanopySchema, AUTHORITY_SCHEMA } from "../../packages/canopyd/src/schema.ts";
+import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
+import { retentionAudit } from "../../packages/canopyd-merge/src/retention.ts";
+import { loadIntentState, storeIntentState } from "../../packages/canopyd-merge/src/state-storage.ts";
 import { migrateCompactMergeEvidence } from "./run.ts";
 
 const encoder = new TextEncoder();

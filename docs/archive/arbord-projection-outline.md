@@ -12,7 +12,7 @@ That preserves one persistence authority without making the REST response itself
 
 ## 1. Lock the shared contract first
 
-In [packages/core/src/protocol.ts](/Users/joe/src/arbor/packages/core/src/protocol.ts) and [packages/core/src/types.ts](/Users/joe/src/arbor/packages/core/src/types.ts):
+In [packages/protocol/src/model/protocol.ts](/Users/joe/src/arbor/packages/protocol/src/model/protocol.ts) and [packages/protocol/src/model/types.ts](/Users/joe/src/arbor/packages/protocol/src/model/types.ts):
 
 - Add document-body state to `NodeSnapshot`, at minimum:
   - `stored`
@@ -45,7 +45,7 @@ Keep this projection out of the REST `NodeSnapshot.document`.
 
 ## 2. Build one pure projection and URL layer
 
-Refactor the then-current `packages/core/src/structural-rows.ts` into two related pure facilities:
+Refactor the then-current `packages/protocol/src/model/structural-rows.ts` into two related pure facilities:
 
 ### Logical URL resolution
 
@@ -61,7 +61,7 @@ One resolver should handle:
 
 Every Markdown document gets the same implicit directory-like base, regardless of whether it is currently a leaf, a directory, or backed by `_index.md`.
 
-This replaces both the current `resolveStructuralRowPath()` implementation and the separate directory-versus-leaf link rule in [PageEditor.tsx](/Users/joe/src/arbor/packages/render/src/PageEditor.tsx). Note this is mostly net-new capability, not a refactor: both current code paths reject `#`-prefixed and scheme-bearing hrefs outright, so the `#PageID`, `arbor://`, and compatibility branches have no existing implementation to migrate.
+This replaces both the current `resolveStructuralRowPath()` implementation and the separate directory-versus-leaf link rule in [PageEditor.tsx](/Users/joe/src/arbor/packages/canopy-web/src/PageEditor.tsx). Note this is mostly net-new capability, not a refactor: both current code paths reject `#`-prefixed and scheme-bearing hrefs outright, so the `#PageID`, `arbor://`, and compatibility branches have no existing implementation to migrate.
 
 ### Directory projection
 
@@ -165,8 +165,8 @@ In [packages/client/src/index.ts](/Users/joe/src/arbor/packages/client/src/index
 
 Mirror this in:
 
-- [Protocol.swift](/Users/joe/src/arbor/native/Packages/ArborClient/Sources/ArborClient/Protocol.swift)
-- the then-current `native/Packages/ArborClient/Sources/ArborClient/ArborClient.swift`
+- [Protocol.swift](/Users/joe/src/arbor/canopy-swift/Packages/ArborClient/Sources/ArborClient/Protocol.swift)
+- the then-current `canopy-swift/Packages/ArborClient/Sources/ArborClient/ArborClient.swift`
 
 Specific cleanup:
 
@@ -179,7 +179,7 @@ Both clients must produce structurally identical projection results from shared 
 
 ## 6. Simplify ArborNote around the projected view
 
-The main cutover is in [PageEditor.tsx](/Users/joe/src/arbor/packages/render/src/PageEditor.tsx).
+The main cutover is in [PageEditor.tsx](/Users/joe/src/arbor/packages/canopy-web/src/PageEditor.tsx).
 
 Remove its local projection code:
 
@@ -208,7 +208,7 @@ Authored standalone links remain Markdown. Synthetic rows never become Markdown 
 
 ## 7. Fix navigation and source view
 
-In [PageEditor.tsx](/Users/joe/src/arbor/packages/render/src/PageEditor.tsx) and [App.tsx](/Users/joe/src/arbor/packages/render/src/App.tsx):
+In [PageEditor.tsx](/Users/joe/src/arbor/packages/canopy-web/src/PageEditor.tsx) and [App.tsx](/Users/joe/src/arbor/packages/canopy-web/src/App.tsx):
 
 - Navigate using `NodeRef`/resolved targets rather than discarding IDs into a path string.
 - Use the shared logical URL resolver.

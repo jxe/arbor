@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { arbor, compileQuery, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "arbor/data";
+import { arbor, compileQuery, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "overstory/data";
 
 const repository = join(import.meta.dir, "..", "..");
 const supplies = join(repository, "examples", "supplies");

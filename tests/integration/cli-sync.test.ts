@@ -1,15 +1,14 @@
-import { CommunityConfigStore } from "@arbor/stores";
+import { CommunityConfigStore, CanopyAccountStore, loadCanopyAccountConfigurations, generateArborID } from "@overstory/protocol";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon, EventBus, TreeManager } from "@arbor/arborsync";
-import { serveArborSyncControl } from "@arbor/arborsync";
-import { serveCanopy } from "@arbor/canopy";
-import { ArborSyncRESTClient } from "@arbor/arborsync-client";
-import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
-import { generateArborID } from "@arbor/core";
+import { ArborSyncDaemon, EventBus, TreeManager } from "@overstory/arborsync";
+import { serveArborSyncControl } from "@overstory/arborsync";
+import { serveCanopy } from "@overstory/canopyd";
+import { ArborSyncRESTClient } from "@overstory/arborsync-client";
+import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import { parseDocument } from "yaml";
 
 let sandbox: string;
@@ -80,7 +79,7 @@ async function arborFailure(args: string[]): Promise<string> {
 }
 
 async function canopyFailure(args: string[], env: Record<string, string>): Promise<string> {
-  const process = Bun.spawn(["bun", "packages/canopy/src/cli.ts", ...args], {
+  const process = Bun.spawn(["bun", "packages/canopyd/src/cli.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
     env: { ...Bun.env, ...env },
     stdout: "pipe",
@@ -412,7 +411,7 @@ describe("Canopy deployment guards", () => {
 });
 
 test("CLI sharing edits preserve unrelated granular and executable resource grants", async () => {
-  const { resourceRuleFromLegacy } = await import("@arbor/stores");
+  const { resourceRuleFromLegacy } = await import("@overstory/protocol");
   const path = await source("resource-policy-cli", "# Resource policy\n");
   const canonical = `${firstCanopy.url}/~alice/resource-policy-cli`;
   await arbor(["place", path, canonical]);

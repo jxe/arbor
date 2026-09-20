@@ -1,5 +1,5 @@
-import type { ArborErrorCode, ArborError } from "@arbor/core";
-import { ProtocolError } from "@arbor/core";
+import type { ArborErrorCode, ArborError } from "@overstory/protocol";
+import { ProtocolError } from "@overstory/protocol";
 
 export function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });

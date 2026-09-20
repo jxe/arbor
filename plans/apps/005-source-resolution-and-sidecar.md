@@ -16,9 +16,9 @@ React hosting is the next bridge gate, not a prerequisite to headless extraction
 
 ## Current seams to inspect
 
-`packages/canopy/src/host.ts` injects `QueryStreamRuntime` and `MutationCallRuntime`
+`packages/canopyd/src/host.ts` injects `QueryStreamRuntime` and `MutationCallRuntime`
 from core protocol. Existing evaluator, observer, SQLite and mutation machinery
-lives in `packages/data/src/{host,node-query,live,live-stream,observer,sqlite,mutation,authoring}.ts`.
+lives in `packages/apps-runtime/src/{host,node-query,live,live-stream,observer,sqlite,mutation,authoring}.ts`.
 Read `tests/integration/query-stream-api.test.ts`, `data-live-query.test.ts`,
 `generic-node-query.test.ts`, and `supplies-mutations.test.ts` before extraction.
 Inspect node/provider resolution, source binding checks and ordinary Canopy object,
@@ -53,7 +53,7 @@ the execution token; consent UI performs the same read as the grantor. Fetch
 private schemas/data separately under current authority. No paths, DSNs, raw
 SQLite or private schema reach browser responses.
 
-Replace the filesystem-based `resolveArborSource` in `packages/data/src/schema.ts`
+Replace the filesystem-based `resolveArborSource` in `packages/apps-runtime/src/schema.ts`
 with logical resolution over retained objects. Add trusted provider-descriptor
 publication/configuration for opaque SQLite bindings in sidecar host configuration;
 validate schema ownership and invalidate on change. Bindings convey no authority.

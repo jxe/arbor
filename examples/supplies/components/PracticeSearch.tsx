@@ -1,6 +1,6 @@
 import { useState } from "react"
-import { skipQuery, useQuery } from "arbor/react"
-import { arbor, query } from "arbor/data"
+import { skipQuery, useQuery } from "overstory/react"
+import { arbor, query } from "overstory/data"
 import { z } from "zod"
 import { PracticeGrid, TextInput } from "./shared"
 

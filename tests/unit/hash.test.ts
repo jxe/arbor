@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { sha256, revisionOf } from "@arbor/core";
+import { sha256, revisionOf } from "@overstory/protocol";
 import { sha256 as portable } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 

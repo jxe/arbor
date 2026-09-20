@@ -34,7 +34,7 @@ and conflict inspection. No temporary content was written into the user's trees.
 The installed Native source-emission switch is still off. Complete interleaved
 structural and stale-source admission across open documents, including pending
 creation preservation, and the remaining emitted-form/recovery checks in
-[008](../plans/native/008-complete-native-move-copy-undo-capture.md). Then enable and release
+[008](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md). Then enable and release
 clients, verify real application behavior and durable state, and remove the legacy
 rejected-update recovery paths and UI. Do not infer multi-document branch coverage
 from the existing linear mixed-queue test. Storage redesign remains deferred.

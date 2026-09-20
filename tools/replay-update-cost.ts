@@ -6,10 +6,10 @@
  */
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { decodeWireDirectory, encodeWireDirectory, hashObject, type WireDirectoryEntry } from "@arbor/wire";
+import { decodeWireDirectory, encodeWireDirectory, hashObject, type WireDirectoryEntry } from "@overstory/protocol";
 import { ObjectStore } from "../packages/object-store/src/index.ts";
-import { MergeTool } from "../packages/canopy/src/merge-tool.ts";
-import type { IntentRequestInput } from "../packages/merge/src/intent-model.ts";
+import { MergeTool } from "../packages/canopyd/src/merge-tool.ts";
+import type { IntentRequestInput } from "../packages/canopyd-merge/src/intent-model.ts";
 
 const [dataRoot, treeArg] = process.argv.slice(2);
 if (!dataRoot) throw new Error("usage: replay-update-cost.ts <copied-data-root> [tree-id]");

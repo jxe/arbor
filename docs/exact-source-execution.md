@@ -1,7 +1,7 @@
 # Exact source execution foundation
 
 Source-built Canopy accepts the first exact-basis `editSource` subset. The pure
-executor and candidate validator in `packages/canopy/src/updates/source-edits.ts`
+executor and candidate validator in `packages/canopyd/src/updates/source-edits.ts`
 are connected to acceptance and atomic provenance storage. The server is deployed with schema 11; installed clients still emit snapshots.
 
 ## Implemented
@@ -111,7 +111,7 @@ cases, then deploy and verify server support before editor emission. The current
 migration 009 (migration 009, deleted after cutover; see git history) also covers
 older provenance storage. No coordinated client cutover is needed.
 
-The [operation plan](../plans/native/008-complete-native-move-copy-undo-capture.md) owns this
+The [operation plan](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md) owns this
 remaining work. The old experiment remains useful for causal runs and arrival-order
 cases, but its earlier reference vocabulary must not be promoted unchanged.
 

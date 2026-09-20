@@ -24,7 +24,7 @@ representation yet. Exact range operations and all their contribution identities
 remain retained, so this fallback does not reduce authored intent to a snapshot.
 
 The next representation step is implemented separately in
-`packages/canopy/src/updates/source-regions.ts`: a pure, same-basis partition and
+`packages/canopyd/src/updates/source-regions.ts`: a pure, same-basis partition and
 projection function. It groups connected overlapping operations into source
 regions, retains each change's exact regional text and operation identities, and
 allows independent choices within one file. Untouched bytes come from the immutable

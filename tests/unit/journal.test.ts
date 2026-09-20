@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseMarkdown } from "@arbor/editor";
-import { WriteJournal } from "@arbor/arborsync";
-import { MutationJournal } from "@arbor/fs";
+import { parseMarkdown } from "@overstory/protocol";
+import { WriteJournal } from "@overstory/arborsync";
+import { MutationJournal } from "@overstory/fs";
 
 const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))));

@@ -1,9 +1,10 @@
 {
-  "name": "@arbor/arborsync-client",
+  "name": "@overstory/arborsync-client",
   "version": "0.1.0",
+  "description": "TypeScript REST and SSE client for the Arbor Sync daemon API.",
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@arbor/core": "workspace:*"
+    "@overstory/protocol": "workspace:*"
   }
 }

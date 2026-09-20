@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { canonicalStableKey, rowPathSegment, stableKeyFromProperties } from "@arbor/core/node-key";
+import { canonicalStableKey, rowPathSegment, stableKeyFromProperties } from "@overstory/protocol/node-key";
 import {
   decodeChildrenPage,
   decodeIdentityRule,
   decodeNodeCapabilities,
   decodeNodeSnapshot,
   decodeCollectionFileDescriptor,
-} from "@arbor/core/node-model";
+} from "@overstory/protocol/node-model";
 
 const conformance = join(import.meta.dir, "../../conformance");
 
@@ -105,7 +105,7 @@ describe("unified node-model conformance", () => {
   });
 
   test("freezes tree-scoped query and mutate endpoint names", async () => {
-    const endpoints = JSON.parse(await readFile(join(conformance, "wire-endpoints.json"), "utf8")) as {
+    const endpoints = JSON.parse(await readFile(join(conformance, "protocol-endpoints.json"), "utf8")) as {
       version: number;
       cases: Array<{ name: string; request: { method: string; path: string } }>;
     };

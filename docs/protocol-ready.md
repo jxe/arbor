@@ -20,17 +20,17 @@ There is one current Wire request shape and digest contract. The singular reques
 
 ## Remaining milestones
 
-- [008: operation execution and editor emission](../plans/native/008-complete-native-move-copy-undo-capture.md), enabled one operation family at a time.
+- [008: operation execution and editor emission](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md), enabled one operation family at a time.
 - [009: Canopy correspondence, provenance, and accepted conflicts](../plans/canopy/009-canopy-provenance-merges.md).
-- [010: contextual conflict review](../plans/native/010-client-conflict-review.md), including stale-review and crash safety.
+- [010: contextual conflict review](../plans/canopy-swift/010-client-conflict-review.md), including stale-review and crash safety.
 
 Cross-language fixtures live in `conformance/wire-operations.json` and `conformance/wire-update-intent.json`. The semantic examples are grammar/digest vectors; they do not assert that their effects execute today. `status.md` remains authoritative for the implemented subset.
 
 ## Verification, 2026-09-13
 
 - `bun run typecheck`, `bun run build`, and `bun run test:performance` passed. The performance fixture exercised 50,000 files.
-- `bun run test:protocol` passed, including shared operation/digest vectors, disposable live Canopy/Arbor Sync tests, and the newly included ArborWorkingTree suite (56 tests). The Wire tests verify the actual streamed HTTP request body on retries and unsupported-operation rejection.
-- `swift test --package-path native/Packages/ArborSyncClient` passed separately (14 tests).
+- `bun run test:protocol` passed, including shared operation/digest vectors, disposable live Canopy/Arbor Sync tests, and the newly included CanopyWorkingTree suite (56 tests). The Wire tests verify the actual streamed HTTP request body on retries and unsupported-operation rejection.
+- `swift test --package-path canopy-swift/Packages/ArborSyncClient` passed separately (14 tests).
 - `bun run test`: 458 passed; one previously reproduced baseline failure remains in `tests/integration/child-provider.test.ts:84` (`One` expected, `one` returned). No new product failures remain.
 - Repository Markdown validation checked 697 relative links in 163 files: no newly broken links; 11 existing broken historical/fixture links remain. `git diff --check` passed.
 - Focused coverage includes whole-batch rejection before a valid prefix or activation; persistence of operation-bearing requests and snapshot successors; adopted operations surviving native restart at equal roots; changed durable request bases failing closed; and accepted-update CAS at unchanged roots.

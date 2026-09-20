@@ -2,15 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon, serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient } from "@arbor/arborsync-client";
+import { ArborSyncDaemon, serveArborSync } from "@overstory/arborsync";
+import { ArborSyncRESTClient } from "@overstory/arborsync-client";
 import { Database } from "bun:sqlite";
-import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
-import { serveCanopy } from "@arbor/canopy";
-import { canonicalArborLocator, generateArborID, sha256 } from "@arbor/core";
-import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireDirectory, encodeWireDirectory, hashObject, WireClient } from "@arbor/wire";
-import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
+import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
+import { serveCanopy } from "@overstory/canopyd";
+import { canonicalArborLocator, generateArborID, sha256, CommunityConfigStore, saveCurrentDeviceID, type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireDirectory, encodeWireDirectory, hashObject, WireClient } from "@overstory/protocol";
+import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopyd/src/account-policy.ts";
 import {
   appendPendingTreeSuccessor,
   pendingFromSnapshot,
@@ -18,8 +16,8 @@ import {
   savePendingTreeUpdate,
   treeConflict,
   updatesFromPending,
-} from "@arbor/canopy-client";
-import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
+} from "@overstory/client";
+import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 const token = "self-sync-owner";
 let sandbox: string;

@@ -1,31 +1,12 @@
 #!/usr/bin/env bun
-import { resourceRuleFromLegacy } from "@arbor/stores";
+import { resourceRuleFromLegacy, canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey, accountCheckoutPath, editAccountConfigurationFile, CanopyAccountStore, arborDataRoot, loadCanopyAccountConfigurations, parseAccountDevicesConfiguration, parseHostedTreesConfiguration, saveCurrentAccountDeviceID, type CanopyAccountConfigurationSnapshot, WireClient } from "@overstory/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { resolveUserPath } from "@arbor/arborsync";
-import { runArborSyncDaemon } from "@arbor/arborsync/cli";
-import { ArborSyncRESTClient } from "@arbor/arborsync-client";
-import { canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256, resourceRuleKey } from "@arbor/core";
-import { materializeTree, snapshotDirectory } from "@arbor/fs";
-import {
-  addLocalPlacement,
-  accountCheckoutPath,
-  editAccountConfigurationFile,
-  CanopyAccountStore,
-  arborDataRoot,
-  clearRehomeTransaction,
-  listLocalAccounts,
-  loadCanopyAccountConfigurations,
-  loadLocalPlacements,
-  parseAccountDevicesConfiguration,
-  parseHostedTreesConfiguration,
-  ProfileIdentityStore,
-  replaceLocalPlacement,
-  saveCurrentAccountDeviceID,
-  saveRehomeTransaction,
-  type CanopyAccountConfigurationSnapshot,
-} from "@arbor/stores";
-import { WireClient } from "@arbor/wire";
+import { resolveUserPath } from "@overstory/arborsync";
+import { runArborSyncDaemon } from "@overstory/arborsync/cli";
+import { ArborSyncRESTClient } from "@overstory/arborsync-client";
+import { materializeTree, snapshotDirectory } from "@overstory/fs";
+import { addLocalPlacement, clearRehomeTransaction, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore, replaceLocalPlacement, saveRehomeTransaction } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 import {
@@ -597,7 +578,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
   });
 }
 
-async function accessRulesFor(client: WireClient, audience: ShareAudience): Promise<import("@arbor/core").AccessRule[]> {
+async function accessRulesFor(client: WireClient, audience: ShareAudience): Promise<import("@overstory/protocol").AccessRule[]> {
   const raw = audience.kind === "private" ? [] : audience.kind === "everyone"
     ? [{ subject: { kind: "everyone" as const }, access: audience.access }]
     : audience.kind === "profile"

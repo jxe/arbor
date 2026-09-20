@@ -1,0 +1,13 @@
+{
+  "name": "@overstory/canopyd",
+  "version": "0.1.0",
+  "description": "The reference Overstory host: hosted trees, communities and accounts, update acceptance, public pages, and the canopyd command.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@overstory/protocol": "workspace:*",
+    "@overstory/apps-runtime": "workspace:*",
+    "@overstory/canopyd-merge": "workspace:*",
+    "@overstory/object-store": "workspace:*"
+  }
+}

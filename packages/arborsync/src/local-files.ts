@@ -1,9 +1,8 @@
 import { realpath } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { canonicalNodePath, normalizeTreePath, siblingMarkdownTreePath, type NodeRef } from "@arbor/core";
+import { canonicalNodePath, normalizeTreePath, siblingMarkdownTreePath, type NodeRef, ProtocolError } from "@overstory/protocol";
 import type { TreeManager } from "./tree-manager.ts";
 import type { Workspace } from "./workspace.ts";
-import { ProtocolError } from "@arbor/core";
 
 /** A logical path inside one placed or session workspace. */
 interface ResolvedScope {

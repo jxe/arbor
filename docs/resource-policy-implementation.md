@@ -89,8 +89,8 @@ complete; retain its backups and keep Apps 004 active through observation and so
 
 Checked with repository-required Bun 1.3.14 (the machine default Bun canary crashed
 in parallel tests). TypeScript checking and CLI build pass. Shared protocol checking
-passes with the documented local Quagmire editable override, including ArborWire,
-ArborSyncClient, ArborKit, CanopyClient, ArborWorkingTree and live admission tests.
+passes with the documented local Quagmire editable override, including Overstory,
+ArborSyncClient, CanopyAppKit, OverstoryClient, CanopyWorkingTree and live admission tests.
 Migration 011 has three passing synthetic tests. Added tests cover restrictive
 acceptance/restart/exact resolution, policy-only deletion and re-addition, metadata
 privacy, Native consent/review/edit preservation, and legacy-only merge stability.

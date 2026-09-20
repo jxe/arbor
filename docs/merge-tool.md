@@ -1,6 +1,6 @@
 # Merge executable and shared objects
 
-The reference implementation has a TypeScript merge package, `@arbor/merge`, and
+The reference implementation has a TypeScript merge package, `@overstory/canopyd-merge`, and
 an `arbor-merge` executable script run by Bun. It is on main and deployed to
 `arb.nxhx.org`. The authority integration adds schema 12 ownership records; it does not change
 object layout, public Wire, or require a client cutover. See the
@@ -34,7 +34,7 @@ cleanup; queued successors can start a replacement. Canopy shutdown drains the
 active job, rejects queued work, and closes its worker. Custom executables retain
 one-shot mode unless `persistent: true` is explicitly configured.
 
-The [typed and validated contract](../packages/merge/src/contract.ts) is the
+The [typed and validated contract](../packages/canopyd-merge/src/contract.ts) is the
 source of truth. For example, a tree merge takes these fields (replace abbreviated
 hashes with actual SHA-256 object hashes):
 
@@ -123,7 +123,7 @@ remaining limits](canopy-update-performance.md#structural-diagnosis-and-fixes).
 
 ## Objects, authority and failure
 
-`@arbor/object-store` provides immutable, hash-sharded storage. Reads verify
+`@overstory/object-store` provides immutable, hash-sharded storage. Reads verify
 hashes. Durable writes flush files and atomically link them into place;
 disposable staging uses atomic publication without fsync. A merge job reads
 shared storage first, falling back to staging only when an object is absent.
@@ -181,7 +181,7 @@ v1/v2 merging. The [operation evaluator](merge-operation-evaluation.md) adds exa
 ## Verification
 
 ```sh
-bun test tests/integration/merge tests/unit/canopy/update-merge.test.ts tests/unit/canopy/source-reconciliation.test.ts
+bun test tests/integration/merge tests/unit/canopyd/update-merge.test.ts tests/unit/canopyd/source-reconciliation.test.ts
 bun run typecheck
 bun run test
 bun run test:protocol

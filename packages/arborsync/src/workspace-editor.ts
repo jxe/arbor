@@ -12,7 +12,7 @@ import type {
   StructuralWorkspaceOperation,
   TreeID,
   WorkspaceOperation,
-} from "@arbor/core";
+} from "@overstory/protocol";
 import {
   applySourceEdits,
   canonicalNodePath,
@@ -23,8 +23,8 @@ import {
   rewriteLocalLinkPath,
   sha256,
   stableJSONString,
-} from "@arbor/core";
-import { mintPageID, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
+} from "@overstory/protocol";
+import { mintPageID, patchFrontmatter, serializeMarkdown, ProtocolError } from "@overstory/protocol";
 import {
   FsConflictError,
   FsInjectedCrashError,
@@ -33,11 +33,8 @@ import {
   MutationJournal,
   type WorkspaceDiscovery,
   WorkspaceFS,
-} from "@arbor/fs";
-import {
-  ProjectionProviderError,
-  type ProjectionWriteTarget,
-} from "@arbor/stores";
+} from "@overstory/fs";
+import { ProjectionProviderError, type ProjectionWriteTarget } from "@overstory/apps-runtime/collections";
 import { basename, join, posix } from "node:path";
 import { EventBus } from "./events.ts";
 import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
@@ -45,7 +42,6 @@ import { writeFilesystemProperties } from "./filesystem-property-write.ts";
 import { generateTreeTypes, generatedTypeDeclarationPath } from "./generated-types.ts";
 import { NodeProviderRouter } from "./node-provider-router.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
-import { ProtocolError } from "@arbor/core";
 import { RevisionConflictError } from "./node-sampling.ts";
 
 export interface ConfirmedSourcePatch {

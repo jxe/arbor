@@ -57,12 +57,12 @@ and the `~row-` segment rule.
 
 ## Work once decided
 
-- Parsers: `packages/core/src/logical-url.ts` and
-  `native/Packages/ArborKit/Sources/ArborKit/LogicalURL.swift` change together;
+- Parsers: `packages/protocol/src/model/logical-url.ts` and
+  `canopy-swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift` change together;
   `conformance/url-resolution.json` is the shared contract and gains a case per surface.
 - Renderers: the Markdown alias translation in `arbor/react`'s `Markdown`, the HTTP
   projection redirect rule (locators §6), and link healing in arborsync all read the table.
-- Row segments: `rowPathSegment` in `packages/stores` and its Swift replica counterpart.
+- Row segments: `rowPathSegment` in `packages/protocol` and its Swift replica counterpart.
 - Spec: the table replaces the prose in 03 §Stable keys and the alias paragraphs in 02;
   06 §Row identity references the table instead of restating the `~row-` rule.
 

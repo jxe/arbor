@@ -48,9 +48,9 @@ the implicit conversion of ordinary content fragments into identity lookups.
 1. Give the Markdown representation/provider boundary one explicit identity
    codec for converting between an authored Markdown document ID and Arbor's
    canonical stable-key bytes. A likely home is
-   `packages/editor/src/markdown-identity.ts`; choose a comparably literal
+   `packages/protocol/src/documents/markdown-identity.ts`; choose a comparably literal
    provider-owned location if ownership has moved by execution time.
-2. Keep `@arbor/core` provider-neutral. Remove `pageIDStableKey` and
+2. Keep `@overstory/protocol` provider-neutral. Remove `pageIDStableKey` and
    `pageIDFromStableKey` only after every production caller uses the Markdown
    codec or generic stable-key operations.
 3. Key generic workspace owner maps, references, backlinks, and cross-tree
@@ -161,18 +161,18 @@ matrix is green.
 Refresh exact paths with `rg` before execution. Expected production surfaces
 include:
 
-- `packages/core/src/node-key.ts` and `packages/core/src/logical-url.ts`;
-- `packages/editor/src/directory-document.ts` plus the new Markdown identity
+- `packages/protocol/src/model/node-key.ts` and `packages/protocol/src/model/logical-url.ts`;
+- `packages/protocol/src/documents/directory-document.ts` plus the new Markdown identity
   codec;
-- `packages/wire-projection/src/projection.ts`;
-- `packages/render/src/PageEditor.tsx`;
-- `packages/stores/src/indexer.ts`;
+- `packages/canopyd/src/projection.ts`;
+- `packages/canopy-web/src/PageEditor.tsx`;
+- `packages/arborsync/src/state/indexer.ts`;
 - `packages/arborsync/src/workspace.ts`, `service.ts`, `node-sampling.ts`, and
   `filesystem-node-surface.ts`;
 - `packages/fs/src/discovery.ts` and `workspace-fs.ts`;
 - `packages/arborsync-client/src/index.ts`;
-- `native/Packages/ArborKit/Sources/ArborKit/LogicalURL.swift`;
-- `native/Packages/ArborWorkingTree/Sources/ArborWorkingTree/WorkingTreeSemantics.swift`;
+- `canopy-swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift`;
+- `canopy-swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/WorkingTreeSemantics.swift`;
 - shared conformance fixtures and focused TypeScript/Swift tests.
 
 Out of scope: changing TreeID, NodeRef, wire-object, row-key, or Markdown
@@ -196,15 +196,15 @@ Add explicit tests proving:
 Run focused suites first, then the complete matrix:
 
 ```sh
-bun test tests/unit/logical-url.test.ts tests/unit/directory-document.test.ts tests/unit/discovery.test.ts tests/integration/workspace.test.ts tests/integration/server.test.ts tests/integration/canopy/update-host.test.ts
+bun test tests/unit/logical-url.test.ts tests/unit/directory-document.test.ts tests/unit/discovery.test.ts tests/integration/workspace.test.ts tests/integration/server.test.ts tests/integration/canopyd/update-host.test.ts
 bun run typecheck
 bun run test:protocol
-swift test --package-path native/Packages/ArborSyncClient
-swift test --package-path native/Packages/ArborWorkingTree
+swift test --package-path canopy-swift/Packages/ArborSyncClient
+swift test --package-path canopy-swift/Packages/CanopyWorkingTree
 bun test
 bun run build
-xcodebuild build -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace native/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
+xcodebuild build -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 

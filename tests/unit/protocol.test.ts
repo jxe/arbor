@@ -5,13 +5,12 @@ import type {
   ArborError,
   SyncConflictWorkspace,
   WorkspaceEvent,
-} from "@arbor/core";
-import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit } from "@arbor/core";
-import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
-import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireDirectory, hashObject, updateRequestDigests } from "@arbor/wire";
-import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "@arbor/arborsync-client";
+} from "@overstory/protocol";
+import { applySourceEdits, canonicalArborLocator, canonicalHTTPURL, composeSourceEdits, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream, type PlainSourceEdit, WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeSparseSnapshotBundle, decodeUpdateRequestJSON, decodeWireDirectory, hashObject, updateRequestDigests } from "@overstory/protocol";
+import type { AccessEntry, RemoteTreeDescriptor, TreeDescriptor } from "@overstory/protocol";
+import type { ArborSyncStatus, TreeBootstrap, TreeCredential } from "@overstory/arborsync-client";
 
-// Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
+// Test-local checks mirroring Overstory's `WireTreeDescriptor.validated()` and
 // `WireSafeAccessSubject` decoding; the TypeScript packages export no descriptor
 // validator, so these only assert that the shared vectors are self-consistent.
 const TREE_KINDS = new Set(["ordinary", "account-configuration"]);
@@ -164,7 +163,7 @@ describe("REST v1 protocol fixtures", () => {
     }
   });
 
-  test("wire-values.json values decode and every invalid value is rejected", async () => {
+  test("protocol-values.json values decode and every invalid value is rejected", async () => {
     const values = await conformanceJSON<{
       valid: {
         treeDescriptor: TreeDescriptor;
@@ -175,7 +174,7 @@ describe("REST v1 protocol fixtures", () => {
         resolution: { ref: unknown; enclosingTree: TreeDescriptor; historical: boolean; observedThrough: string };
       };
       invalid: Array<{ name: string; value: unknown }>;
-    }>("wire-values.json");
+    }>("protocol-values.json");
     const { valid } = values;
     for (const descriptor of [valid.treeDescriptor, valid.remoteTreeDescriptor, valid.resolution.enclosingTree]) {
       validateTreeDescriptor(descriptor);
@@ -206,7 +205,7 @@ describe("REST v1 protocol fixtures", () => {
         request: { path?: string; body?: unknown; derivedRequestDigest?: string };
         response: { status: number; body?: Record<string, unknown>; bodyBase64?: string; frame?: string; headers?: Record<string, string>; contentType?: string };
       }>;
-    }>("wire-endpoints.json");
+    }>("protocol-endpoints.json");
     const wireErrors = await conformanceJSON<ArborError[]>("errors.json");
     const merges = JSON.parse(await readFile(join(canopyFixtures, "wire-merge.json"), "utf8")) as {
       version: number;
@@ -214,7 +213,7 @@ describe("REST v1 protocol fixtures", () => {
       pageMoveCases: Array<{ name: string }>;
       structuralCases: Array<{ name: string }>;
     };
-    const intents = await conformanceJSON<{ version: number; replayCases: Array<{ name: string }> }>("wire-update-intent.json");
+    const intents = await conformanceJSON<{ version: number; replayCases: Array<{ name: string }> }>("protocol-update-intent.json");
     expect([...registry.valid, ...registry.invalid, ...registry.behavior].map((item) => item.name)).toEqual(expect.arrayContaining([
       "flat-account-graph",
       "same-profile-second-canopy",
@@ -331,7 +330,7 @@ describe("canonical descriptor helpers", () => {
   });
 
   test("agree with the shared conformance vectors", async () => {
-    const values = await conformanceJSON<{ valid: { remoteTreeDescriptor: RemoteTreeDescriptor } }>("wire-values.json");
+    const values = await conformanceJSON<{ valid: { remoteTreeDescriptor: RemoteTreeDescriptor } }>("protocol-values.json");
     const canonical = values.valid.remoteTreeDescriptor.canonical!;
     expect(canonicalHTTPURL(canonical)).toBe("https://community.example/~joe");
     expect(canonicalArborLocator(canonical)).toBe("arbor://community.example/~joe");

@@ -6,9 +6,9 @@ import {
   parseResourceRules,
   rulesAllow,
   scopeContains,
-} from "@arbor/core";
-import { parseResourceConfiguration } from "../../packages/stores/src/resource-configuration.ts";
-import { ExecutionAuthority } from "../../packages/canopy/src/execution-authority.ts";
+} from "@overstory/protocol";
+import { parseResourceConfiguration } from "../../packages/protocol/src/config/resource-configuration.ts";
+import { ExecutionAuthority } from "../../packages/canopyd/src/execution-authority.ts";
 import fixtures from "../../conformance/resource-policy.json";
 
 describe("resource policy contract", () => {

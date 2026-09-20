@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { parseMarkdown } from "@arbor/editor";
+import { parseMarkdown } from "@overstory/protocol";
 
 /** The first non-empty H1 in a root `_index.md`, or its directory basename. */
 export async function rootDisplayName(root: string): Promise<string> {

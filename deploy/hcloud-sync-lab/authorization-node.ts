@@ -5,7 +5,7 @@ import {
   materializeTree,
   snapshotDirectory,
   WireClient,
-} from "../../packages/wire/src/index.ts";
+} from "../../packages/protocol/src/index.ts";
 
 type Role = "alice" | "bob" | "carol";
 

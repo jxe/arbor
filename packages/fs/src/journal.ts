@@ -1,8 +1,7 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { sha256, type ArborBlock, type MutationEffect, type MutationReceipt } from "@arbor/core";
-import { blockFingerprint, parseMarkdown, serializeBlocks } from "@arbor/editor";
-import { writeAtomic } from "./file-ops.ts";
+import { sha256, type ArborBlock, type MutationEffect, type MutationReceipt, blockFingerprint, parseMarkdown, serializeBlocks } from "@overstory/protocol";
+import { writeAtomic } from "@overstory/protocol/file-ops";
 
 export type JournalOperation = "add" | "observe" | "purge";
 

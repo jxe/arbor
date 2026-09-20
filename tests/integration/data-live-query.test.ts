@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { revisionOf, type QueryHandleRef, type QueryStreamEvent } from "@arbor/core";
+import { revisionOf, type QueryHandleRef, type QueryStreamEvent } from "@overstory/protocol";
 import {
   arbor,
   introspectStoreSchema,
@@ -14,7 +14,7 @@ import {
   SQLiteStoreBroker,
   type ProfileResolver,
   type StoreSchema,
-} from "arbor/data";
+} from "overstory/data";
 
 const repository = join(import.meta.dir, "..", "..");
 const fixture = join(repository, "examples", "supplies", "data");

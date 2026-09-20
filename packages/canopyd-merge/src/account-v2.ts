@@ -1,0 +1,226 @@
+import { parseResourceConfiguration, hostedProjection, resourceRuleFromLegacy, type ResourceConfiguration } from "../../protocol/src/config/resource-configuration.ts";
+import { resourceRuleKey, intersectResourceRules, type ResourceAccessRule } from "@overstory/protocol";
+import {
+  parseAccountDevicesConfiguration,
+  parseCanopyAccountConfiguration,
+  parseLegacyHostedTreesConfiguration,
+  type AccountDeviceConfiguration,
+  type CanopyAccountConfiguration,
+  type HostedTreeDeclaration,
+  type HostedTreesConfiguration,
+} from "@overstory/protocol/account-config-v2";
+import {
+  decodeWireDirectory,
+  encodeWireDirectory,
+  hashObject,
+  type ObjectHash,
+  type TreeSnapshot,
+  type WireDirectory,
+} from "@overstory/protocol";
+import { stringify } from "yaml";
+
+export interface AccountConfigGraphV2 {
+  account: CanopyAccountConfiguration;
+  trees: HostedTreesConfiguration;
+  resources?: ResourceConfiguration;
+  devices: Record<string, AccountDeviceConfiguration>;
+  sources: Record<string, string>;
+}
+
+function text(bytes: Uint8Array, path: string): string {
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error(`${path} must be UTF-8`); }
+}
+
+function object(snapshot: TreeSnapshot, hash: ObjectHash, path: string) {
+  const bytes = snapshot.objects.get(hash);
+  if (!bytes) throw new Error(`Account configuration is missing ${path}`);
+  return bytes;
+}
+
+export function readAccountConfigGraphV2(snapshot: TreeSnapshot, configurationTree?: string): AccountConfigGraphV2 {
+  const root = decodeWireDirectory(object(snapshot, snapshot.root, "/"));
+  if (root.type !== "directory") throw new Error("Account configuration root must be a directory");
+  const allowed = new Set(["account.yaml", "trees.yaml", "devices.yaml"]);
+  for (const entry of root.entries) {
+    if (!allowed.has(entry.name)) throw new Error(`Unsupported account configuration path: ${entry.name}`);
+    if (entry.tree) throw new Error("Account configuration cannot contain nested tree boundaries");
+  }
+  const sourceAt = (name: string): string => {
+    const entry = root.entries.find((candidate) => candidate.name === name);
+    if (!entry?.file) throw new Error(`Account configuration requires ${name}`);
+    const value = object(snapshot, entry.file, name);
+    return text(value, name);
+  };
+  const sources = {
+    "account.yaml": sourceAt("account.yaml"),
+    "trees.yaml": sourceAt("trees.yaml"),
+    "devices.yaml": sourceAt("devices.yaml"),
+  };
+  const account = parseCanopyAccountConfiguration(sources["account.yaml"]);
+  let trees: HostedTreesConfiguration;
+  let resources: ResourceConfiguration | undefined;
+  try { trees = parseLegacyHostedTreesConfiguration(sources["trees.yaml"], account); }
+  catch { resources = parseResourceConfiguration(sources["trees.yaml"], account); trees = hostedProjection(resources); }
+  const devices = parseAccountDevicesConfiguration(sources["devices.yaml"]);
+  if (configurationTree && (trees[configurationTree] || resources?.[configurationTree])) throw new Error("The account-configuration tree must not declare itself");
+  return { account, trees, ...(resources ? { resources } : {}), devices, sources };
+}
+
+function subjectKey(rule: HostedTreeDeclaration["access"][number]): string {
+  const subject = rule.subject;
+  return subject.kind === "everyone" ? "everyone" : subject.kind === "profile" ? `profile:${subject.tree}` : `link:${subject.digest}`;
+}
+
+export function semantic(graph: Omit<AccountConfigGraphV2, "sources">): Record<string, any> {
+  return {
+    account: graph.account,
+    trees: Object.fromEntries(Object.entries(graph.trees).map(([id, tree]) => [id, {
+      canonical: tree.canonical,
+      access: Object.fromEntries(tree.access.map((rule) => [subjectKey(rule), rule])),
+    }])),
+    ...({ resources: Object.fromEntries(Object.entries(graph.resources ?? Object.fromEntries(Object.entries(graph.trees).map(([id, d]) => [id, { canonical: d.canonical, access: d.access.map(resourceRuleFromLegacy) }]))).map(([id, d]) => [id, {
+      ...(d.canonical ? { canonical: d.canonical } : {}),
+      access: Object.fromEntries(d.access.map(r => {
+        const { within, ...rule } = r;
+        return [resourceRuleKey(r), { ...rule, ...(within && within !== "/" ? { within } : {}), allow: [...r.allow].sort() }];
+      })),
+    }])) }),
+    devices: Object.fromEntries(Object.entries(graph.devices).map(([id, device]) => [id, {
+      label: device.label,
+      administrator: device.administrator,
+    }])),
+  };
+}
+
+function comparable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(comparable);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, comparable(entry)]));
+  }
+  return value;
+}
+
+export function same(left: unknown, right: unknown): boolean {
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+}
+
+const missing = Symbol("missing");
+interface MergeTally { conflicts: string[]; mergedFields: number }
+
+function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: string, tally: MergeTally): unknown {
+  if (same(candidate, remote)) return candidate;
+  if (same(candidate, base)) return remote;
+  if (same(remote, base)) {
+    tally.mergedFields += 1;
+    return candidate;
+  }
+  if (/^devices\.[^.]+$/.test(path) && (candidate === missing || remote === missing)) return missing;
+  if (/^resources\.[^.]+$/.test(path) && (candidate === missing || remote === missing)) {
+    tally.conflicts.push(path);
+    return missing;
+  }
+  if (path.startsWith("resources.") && path.includes(".access.[")) {
+    tally.conflicts.push(path);
+    if (candidate === missing || remote === missing) return missing;
+    const intersection = intersectResourceRules(candidate as ResourceAccessRule, remote as ResourceAccessRule);
+    return intersection ?? missing;
+  }
+  const maps = [base, candidate, remote].every((value) => value === missing || (value !== null && typeof value === "object" && !Array.isArray(value)));
+  if (maps) {
+    const result: Record<string, unknown> = {};
+    const keys = new Set([
+      ...Object.keys(base === missing ? {} : base as object),
+      ...Object.keys(candidate === missing ? {} : candidate as object),
+      ...Object.keys(remote === missing ? {} : remote as object),
+    ]);
+    for (const key of [...keys].sort()) {
+      const value = mergeValue(
+        base === missing ? missing : (base as Record<string, unknown>)[key] ?? missing,
+        candidate === missing ? missing : (candidate as Record<string, unknown>)[key] ?? missing,
+        remote === missing ? missing : (remote as Record<string, unknown>)[key] ?? missing,
+        path ? `${path}.${key}` : key,
+        tally,
+      );
+      if (value !== missing) result[key] = value;
+    }
+    return result;
+  }
+  tally.conflicts.push(path);
+  return candidate;
+}
+
+function fromSemantic(value: Record<string, any>): Omit<AccountConfigGraphV2, "sources"> {
+  const account: CanopyAccountConfiguration = {
+    canopy: value.account.canopy,
+    profile: value.account.profile,
+  };
+  const trees: HostedTreesConfiguration = Object.fromEntries(Object.entries(value.trees).map(([id, raw]: [string, any]) => [id, {
+    canonical: raw.canonical,
+    access: Object.values(raw.access),
+  }]));
+  const devices: Record<string, AccountDeviceConfiguration> = Object.fromEntries(Object.entries(value.devices).map(([id, raw]: [string, any]) => [id, {
+    id,
+    label: raw.label,
+    administrator: raw.administrator === true,
+  }]));
+  const resources: ResourceConfiguration | undefined = value.resources ? Object.fromEntries(Object.entries(value.resources).map(([id, d]: [string, any]) => [id, { ...(d.canonical ? { canonical: d.canonical } : {}), access: Object.values(d.access ?? {}) as ResourceAccessRule[] }])) : undefined;
+  return { account, trees: resources ? hostedProjection(resources) : trees, ...(resources ? { resources } : {}), devices };
+}
+
+export function mergeAccountConfigGraphsV2(
+  base: AccountConfigGraphV2,
+  candidate: AccountConfigGraphV2,
+  remote: AccountConfigGraphV2,
+) {
+  const tally: MergeTally = { conflicts: [], mergedFields: 0 };
+  const value = mergeValue(semantic(base), semantic(candidate), semantic(remote), "", tally) as Record<string, any>;
+  // Resource rules are authoritative; the legacy hosting ACL is only a derived
+  // projection. Its same-field conflicts must not duplicate policy conflicts.
+  const resourceFormat = !!(base.resources || candidate.resources || remote.resources);
+  if (!resourceFormat) delete value.resources;
+  const conflicts = tally.conflicts.filter(path => resourceFormat
+    ? !/^trees\.[^.]+\.access(?:\.|$)/.test(path)
+    : !path.startsWith("resources."));
+  return { graph: fromSemantic(value), conflicts, mergedFields: tally.mergedFields };
+}
+
+
+function yaml(value: unknown): string {
+  return stringify(value, { aliasDuplicateObjects: false, lineWidth: 0, sortMapEntries: true });
+}
+
+/** Canonical authored files shared by Canopy snapshots and offline migration. */
+export function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "sources">): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
+  const devices = Object.fromEntries(Object.entries(graph.devices).sort(([a], [b]) => a.localeCompare(b)).map(([id, device]) => [id, {
+    label: device.label,
+    ...(device.administrator ? { administrator: true } : {}),
+  }]));
+  const trees = Object.fromEntries(Object.entries(graph.resources ?? graph.trees).sort(([a], [b]) => a.localeCompare(b)).map(([id, tree]) => [id, tree]));
+  return {
+    "account.yaml": yaml(graph.account),
+    "devices.yaml": yaml(devices),
+    "trees.yaml": yaml(trees),
+  };
+}
+
+export function snapshotAccountConfigV2(graph: Omit<AccountConfigGraphV2, "sources">): TreeSnapshot {
+  const objects = new Map<ObjectHash, Uint8Array>();
+  const file = (source: string): ObjectHash => {
+    const bytes = new TextEncoder().encode(source);
+    const hash = hashObject(bytes);
+    objects.set(hash, bytes);
+    return hash;
+  };
+  const sources = accountConfigSourcesV2(graph);
+  const rootBytes = encodeWireDirectory({ type: "directory", entries: [
+    { name: "account.yaml", file: file(sources["account.yaml"]) },
+    { name: "devices.yaml", file: file(sources["devices.yaml"]) },
+    { name: "trees.yaml", file: file(sources["trees.yaml"]) },
+  ] } satisfies WireDirectory);
+  const root = hashObject(rootBytes);
+  objects.set(root, rootBytes);
+  return { root, objects };
+}

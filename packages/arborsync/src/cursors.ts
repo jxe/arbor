@@ -1,5 +1,4 @@
-import { sha256 } from "@arbor/core";
-import { ProtocolError } from "@arbor/core";
+import { sha256, ProtocolError } from "@overstory/protocol";
 
 /** Opaque continuation cursor bound to its route's complete query. */
 export function encodePageCursor(key: string, offset: number): string {

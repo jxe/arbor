@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parseMarkdown, placeDirectoryChildren, reorderChildLinks, serializeMarkdown } from "@arbor/editor";
+import { parseMarkdown, placeDirectoryChildren, reorderChildLinks, serializeMarkdown } from "@overstory/protocol";
 
 describe("bounded directory child placement", () => {
   test("matches the language-neutral placement fixtures", async () => {

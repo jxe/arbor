@@ -15,8 +15,8 @@ Historical identifier: **Security 005**. The filename number is preserved; this 
 >
 > ```sh
 > git diff --stat ce51a4e..HEAD -- \
->   packages/fs packages/arborsync/src packages/stores/src \
->   tests/unit/discovery.test.ts tests/unit/wire.test.ts \
+>   packages/fs packages/arborsync/src packages/arborsync/src/state \
+>   tests/unit/discovery.test.ts tests/unit/protocol-objects.test.ts \
 >   tests/integration/workspace.test.ts tests/integration/self-sync.test.ts \
 >   docs/local-system.md spec/02-directory-format.md
 > git status --short
@@ -24,7 +24,7 @@ Historical identifier: **Security 005**. The filename number is preserved; this 
 >
 > This plan was written while the worktree already contained unrelated edits,
 > including edits in `packages/arborsync/src/service.ts`,
-> `packages/arborsync/src/workspace.ts`, `packages/stores/src/indexer.ts`, and
+> `packages/arborsync/src/workspace.ts`, `packages/arborsync/src/state/indexer.ts`, and
 > `plans/README.md`. Preserve them. If their live behavior no longer matches
 > the current-state description below, stop and reconcile the plan first.
 
@@ -126,19 +126,19 @@ Relevant files and responsibilities:
   during `snapshotDirectory()` and pull cleanup in `materializeTree()`. Files
   such as `.env` are included. Pull cleanup preserves only the hard-coded set
   and explicit nested-placement roots.
-- `packages/stores/src/indexer.ts` calls `discoverWorkspace()` and indexes the
+- `packages/arborsync/src/state/indexer.ts` calls `discoverWorkspace()` and indexes the
   resulting files. It should consume the filtered discovery result rather than
   implementing pattern matching.
 - `packages/arborsync/src/service.ts:snapshotWorkspace()` and
-  `packages/canopy-client/src/tree-sync.ts` repeatedly compare physical snapshots
+  `packages/client/src/tree-sync.ts` repeatedly compare physical snapshots
   with accepted Wire roots, freeze pending candidates, and materialize accepted
   snapshots. Ignore policy and tracked membership must be part of these same
   comparisons or clean placements will appear permanently dirty.
-- `packages/canopy-client/src/sync-state.ts` currently retains an accepted root and
+- `packages/client/src/sync-state.ts` currently retains an accepted root and
   object hashes, but no accepted path-membership view. Extend private sync
   state only as much as needed to recover the tracked-membership invariant
   offline; do not put ignore metadata in Wire objects or Canopy APIs.
-- `packages/stores/src/placements.ts` deliberately accepts only scalar
+- `packages/arborsync/src/state/placements.ts` deliberately accepts only scalar
   `path: TreeID` entries. Do not widen that schema in this plan.
 - `packages/fs/README.md` says all hidden directories other than the fixed set
   are ordinary content. `docs/local-system.md` owns replaceable local
@@ -157,14 +157,14 @@ Conventions to preserve:
   enter authored trees or portable account configuration.
 - Tests use `bun:test`, temporary workspace and state directories, and cleanup
   in `afterEach` or `finally`. Follow `tests/unit/discovery.test.ts` for
-  discovery fixtures and `tests/unit/wire.test.ts` for snapshot/materialization
+  discovery fixtures and `tests/unit/protocol-objects.test.ts` for snapshot/materialization
   round trips.
 
 ## Commands you will need
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Focused filesystem tests | `bun test tests/unit/discovery.test.ts tests/unit/wire.test.ts tests/integration/workspace.test.ts` | all pass |
+| Focused filesystem tests | `bun test tests/unit/discovery.test.ts tests/unit/protocol-objects.test.ts tests/integration/workspace.test.ts` | all pass |
 | Synchronization tests | `bun test tests/integration/self-sync.test.ts` | all pass |
 | Typecheck | `bun run typecheck` | exit 0, no errors |
 | Product suite | `bun run test` | all pass |
@@ -186,7 +186,7 @@ and verify that `bun.lock` contains only the intended package change.
 - the narrow Arbor Sync state/coordinator changes required to supply accepted
   tracked membership consistently;
 - `package.json` and `bun.lock` only if a maintained Git-ignore matcher is used;
-- `tests/unit/discovery.test.ts` and `tests/unit/wire.test.ts`;
+- `tests/unit/discovery.test.ts` and `tests/unit/protocol-objects.test.ts`;
 - focused cases in `tests/integration/workspace.test.ts` and
   `tests/integration/self-sync.test.ts`;
 - `packages/fs/README.md`, `docs/local-system.md`, and
@@ -271,7 +271,7 @@ identity maps, search/backlinks, and generated types once, then emits the
 appropriate tree-level invalidation. Preserve the last valid policy and emit a
 diagnostic if reload fails.
 
-Do not add matching to `packages/stores/src/indexer.ts`; prove that its existing
+Do not add matching to `packages/arborsync/src/state/indexer.ts`; prove that its existing
 discovery input contains no ignored untracked files.
 
 **Verify**: `bun test tests/unit/discovery.test.ts tests/integration/workspace.test.ts` passes, including external creation/removal and live ignore-file edits.
@@ -294,7 +294,7 @@ instead of repeatedly re-uploading the preserved copy.
 Keep nested mounts and mandatory exclusions stronger than user rules. Do not
 change the Wire snapshot shape.
 
-**Verify**: `bun test tests/unit/wire.test.ts` passes with new round trips for
+**Verify**: `bun test tests/unit/protocol-objects.test.ts` passes with new round trips for
 new ignored files, tracked matching files, remote deletion, pull preservation,
 and matching-root verification.
 

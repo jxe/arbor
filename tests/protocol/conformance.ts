@@ -1,14 +1,12 @@
-import { executeExactSourceEdits } from "../../packages/canopy/src/updates/source-edits.ts";
+import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArborSyncControl } from "@arbor/arborsync";
-import { serveCanopy } from "@arbor/canopy";
-import { canonicalArborLocator, generateArborID } from "@arbor/core";
-import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { WireClient, decodeWireDirectory, type SourceOperation } from "@arbor/wire";
-import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
-import { resolveSnapshot, snapshotDirectory } from "@arbor/fs";
+import { serveArborSyncControl } from "@overstory/arborsync";
+import { serveCanopy } from "@overstory/canopyd";
+import { canonicalArborLocator, generateArborID, CommunityConfigStore, saveCurrentDeviceID, WireClient, decodeWireDirectory, type SourceOperation } from "@overstory/protocol";
+import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopyd/src/account-policy.ts";
+import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
   const process = Bun.spawn(command, {
@@ -121,8 +119,8 @@ try {
       if (!placed?.root || !placed.update) throw new Error("Placed tree did not record its accepted base");
 
       const daemon = { ARBOR_TEST_URL: control.url, ARBOR_TEST_TREE: tree };
-      await run(["swift", "test", "--package-path", "native/Packages/ArborSyncClient"], { ...fixtures, ...daemon });
-      await run(["swift", "test", "--package-path", "native/Packages/ArborKit"], fixtures);
+      await run(["swift", "test", "--package-path", "canopy-swift/Packages/ArborSyncClient"], { ...fixtures, ...daemon });
+      await run(["swift", "test", "--package-path", "canopy-swift/Packages/CanopyAppKit"], fixtures);
       // Exercise a real accepted conflict through the baseline filesystem client.
       const basis = (await owner.descriptor(tree)).tree;
       const snapshot = await owner.snapshot(tree, basis.root);
@@ -161,9 +159,9 @@ try {
       ARBOR_WIRE_TEST_TOKEN: authorityToken,
       ARBOR_WIRE_TEST_TREE: tree,
     };
-    await run(["swift", "test", "--package-path", "native/Packages/ArborWire"], { ...fixtures, ...wire });
-    await run(["swift", "test", "--package-path", "native/Packages/CanopyClient"], { ...fixtures, ...wire });
-    await run(["swift", "test", "--package-path", "native/Packages/ArborWorkingTree"], {
+    await run(["swift", "test", "--package-path", "canopy-swift/Packages/Overstory"], { ...fixtures, ...wire });
+    await run(["swift", "test", "--package-path", "canopy-swift/Packages/OverstoryClient"], { ...fixtures, ...wire });
+    await run(["swift", "test", "--package-path", "canopy-swift/Packages/CanopyWorkingTree"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
       ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees),

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CommunityConfigStore } from "@arbor/stores";
+import { CommunityConfigStore } from "@overstory/protocol";
 import { accountHandler } from "../../packages/arborsync/src/account-http.ts";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { browserHandler } from "../../packages/arborsync/src/browser-http.ts";

@@ -8,9 +8,8 @@ import type {
   NodeResponse,
   NodeSummary,
   TreeRef,
-} from "@arbor/core";
-import { isPageID, mediaTypeForPath, pageIDStableKey, toJSONValue } from "@arbor/core";
-import { markdownDisplayTitle } from "@arbor/editor";
+} from "@overstory/protocol";
+import { isPageID, mediaTypeForPath, pageIDStableKey, toJSONValue, markdownDisplayTitle } from "@overstory/protocol";
 
 /** Adapter-private expanded-filesystem record. Never crosses a node protocol boundary. */
 export interface ExpandedChild {

@@ -11,4 +11,4 @@ export {
   readRevision,
   removeIfExists,
   writeAtomic,
-} from "./file-ops.ts";
+} from "@overstory/protocol/file-ops";

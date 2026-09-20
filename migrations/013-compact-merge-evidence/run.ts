@@ -1,18 +1,17 @@
 import { Database } from "bun:sqlite";
 import { readdir, rm, stat, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { ObjectStore } from "@arbor/object-store";
-import { decodeWireDirectory, hashObject, type ObjectHash } from "@arbor/wire";
-import { stableJSONString } from "@arbor/core";
-import { assertCurrentCanopySchema } from "../../packages/canopy/src/schema.ts";
-import { retentionAudit } from "../../packages/merge/src/retention.ts";
+import { ObjectStore } from "@overstory/object-store";
+import { decodeWireDirectory, hashObject, type ObjectHash, stableJSONString } from "@overstory/protocol";
+import { assertCurrentCanopySchema } from "../../packages/canopyd/src/schema.ts";
+import { retentionAudit } from "../../packages/canopyd-merge/src/retention.ts";
 import {
   loadIntentState,
   storeIntentState,
   storeSharedIntentState,
-} from "../../packages/merge/src/state-storage.ts";
-import { loadStateMap, updateStateMap } from "../../packages/merge/src/state-map.ts";
-import type { IntentState } from "../../packages/merge/src/intent-model.ts";
+} from "../../packages/canopyd-merge/src/state-storage.ts";
+import { loadStateMap, updateStateMap } from "../../packages/canopyd-merge/src/state-map.ts";
+import type { IntentState } from "../../packages/canopyd-merge/src/intent-model.ts";
 
 /** Schema 14 → 15: merge evidence and old merge states become compact.
  *

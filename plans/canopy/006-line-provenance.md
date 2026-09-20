@@ -20,13 +20,13 @@ Historical identifier: **Smaller project 006**. The filename number is preserved
 >
 > ```sh
 > git diff --stat 0ea0f31..HEAD -- \
->   packages/canopy packages/wire packages/arborsync \
->   native/Packages/ArborWire native/Packages/CanopyClient native/Packages/ArborKit \
->   native/ArborApp spec conformance tests migrations plans/canopy
+>   packages/canopyd packages/protocol packages/arborsync \
+>   canopy-swift/Packages/Overstory canopy-swift/Packages/OverstoryClient canopy-swift/Packages/CanopyAppKit \
+>   canopy-swift/CanopyApp spec conformance tests migrations plans/canopy
 > git status --short -- \
->   packages/canopy packages/wire packages/arborsync \
->   native/Packages/ArborWire native/Packages/CanopyClient native/Packages/ArborKit \
->   native/ArborApp spec conformance tests migrations plans/canopy
+>   packages/canopyd packages/protocol packages/arborsync \
+>   canopy-swift/Packages/Overstory canopy-swift/Packages/OverstoryClient canopy-swift/Packages/CanopyAppKit \
+>   canopy-swift/CanopyApp spec conformance tests migrations plans/canopy
 > ```
 >
 > Reconcile any changes to accepted-update shapes, schema version, update
@@ -79,16 +79,16 @@ This is current-line provenance, not a general revision browser.
 
 Canopy already has the content lineage needed for a derived blame calculation:
 
-- `packages/canopy/src/updates/store.ts` records a private linear accepted
+- `packages/canopyd/src/updates/store.ts` records a private linear accepted
   history with `previous_root`, `root`, `accepted_at`, credential-scoped
   `subject`, merge provenance, request digest, and transition payload.
-- `packages/canopy/src/objects.ts` stores immutable hash-verified Wire file and
+- `packages/canopyd/src/objects.ts` stores immutable hash-verified Wire file and
   directory objects and can materialize complete retained snapshots.
-- `packages/canopy/src/updates/transition.ts` builds one exact transition for
+- `packages/canopyd/src/updates/transition.ts` builds one exact transition for
   each accepted root without folding history.
-- `packages/wire/src/objects.ts` represents a file as exact bytes, so Markdown
+- `packages/protocol/src/objects.ts` represents a file as exact bytes, so Markdown
   source and its LF, CRLF, or CR line endings remain available for comparison.
-- `packages/canopy/src/updates/merge.ts` correlates uniquely identified
+- `packages/canopyd/src/updates/merge.ts` correlates uniquely identified
   Markdown pages across moves and renames and the additive Markdown merge works
   on exact source lines.
 - `spec/02-directory-format.md` defines a materialized Markdown document's
@@ -96,7 +96,7 @@ Canopy already has the content lineage needed for a derived blame calculation:
 
 The missing foundation is immutable profile attribution. HTTP bearer
 authentication resolves a credential to `device:<DeviceID>` and an account in
-`packages/canopy/src/accounts.ts`; `packages/canopy/src/access.ts` authorizes
+`packages/canopyd/src/accounts.ts`; `packages/canopyd/src/access.ts` authorizes
 that account through its current `profileTree`; but accepted history stores
 only the device subject. The current relation
 `accepted update -> device -> account -> profile_tree` can be reconstructed
@@ -111,7 +111,7 @@ only metadata for lines in the currently readable source; it reuses project
 007's document-version index instead of adding a second historical index.
 
 The native app already has `ArborSourceInspector` in
-`native/ArborApp/ArborDailyDriverViews.swift`. `ArborKit` has local recovery
+`canopy-swift/CanopyApp/ArborDailyDriverViews.swift`. `CanopyAppKit` has local recovery
 history, but that is not Canopy accepted history and must not be relabeled as
 shared line provenance.
 
@@ -307,13 +307,13 @@ do not infer lineage merely because the destination reuses a TreeID and root.
 
 Expected implementation scope:
 
-- `packages/canopy/src/model.ts`, `schema.ts`, `accounts.ts`, `canopy.ts`,
+- `packages/canopyd/src/model.ts`, `schema.ts`, `accounts.ts`, `canopy.ts`,
   `host.ts`, `updates/store.ts`, and one focused new provenance module;
-- `packages/wire/src/` models, strict JSON decoding, exports, and client;
+- `packages/protocol/src/` models, strict JSON decoding, exports, and client;
 - `packages/arborsync/src/service.ts` and `server.ts`, plus `packages/arborsync-client`;
-- `native/Packages/ArborWire`, `ArborSync`, and `ArborKit` models, clients, and
+- `canopy-swift/Packages/Overstory`, `ArborSync`, and `CanopyAppKit` models, clients, and
   focused tests;
-- `native/ArborApp/ArborAppModel.swift`, `ArborRootView.swift`, and
+- `canopy-swift/CanopyApp/ArborAppModel.swift`, `ArborRootView.swift`, and
   `ArborDailyDriverViews.swift` for the first visible presentation;
 - `spec/01-tree-operations.md`, `spec/05-access-control.md`, conformance
   fixtures, reference implementation documentation, and focused Bun/Swift
@@ -343,9 +343,9 @@ app unless Joe separately authorizes that action.
 ### Phase 1 — actor schema and accepted-row invariants
 
 1. Add internal actor types and actor columns in
-   `packages/canopy/src/model.ts`, `schema.ts`, and `updates/store.ts`.
+   `packages/canopyd/src/model.ts`, `schema.ts`, and `updates/store.ts`.
 2. Thread a server-derived actor through every accepted-update insertion in
-   `packages/canopy/src/canopy.ts`, including activation, configuration,
+   `packages/canopyd/src/canopy.ts`, including activation, configuration,
    canonical boundary changes, bootstrap, restore, and test helpers.
 3. Keep `subject` as private credential-scoped replay identity. Add invariant
    checks rejecting a profile actor without a valid person Profile TreeID or a
@@ -355,7 +355,7 @@ app unless Joe separately authorizes that action.
 **Verify:**
 
 ```sh
-bun test tests/unit/canopy/update-store.test.ts tests/unit/canopy/schema-migration.test.ts tests/integration/canopy/update-host.test.ts
+bun test tests/unit/canopyd/update-store.test.ts tests/unit/canopyd/schema-migration.test.ts tests/integration/canopyd/update-host.test.ts
 bun run test:migration migrations/*-accepted-update-actors
 ```
 
@@ -366,7 +366,7 @@ ACLs, with only the schema stamp and actor columns changed.
 ### Phase 2 — pure current-line provenance engine
 
 1. Add the pure exact-line matcher and span builder under
-   `packages/canopy/src/`, with no HTTP, account lookup, or UI dependency.
+   `packages/canopyd/src/`, with no HTTP, account lookup, or UI dependency.
 2. Add snapshot/document resolution that follows a unique Markdown stable ID
    across rename/move and same-path continuity otherwise.
 3. Cover direct edits, insert/delete/replace, repeated lines, blank lines,
@@ -378,7 +378,7 @@ ACLs, with only the schema stamp and actor columns changed.
 **Verify:**
 
 ```sh
-bun test tests/unit/canopy/line-provenance.test.ts tests/unit/canopy/update-merge.test.ts
+bun test tests/unit/canopyd/line-provenance.test.ts tests/unit/canopyd/update-merge.test.ts
 bun run test:performance
 ```
 
@@ -388,15 +388,15 @@ fail with typed errors rather than high memory growth or partial results.
 
 ### Phase 3 — Wire and Local Arbor REST surfaces
 
-1. Add TypeScript request/response models and strict decoders in `@arbor/wire`.
+1. Add TypeScript request/response models and strict decoders in `@overstory/protocol`.
    Remove raw `subject` from portable `AcceptedUpdate` and add the safe `actor`
    in the same cross-language change; retain the database subject privately.
 2. Add the authenticated current-only Canopy route in
-   `packages/canopy/src/host.ts` and a focused daemon method in `canopy.ts`.
+   `packages/canopyd/src/host.ts` and a focused daemon method in `canopy.ts`.
 3. Add `WireClient` support, then route the complete `NodeRef` through
-   `packages/arborsync/src/service.ts`, `server.ts`, and `@arbor/arborsync-client`.
-4. Add matching Swift models and methods in `ArborWire`, `ArborSync`, and
-   `ArborKit`; do not make local recovery history pretend to be server blame.
+   `packages/arborsync/src/service.ts`, `server.ts`, and `@overstory/arborsync-client`.
+4. Add matching Swift models and methods in `Overstory`, `ArborSync`, and
+   `CanopyAppKit`; do not make local recovery history pretend to be server blame.
 5. Update TypeScript/Swift language-neutral fixtures, reference API docs, and
    focused protocol tests in the same change, as required for every protocol
    change.
@@ -405,9 +405,9 @@ fail with typed errors rather than high memory growth or partial results.
 
 ```sh
 bun run typecheck
-bun test tests/integration/canopy/update-host.test.ts tests/integration/self-sync.test.ts
+bun test tests/integration/canopyd/update-host.test.ts tests/integration/self-sync.test.ts
 bun run test:protocol
-swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path canopy-swift/Packages/ArborSyncClient
 ```
 
 Expected: TypeScript and Swift decode identical fixtures; current authorized
@@ -433,13 +433,13 @@ history or returns non-current source.
 **Verify:**
 
 ```sh
-swift test --package-path native/Packages/ArborWire
-swift test --package-path native/Packages/CanopyClient
-swift test --package-path native/Packages/ArborKit
-xcodebuild build -workspace native/Arbor.local.xcworkspace -scheme Arbor \
+swift test --package-path canopy-swift/Packages/Overstory
+swift test --package-path canopy-swift/Packages/OverstoryClient
+swift test --package-path canopy-swift/Packages/CanopyAppKit
+xcodebuild build -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor \
   -destination 'platform=macOS' \
   -derivedDataPath /tmp/arbor-line-provenance-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace native/Arbor.local.xcworkspace -scheme Arbor \
+xcodebuild build-for-testing -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath /tmp/arbor-line-provenance-ios CODE_SIGNING_ALLOWED=NO
 ```
@@ -452,7 +452,7 @@ current. Leave final hands-on visual acceptance to Joe.
 ### Phase 5 — documentation, retention coordination, and migration handoff
 
 1. Update `status.md` only after the feature is implemented and tested.
-2. Update `packages/canopy/README.md`, `docs/arborsync-api.md`, and
+2. Update `packages/canopyd/README.md`, `docs/arborsync-api.md`, and
    `docs/reference-implementation.md` with the implemented current-only
    boundary.
 3. Amend Canopy 001 so pruning either preserves blame-required roots or
@@ -463,8 +463,8 @@ current. Leave final hands-on visual acceptance to Joe.
 
 ## Test plan
 
-Use `tests/unit/canopy/update-store.test.ts` for accepted-row transaction
-structure, `tests/integration/canopy/update-host.test.ts` for authorization and
+Use `tests/unit/canopyd/update-store.test.ts` for accepted-row transaction
+structure, `tests/integration/canopyd/update-host.test.ts` for authorization and
 route behavior, and the shared merge fixtures for source/merge cases. Add at
 least these assertions:
 
@@ -499,7 +499,7 @@ bun run test
 bun run test:protocol
 bun run build
 bun run test:performance
-swift test --package-path native/Packages/ArborSyncClient
+swift test --package-path canopy-swift/Packages/ArborSyncClient
 git diff --check
 ```
 

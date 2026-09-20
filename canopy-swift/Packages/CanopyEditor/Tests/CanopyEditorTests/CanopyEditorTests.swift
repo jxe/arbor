@@ -1,0 +1,1845 @@
+import CanopyAppKit
+@testable import CanopyEditor
+import Foundation
+import Quagmire
+import QuagmireExtras
+import Testing
+
+@Suite("Source-preserving Quagmire codec")
+struct CanopyEditorTests {
+    private func linkPreviewService() -> LinkPreviewService {
+        LinkPreviewService(
+            cacheDirectory: FileManager.default.temporaryDirectory
+                .appending(path: "CanopyEditorTests-\(UUID().uuidString)")
+        )
+    }
+
+    @Test("Document conflict analysis suggests only a safe disjoint merge")
+    func documentConflictAnalysis() {
+        let reference = WorkspaceReference(tree: "tr_notes", path: "/note")
+        let base = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "First.\nSecond.\n",
+            contentRevision: "r1"
+        )
+        let current = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "Current first.\nSecond.\n",
+            contentRevision: "r2"
+        )
+        let conflict = WorkspaceDocumentConflict(
+            base: base,
+            current: current,
+            submittedSource: "First.\nSubmitted second.\n"
+        )
+
+        #expect(ArborDocumentConflictAnalysis(conflict).automaticMergeSource == "Current first.\nSubmitted second.\n")
+
+        var authoritative = conflict
+        authoritative.context = .init(
+            code: "conflict",
+            message: "Update could not be merged",
+            kind: "server-update",
+            conflicts: [.init(path: "/note.md", reason: "frontmatter-conflict")]
+        )
+        #expect(ArborDocumentConflictAnalysis(authoritative).automaticMergeSource == nil)
+    }
+
+    @Test("No-op is byte-identical across envelopes, CRLF, marks, and raw Markdown")
+    func noOp() throws {
+        let source = "---\r\nid: pg_exact\r\ntitle:  A  \r\n---\r\n\r\n# Heading *as authored*\r\n\r\nParagraph with **bold**, [link](other.md), $x^2$, and  two spaces.\r\n\r\n<table><tr><td>raw</td></tr></table>\r\n"
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_exact")
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+        #expect(admission.patch.edits.isEmpty)
+    }
+
+    @Test("Editing one structured block produces one guarded narrow replacement")
+    func narrowEdit() throws {
+        let source = "---\nid: pg_edit\n---\n\n# Title\n\nFirst paragraph.\n\nUntouched **raw style**.\n"
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "pg_edit")
+        var blocks = opened.blocks
+        let paragraph = try #require(blocks.first?.children.first)
+        blocks[0].children[0] = paragraph.withText(AttributedString("Changed paragraph."))
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
+        #expect(admission.source.contains("Changed paragraph."))
+        #expect(admission.source.contains("Untouched **raw style**."))
+        #expect(admission.patch.edits.count == 1)
+        #expect(try admission.patch.applying(to: source) == admission.source)
+    }
+
+    @Test("First edit after frontmatter keeps one envelope and unique rebased BlockIDs")
+    func firstEditAfterFrontmatter() throws {
+        let source = """
+        ---
+        id: slxoya
+        ---
+        # Write all those profs I tagged re when2meet
+
+        Questions:
+
+        1. Want to come to this event?
+        1. What time works?
+        """ + "\n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "slxoya"
+        )
+        var editedBlocks = opened.blocks
+        editedBlocks[0].children.append(.numbered(text: AttributedString("")))
+
+        let (admission, _) = ArborMarkdownCodec.admission(
+            blocks: editedBlocks,
+            ledger: opened.ledger
+        )
+        let envelope = "---\nid: slxoya\n---"
+        #expect(admission.source.components(separatedBy: envelope).count == 2)
+        #expect(admission.source.hasSuffix("1. \n\n"))
+        #expect(try admission.patch.applying(to: source) == admission.source)
+
+        let confirmed = ArborMarkdownCodec.open(
+            source: admission.source,
+            revision: "r2",
+            identitySeed: "slxoya"
+        )
+        let rebased = ArborMarkdownCodec.rebased(confirmed, preserving: editedBlocks)
+        var ids: [BlockID] = []
+        func collect(_ blocks: [Block]) {
+            for block in blocks {
+                ids.append(block.id)
+                collect(block.children)
+            }
+        }
+        collect(rebased.blocks)
+        #expect(ids.count == Set(ids).count)
+
+        let (noOp, _) = ArborMarkdownCodec.admission(
+            blocks: rebased.blocks,
+            ledger: rebased.ledger
+        )
+        #expect(noOp.source == admission.source)
+        #expect(noOp.patch.edits.isEmpty)
+    }
+
+    @Test("Empty list items retain their kinds and exact Markdown")
+    func emptyListItems() throws {
+        let source = "- \n\n1. \n\n- [ ] \n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "empty-items"
+        )
+        #expect(opened.blocks.count == 3)
+        if case .bullet = opened.blocks[0].kind {} else { Issue.record("Expected empty bullet") }
+        if case .numbered = opened.blocks[1].kind {} else { Issue.record("Expected empty numbered item") }
+        if case .todo = opened.blocks[2].kind {} else { Issue.record("Expected empty task") }
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+        #expect(admission.patch.edits.isEmpty)
+    }
+
+    @Test("Blank paragraph blocks round-trip as extra Markdown blank lines")
+    func blankParagraphs() throws {
+        let source = "before\n\n\nafter\n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "blank-paragraph"
+        )
+        #expect(opened.blocks.count == 3)
+        if case let .paragraph(text) = opened.blocks[1].kind {
+            #expect(text.characters.isEmpty)
+        } else {
+            Issue.record("Expected an empty paragraph between the authored paragraphs")
+        }
+        let (noOp, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(noOp.source == source)
+        #expect(noOp.patch.edits.isEmpty)
+
+        let ordinary = ArborMarkdownCodec.open(
+            source: "before\n\nafter\n",
+            revision: "r1",
+            identitySeed: "insert-blank"
+        )
+        var edited = ordinary.blocks
+        let empty = Block.paragraph(text: AttributedString())
+        edited.insert(empty, at: 1)
+        let (inserted, _) = ArborMarkdownCodec.admission(blocks: edited, ledger: ordinary.ledger)
+        #expect(inserted.source == "before\n\n\nafter\n")
+
+        let confirmed = ArborMarkdownCodec.open(
+            source: inserted.source,
+            revision: "r2",
+            identitySeed: "insert-blank"
+        )
+        let rebased = ArborMarkdownCodec.rebased(confirmed, preserving: edited)
+        #expect(rebased.blocks[1].id == empty.id)
+        let (confirmedNoOp, _) = ArborMarkdownCodec.admission(blocks: rebased.blocks, ledger: rebased.ledger)
+        #expect(confirmedNoOp.source == inserted.source)
+        #expect(confirmedNoOp.patch.edits.isEmpty)
+    }
+
+    @Test("Leading and trailing blank paragraphs use an invisible explicit marker")
+    func edgeBlankParagraphs() throws {
+        let blocks: [Block] = [
+            .paragraph(text: AttributedString()),
+            .paragraph(text: AttributedString("middle")),
+            .paragraph(text: AttributedString()),
+        ]
+        let source = ArborMarkdownCodec.serializeBlocks(blocks)
+        #expect(source == "\u{00A0}\n\nmiddle\n\n\u{00A0}\n\n")
+        let reopened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "edge-blanks")
+        #expect(reopened.blocks.count == 3)
+        #expect(reopened.blocks.allSatisfy { block in
+            if case .paragraph = block.kind { return true }
+            return false
+        })
+        #expect(reopened.blocks[0].text.characters.isEmpty)
+        #expect(String(reopened.blocks[1].text.characters) == "middle")
+        #expect(reopened.blocks[2].text.characters.isEmpty)
+    }
+
+    @Test("Empty headings survive Markdown round trips")
+    func emptyHeadingRoundTrip() throws {
+        let blocks = (1...6).map { level in
+            Block.heading(level: level, text: AttributedString())
+        }
+        let source = ArborMarkdownCodec.serializeBlocks(blocks)
+        let reopened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "empty-headings"
+        )
+
+        var reopenedHeadings: [Block] = []
+        func collect(_ blocks: [Block]) {
+            for block in blocks {
+                reopenedHeadings.append(block)
+                collect(block.children)
+            }
+        }
+        collect(reopened.blocks)
+
+        #expect(reopenedHeadings.count == 6)
+        for (index, block) in reopenedHeadings.enumerated() {
+            guard case let .heading(level, text) = block.kind else {
+                Issue.record("Expected heading at index \(index)")
+                continue
+            }
+            #expect(level.rawValue == index + 1)
+            #expect(text.characters.isEmpty)
+        }
+    }
+
+    @Test("Rebase reserves later preserved IDs when an earlier parsed kind changes")
+    func rebaseReservesPreservedIDs() throws {
+        let source = "# Tasks\n\n- First\n\n- Second\n\n- Third\n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "insert-before"
+        )
+        var edited = opened.blocks
+        let secondID = try #require(edited[0].children.first { String($0.text.characters) == "Second" }?.id)
+        edited[0].children.insert(.toggle(title: "Inserted"), at: 1)
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: edited, ledger: opened.ledger)
+        let confirmed = ArborMarkdownCodec.open(
+            source: admission.source,
+            revision: "r2",
+            identitySeed: "insert-before"
+        )
+        let rebased = ArborMarkdownCodec.rebased(confirmed, preserving: edited)
+        var ids: [BlockID] = []
+        func collect(_ blocks: [Block]) {
+            for block in blocks {
+                ids.append(block.id)
+                collect(block.children)
+            }
+        }
+        collect(rebased.blocks)
+        #expect(ids.count == Set(ids).count)
+        #expect(rebased.blocks[0].children.first { String($0.text.characters) == "Second" }?.id == secondID)
+    }
+
+    @Test("Edited blocks preserve Quagmire inline marks and links semantically")
+    func editedInlineMarks() throws {
+        let source = "Text **bold** *italic* `code` ~~gone~~ and [link](https://example.com).\n"
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "marks")
+        var blocks = opened.blocks
+        var text = try #require(blocks.first?.text)
+        #expect(String(text.characters) == "Text bold italic code gone and link.")
+        #expect(text.runs.contains { $0[InlineAttributes.BoldAttribute.self] == true })
+        #expect(text.runs.contains { $0[InlineAttributes.ItalicAttribute.self] == true })
+        #expect(text.runs.contains { $0[InlineAttributes.CodeAttribute.self] == true })
+        #expect(text.runs.contains { $0[InlineAttributes.StrikethroughAttribute.self] == true })
+        #expect(text.runs.contains { $0.link?.absoluteString == "https://example.com" })
+
+        text.append(AttributedString(" Edited."))
+        blocks[0] = blocks[0].withText(text)
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
+        #expect(admission.source.contains("**bold**"))
+        #expect(admission.source.contains("*italic*"))
+        #expect(admission.source.contains("`code`"))
+        #expect(admission.source.contains("~~gone~~"))
+        #expect(admission.source.contains("[link](https://example.com)"))
+        #expect(try admission.patch.applying(to: source) == admission.source)
+    }
+
+    @Test("H1 through H6, code, lists, quote, divider, reference, image, and raw blocks survive")
+    func blockKinds() {
+        let source = "# H1\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6\n\n- bullet\n\n1. number\n\n- [x] done\n\n> quote\n\n---\n\n```swift\nlet x = 1\n```\n\n[Page](page.md)\n\n![Alt](Assets/a.png)\n\n<div>raw</div>\n"
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r", identitySeed: "kinds")
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+    }
+
+    @Test("Toggles and indented bodies round-trip without touching source bytes")
+    func toggleNoOpRoundTrip() throws {
+        let source = "---\r\nid: pg_toggles\r\n---\r\n\r\n▸ **Outer**\r\n  Intro.\r\n  ▸ Inner\r\n    - child\r\n  ## Inside\r\n  body\r\n- list\r\n  ▸ Nested\r\n    ```text\r\n    ▸ literal, not a toggle\r\n    ```\r\n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "pg_toggles"
+        )
+        let outer = try #require(opened.blocks.first)
+        guard case .toggle = outer.kind else {
+            Issue.record("Expected the outer toggle, got \(outer.kind)")
+            return
+        }
+        #expect(outer.children.contains { if case .toggle = $0.kind { true } else { false } })
+        #expect(outer.children.contains { if case .heading(.h2, _) = $0.kind { true } else { false } })
+        let list = try #require(opened.blocks.last)
+        guard case .bullet = list.kind else {
+            Issue.record("Expected the root list item")
+            return
+        }
+        let nested = try #require(list.children.first)
+        guard case .toggle = nested.kind else {
+            Issue.record("Expected a toggle nested below the list item")
+            return
+        }
+        guard case let .code(code, _) = nested.children.first?.kind else {
+            Issue.record("Expected an opaque fenced-code child")
+            return
+        }
+        #expect(code.contains("▸ literal, not a toggle"))
+
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+        #expect(admission.patch.edits.isEmpty)
+    }
+
+    @Test("New and edited toggles serialize with the disclosure marker and reopen as toggles")
+    func toggleCreateEditAndReopen() throws {
+        var title = AttributedString("Details")
+        title[title.startIndex..<title.endIndex][InlineAttributes.BoldAttribute.self] = true
+        let blocks: [Block] = [
+            .toggle(title: title, children: [
+                .paragraph(text: AttributedString("Body")),
+                .toggle(title: AttributedString("Nested"), children: [
+                    .bullet(text: AttributedString("Child")),
+                ]),
+            ]),
+        ]
+        let source = ArborMarkdownCodec.serializeBlocks(blocks)
+        #expect(source.hasPrefix("▸ **Details**\n  Body"))
+        #expect(source.contains("  ▸ Nested\n    - Child"))
+        #expect(!source.hasPrefix("- Details"))
+
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "created-toggle")
+        guard case .toggle = opened.blocks.first?.kind else {
+            Issue.record("Created toggle reopened as a different block kind")
+            return
+        }
+        #expect(opened.blocks.first?.children.count == 2)
+
+        var edited = opened.blocks
+        edited[0] = edited[0].withText(AttributedString("Changed"))
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: edited, ledger: opened.ledger)
+        #expect(admission.patch.edits.count == 1)
+        #expect(admission.source.contains("▸ Changed"))
+        #expect(admission.source.contains("  Body"))
+        #expect(try admission.patch.applying(to: source) == admission.source)
+
+        let confirmed = ArborMarkdownCodec.open(
+            source: admission.source,
+            revision: "r2",
+            identitySeed: "created-toggle"
+        )
+        guard case .toggle = confirmed.blocks.first?.kind else {
+            Issue.record("Edited toggle did not survive provider acknowledgement")
+            return
+        }
+    }
+
+    @Test("Blank paragraphs inside a toggle remain inside its indented body")
+    func toggleBlankParagraph() throws {
+        let source = "▸ Notes\n  before\n  \n  \n  after\n"
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "toggle-blank")
+        let toggle = try #require(opened.blocks.first)
+        guard case .toggle = toggle.kind else {
+            Issue.record("Expected toggle")
+            return
+        }
+        #expect(toggle.children.count == 3)
+        #expect(toggle.children[1].text.characters.isEmpty)
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+    }
+
+    @Test("A linked list item is a bullet rather than a task checkbox")
+    func linkedBullet() throws {
+        let source = "- [https://example.com](https://example.com) -> destination\n"
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r", identitySeed: "linked-bullet")
+        let block = try #require(opened.blocks.first)
+        guard case .bullet = block.kind else {
+            Issue.record("Expected a bullet, got \(block.kind)")
+            return
+        }
+        #expect(String(block.text.characters) == "https://example.com -> destination")
+        #expect(block.text.runs.contains { $0.link?.absoluteString == "https://example.com" })
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+    }
+
+    @Test("Full-row link labels preserve inline Markdown semantics")
+    func documentLinkInlineLabel() throws {
+        let source = "[🗓️ **Calendar**](Calendar.md#h31mlm)\n"
+        let block = try #require(ArborMarkdownCodec.parseBlocks(source).first)
+        guard case let .documentLink(label, reference) = block.kind else {
+            Issue.record("Expected a document link, got \(block.kind)")
+            return
+        }
+        #expect(String(label.characters) == "🗓️ Calendar")
+        #expect(label.runs.contains { $0[InlineAttributes.BoldAttribute.self] == true })
+        #expect(reference.rawValue == "Calendar.md#h31mlm")
+        #expect(ArborMarkdownCodec.serializeBlocks([block]).contains("[🗓️ **Calendar**](Calendar.md#h31mlm)"))
+    }
+
+    @MainActor
+    @Test("Synchronous commit bursts coalesce into one patch admission and flush forces it")
+    func hostPersistence() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\nNative Arbor is ready.\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let document = binding.document
+        var textIDs: [BlockID] = []
+        document.walk { block, _, _ in
+            if case .paragraph = block.kind { textIDs.append(block.id) }
+        }
+        let paragraph = try #require(textIDs.first)
+        document.transaction(name: "first") { _ = document.setText(paragraph, AttributedString("First edit")) }
+        host.persistCommit(changes: [], in: document)
+        #expect(binding.generation == 1)
+        document.transaction(name: "second") { _ = document.setText(paragraph, AttributedString("Final edit")) }
+        #expect(document.find(paragraph).map { String($0.text.characters) } == "Final edit")
+        host.persistCommit(changes: [], in: document)
+        #expect(binding.generation == 2)
+        #expect(binding.lastEnqueuedSource?.contains("Final edit") == true, Comment(rawValue: binding.lastEnqueuedSource ?? "nil"))
+        #expect(await session.admissionCount() == 0)
+        await host.flush(document)
+
+        let saved = await session.snapshot()
+        #expect(await session.admissionCount() == 1)
+        #expect(binding.lastError == nil, Comment(rawValue: String(describing: binding.lastError)))
+        #expect(saved.source.contains("Final edit"), Comment(rawValue: saved.source))
+
+        let savedRevision = saved.contentRevision
+        host.persistCommit(changes: [], in: document)
+        await host.flush(document)
+        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
+        #expect((await session.snapshot()).contentRevision == savedRevision)
+    }
+
+    @MainActor
+    @Test("A pending commit is admitted after the debounce without an explicit flush")
+    func debouncedPersistence() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\nNative Arbor is ready.\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let paragraph = try #require(binding.document.children.last)
+
+        binding.document.transaction(name: "edit") {
+            _ = binding.document.setText(paragraph.id, AttributedString("Debounced edit"))
+        }
+        binding.admitCurrentGeneration()
+
+        #expect(await session.admissionCount() == 0)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(await session.admissionCount() == 1)
+        #expect((await session.snapshot()).source.contains("Debounced edit"))
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("Autoexpand waits for inactivity and later typing supersedes its save")
+    func autoexpandPersistenceCoalescing() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\n\u{00A0}\n\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: linkPreviewService()
+        )
+        let block = try #require(binding.document.children.last)
+
+        binding.document.transaction(name: "Format Block") {
+            binding.document.mutate(block.id) {
+                $0.kind = .heading(level: .h1, text: AttributedString())
+            }
+        }
+        host.persistCommit(changes: [], in: binding.document, after: .milliseconds(750))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await session.admissionCount() == 0)
+
+        host.noteEditingActivity(in: binding.document)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(await session.admissionCount() == 0)
+
+        binding.document.transaction(name: "Type") {
+            _ = binding.document.setText(block.id, AttributedString("Later text"))
+        }
+        host.persistCommit(changes: [], in: binding.document)
+        try await Task.sleep(for: .milliseconds(800))
+
+        #expect(await session.admissionCount() == 1)
+        let saved = await session.snapshot()
+        #expect(saved.source.contains("# Later text"), Comment(rawValue: saved.source))
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("Autoexpand persists after inactivity when no more text arrives")
+    func autoexpandPersistenceAfterInactivity() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\n\u{00A0}\n\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: linkPreviewService()
+        )
+        let block = try #require(binding.document.children.last)
+
+        binding.document.transaction(name: "Format Block") {
+            binding.document.mutate(block.id) {
+                $0.kind = .heading(level: .h1, text: AttributedString())
+            }
+        }
+        host.persistCommit(changes: [], in: binding.document, after: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(500))
+
+        #expect(await session.admissionCount() == 1)
+        let saved = await session.snapshot()
+        let reopened = ArborMarkdownCodec.open(
+            source: saved.source,
+            revision: saved.contentRevision,
+            identitySeed: "autoexpand-inactivity"
+        )
+        #expect(reopened.blocks.last?.kind == .heading(level: .h1, text: AttributedString()))
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("Writable page links expose the emoji picker and persist title icons")
+    func linkedPageIcon() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let currentReference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let currentSession = try await provider.openDocument(currentReference)
+        let binding = try await ArborDocumentBinding.open(reference: currentReference, session: currentSession)
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let target = try #require(try await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Target",
+            source: "# Target\n\nBody **as authored**.\n"
+        )))
+        let targetReference = ArborDocumentReferenceCodec.encode(target.reference)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+
+        #expect(host.lookupDocument(targetReference) == .pending)
+        for _ in 0..<20 where host.lookupDocument(targetReference) == .pending {
+            await Task.yield()
+        }
+        #expect(host.lookupDocument(targetReference).can(.setIcon))
+
+        #expect(await host.setDocumentIcon("🚀", for: targetReference))
+        #expect(host.lookupDocument(targetReference).title == "🚀 Target")
+        #expect(await host.setDocumentIcon("🌳", for: targetReference))
+        #expect(host.lookupDocument(targetReference).title == "🌳 Target")
+
+        let savedSession = try await provider.openDocument(target.reference)
+        let saved = try await savedSession.snapshot()
+        #expect(saved.source == "# 🌳 Target\n\nBody **as authored**.\n")
+        await savedSession.close()
+        await currentSession.close()
+    }
+
+    @MainActor
+    @Test("Pasted images persist in order and resolve through provider bytes")
+    func imageLifecycle() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let first = Data([0, 1, 2])
+        let second = Data([3, 4, 5])
+
+        let sources = await host.saveImages([
+            PastedImage(data: first, ext: "PNG"),
+            PastedImage(data: second, ext: "jpg"),
+        ], in: binding.document)
+
+        #expect(sources.count == 2)
+        #expect(sources.allSatisfy { $0.hasPrefix("/Assets/pasted-") })
+        #expect(await host.imageResource(for: sources[0], in: binding.document) == .data(first))
+        #expect(await host.imageResource(for: sources[1], in: binding.document) == .data(second))
+        #expect(await host.imageResource(for: "https://example.com/image.png", in: binding.document) == nil)
+        await session.close()
+    }
+
+    @MainActor
+    @Test("Page creation links exact titles, recovers retries, and disambiguates filename collisions")
+    func pageCreationRecovery() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var errors: [String] = []
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService(),
+            reportError: { errors.append($0) }
+        )
+
+        let first = try #require(await host.createDocument(
+            title: "Arbor demo",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        let firstReference = try #require(ArborDocumentReferenceCodec.decode(first))
+        let createdSession = try await provider.openDocument(firstReference)
+        let createdSnapshot = try await createdSession.snapshot()
+        _ = try await createdSession.admit(
+            source: "---\nid: pg_created\n---\n\n" + createdSnapshot.source,
+            baseContentRevision: createdSnapshot.contentRevision
+        )
+        await createdSession.close()
+        let retry = try #require(await host.createDocument(
+            title: "Arbor demo",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        let existing = try #require(await host.createDocument(
+            title: "Welcome",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let nested = try #require(await provider.perform(.createDirectory(parent: root, name: "Nested")))
+        let remoteMatch = try #require(await provider.perform(.createMarkdown(
+            parent: nested.reference,
+            name: "Remote-match",
+            source: "# Remote match\n"
+        )))
+        let remote = try #require(await host.createDocument(
+            title: "Remote match",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        _ = try #require(await provider.perform(.createMarkdown(
+            parent: reference,
+            name: "Collision",
+            source: "# Different title\n"
+        )))
+        let disambiguated = try #require(await host.createDocument(
+            title: "Collision",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+
+        #expect(firstReference.path == "/welcome/Arbor-demo")
+        #expect(firstReference.stableKey != nil)
+        let authoredLink = try #require(host.linkURL(for: first, in: binding.document))
+        #expect(authoredLink.relativeString.hasPrefix("welcome/Arbor-demo#arbor-key="))
+        #expect(authoredLink.scheme == nil)
+        #expect(retry == first, "a retry should recover the page materialized by the first attempt")
+        #expect(ArborDocumentReferenceCodec.decode(existing)?.path == "/welcome")
+        #expect(ArborDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)
+        #expect(ArborDocumentReferenceCodec.decode(disambiguated)?.path == "/welcome/Collision-2")
+        #expect(errors.isEmpty)
+        await session.close()
+    }
+
+    @MainActor
+    @Test("Mention search prioritizes matching page names over body-text matches")
+    func mentionSearchUsesPageIdentityFields() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        for index in 0..<9 {
+            _ = try #require(await provider.perform(.createMarkdown(
+                parent: root,
+                name: "noise-\(index)",
+                source: "# A\(index)\n\nValues appears only in this page body.\n"
+            )))
+        }
+        let target = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Values",
+            source: "# Values\n"
+        )))
+
+        let suggestions = await host.suggestDocuments("Values", in: binding.document)
+
+        #expect(suggestions.first?.title == "Values")
+        #expect(suggestions.first?.id == ArborDocumentReferenceCodec.encode(target.reference))
+        #expect(suggestions.allSatisfy {
+            $0.title.localizedCaseInsensitiveContains("Values")
+                || ($0.subtitle?.localizedCaseInsensitiveContains("Values") == true)
+        })
+        await session.close()
+    }
+
+    @MainActor
+    @Test("A deleted full-row link only offers to trash a now-unlinked writable page")
+    func deletedDocumentLinkTrashDecision() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let source = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let session = try await provider.openDocument(source)
+        let binding = try await ArborDocumentBinding.open(reference: source, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let target = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Target",
+            source: "# Target\n"
+        )))
+
+        let orphan = await host.orphanedDocumentAfterDeletingLink(target.reference, from: source)
+        #expect(orphan?.reference == target.reference)
+        #expect(await host.orphanedDocumentAfterDeletingLink(source, from: source) == nil)
+
+        _ = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Other",
+            source: "# Other\n\n[Target](/Target)\n"
+        )))
+        let stillLinked = await host.orphanedDocumentAfterDeletingLink(target.reference, from: source)
+        #expect(stillLinked == nil)
+
+        // The regression: another page holding a *document-link row* — an `arbor://` locator, not a
+        // readable path — still links the target, so deleting this page's link must stay silent.
+        let rowTarget = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "RowTarget",
+            source: "# RowTarget\n"
+        )))
+        #expect(await host.orphanedDocumentAfterDeletingLink(rowTarget.reference, from: source) != nil)
+        let row = ArborDocumentReferenceCodec.encode(rowTarget.reference)
+        _ = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "RowLinker",
+            source: "# RowLinker\n\n[RowTarget](\(row.rawValue))\n"
+        )))
+        #expect(await host.orphanedDocumentAfterDeletingLink(rowTarget.reference, from: source) == nil)
+        await session.close()
+    }
+
+    @MainActor
+    @Test("An exact self-confirmation does not replace the live editor tree")
+    func exactSaveDoesNotReload() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/blank", stableKey: markdownStableKey("pg_blank"))
+        let session = InMemoryDocumentSession(snapshot: .init(
+            reference: reference,
+            source: "before\n\nafter\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: linkPreviewService()
+        )
+        let empty = Block.paragraph(text: AttributedString())
+        binding.document.transaction(name: "Insert blank paragraph") {
+            _ = binding.document.insertSubtree(empty, at: .root(at: 1))
+        }
+        var replacements: [DocumentReplacement] = []
+        binding.document.didReplaceChildren = { replacements.append($0) }
+
+        host.persistCommit(changes: [], in: binding.document)
+        await host.flush(binding.document)
+
+        #expect(binding.lastError == nil)
+        #expect(replacements.isEmpty)
+        #expect(binding.document.children[1].id == empty.id)
+        #expect((try await session.snapshot()).source == "before\n\n\nafter\n")
+    }
+
+    @MainActor
+    @Test("An already durable edit resolves a stale acknowledgement as success")
+    func staleExactSaveIsIdempotent() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = AlreadyAppliedStaleSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\nBefore.\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: linkPreviewService()
+        )
+        let paragraph = try #require(binding.document.children.first?.children.first?.id)
+        var replacements: [DocumentReplacement] = []
+        binding.document.didReplaceChildren = { replacements.append($0) }
+        binding.document.transaction(name: "Edit") {
+            _ = binding.document.setText(paragraph, AttributedString("Already durable."))
+        }
+
+        host.persistCommit(changes: [], in: binding.document)
+        await host.flush(binding.document)
+
+        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
+        #expect(binding.conflict == nil)
+        #expect(replacements.isEmpty)
+        let saved = try await session.snapshot()
+        #expect(saved.contentRevision == "r2")
+        #expect(saved.source.contains("Already durable."))
+    }
+
+    @MainActor
+    @Test("A failed Keep My Edit retains the live editor and conflict evidence")
+    func failedConflictResolutionIsNonDestructive() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = ResolutionFailureSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\nBefore.\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let paragraph = try #require(binding.document.children.first?.children.first?.id)
+        binding.document.transaction(name: "Edit") {
+            _ = binding.document.setText(paragraph, AttributedString("My unsaved edit."))
+        }
+        binding.admitCurrentGeneration()
+        await binding.flush()
+        let conflict = try #require(binding.conflict)
+
+        await #expect(throws: ResolutionFailure.self) {
+            try await binding.resolveConflict(source: conflict.submittedSource)
+        }
+
+        #expect(binding.conflict == conflict)
+        #expect(binding.lastError is ResolutionFailure)
+        #expect(binding.document.children.first?.children.first.map { String($0.text.characters) } == "My unsaved edit.")
+    }
+
+    @MainActor
+    @Test("Duplicate tabs share one binding and save chain by PageID")
+    func duplicateTabs() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let workspace = ArborEditorWorkspace(provider: provider)
+        let first = try await workspace.lease(.init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
+        let second = try await workspace.lease(.init(tree: "tr_sample", path: "/stale", stableKey: markdownStableKey("pg_welcome")))
+        #expect(first.binding === second.binding)
+        await workspace.release(first)
+        await workspace.release(second)
+    }
+
+    @MainActor
+    @Test("Provider-backed transcript delivery updates an active PageID binding")
+    func activeTranscriptDelivery() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let workspace = ArborEditorWorkspace(provider: provider)
+        let reference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let lease = try await workspace.lease(reference)
+
+        try await workspace.appendTranscript(
+            "Captured through the workspace.",
+            to: markdownStableKey("pg_welcome"),
+            in: "tr_sample"
+        )
+
+        var texts: [String] = []
+        lease.binding.document.walk { block, _, _ in
+            texts.append(String(block.text.characters))
+        }
+        let snapshot = try await lease.binding.snapshot()
+        #expect(
+            texts.contains("Captured through the workspace."),
+            Comment(rawValue: "texts=\(texts) source=\(snapshot.source)")
+        )
+        #expect(snapshot.source.contains(
+            "Captured through the workspace."
+        ))
+        #expect(snapshot.source.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(
+            "Captured through the workspace."
+        ))
+        await workspace.release(lease)
+    }
+
+    @MainActor
+    @Test("Active transcript delivery uses the first microphone heading")
+    func activeTranscriptTargetsFirstVoiceHeading() async throws {
+        let tree: TreeID = "tr_voice"
+        let reference = WorkspaceReference(
+            tree: tree,
+            path: "/voice",
+            stableKey: markdownStableKey("pg_voice")
+        )
+        let source = "# 🎙 Notes\n\nExisting.\n\n## Nested 🎙️\n\nNested body.\n\n# 🎙️ Later\n\nLater body.\n"
+        let node = WorkspaceNode(
+            reference: reference,
+            title: "Voice",
+            surface: .markdown(source: source, contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(nodes: [node])
+        let workspace = ArborEditorWorkspace(provider: provider)
+        let lease = try await workspace.lease(reference)
+
+        try await workspace.appendTranscript(
+            "Captured in the first section.",
+            to: markdownStableKey("pg_voice"),
+            in: tree
+        )
+
+        let first = try #require(lease.binding.document.children.first)
+        var firstSectionContainsTranscript = false
+        func inspect(_ block: Block) {
+            if String(block.text.characters) == "Captured in the first section." {
+                firstSectionContainsTranscript = true
+            }
+            block.children.forEach(inspect)
+        }
+        inspect(first)
+        #expect(firstSectionContainsTranscript)
+        let later = try #require(lease.binding.document.children.last)
+        #expect(!later.children.contains { String($0.text.characters) == "Captured in the first section." })
+        let saved = try await lease.binding.snapshot()
+        let transcriptRange = try #require(saved.source.range(of: "Captured in the first section."))
+        let laterRange = try #require(saved.source.range(of: "# 🎙️ Later"))
+        #expect(transcriptRange.lowerBound < laterRange.lowerBound)
+        await workspace.release(lease)
+    }
+
+    @MainActor
+    @Test("Recovered transcript delivery routes by PageID into a microphone section")
+    func recoveredTranscriptTargetsVoiceHeading() async throws {
+        let tree: TreeID = "tr_recoveredvoice"
+        let reference = WorkspaceReference(
+            tree: tree,
+            path: "/voice",
+            stableKey: markdownStableKey("pg_recovered_voice")
+        )
+        let node = WorkspaceNode(
+            reference: reference,
+            title: "Voice",
+            surface: .markdown(
+                source: "# Inbox\n\nBefore.\n\n## 🎙 Recordings\n\nExisting recording.\n\n# After\n\nAfter body.\n",
+                contentRevision: "r1"
+            ),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(nodes: [node])
+        let workspace = ArborEditorWorkspace(provider: provider)
+
+        try await workspace.appendTranscript(
+            "Recovered into recordings.",
+            to: markdownStableKey("pg_recovered_voice"),
+            in: tree
+        )
+
+        let saved = try await provider.resolve(reference)
+        guard case let .markdown(result, _) = saved.surface else {
+            Issue.record("Voice destination was no longer Markdown")
+            return
+        }
+        let transcriptRange = try #require(result.range(of: "Recovered into recordings."))
+        let afterRange = try #require(result.range(of: "# After"))
+        #expect(transcriptRange.lowerBound < afterRange.lowerBound)
+    }
+
+    @MainActor
+    @Test("Destination failure leaves the source exact and references retain tree plus PageID scope")
+    func safeActions() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let session = try await provider.openDocument(.init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
+        let binding = try await ArborDocumentBinding.open(
+            reference: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")),
+            session: session
+        )
+        var openedReference: WorkspaceReference?
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService(),
+            open: { openedReference = $0 }
+        )
+        let before = try await session.snapshot()
+        let scoped = ArborDocumentReferenceCodec.encode(before.reference)
+        #expect(ArborDocumentReferenceCodec.decode(scoped) == before.reference)
+        let hunchLink = try #require(host.resolveReference(
+            from: URL(string: "Reference.md#stdu7s")!,
+            in: binding.document
+        ))
+        #expect(ArborDocumentReferenceCodec.decode(hunchLink)?.path == "/Reference")
+        let standaloneHunchLink = DocumentReference("welcome.md#pg_welcome")
+        host.openDocument(standaloneHunchLink)
+        #expect(openedReference?.path == "/welcome")
+        #expect(host.lookupDocument(standaloneHunchLink) == .pending)
+        for _ in 0..<20 where host.lookupDocument(standaloneHunchLink) == .pending {
+            await Task.yield()
+        }
+        guard case .present = host.lookupDocument(standaloneHunchLink) else {
+            Issue.record("Expected the standalone Hunch link to resolve")
+            return
+        }
+        #expect(!(await host.appendToDocument(DocumentReference("arbor://tr_sample/page/missing?path=/missing"), [.paragraph(text: "copy")])))
+        #expect((try await session.snapshot()) == before)
+    }
+
+
+    @MainActor
+    @Test("Move To combines editor outline targets with writable document destinations")
+    func moveDestinations() async throws {
+        let tree: TreeID = "tr_move"
+        let home = WorkspaceNode(
+            reference: .init(tree: tree, path: "/"),
+            title: "Home",
+            surface: .directoryDocument(source: "# Home\n\n[Destination](/destination)\n", contentRevision: "r1", stored: true),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let destination = WorkspaceNode(
+            reference: .init(tree: tree, path: "/destination", stableKey: markdownStableKey("pg_destination")),
+            title: "Destination",
+            surface: .markdown(source: "# Destination\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(
+            nodes: [home, destination],
+            children: [home.id: [destination.id]]
+        )
+        let session = try await provider.openDocument(home.reference)
+        let binding = try await ArborDocumentBinding.open(reference: home.reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+
+        let documents = await host.moveDocuments(matching: "")
+        #expect(documents.map(\.title) == ["Destination"])
+        #expect(documents.map(\.backlinkCount) == [1])
+
+        let targetID = BlockID()
+        let target = InDocMoveTarget(id: targetID, title: "Section", kind: .heading(level: .h2), depth: 1)
+        let requestTask = Task { await host.moveDestination(for: [BlockID()], candidates: [target]) }
+        await Task.yield()
+        #expect(host.moveRequest?.inDocumentCandidates == [target])
+        host.resolveMoveRequest(with: .block(targetID))
+        #expect(await requestTask.value == .block(targetID))
+    }
+
+    @MainActor
+    @Test("Directory children project at the marker and materialize when moved")
+    func directoryChildrenProjectAndMaterialize() throws {
+        let tree: TreeID = "tr_projected_children"
+        let directory = WorkspaceReference(
+            tree: tree,
+            path: "/parent",
+            stableKey: markdownStableKey("pg_parent")
+        )
+        let child = WorkspaceNode(
+            reference: .init(
+                tree: tree,
+                path: "/parent/child",
+                stableKey: markdownStableKey("pg_child")
+            ),
+            title: "Child",
+            surface: .markdown(source: "# Child\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let source = "# Parent\n\nBefore\n\n<!-- arbor:children -->\n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "projected-children"
+        )
+        let projected = ArborMarkdownCodec.placeDirectoryChildren(
+            [child],
+            in: opened.blocks,
+            directory: directory
+        )
+        let parent = try #require(projected.first)
+        let markerIndex = try #require(parent.children.firstIndex {
+            if case let .unsupported(_, display) = $0.kind { return display == "Children" }
+            return false
+        })
+        let generated = try #require(parent.children.indices.contains(markerIndex + 1)
+            ? parent.children[markerIndex + 1]
+            : nil)
+
+        #expect(ArborMarkdownCodec.isProjectedChild(generated))
+        #expect(ArborMarkdownCodec.admission(blocks: projected, ledger: opened.ledger).0.source == source)
+
+        let document = Document(id: DocumentID("projected-children"), children: projected)
+        let generatedID = generated.id
+        let parentID = parent.id
+        let prepared = ArborMarkdownCodec.materializingProjectedChildren([generated])
+        document.transaction(name: "Move Child Link") {
+            _ = document.replaceSubtree(generatedID, with: prepared)
+            _ = document.moveSubtrees([generatedID], to: DropPath(parent: parentID, position: 0))
+        }
+        let admitted = ArborMarkdownCodec.admission(blocks: document.children, ledger: opened.ledger).0.source
+        #expect(document.find(generatedID).map(ArborMarkdownCodec.isProjectedChild) == false)
+        #expect(admitted.contains("[Child]("))
+        let linkRange = try #require(admitted.range(of: "[Child]("))
+        let markerRange = try #require(admitted.range(of: "<!-- arbor:children -->"))
+        #expect(linkRange.lowerBound < markerRange.lowerBound)
+    }
+
+    @MainActor
+    @Test("Only a linked immediate child receives provider-owned structural Move")
+    func linkedChildStructuralMove() async throws {
+        let tree: TreeID = "tr_structuralmove"
+        let root = WorkspaceNode(
+            reference: .init(tree: tree, path: "/"),
+            title: "Home",
+            surface: .directoryDocument(source: "# Home\n", contentRevision: "r1", stored: true),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let parent = WorkspaceNode(
+            reference: .init(tree: tree, path: "/parent", stableKey: markdownStableKey("pg_parent")),
+            title: "Parent",
+            surface: .directoryDocument(source: "# Parent\n", contentRevision: "r1", stored: true),
+            provenance: root.provenance
+        )
+        let child = WorkspaceNode(
+            reference: .init(tree: tree, path: "/parent/child", stableKey: markdownStableKey("pg_child")),
+            title: "Child",
+            surface: .markdown(source: "# Child\n", contentRevision: "r1"),
+            provenance: root.provenance
+        )
+        let destination = WorkspaceNode(
+            reference: .init(tree: tree, path: "/destination"),
+            title: "Destination",
+            surface: .directory(summary: nil),
+            provenance: root.provenance
+        )
+        let pageDestination = WorkspaceNode(
+            reference: .init(tree: tree, path: "/page-destination", stableKey: markdownStableKey("pg_page_destination")),
+            title: "Page Destination",
+            surface: .markdown(source: "# Page Destination\n", contentRevision: "r1"),
+            provenance: root.provenance
+        )
+        let provider = InMemoryWorkspaceProvider(
+            nodes: [root, parent, child, destination, pageDestination],
+            children: [
+                root.id: [parent.id, destination.id, pageDestination.id],
+                parent.id: [child.id],
+            ]
+        )
+        let session = try await provider.openDocument(parent.reference)
+        let binding = try await ArborDocumentBinding.open(reference: parent.reference, session: session)
+        var opened: [WorkspaceReference] = []
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService(),
+            relativeReferenceBase: parent.reference,
+            open: { opened.append($0) }
+        )
+        let generatedChildLink = try #require(host.resolveReference(
+            from: URL(string: "child")!,
+            in: binding.document
+        ))
+        #expect(ArborDocumentReferenceCodec.decode(generatedChildLink)?.path == "/parent/child")
+        let legacyChildLink = try #require(host.resolveReference(
+            from: URL(string: "stale-child.md#pg_child")!,
+            in: binding.document
+        ))
+        #expect(ArborDocumentReferenceCodec.decode(legacyChildLink) == WorkspaceReference(
+            tree: tree,
+            path: "/parent/stale-child",
+            stableKey: markdownStableKey("pg_child")
+        ))
+        #expect(host.lookupDocument(legacyChildLink) == .pending)
+        for _ in 0..<20 where host.lookupDocument(legacyChildLink) == .pending { await Task.yield() }
+        #expect(host.lookupDocument(legacyChildLink).title == "Child")
+        let relativeSiblingLink = try #require(host.resolveReference(
+            from: URL(string: "../destination")!,
+            in: binding.document
+        ))
+        #expect(ArborDocumentReferenceCodec.decode(relativeSiblingLink)?.path == "/destination")
+        let reference = ArborDocumentReferenceCodec.encode(.init(
+            tree: tree,
+            path: "/stale-child-hint",
+            stableKey: markdownStableKey("pg_child")
+        ))
+        let destinations = await host.structuralDestinations(for: child.reference, matching: "")
+        #expect(destinations.contains { $0.reference.identity == pageDestination.reference.identity && !$0.isDirectory })
+
+        let move = Task { await host.relocateDocument(reference, from: binding.document) }
+        for _ in 0..<20 where host.structuralMoveRequest == nil { await Task.yield() }
+        #expect(host.structuralMoveRequest?.reference.identity == child.reference.identity)
+        host.resolveStructuralMoveRequest(with: destination.reference)
+        #expect(await move.value)
+
+        let resolved = try await provider.resolve(.init(tree: tree, path: "/stale", stableKey: markdownStableKey("pg_child")))
+        #expect(resolved.reference.path == "/destination/child")
+        #expect(!(await host.relocateDocument(
+            ArborDocumentReferenceCodec.encode(destination.reference),
+            from: binding.document
+        )))
+
+        let moveCurrent = Task { await host.moveCurrentDocument() }
+        for _ in 0..<20 where host.structuralMoveRequest == nil { await Task.yield() }
+        host.resolveStructuralMoveRequest(with: pageDestination.reference)
+        #expect(await moveCurrent.value)
+        #expect(opened.last?.path == "/page-destination/parent")
+        await session.close()
+    }
+
+    @MainActor
+    @Test("Editor host delegates external previews and transcript actions to QuagmireExtras")
+    func extrasHostServices() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let url = try #require(URL(string: "https://example.com/article"))
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "ArborQuagmireExtras-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let service = LinkPreviewService(cacheDirectory: cacheDirectory) { requested in
+            LinkPreview(url: requested, title: "Example article", iconPNG: nil)
+        }
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: service
+        )
+
+        let preview = await host.linkPreview(for: url)
+        #expect(preview?.url == url)
+        #expect(preview?.title == "Example article")
+        #expect(host.blockActions(in: binding.document).map(\.id)
+            == TranscriptPolishingActions.actions().map(\.id))
+        await session.close()
+    }
+
+    @MainActor
+    @Test("Clean accepted replacement keeps matching BlockIDs and emits no authored commit")
+    func acceptedReplacement() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let originalIDs = binding.document.children.map(\.id)
+        let base = try await session.snapshot()
+        let confirmed = try await session.admit(source: base.source + "\nAdded externally.\n", baseContentRevision: base.contentRevision)
+        await binding.applyAcceptedReplacement(confirmed)
+        #expect(binding.document.children.first?.id == originalIDs.first)
+        #expect(binding.lastError == nil)
+
+        let reopened = ArborMarkdownCodec.open(
+            source: confirmed.source,
+            revision: confirmed.contentRevision,
+            identitySeed: "replacement-check"
+        )
+        let rebased = ArborMarkdownCodec.rebased(reopened, preserving: binding.document.children)
+        let (noOp, _) = ArborMarkdownCodec.admission(blocks: rebased.blocks, ledger: rebased.ledger)
+        #expect(noOp.source == confirmed.source)
+        #expect(noOp.patch.edits.isEmpty)
+    }
+
+    @MainActor
+    @Test("A clean open editor reconciles a live authoritative update in place")
+    func liveAuthoritativeUpdate() async throws {
+        let reference = WorkspaceReference(tree: "tr_live", path: "/", stableKey: markdownStableKey("pg_live"))
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_live\n---\n\n# Live\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let originalHeadingID = binding.document.children.first?.id
+        func blockCount() -> Int {
+            var count = 0
+            binding.document.walk { _, _, _ in count += 1 }
+            return count
+        }
+
+        await Task.yield()
+        await session.publish(source: initial.source + "\nChicken McNuggets?\n", revision: "r2")
+        for _ in 0..<100 where blockCount() < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(blockCount() == 2)
+        #expect(binding.document.children.first?.id == originalHeadingID)
+        #expect(binding.lastError == nil)
+        #expect(!binding.isSaving)
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("A live authoritative update cannot replace unadmitted editor text")
+    func liveAuthoritativeUpdatePreservesDirtyEditor() async throws {
+        let reference = WorkspaceReference(tree: "tr_livedirty", path: "/", stableKey: markdownStableKey("pg_live_dirty"))
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_live_dirty\n---\n\n# Hi\n\n- Before\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var bulletID: BlockID?
+        binding.document.walk { block, _, _ in
+            if case .bullet = block.kind { bulletID = block.id }
+        }
+        let paragraphID = try #require(bulletID)
+        binding.document.transaction(name: "unadmitted local typing") {
+            _ = binding.document.setText(paragraphID, AttributedString("Typed locally"))
+        }
+
+        await Task.yield()
+        await session.publish(source: initial.source.replacingOccurrences(of: "Before", with: "Remote"), revision: "r2")
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(binding.document.find(paragraphID).map { String($0.text.characters) } == "Typed locally")
+        #expect(binding.lastError == nil)
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("An accepted prefix cannot replace a newer admitted editor generation")
+    func acceptedPrefixPreservesNewerAdmission() async throws {
+        let reference = WorkspaceReference(tree: "tr_liveprefix", path: "/", stableKey: markdownStableKey("pg_live_prefix"))
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_live_prefix\n---\n\n# Hi\n\n- Before\n",
+            contentRevision: "r1"
+        )
+        let session = InterleavingLiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var bulletID: BlockID?
+        binding.document.walk { block, _, _ in
+            if case .bullet = block.kind { bulletID = block.id }
+        }
+        let paragraphID = try #require(bulletID)
+
+        await session.blockNextSnapshot()
+        await session.publish(
+            source: initial.source.replacingOccurrences(of: "Before", with: "Accepted prefix"),
+            revision: "r-prefix"
+        )
+        await session.waitUntilSnapshotIsBlocked()
+
+        binding.document.transaction(name: "newer local generation") {
+            _ = binding.document.setText(paragraphID, AttributedString("Newest local"))
+        }
+        binding.admitCurrentGeneration()
+        await binding.flush()
+        await session.releaseBlockedSnapshot()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(binding.document.find(paragraphID).map { String($0.text.characters) } == "Newest local")
+        #expect((await session.admittedSnapshot()).source.contains("Newest local"))
+        #expect(binding.lastError == nil)
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("A watched authoritative toggle remains a toggle after replacement")
+    func liveToggleUpdate() async throws {
+        let reference = WorkspaceReference(
+            tree: "tr_livetoggle",
+            path: "/",
+            stableKey: markdownStableKey("pg_live_toggle")
+        )
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "▸ Details\n  Original body.\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        await Task.yield()
+        await session.publish(source: "▸ Updated details\n  Original body.\n", revision: "r2")
+
+        var updated = false
+        for _ in 0..<100 where !updated {
+            if case let .toggle(title) = binding.document.children.first?.kind {
+                updated = String(title.characters) == "Updated details"
+            }
+            if !updated { try await Task.sleep(for: .milliseconds(10)) }
+        }
+
+        #expect(updated)
+        #expect(binding.document.children.first?.children.first.map { String($0.text.characters) } == "Original body.")
+        #expect(binding.lastError == nil)
+        await binding.close()
+    }
+}
+
+private actor RecordingAdmissionSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+    private var admissions = 0
+    private var patches: [WorkspaceDocumentPatch] = []
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+    }
+
+    func snapshot() -> WorkspaceDocumentSnapshot { current }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard current.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: baseContentRevision, actual: current.contentRevision)
+        }
+        admissions += 1
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r\(admissions + 1)"
+        )
+        return current
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        patches.append(patch)
+        guard current.contentRevision == patch.baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: current.contentRevision)
+        }
+        return try admit(
+            source: patch.applying(to: current.source),
+            baseContentRevision: patch.baseContentRevision
+        )
+    }
+
+    private var intents: [WorkspaceDocumentIntent] = []
+    func admit(intent: WorkspaceDocumentIntent) throws -> WorkspaceDocumentSnapshot {
+        try intent.validate()
+        intents.append(intent)
+        return try admit(patch: intent.patch)
+    }
+
+    func admissionCount() -> Int { admissions }
+    func admittedPatches() -> [WorkspaceDocumentPatch] { patches }
+    /// Every intent admitted, with the generation chain the editor captured.
+    func admittedIntents() -> [WorkspaceDocumentIntent] { intents }
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
+    func close() {}
+}
+
+private actor AlreadyAppliedStaleSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+    }
+
+    func snapshot() throws -> WorkspaceDocumentSnapshot { current }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard current.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(
+                expected: baseContentRevision,
+                actual: current.contentRevision
+            )
+        }
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r2"
+        )
+        return current
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        let source = try patch.applying(to: current.source)
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r2"
+        )
+        throw WorkspacePatchError.staleRevision(
+            expected: patch.baseContentRevision,
+            actual: current.contentRevision
+        )
+    }
+
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) throws -> WorkspaceDocumentSnapshot { current }
+    func close() {}
+}
+
+private struct ResolutionFailure: Error {}
+
+private actor ResolutionFailureSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+    private var conflicted = false
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+    }
+
+    func snapshot() -> WorkspaceDocumentSnapshot { current }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        throw ResolutionFailure()
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        // The first admission conflicts; the resolution retry, which the
+        // binding submits through the same admission path, fails outright.
+        guard !conflicted else { throw ResolutionFailure() }
+        conflicted = true
+        let base = current
+        let submitted = try patch.applying(to: base.source)
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: "# Welcome\n\nRemote edit.\n",
+            contentRevision: "r2"
+        )
+        throw WorkspaceDocumentConflict(
+            base: base,
+            current: current,
+            submittedSource: submitted,
+            context: .init(
+                code: "conflict",
+                message: "Update could not be merged",
+                kind: "server-update",
+                conflicts: [.init(path: "/welcome.md", reason: "frontmatter-conflict")]
+            )
+        )
+    }
+
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
+    func close() {}
+}
+
+private actor LiveUpdateSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+    private let stream: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
+    private let continuation: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.Continuation
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+        let pair = AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.makeStream()
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func snapshot() -> WorkspaceDocumentSnapshot { current }
+    func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> { stream }
+
+    func publish(source: String, revision: String) {
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: revision
+        )
+        continuation.yield(current)
+    }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard current.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: baseContentRevision, actual: current.contentRevision)
+        }
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r-local"
+        )
+        return current
+    }
+
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
+    func close() { continuation.finish() }
+}
+
+private actor InterleavingLiveUpdateSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var authoritative: WorkspaceDocumentSnapshot
+    private var admitted: WorkspaceDocumentSnapshot
+    private var admissionGeneration = 0
+    private let stream: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
+    private let continuation: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.Continuation
+    private var shouldBlockNextSnapshot = false
+    private var snapshotIsBlocked = false
+    private var blockedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var snapshotRelease: CheckedContinuation<Void, Never>?
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        authoritative = snapshot
+        admitted = snapshot
+        let pair = AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.makeStream()
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func blockNextSnapshot() { shouldBlockNextSnapshot = true }
+
+    func waitUntilSnapshotIsBlocked() async {
+        if snapshotIsBlocked { return }
+        await withCheckedContinuation { blockedWaiters.append($0) }
+    }
+
+    func releaseBlockedSnapshot() {
+        snapshotRelease?.resume()
+        snapshotRelease = nil
+    }
+
+    func snapshot() async -> WorkspaceDocumentSnapshot {
+        let captured = authoritative
+        if shouldBlockNextSnapshot {
+            shouldBlockNextSnapshot = false
+            snapshotIsBlocked = true
+            let waiters = blockedWaiters
+            blockedWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { snapshotRelease = $0 }
+            snapshotIsBlocked = false
+        }
+        return captured
+    }
+
+    func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> { stream }
+
+    func publish(source: String, revision: String) {
+        authoritative = WorkspaceDocumentSnapshot(
+            reference: authoritative.reference,
+            source: source,
+            contentRevision: revision
+        )
+        continuation.yield(authoritative)
+    }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard admitted.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: baseContentRevision, actual: admitted.contentRevision)
+        }
+        admissionGeneration += 1
+        admitted = WorkspaceDocumentSnapshot(
+            reference: admitted.reference,
+            source: source,
+            contentRevision: "r-local-\(admissionGeneration)"
+        )
+        return admitted
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        guard admitted.contentRevision == patch.baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: admitted.contentRevision)
+        }
+        return try admit(
+            source: patch.applying(to: admitted.source),
+            baseContentRevision: patch.baseContentRevision
+        )
+    }
+
+    func admittedSnapshot() -> WorkspaceDocumentSnapshot { admitted }
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { admitted }
+    func close() { continuation.finish() }
+}
+
+@Test("Stable block reorder preserves exact source lineage")
+func reorderedSourceLineage() throws {
+    let source = "Alpha 🪴\r\n\r\nBeta\r\n\r\nGamma\r\n"
+    let opened = ArborMarkdownCodec.open(source:source,revision:"r",identitySeed:"lineage")
+    let blocks = [opened.blocks[1], opened.blocks[0], opened.blocks[2]]
+    let admission = ArborMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger).0
+    #expect(try admission.patch.applying(to:source) == admission.source)
+    #expect(admission.patch.edits.flatMap { $0.lineage ?? [] }.count >= 1)
+    let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
+    let store = try EditorRecoveryStore(root:root,reference:reference)
+    let revision = try store.record(reference:reference,source:admission.source,base:.init(reference:reference,source:source,contentRevision:"r"),generations:[.init(patch:admission.patch,source:admission.source)])
+    #expect(try store.intent(revision)?.patch == admission.patch)
+    #expect(try store.intent(revision)?.generations.isEmpty == true)
+}
+
+@Test("Reordering equal-byte blocks still retains distinct source intent")
+func equalByteReorderLineage() throws {
+    let opened = ArborMarkdownCodec.open(source:"same\n\nsame\n\n",revision:"r",identitySeed:"equal")
+    #expect(opened.blocks.count == 2)
+    let admission = ArborMarkdownCodec.admission(blocks:opened.blocks.reversed(),ledger:opened.ledger).0
+    #expect(admission.source == opened.ledger.source)
+    #expect(admission.patch.edits.count == 1)
+    #expect(admission.patch.edits[0].lineage?.count == 2)
+    #expect(try admission.patch.applying(to:opened.ledger.source) == admission.source)
+}
+
+@MainActor
+@Test("Editor binding retains equal-byte reorder intent through its admission machine")
+func boundEqualByteReorder() async throws {
+    let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
+    let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:"same\n\nsame\n\n",contentRevision:"r1"))
+    let binding = try await ArborDocumentBinding.open(reference:reference,session:session,debounce:.seconds(60))
+    binding.document.transaction(name:"reorder") {
+        _ = binding.document.replaceChildrenReconciled(Array(binding.document.children.reversed()))
+    }
+    binding.admitCurrentGeneration()
+    try await binding.flush()
+    let patches = await session.admittedPatches()
+    #expect(patches.count == 1)
+    #expect(patches.first?.edits.first?.lineage?.count == 2)
+    #expect(binding.lastError == nil)
+    await binding.close()
+}
+
+@MainActor
+@Test("Explicit duplication retains copy spans through debounce and editor recovery", arguments:[0,2])
+func boundSourceCopy(position: Int) async throws {
+    let reference = WorkspaceReference(tree:"tr_copy",path:"/note")
+    let source = "Café\r\n\r\nsame\r\n\r\n"
+    let session = RecordingAdmissionSession(snapshot:.init(reference:reference,source:source,contentRevision:"r1"))
+    let binding = try await ArborDocumentBinding.open(reference:reference,session:session,debounce:.seconds(60))
+    binding.document.didCommitTransaction = { _ in binding.admitCurrentGeneration() }
+    let original = binding.document.children[0]
+    _ = binding.document.insertCopies(of:[original],at:.init(parent:nil,position:position))
+    // A later commit must not lose the pending copy evidence during debounce.
+    binding.document.transaction(name:"unrelated append") {
+        _ = binding.document.insertSubtree(.paragraph(text:AttributedString("later")),at:.init(parent:nil,position:binding.document.children.count))
+    }
+    await binding.flush()
+    // One admission carries both generations; the copy stays in the generation
+    // that captured it rather than being re-derived across the append.
+    let intents = await session.admittedIntents()
+    #expect(intents.count == 1)
+    let intent = try #require(intents.first)
+    #expect(intent.generations.count == 2)
+    let captured = intent.generations.map(\.patch)
+    #expect(captured.flatMap(\.edits).flatMap { $0.copies ?? [] }.count == 1)
+    #expect(captured.first?.edits.contains { !($0.copies ?? []).isEmpty } == true)
+    let copy = try #require(captured.flatMap(\.edits).first { !($0.copies ?? []).isEmpty }?.copies?.first)
+    #expect(Data(source.utf8).subdata(in:copy.source) == Data("Café\r\n\r\n".utf8))
+    let directory = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:directory) }
+    let store = try EditorRecoveryStore(root:directory,reference:reference)
+    let revision = try store.record(reference:reference,source:intent.source,base:.init(reference:reference,source:source,contentRevision:"r1"),generations:intent.generations)
+    #expect(try EditorRecoveryStore(root:directory,reference:reference).intent(revision)?.generations == intent.generations)
+    #expect(binding.lastError == nil)
+    await binding.close()
+}
+
+@Test("Copying unterminated Markdown keeps distinct blocks and exact copied bytes",arguments:[0,1])
+func unterminatedSourceCopy(position:Int) throws {
+    let opened = ArborMarkdownCodec.open(source:"Café",revision:"r",identitySeed:"copy")
+    let original = try #require(opened.blocks.first), copy = original.withFreshIDs()
+    var blocks = opened.blocks; blocks.insert(copy,at:position)
+    let admission = ArborMarkdownCodec.admission(blocks:blocks,ledger:opened.ledger,copies:[copy.id:original.id]).0
+    #expect(ArborMarkdownCodec.open(source:admission.source,revision:"r",identitySeed:"result").blocks.count == 2)
+    #expect(admission.patch.edits.first?.copies?.first?.source == 0..<"Café".utf8.count)
+    #expect(try admission.patch.applying(to:"Café") == admission.source)
+}
+
+extension CanopyEditorTests {
+    @Test("Foreign copies preserve original Markdown spelling and CRLF")
+    func foreignCopySourceFidelity() throws {
+        let source = "# Origin\r\n\r\n*  Exact café\r\n"
+        let origin = ArborMarkdownCodec.open(source: source, revision: "origin", identitySeed: "origin")
+        let block = try #require(origin.blocks.first?.children.first)
+        let copied = block.withFreshIDs()
+        let destination = ArborMarkdownCodec.open(source: "# Destination\r\n\r\n", revision: "destination", identitySeed: "destination")
+        let record = try #require(origin.ledger.records[block.id])
+        let (result, _) = ArborMarkdownCodec.admission(blocks: destination.blocks + [copied], ledger: destination.ledger,
+            foreignCopies: [copied.id: (record, WorkspaceCopyDocument(path: "/origin.md", source: source))])
+        #expect(result.source.contains("*  Exact café\r\n"))
+        #expect(try result.patch.applying(to: destination.ledger.source) == result.source)
+        let spans = result.patch.edits.flatMap { $0.copies ?? [] }
+        #expect(spans.count == 1)
+        #expect(spans.first?.source == record.range)
+        #expect(spans.first?.document?.path == "/origin.md")
+    }
+}

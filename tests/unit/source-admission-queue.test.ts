@@ -2,11 +2,9 @@ import { test, expect } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionIntent, type SourceAdmissionRecord } from "@arbor/canopy-client";
-import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type SourceOperation, type TreeSnapshot } from "@arbor/wire";
-import { executeExactSourceEdits } from "../../packages/canopy/src/updates/source-edits.ts";
-import { decodeCandidateUpdateJSON } from "@arbor/wire";
-import { applySourceEdits, type SourceEdit } from "@arbor/core";
+import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionIntent, type SourceAdmissionRecord } from "@overstory/client";
+import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@overstory/protocol";
+import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
 
 const fixture = JSON.parse(await readFile(new URL("../../conformance/source-admission-queue.json", import.meta.url), "utf8"));
 /** A record's whole authored contribution, in order, across its frames. */
@@ -175,14 +173,14 @@ test("source preservation fixtures retain verified lineage across queue restart"
 });
 
 test("explicit entry moves and copies retain different intent through restart", async () => {
-  const {prepareEntryAdmission}=await import("@arbor/canopy-client");
+  const {prepareEntryAdmission}=await import("@overstory/client");
   const graph=initial();
   for(const kind of ["moveEntry","copyEntry"] as const) await withQueue(async(queue,root)=>{
     const record=prepareEntryAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"entry-basis"},graph,entryTransfer:{kind,source:"/nested/note.md",parent:"/",name:"moved.md"}});
     await queue.retain(record);
     expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
     expect(authored(decodeCandidateUpdateJSON(record.update))[0]?.kind).toBe(kind);
-    const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+    const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
     const tool=new MergeTool(root),candidate=decodeTreeSnapshotJSON(record.candidate);
     const evaluated=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations:authored(decodeCandidateUpdateJSON(record.update))},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
@@ -191,26 +189,26 @@ test("explicit entry moves and copies retain different intent through restart", 
 });
 
 test("copy metadata edits bind to operation output and survive recovery", async () => withQueue(async(queue,root)=>{
-  const {prepareEntryAdmission,prepareEntryTransfer}=await import("@arbor/canopy-client");
+  const {prepareEntryAdmission,prepareEntryTransfer}=await import("@overstory/client");
   const graph=initial(),entryTransfer={kind:"copyEntry" as const,source:"/nested/note.md",parent:"/",name:"copy.md"};
   const pure=prepareEntryTransfer(graph,entryTransfer).candidate;
   const bytes=Buffer.from("New page identity\r\n"),file=hashObject(bytes);
-  const {decodeWireDirectory}=await import("@arbor/wire");
+  const {decodeWireDirectory}=await import("@overstory/protocol");
   const directory=decodeWireDirectory(pure.objects.get(pure.root)!);directory.entries.find(e=>e.name==="copy.md")!.file=file;
   const encoded=encodeWireDirectory(directory),candidate={root:hashObject(encoded),objects:new Map([...pure.objects,[file,bytes],[hashObject(encoded),encoded]])};
   const record=prepareEntryAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,candidate,entryTransfer:{...entryTransfer,rewrites:{"":file}}});
   await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
   const operations=authored(decodeCandidateUpdateJSON(record.update));
   expect(operations.map(op=>op.kind)).toEqual(["copyEntry","editSource"]);
-  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+  const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
   const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
   expect(evaluated.response.result.object).toBe(candidate.root);
 }));
 
 test("compound entry fixtures retain one basis and execute atomically after restart",async()=>{
   const fixtures=await Bun.file(new URL("../../conformance/entry-actions.json",import.meta.url)).json();
-  const {prepareEntryAdmission}=await import("@arbor/canopy-client");
-  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+  const {prepareEntryAdmission}=await import("@overstory/client");
+  const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
   for(const value of fixtures.cases)await withQueue(async(queue,root)=>{
     const graph=decodeTreeSnapshotJSON(fixtures.graph);
     const record=prepareEntryAdmission({change:fixtures.change,tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,entryActions:value.actions});
@@ -226,9 +224,9 @@ test("compound entry fixtures retain one basis and execute atomically after rest
 
 test("compound move transports a concurrent child edit without changing the sibling body",async()=>withQueue(async(_queue,root)=>{
   const fixtures=await Bun.file(new URL("../../conformance/entry-actions.json",import.meta.url)).json();
-  const {prepareEntryAdmission}=await import("@arbor/canopy-client");
-  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
-  const {decodeWireDirectory}=await import("@arbor/wire");
+  const {prepareEntryAdmission}=await import("@overstory/client");
+  const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
+  const {decodeWireDirectory}=await import("@overstory/protocol");
   const graph=decodeTreeSnapshotJSON(fixtures.graph),basis={kind:"accepted" as const,root:graph.root,update:"basis"};
   const source="child é\r\n",text="Peer child é\r\n";
   const peer=prepareSourceAdmission({tree:fixture.tree,basis,graph,sourcePath:"/pair/child.md",intent:{basis:{tree:fixture.tree,path:"/pair/child",revision:"r",source},edits:[{offset:0,length:0,replacement:"Peer "}],source:text}});
@@ -258,7 +256,7 @@ test("explicit source copies validate, survive recovery, and execute through the
     const prepare=()=>prepareSourceAdmission({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"r",source:c.source},edits:[{offset:0,length:bytes.length,replacement:c.replacement,copies:c.copies,...(c.lineage?{lineage:c.lineage}:{})}],source:c.replacement}});
     if(!c.valid){expect(prepare).toThrow();return;}
     const record=prepare();await queue.retain(record);expect(await new SourceAdmissionQueue(fixture.tree,root).retained()).toEqual([record]);
-    const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+    const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
     const candidate=decodeTreeSnapshotJSON(record.candidate),operations=authored(decodeCandidateUpdateJSON(record.update));
     expect(operations.filter(o=>o.kind==="copySource").length).toBe(c.copies.length);
     const evaluated=await new MergeTool(root).evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,operations},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
@@ -272,14 +270,14 @@ test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit un
   const base={tree:fixture.tree,path:"/note",revision:"r",source};
   const copy=prepareSourceAdmission({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:5,replacement:source+source,lineage:[{source:[0,5],replacement:[0,5]}],copies:[{source:[0,5],replacement:[5,10]}]}],source:source+source}});
   const peer=prepareSourceAdmission({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:1,replacement:"X"}],source:"Xbc\n\n"}});
-  const {MergeTool}=await import("../../packages/canopy/src/merge-tool.ts");
+  const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
   const tool=new MergeTool(root),current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(copy.candidate);
   const objects=new Map([...graph.objects,...current.objects,...incoming.objects]),rules={id:"tree-default",revision:1 as const};
   const accepted=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,operations:authored(decodeCandidateUpdateJSON(peer.update))},rules},objects);
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
   const result=await tool.evaluate({kind:"tree",tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,operations:authored(decodeCandidateUpdateJSON(copy.update))},rules},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
-  const {decodeWireDirectory}=await import("@arbor/wire");
+  const {decodeWireDirectory}=await import("@overstory/protocol");
   const hash=decodeWireDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
   if(!("decisions" in result.response))throw Error("Expected evaluated intent response");
   expect(result.response.decisions).toEqual([]);
@@ -337,7 +335,7 @@ test("shared cross-document fixture validates exact UTF-8 material", async () =>
 
 test("page creation records reproduce their original graph without an undo transaction",async()=>{
   const f=await Bun.file(new URL("../../conformance/page-conversion-undo.json",import.meta.url)).json();
-  const {preparePageCreation}=await import("@arbor/canopy-client");
+  const {preparePageCreation}=await import("@overstory/client");
   const source=Buffer.from(f.source),fileSource=hashObject(source);
   const nested=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);
   const rootBytes=encodeWireDirectory({type:"directory",entries:[{name:"nested",directory:nestedHash}]});
@@ -357,9 +355,9 @@ test("page creation records reproduce their original graph without an undo trans
 });
 
 test("shared trace vectors: one frame per generation, compaction, and Canopy's composeFrames agree", async () => {
-  const { compactTrace } = await import("@arbor/canopy-client");
-  const { composeFrames, validateSourceTrace } = await import("../../packages/canopy/src/updates/source-edits.ts");
-  const { MergeTool } = await import("../../packages/canopy/src/merge-tool.ts");
+  const { compactTrace } = await import("@overstory/client");
+  const { composeFrames, validateSourceTrace } = await import("../../packages/canopyd/src/updates/source-edits.ts");
+  const { MergeTool } = await import("../../packages/canopyd/src/merge-tool.ts");
   expect(fixture.traces.length).toBeGreaterThan(0);
   for (const value of fixture.traces) await withQueue(async (queue, root) => {
     const graph = initial();

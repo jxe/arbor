@@ -7,9 +7,9 @@ import type {
   NodeResponse,
   NodeSummary,
   TreeRef,
-} from "@arbor/core";
-import { isPageID, nodeDisplayName, pageIDStableKey } from "@arbor/core";
-import type { WorkspaceFS } from "@arbor/fs";
+} from "@overstory/protocol";
+import { isPageID, nodeDisplayName, pageIDStableKey } from "@overstory/protocol";
+import type { WorkspaceFS } from "@overstory/fs";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import {
   sampleExpandedNode,

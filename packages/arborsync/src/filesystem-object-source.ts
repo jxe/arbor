@@ -1,8 +1,8 @@
 import { objectReadError, type ObjectReadReporter } from "./object-read-diagnostics.ts";
 import { readFile } from "node:fs/promises";
-import { snapshotDirectory, type DescribeSnapshotCollectionFile, type SnapshotObjectIndex } from "@arbor/fs";
-import { ObjectIndex } from "@arbor/stores";
-import { hashObject, type ObjectHash } from "@arbor/wire";
+import { snapshotDirectory, type DescribeSnapshotCollectionFile, type SnapshotObjectIndex } from "@overstory/fs";
+import { ObjectIndex } from "./state/index.ts";
+import { hashObject, type ObjectHash } from "@overstory/protocol";
 
 export interface FilesystemObjectScope {
   boundaries: ReadonlyMap<string, string>;

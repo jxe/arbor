@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serveCanopy } from "@arbor/canopy";
-import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime } from "@arbor/core";
+import { serveCanopy } from "@overstory/canopyd";
+import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime } from "@overstory/protocol";
 
 const request: QueryStreamRequest = {
   document: { tree: "tr_source", path: "/index", version: "doc-v1" },

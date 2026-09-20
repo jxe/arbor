@@ -4,10 +4,9 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { RevisionConflictError, Workspace } from "@arbor/arborsync";
-import { canonicalStableKey } from "@arbor/core";
-import { pageIDFromStableKey } from "@arbor/core/node-key";
-import { parseMarkdown } from "@arbor/editor";
+import { RevisionConflictError, Workspace } from "@overstory/arborsync";
+import { canonicalStableKey, parseMarkdown } from "@overstory/protocol";
+import { pageIDFromStableKey } from "@overstory/protocol/node-key";
 
 let root: string;
 let state: string;

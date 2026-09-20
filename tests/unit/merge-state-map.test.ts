@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { hashObject } from "@arbor/wire";
+import { hashObject } from "@overstory/protocol";
 import {
   getStateMap,
   loadValidatedStateMap,
@@ -7,7 +7,7 @@ import {
   loadStateMap,
   storeStateMap,
   updateStateMap,
-} from "../../packages/merge/src/state-map.ts";
+} from "../../packages/canopyd-merge/src/state-map.ts";
 function fixture() {
   const objects = new Map<string, Uint8Array>();
   const reads: string[] = [];

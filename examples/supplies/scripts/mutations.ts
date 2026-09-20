@@ -1,4 +1,4 @@
-import { arbor, mutation, publicError } from "arbor/data"
+import { arbor, mutation, publicError } from "overstory/data"
 import { z } from "zod"
 
 const suppliesData = arbor("../data")
