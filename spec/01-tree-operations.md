@@ -512,13 +512,13 @@ Root material cannot itself be moved, removed or replaced as an entry.
 `operation` names a retained material result. On writes, it may also name the result
 of an earlier operation in this change or submitted prefix. Forward references, cycles and references to an
 operation with no material result are invalid. An operation result is not a backend
-graph ID and does not inherently create a new origin. The authority retains its
+graph ID and does not inherently create a new origin. The host retains its
 immutable binding and the provenance needed to transport selections through later
 changes. Missing history requires an explicit failure, never fuzzy text matching.
 
 `alternative` names material in an exact retained accepted `state`. State IDs are
 opaque, nonempty strings of at most 1024 UTF-8 bytes. Conflict and alternative IDs
-come from the authority. The state identifies the reviewed alternative revision;
+come from the host. The state identifies the reviewed alternative revision;
 bytes, display order and current paths cannot substitute for identity.
 
 Omitting selectors means the complete material. A nonempty `within` array selects
@@ -532,7 +532,7 @@ for source operations and the entire selected entry for entry operations. Applyi
 text ranges to binary or directory material is invalid. Entry references cannot
 have ranges. Logical boundaries never grant access to another TreeID's interior.
 
-The authority resolves the identified selection before transporting its identity
+The host resolves the identified selection before transporting its identity
 through changes; it MUST NOT retarget by matching current names or bytes. For an
 entry destination, `parent` identifies a directory and `name` is one NFC component.
 The authored destination slot, including its observed occupant or absence, is part
@@ -549,7 +549,7 @@ keys or symbols to exact source; it does not introduce a separate identity names
 exact retained accepted state. Optional `after` continues an opaque page token;
 optional `conflict` selects one decision. Each query field occurs at most once;
 `state` is required, nonempty and exact. `after` and `conflict` are mutually exclusive.
-The authority authorizes every read, including continuation pages. Unknown or
+The host authorizes every read, including continuation pages. Unknown or
 unauthorized trees, unavailable states and unknown selected decisions return `404`;
 malformed or mismatched page tokens return `400`. A page token is bound to tree,
 accepted state and traversal position, never an authorization grant.
@@ -600,7 +600,7 @@ The client may fetch those by `conflict` at the same state. Not appearing on thi
 page does not mean a dependency is missing or resolved. Before preparing a joint
 resolution the client obtains the evidence required for the affected dependency
 closure. Unrelated sync requires neither a complete traversal nor that closure.
-The authority still validates all guards and combinations at acceptance.
+The host still validates all guards and combinations at acceptance.
 
 `affected` uses the same material references as updates. A `basis` reference is
 interpreted at the page's `state`. Absence decisions can address a destination parent
@@ -617,7 +617,7 @@ value, placement, contributions or other meaningful alternative evidence changes
 earlier revisions remain associated with retained accepted states. Equal bytes do
 not collapse alternatives. Contributions identify authored input rather than a full
 transitive history download. Null `operation` explicitly denotes a snapshot input.
-Selected identity must name an alternative. The authority retains and verifies its
+Selected identity must name an alternative. The host retains and verifies its
 correspondence to the ordinary projection; clients validate exact source and placement
 before attaching actionable controls. A text value must match the selected projected
 UTF-8 range. A directory/file kind is never guessed from bytes. Unknown decision
@@ -626,7 +626,7 @@ mutation behavior. Core read fields may be extended without changing their meani
 
 Entry-valued alternatives are read through the ordinary
 [object route](#121-reading-an-object-at-a-time) by the hashes the decision page
-discloses; the authority retains them for as long as the state is retained.
+discloses; the host retains them for as long as the state is retained.
 Inline text requires no extra read.
 
 Known review actions remain `editAlternative` and `resolveConflict`: capability
@@ -678,9 +678,9 @@ selects snapshot semantics. A trace is a chain of tree-root to tree-root frames
 that fully explains the candidate using [source operations](10-source-intent.md);
 every frame must reproduce its own result. An empty trace is valid only for an
 explicit resolution with no content edits. A trace carries at most 64 frames
-and 1024 operations. A trace is evidence the authority checks in full, never a
+and 1024 operations. A trace is evidence the host checks in full, never a
 hint it may skip. There is no capability-discovery endpoint or negotiation
-mechanism: a request the authority does not support fails closed with no
+mechanism: a request the host does not support fails closed with no
 translation and no alternate route.
 `resolves` declares guarded decisions endorsed by this candidate; empty means none.
 These fields are required, included
@@ -692,7 +692,7 @@ the string begins, or `null` when its first element activates a reserved tree.
 Each element proposes one distinct accepted-history boundary. The first is
 authored on the root at `base`; every later element is authored on the preceding
 element's submitted `candidate` together with its authored semantic effects, whether
-or not that candidate has received an authority response. Root equality never
+or not that candidate has received a host response. Root equality never
 collapses the semantic basis of two elements.
 
 Each element is a client-chosen accepted-history boundary. Nothing requires
@@ -753,13 +753,13 @@ successors from one prefix. It starts a new epoch only after the previous
 speculative string has been completely acknowledged and its resulting accepted
 transition has been durably applied, using that watchpoint as the new `base`.
 
-The authority derives a credential-scoped request digest for each element. For
+The host derives a credential-scoped request digest for each element. For
 the first element the digest basis is the accepted update id in `base`. For
 each later element it is `{ requestDigest, candidate }` from the preceding
 element. Consequently every digest commits to the complete prefix, and the
 same prefix has the same identities in every longer request.
 
-The authority serializes update strings per tree. Before processing new work,
+The host serializes update strings per tree. Before processing new work,
 it finds the longest supplied prefix already represented by successful
 credential-scoped request digests in accepted history and trims that prefix.
 If the longer request arrives first it may apply every element; if a shorter
@@ -779,11 +779,11 @@ successful prefix remains accepted and later elements are not attempted. An acce
 unresolved decision is a successful result and does not stop the remaining string.
 
 Each `candidate` names the exact Overstory root encoding the desired complete tree
-state. The authority decodes and validates its modeled state and all
+state. The host decodes and validates its modeled state and all
 projection-specific fidelity required by that encoding. Each element may omit
 objects available from the preceding graph, but the complete request must be
 self-contained from its retained accepted `base` plus its `objects` and valid
-`deltas`. The authority may reconstruct an already-applied prefix from the
+`deltas`. The host may reconstruct an already-applied prefix from the
 repeated request instead of retaining its submitted candidate graph. The
 [delta rules](#25-sparse-transfer-with-object-deltas) define interchangeable
 transfer representations; they do not change a candidate's identity.
@@ -854,7 +854,7 @@ Format-aware rules may produce a clean merge or explicitly resolve guarded decis
 under [source intent §7](10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution).
 They must honor the applicable model constraints, including
 [collection-file rules](06-child-backings.md#23-accepted-update-validation-and-merge).
-The authority retains unresolved choices when no rule justifies resolution. Concrete
+The host retains unresolved choices when no rule justifies resolution. Concrete
 reference-implementation rule names and rollout limitations belong in implementation
 documentation and status.
 
@@ -907,7 +907,7 @@ reasons naming each conflicting node; and `draft`, the transition from the
 candidate root to the draft root the client keeps.
 
 A direct client treats `failedIndex` as a sequencing boundary. It reviews only
-that failed element; later elements have not conflicted because the authority
+that failed element; later elements have not conflicted because the host
 has not examined them. After the reviewed result is accepted, the client
 replays each retained suffix change in order against the resulting accepted
 state. Replay preserves the original change between adjacent submitted
@@ -1044,7 +1044,7 @@ directly. The normative client behavior is the update machine in
 6. If the request's outcome is unknown when transport returns, the client
    retries it exactly. If newer durable heads exist behind an ambiguous
    request, it issues one longer string that repeats the transmitted prefix
-   exactly and appends the latest head once; the authority trims the accepted
+   exactly and appends the latest head once; the host trims the accepted
    prefix. This is the only use of a longer overlapping request.
 7. A working tree at its accepted base applies a contiguous transition batch
    in memory and durably materializes only its final state, fetching any

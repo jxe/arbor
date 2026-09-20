@@ -106,7 +106,7 @@ bytes.
 Freeze whether concurrent changes merge row-by-row, field-by-field, or only as
 authored transactions. Define primary/foreign-key effects, cascades,
 set-null/restrict behavior, generated values, ordered memberships, and how an
-offline mutation is reauthorized by the authority. Never infer cascade intent
+offline mutation is reauthorized by the host. Never infer cascade intent
 from an ambiguous diff.
 
 ## Implementation phases

@@ -22,7 +22,7 @@ authority reauthorization, deterministic re-execution, accepted updates, and
 watch. Physical Postgres/SQLite replication and arbitrary Postgres CDC are not
 used.
 
-Postgres is the authority transaction engine only after explicit host
+Postgres is the host transaction engine only after explicit host
 activation. Direct external Postgres writes are refused. SQLite pages and WAL
 remain private materializations; neither is synchronized as tree content.
 
@@ -45,7 +45,7 @@ generation.
 3. Persist reviewed local intent before provisional SQLite execution. Preserve
    its exact handle/input, deterministic context, base generation, and ordering
    across restart.
-4. Reauthorize and re-execute intent at the authority. Exact retry produces one
+4. Reauthorize and re-execute intent at the host. Exact retry produces one
    effect and one receipt; changed intent under the same identity conflicts.
 5. Reconcile accepted, merged, rejected, authorization-changed, schema-changed,
    and resync outcomes without losing later queued intent.

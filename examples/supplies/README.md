@@ -7,7 +7,7 @@ When Arbor implements executable documents, hosting should work as follows:
 1. Promote `data/` as a private nested Arbor tree and attach either its `_store.sqlite3` or a future Postgres `_store.yaml` descriptor.
 2. Promote this folder as an Arbor tree.
 3. Give the tree's execution principal read/write access to the private data tree and profile-read access required by the compiled queries.
-4. Enable executable-document hosting for the tree on its authority.
+4. Enable executable-document hosting for the tree on its host.
 
 Each root `.mdx` or `.tsx` document is an ordinary Arbor location. `Home.mdx` is served at the extensionless `Home` path, `List.tsx` at `List`, and so on. Links are ordinary relative Arbor links. Query parameters belong to the addressed document, such as `List?id=<UUID>&edit`; there is no application entry, route table, location registry, generated link type, or view selector.
 

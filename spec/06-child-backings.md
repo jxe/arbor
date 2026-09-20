@@ -55,7 +55,7 @@ not invent a whole-database bytes hash or model hash.
 Reformatting JSON or CSV changes the bytes hash and not the model hash,
 and a representation migration may preserve the digest while changing every
 byte ([data-model equality](01-tree-operations.md#representation-and-model-equality)). Updates name the complete candidate tree and may carry
-compact patches to representation bytes, but the authority decodes
+compact patches to representation bytes, but the host decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
 hash itself.
@@ -274,7 +274,7 @@ The schema evaluator accepts the authored schema and its declared schema-library
 ### 2.3 Accepted update validation and merge
 
 When a candidate changes a recognized collection file, the submitted root
-names the exact lossless encoding of that candidate tree state. The authority
+names the exact lossless encoding of that candidate tree state. The host
 decodes coherent base, current, and candidate representations under schema and
 resource bounds, recomputes logical row identities and `childSetHash`, applies
 `collection-file-rows-v1` to a conflicting collection file, validates all keys,

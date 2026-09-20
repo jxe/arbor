@@ -121,7 +121,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
    either moved, the observation is ignored. Hosts must also hold an
    uncommitted keystroke themselves: the machine has no generation for it.
 6. **External change under coalescing intent** (`observed` while `dirty`)
-   cancels the timer and admits now, so the authority, not the editor,
+   cancels the timer and admits now, so the host, not the editor,
    reconciles.
 7. **Legacy compatibility: a rejected admission emits `mergeLocally`.** The working tree rejected
    the write at its base revision; the host may run its explicit merge

@@ -27,7 +27,7 @@ Plan B).
 
 Every state below is durable: a client restarted in any of them resumes
 without changing the semantic identity of any request that may have reached
-the authority.
+the host.
 
 ## 2. The update machine
 
@@ -59,7 +59,7 @@ are files the client can resolve on demand through an object store and whose
 sizes and media types the bootstrap names. A spine that omits a directory
 object is not sparse, it is incomplete, and must fail installation loudly. A
 preview, a partial download, or a fetched descriptor cannot enter the machine.
-If the authority advanced while the snapshot downloaded, the client begins
+If the host advanced while the snapshot downloaded, the client begins
 ordinary catch-up from the installed cursor rather than restarting placement.
 
 When an intermediary supplies that installation, its snapshot **must** be
@@ -67,7 +67,7 @@ rooted at the accepted authority root. It must not substitute another working
 tree's mutable head, pending request, conflict, or availability state. Each
 working tree enters `current` independently and owns only the heads and exact
 requests authored after its installation. Shared credentials make concurrent
-requests reconcilable at the authority; they do not merge client state or let
+requests reconcilable at the host; they do not merge client state or let
 one client's local condition gate another client's publication.
 
 ### 2.3 Transitions
@@ -101,7 +101,7 @@ one client's local condition gate another client's publication.
    overwrite (a folder working tree whose newer bytes were authored on disk)
    prevents materializing a merged result without overwriting newer durable
    bytes, the client instead persists one longer string: it repeats the
-   transmitted prefix exactly and appends the successor once. The authority trims the
+   transmitted prefix exactly and appends the successor once. The host trims the
    accepted prefix by request digest and reconciles only the new transition.
 5. **Racing evidence.** The response and the matching watch event are
    evidence for the same request. The client correlates by request digest
@@ -137,11 +137,11 @@ one client's local condition gate another client's publication.
    authentication reason and resume only after credentials are refreshed.
    Validation failure is `terminal`.
 10. **Ambiguous recovery.** On reconnection, a request that may have reached
-    the authority is retried exactly. If newer durable heads exist behind
+    the host is retried exactly. If newer durable heads exist behind
     it, the client persists one longer request that repeats the transmitted
     prefix exactly and appends the latest head once. Together with the
     merged-result handoff in rule 4, these are the only transitions that issue a longer
-    append-only string; all rely on the authority trimming the already
+    append-only string; all rely on the host trimming the already
     accepted prefix by request digest.
 11. **A persisted request is transmitted as persisted.** The runner sends
     exactly the elements the persisted request names. A generation admitted
@@ -158,9 +158,9 @@ one client's local condition gate another client's publication.
 12. **A re-seeded working tree never re-submits its seed.** When an accepted
     result arrives for a request whose candidate the working tree no longer
     holds and the tree has no pending work of its own (its state was rebuilt
-    from the authority while the durable request or head carried the work),
+    from the host while the durable request or head carried the work),
     the client applies the decision, discards the request and next base, and
-    catches up to the authority's current state instead of preparing a new
+    catches up to the host's current state instead of preparing a new
     request from the seed.
 
 ### 2.4 Non-normative timing
@@ -314,11 +314,11 @@ as an empty current record is not.
 
 ## Accepted conflicts and unaccepted local work
 
-The authority owns conflict attribution, alternative preservation and resolution.
+The host owns conflict attribution, alternative preservation and resolution.
 Clients retain their accepted basis and deliver authored changes; they are not
 required to infer conflict meaning or implement merge rules. An accepted unresolved
 update is accepted work, not a locally held rejection. Hidden alternatives belong to
-the authority's accepted state and do not require a client-side review cache.
+the host's accepted state and do not require a client-side review cache.
 
 In this section, held work means unaccepted local edits after a definitive rejection.
 It does not mean the alternatives of an accepted unresolved decision.
@@ -352,7 +352,7 @@ Filesystem clients materialize ordinary projected files and keep accepted identi
 the unresolved signal, and unaccepted work in durable client state outside authored
 files. They need not retain accepted alternatives or inspection evidence locally.
 They MUST retain the exact accepted projection underlying each captured local change.
-The authority establishes whether a snapshot edit continues a displayed alternative.
+The host establishes whether a snapshot edit continues a displayed alternative.
 When attribution is ambiguous, it retains the ambiguity if representable within the
 contract limits; otherwise it rejects the edit, which remains locally recoverable.
 The client MUST NOT preemptively hold an edit solely because its basis is unresolved.

@@ -30,7 +30,7 @@ Result identity and material origin are distinct: a move preserves origins, a co
 creates new origins with derivation, and an edit preserves only verified lineage.
 Result coordinates describe the result at execution on its authored basis. A result
 may contain several retained or newly created origins. Equal bytes do not establish
-shared origin. A snapshot asserts no fine-grained origins; the authority may derive
+shared origin. A snapshot asserts no fine-grained origins; the host may derive
 conservative correspondence, but MUST NOT invent move, copy, undo or resolution intent.
 
 ## 2. The trace
@@ -48,7 +48,7 @@ several editor generations into one claim that no single basis explains.
 - The last frame's `after` MUST be `candidate`.
 - Every frame MUST reproduce its `after` exactly, including untouched bytes, when
   its operations execute against its `before` (§3). A frame that does not is
-  invalid; the authority never falls back to the candidate's bytes.
+  invalid; the host never falls back to the candidate's bytes.
 - Each frame carries at least one operation. A change with nothing to state uses
   an empty trace or, for snapshot semantics, `null`.
 
@@ -75,7 +75,7 @@ type OperationRef = { change: string; operation: string };
 
 ## 4. Operations
 
-The target authority supports every operation below. Each has required `key` and
+The target host supports every operation below. Each has required `key` and
 `kind` fields. All listed fields are required except `lineage`. References may
 select projected material or alternatives; the reference determines the target,
 so there is no separate `editAlternative` operation.
@@ -151,22 +151,22 @@ the chosen result, the candidate must materialize it using the appropriate ordin
 operations. Editing a hidden alternative alone does not select it.
 
 `state` identifies the exact reviewed accepted evidence. `alternatives` is the
-complete nonempty set of reviewed alternative IDs, with no duplicates. The authority
+complete nonempty set of reviewed alternative IDs, with no duplicates. The host
 loads their revisions, contributions and dependencies at that state and compares the
 relevant evidence with current. New or changed alternatives, affected locations,
 projection choices or dependencies invalidate the review. Unrelated advancement need
-not invalidate it when the authority proves the guarded decision unchanged. `ifCurrent`
+not invalidate it when the host proves the guarded decision unchanged. `ifCurrent`
 is available when the caller requires no accepted advancement at all.
 
 There is no fixed protocol count limit on declarations or reviewed alternatives.
 A conflict may appear only once. Array order is retained in request identity, but
-all declarations take effect jointly, never sequentially. The authority validates
+all declarations take effect jointly, never sequentially. The host validates
 that the candidate fully expresses each resolved choice and preserves all unnamed
 open decisions. Ordinary saves, equal bytes and omission of hidden material never
 resolve a decision implicitly.
 
 Coupled decisions use one candidate with all required operations and declarations.
-The authority validates a coherent combined result against dependencies and model
+The host validates a coherent combined result against dependencies and model
 constraints, then accepts everything atomically or rejects that candidate. Several
 request elements are not a substitute: they can leave an accepted prefix. A dependency
 does not force joint resolution if an individual choice leaves the other alternatives
@@ -235,7 +235,7 @@ atomically with accepted identity and projection. A stale rule result must be
 recomputed or rejected; it cannot silently resolve newly arrived contributions.
 Changing a rule's implementation MUST NOT reinterpret historical resolutions.
 
-For clean automatic merges, the authority must likewise retain the contributions and
+For clean automatic merges, the host must likewise retain the contributions and
 sufficient decision evidence for explanation and reproducibility; it need not create
 a user-visible conflict solely to resolve it immediately. Deterministic rule and
 projection behavior must be specified where promised by the format contract.

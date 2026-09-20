@@ -28,7 +28,7 @@
 The client contract says raw secrets never enter loopback URLs, browser history,
 visit records, logs, or diagnostics. canopyd's public bootstrap reads the link
 fragment in the remote origin and sends `Arbor-Access-Link` as a header for one
-fetch. That proves the authority accepts the credential, but it is not yet a
+fetch. That proves the host accepts the credential, but it is not yet a
 complete recipient experience:
 
 - the raw fragment remains in browser history;

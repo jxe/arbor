@@ -286,7 +286,7 @@ ignore bytes mid-operation.
 Change `materializeTree()` to determine cleanup protection before deleting any
 entry. It must never delete an ignored untracked local path. It must still
 materialize and update an accepted tracked entry even when a current pattern
-matches it. When the authority deletes such an entry, preserve any matching
+matches it. When the host deletes such an entry, preserve any matching
 local bytes as ignored/untracked and verify the physical projection against the
 remote root using the new accepted membership, so the placement becomes idle
 instead of repeatedly re-uploading the preserved copy.

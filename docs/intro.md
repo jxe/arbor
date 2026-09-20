@@ -290,7 +290,7 @@ end to end.
 **Offline can be the default for placed data.** A placed workspace is
 materialized locally, so ordinary documents and supported local queries can
 continue without the network. Merely visited remote trees and hosted execution
-still depend on their authority.
+still depend on their host.
 
 Consider also what the completed system could do to the web stack — to Next.js
 and Vercel and everything around them.

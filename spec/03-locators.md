@@ -125,7 +125,7 @@ remain ordinary content-local navigation and are not used as node identity:
 arbor://<TreeID>/roadmap;arbor-key=<base64url-key>#implementation
 ```
 
-This separation is required for server rendering: the authority receives the
+This separation is required for server rendering: the host receives the
 path-attached stable key on the initial HTTP request, while browsers do not send
 the content fragment and executable documents retain their full query-string
 namespace.
