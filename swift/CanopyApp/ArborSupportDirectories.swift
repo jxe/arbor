@@ -138,8 +138,8 @@ actor NativePlacementStore {
         // A file with a `placements` key is the collection layout; anything
         // else is the original single-record file. Decode errors are reported
         // for the layout the file actually has, never for the other one.
-        let keys = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?.keys ?? []
-        if keys.contains("placements") {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if object?["placements"] != nil {
             let collection = try JSONDecoder().decode(NativePlacementCollection.self, from: data)
             guard collection.version == 2 else {
                 throw ArborWireValidationError.invalidValue("Unsupported native placement collection")
