@@ -3,7 +3,7 @@ import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:f
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const ROOT = resolve(import.meta.dir, "..");
+const ROOT = resolve(import.meta.dir, "..", "..");
 const STATE_ROOT = join(ROOT, ".arbor-lab");
 const TAILSCALE_AUTH_KEY_ENV = "TAILSCALE_AUTH_KEY";
 const ROLES = ["community", "alice", "bob", "carol"] as const;

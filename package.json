@@ -35,7 +35,7 @@
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/object-index.bench.ts",
     "seed:supplies": "bun tools/seed-supplies-fixture.ts",
-    "lab:hcloud": "bun tools/hcloud-sync-lab.ts"
+    "lab:hcloud": "bun deploy/hcloud-sync-lab/run.ts"
   },
   "dependencies": {
     "@overstory/protocol": "workspace:*",

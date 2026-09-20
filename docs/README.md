@@ -1,40 +1,34 @@
 # Overstory documentation
 
-Overstory separates portable contracts, current implementation status, usage, product design, active plans, and history so that one document does not silently become all of them.
+Four kinds of document, kept apart so that none silently becomes the others:
+the **specification** owns portable behavior, **status** owns what the
+reference implementation does today, **docs** (this directory) own usage and
+replaceable implementation choices, and **plans** own remaining work.
 
 ## Start here
 
-- [README](../README.md) — concise pitch and working local/canopyd quickstarts.
-- [Current status](../status.md) — what is implemented, partial, or only specified.
-- [Introduction](intro.md) — the longer argument and intended end state.
-- [Specification](../spec.md) — normative portable behavior in numbered reading order.
+- [README](../README.md): what Overstory is, how the pieces fit, quickstarts.
+- [Introduction](intro.md): the longer argument and the intended end state.
+- [Specification](../spec.md): normative portable behavior, in reading order.
+- [Status](../status.md): what is implemented, installed, deployed, or only specified.
 
-## Usage and operation
+## Using Overstory
 
-- [CLI](cli.md) — the implemented `arbor` command surface and safety rules.
-- [canopyd deployment](../deploy/README.md) — local/public hosting, persistent storage, backup, restoration, and coordinated upgrades.
-- [Development](../DEVELOPMENT.md) — repository layout, setup, testing, and local verification.
+- [CLI reference](cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, and safety rules.
+- [Deploying a host](../deploy/README.md): Railway and VPS deployment, the canopyd environment, backups, upgrades, and rollback.
+- [Migrations](../migrations/README.md): the one-off migration procedure, Railway facts, and the schema history.
+- [Development](../DEVELOPMENT.md): setup, verification gates, and Quagmire coordination.
 
-## Reference implementation and product design
+## Reference implementation
 
-- [Consolidated update contract](update-protocol.md) — target specification, paired models and coordinated implementation boundary.
+- [Reference implementation](reference-implementation.md): every package in both languages, runtime ownership, durability, hosting, and verification.
+- [Local system](local-system.md): the data home, native working trees, the editor recovery store, admission journals, diagnostics, daemon supervision, and credentials.
+- [Arbor Sync REST API](arborsync-api.md): the loopback client/daemon boundary.
+- [Merge tool](merge-tool.md): the merge sidecar, its request contract, operation evaluation, the format support table, and limits.
+- [Client state machines](client-state-machines.md): the document admission and working-tree update machines, admission invariants, and trace compaction.
+- [Execution sidecar](execution-sidecar.md): the target boundary between canopyd and the executable-document runtime.
 
-- [Merge executable](merge-tool.md) — shared immutable objects, staged rule evaluation, process failures and execution modes.
-- [Reference implementation](reference-implementation.md) — package boundaries, runtime ownership, durability, hosting, clients, and verification machinery.
-- [Local system](local-system.md) — local data home, private state, watchers, visits, credentials, and migration.
-- [Local Arbor Sync REST API](arborsync-api.md) — the implemented loopback client/daemon boundary.
-- [Client design](client.md) — non-normative web/native interaction design; use `status.md` for implementation truth.
-- [Client state machines](client-state-machines.md) — the document admission machine every Arbor Sync editor runs, and where it meets the direct canopyd machine in the specification.
+## Design
 
-## Planning and history
-
-- [Active plans](../plans/README.md) — project indexes, maintenance themes, and unresolved questions.
-- [Notes](notes/social-networking.md) — exploratory arguments that are neither specification nor status.
-- [Archive](archive/arbord-projection-outline.md) — historical implementation outlines retained for context.
-
-- [Protocol-ready source intent](protocol-ready.md) — current operation boundary and coordinated upgrade procedure.
-
-
-- [Execution sidecar boundary](execution-sidecar.md): target HTTP forwarding, execution-token use, and provider enforcement; implementation is planned in Apps 005.
-
-- [Resource policy implementation](resource-policy-implementation.md): offline Apps 004 checkpoint, supported enforcement and migration gates.
+- [Client design](client.md): non-normative interaction design for the Canopy browsers; use status for implementation truth.
+- [Plans](../plans/README.md): the outcome menu, the detailed catalog, and open questions.

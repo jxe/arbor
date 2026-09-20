@@ -1,4 +1,11 @@
-# Remote trial deployment
+# Deploying a host
+
+Files in this directory:
+
+- `Dockerfile.canopyd` and the root `railway.toml`: the image Railway builds and how it runs it.
+- `railway-canopy.ts` (`bun run canopy:railway`) and `canopies/<domain>.env`: managed Railway hosts as reviewable desired state.
+- `docker-compose.yml`, `Caddyfile`, `.env.example`: the VPS recipe.
+- `hcloud-sync-lab.md` and `hcloud-sync-lab/` (`bun run lab:hcloud`): a disposable multi-machine lab for synchronization, outage, and conflict testing.
 
 The quickest realistic trial is one Railway service with one persistent volume and one public domain. The hosted process is only canopyd, the community host and protocol gateway. Profile claiming and editing happen in Canopy for the web running locally on your own machine.
 

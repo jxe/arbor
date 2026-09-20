@@ -15,7 +15,7 @@ import {
   snapshotFromTransition,
   textAtWirePath,
   type RecoveryVariant,
-} from "./recovery/arborsync-recovery.ts";
+} from "./arborsync-recovery.ts";
 
 interface TreeListItem {
   id: string;
@@ -55,8 +55,8 @@ interface Manifest {
 
 function usage(): never {
   console.error(`Usage:
-  bun tools/recover-arborsync-tree.ts prepare --tree TREE --output DIR [--data-home DIR] [--arborsync URL] [--disk DIR] [--exclude PATH]
-  bun tools/recover-arborsync-tree.ts submit --manifest FILE --candidate NAME --expect-current-update UPDATE --expect-current-root ROOT --expect-candidate-root ROOT
+  bun tools/recovery/recover-arborsync-tree.ts prepare --tree TREE --output DIR [--data-home DIR] [--arborsync URL] [--disk DIR] [--exclude PATH]
+  bun tools/recovery/recover-arborsync-tree.ts submit --manifest FILE --candidate NAME --expect-current-update UPDATE --expect-current-root ROOT --expect-candidate-root ROOT
 
 prepare is read-only with respect to Arbor, ArborSync, and Canopy. It creates a private evidence bundle.
 submit requires an unchanged Canopy update/root, a conflict-free prepared candidate, and posts with an exact ifCurrent guard.`);

@@ -1,181 +1,243 @@
 # Overstory reference implementation
 
-This document records replaceable architecture and operating choices in the current reference implementation. It is informative. The normative contracts live in [spec.md](../spec.md).
+This document records the architecture and operating choices of the current
+reference implementation. It is informative; the normative contracts live in
+[spec.md](../spec.md), and [status.md](../status.md) says which of the
+behavior below is installed or deployed.
 
-## Reference documentation
+## Components
 
-- [Local system](local-system.md) — data home, private state, watchers, visits, recovery, credentials, and migration.
-- [Arbor Sync API](arborsync-api.md) — the reference loopback REST v1 client/daemon boundary.
-- [CLI](cli.md) — the current `arbor` command surface.
-- [Client](client.md) — Canopy for the web and native interaction, navigation, and editing behavior.
-- [`@overstory/apps-runtime`](../packages/apps-runtime/README.md) — the implemented query, observation, and mutation runtime.
-- [Product-completion plans](../plans/README.md#product-completion) — compiler, presentation, activation, hosting, and agent work that remains.
+Five components, two languages. Every TypeScript package lives under
+`packages/<name>` and is published as `@overstory/<name>`; every Swift
+package lives under `canopy-swift/Packages/<Name>`.
 
-## Consolidated Overstory adoption
+| Component | TypeScript | Swift | Owns |
+|---|---|---|---|
+| Overstory protocol | `protocol`, `object-store` | `Overstory`, `OverstoryObjectStore` | The specification in code: identifiers, node model, canonical CBOR, hashing, objects and snapshots, update contracts, resource policy, the document format, configuration formats, HTTP and SSE transport; the content-addressed object store |
+| Host | `canopyd`, `canopyd-merge`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar; the executable-document runtime and collection sandbox |
+| Client stack | `client`, `fs` | `OverstoryClient`, `CanopyWorkingTree` | Synchronizing a working tree against a host: update machine, admission queue, account bootstrap, filesystem materialization |
+| Arbor local tools | `arborsync`, `arborsync-client`, `cli` | `ArborSyncClient` | The per-user daemon, its loopback REST API and clients, the `arbor` command |
+| Canopy browsers | `canopy-web` | `CanopyAppKit`, `CanopyEditor`, the `Canopy` app target | The human interface |
 
-The [active adoption checkpoint](update-protocol.md#active-accepted-state-adoption)
-records consolidated request/read encoding across canopyd and both client languages.
-Accepted-state links and flags use schema 8, with a history-preserving offline
-migration. The filesystem daemon and native watcher keep observation progress
-separate from accepted identity. Native cache compatibility and a
-preserved-backup rehearsal (migration 006, deleted after cutover; see git history)
-pass. The single coordinated cutover (migration 006, deleted after cutover; see git history)
-completed September 15; ordinary-use/offline observation remains. Subsequent
-operation releases deploy verified server acceptance before client emission,
-without capability advertisement.
+Layering: `protocol` depends on nothing in the workspace; `apps-runtime`
+depends only on `protocol`; the host and client packages never depend on
+`arborsync*`; `cli` and `canopy-web` may depend on anything. Swift mirrors
+this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
+`CanopyWorkingTree` on both plus `CanopyAppKit`, and `OverstoryClient`,
+`ArborSyncClient`, and `CanopyEditor` sit above.
 
-## Local service ownership
+### TypeScript packages
 
-Arbor Sync retains one process and the existing loopback API. `server.ts` supplies
-shared request protection/error handling and composes three handlers:
+| Package | Purpose | Depends on |
+|---|---|---|
+| `protocol` | `model/` (types, identifiers, CBOR, hashing, logical paths and URLs, resource policy, errors, SSE), `objects.ts` and `snapshots.ts`, `updates/` (request and accepted contracts, JSON, intent digests, deltas), `transport.ts` (the HTTP client), `documents/` (Markdown and directory documents, child links, titles, document merge), `config/` (account, device, placement, resource configuration and the private data home) | `@noble/hashes`, `yaml` |
+| `object-store` | Immutable hash-sharded storage with verified reads, durable writes, and reachability walks | protocol |
+| `fs` | `WorkspaceFS`: discovery, the write journal, atomic file operations, materialization, watching ([README](../packages/fs/README.md)) | protocol, `@parcel/watcher` |
+| `client` | Tree sync, sync state, account bootstrap and wire, the update machine, the document admission machine, the source admission queue, publisher, and document session, entry transfer | protocol, fs |
+| `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge worker adapter, projection, the `canopyd` CLI ([README](../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, canopyd-merge |
+| `canopyd-merge` | The merge sidecar: contract, intent engine and model, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](merge-tool.md)) | protocol, object-store, apps-runtime, tree-sitter, saxes |
+| `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the QuickJS schema sandbox and the collection-file codec) ([README](../packages/apps-runtime/README.md)) | protocol, `quickjs-emscripten`, `csv-parse` |
+| `arborsync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry, placements, connections, local accounts, profile identity, providers, object index) | protocol, client, fs, apps-runtime |
+| `arborsync-client` | `ArborSyncRESTClient` for the daemon's control surface | protocol |
+| `cli` | `arbor`: daemon supervision, identity, placement, moves, cloud sessions | arborsync, arborsync-client, protocol, fs |
+| `canopy-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../plans/canopy-web/025-arbor-web.md) rebuilds it as a working-tree client | arborsync-client, protocol |
+
+### Swift packages
+
+| Package | Purpose | Depends on |
+|---|---|---|
+| `Overstory` | Protocol models, canonical CBOR, the SSE parser, the HTTP client, authored and accepted contracts, operations, transitions, resource policy, the network log | |
+| `OverstoryObjectStore` | The `ObjectStore` protocol with overlay, layered, directory, and host-backed stores; every store verifies bytes against their hash | Overstory |
+| `CanopyAppKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the document admission machine, the browser tab controller | |
+| `CanopyWorkingTree` | `WorkingTree` and its state store, `UpdateMachine` and `UpdateCoordinator`, durability, the snapshot bridge, `SourceAdmissionQueue`, entry actions and transfer, conflict review | CanopyAppKit, OverstoryObjectStore, Overstory |
+| `OverstoryClient` | Credentials, the placement service, `CanopyWatchRunner`, account configuration YAML, resource consent | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |
+| `ArborSyncClient` | The loopback REST client for the daemon and its process supervisor | CanopyAppKit, OverstoryObjectStore, Overstory |
+| `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec, editor recovery, conflict analysis | ArborSyncClient, CanopyAppKit, Quagmire |
+
+`canopy-swift/Canopy.xcodeproj` is generated from `canopy-swift/project.yml`
+by xcodegen and committed; see [canopy-swift/README.md](../canopy-swift/README.md).
+
+## Runtime ownership
+
+**The daemon** (Arbor Sync) is one process with one loopback API. `server.ts`
+supplies request protection and error handling and composes the handlers:
 
 | Owner | Modules in `packages/arborsync/src/` | Responsibilities |
 |---|---|---|
-| Sync | `sync-http.ts`, `service.ts` | Placement inventory/moves, bootstrap, events, pending updates, reconciliation, materialization and conflict recovery |
-| Account administration | `account-http.ts`, `account-service.ts` | Identity, credentials, accounts, claim/pair/forget through existing account bootstrap ports |
-| Browser | `browser-http.ts`, `local-files.ts` | Scoped file/raw/HEAD/range/ETag handling and the current web placeholder |
-| Filesystem objects | `filesystem-object-source.ts` | SQLite index lifecycle, verified file/directory reads, invalidation and uncached revalidation |
+| Sync | `sync-http.ts`, `service.ts` | Placement inventory and moves, bootstrap, events, pending updates, reconciliation, materialization, conflict recovery |
+| Account administration | `account-http.ts`, `account-service.ts` | Identity, credentials, accounts, claim, pair, and forget through the account bootstrap ports |
+| Browser | `browser-http.ts`, `local-files.ts` | Scoped file, raw, HEAD, range, and ETag handling and the current web placeholder |
+| Filesystem objects | `filesystem-object-source.ts` | SQLite index lifecycle, verified file and directory reads, invalidation and uncached revalidation |
 | Sync connections | `sync-connections.ts` | Explicit account selection and credentials through the injectable `SyncConnections` interface |
-
-`ArborSyncDaemon` no longer implements account administration or browser-serving
-methods. `conflict-tree.ts` holds the pure tree operations used by sync-owned
-review. Observation, pending state, filesystem serialization and placement moves
-remain together. Account configuration YAML is still authored content edited by
-canopy-swift/CLI tools and reconciled through ordinary folder sync.
-
-`TreeObjectCache` composes the filesystem source, durable pending objects and
-canopyd fallback in that order. File bytes remain in their existing files; the
-extraction adds no mirror or hardlinks and changes no persistence format.
-`Workspace` delegates index ownership, invalidation and audit disposal to the
-filesystem source, supplying scope and diagnostic callbacks. The source does not
-import Workspace, network clients or pending state.
+| State | `state/` | The tree registry, placements, connections, local accounts, profile identity, providers, and the object index |
 
 `Workspace` owns one placed folder: filesystem and object-source lifecycle,
-descriptor/scope, watcher subscription and change observations. Its explicit
-`editor` component (`WorkspaceEditor`) owns node/provider projection, editor
-mutations, stable-key resolution, link healing and generated types. Callers that
-need these operations use `workspace.editor`; the folder owner does not forward
-an editor-shaped API. Both components share the same filesystem, events and
-provider state rather than opening a second workspace.
+descriptor and scope, watcher subscription, and change observations. Its
+`editor` component owns node and provider projection, editor mutations,
+stable-key resolution, link healing, and generated types. `Workspace.open()`
+finishes interrupted mutation recovery before returning. `TreeObjectCache`
+composes the filesystem source, durable pending objects, and the host, in that
+order; file bytes stay in their files, with no mirror.
 
-Recovery is still a folder-open guarantee. `Workspace.open()` initializes the
-editor component and finishes interrupted mutation recovery before returning,
-even when its caller only needs synchronization. The component is eager because
-collection descriptions, generated types and recovery still need it. Browser
-file reads remain folder-owned. The unused coarse `resolveTreeConflict` method
-is removed; sync conflict resolution uses the existing identity-checked review
-path, with its HTTP contract unchanged. Uncalled transfer/import wrappers
-were deleted rather than moved. Recovery tests inspect durable receipts and exact
-file bytes before any caller accesses `workspace.editor`.
+The daemon's placed folder is a working tree whose object store is the folder
+itself: a file's object is re-encoded from disk, a directory's from its
+children, and the index only remembers which hash a path last produced. That
+is why the daemon can serve `/v1/objects` to every other client on the
+machine without a second copy of the tree, and why the Mac app's in-memory
+working tree needs no content store of its own. The daemon has no editor
+path.
 
+**The Canopy app** runs `CanopyWorkingTree` directly: the document admission
+machine makes each edit durable in the working tree and the update
+coordinator publishes durable heads to the host. On iOS the working tree is on
+disk; on the Mac it is in memory, seeded from the daemon's `GET /v1/bootstrap`
+and backed by its `/v1/objects` route. The layouts are in
+[the local system](local-system.md#native-working-trees).
 
-Browser handling is independently testable, but has not moved to another process.
-Its current filesystem read can reconcile recovery journals; a separate host must
-first gain an explicitly read-only file capability so it cannot become a second
-recovery writer. No further listener/process split is currently planned.
+**The host** (canopyd) implements access and claims, public HTTP projection,
+graph validation, authoritative reconciliation, and private storage. Update
+handling separates decision, causal reconciliation, and transactional storage
+from rule computation; the [merge sidecar](merge-tool.md) computes every
+merge and returns retained state, and canopyd validates the result and owns
+acceptance. Table definitions, the schema stamp, and the startup schema
+assertion live in `schema.ts`; the [schema history](../migrations/README.md#schema-history)
+lists every stamp.
 
-Verification on 2026-09-13: typecheck, CLI build, protocol/Swift client checks,
-focused integration tests and the 50,000-file performance gate passed. The test
-baseline is now green: 389 product tests pass. The physical-child fixture now
-respects filename/H1 summary titles while retaining frontmatter in snapshots;
-the peer-undo test waits for the page's exact revisions instead of counting
-unrelated directory events. Object-read diagnostics preserve fallback and expose
-safe failure classifications in local logs; see
-[diagnostics](local-system.md#object-read-diagnostics).
+**Executable data.** `apps-runtime` lowers portable child queries over
+ordinary and SQLite providers, validates mounted source bindings, executes
+each SQLite query in one read snapshot, tracks relation, field, and profile
+dependencies, and publishes a complete replacement only when a relevant
+committed change alters the canonical output. Its mutation runner validates
+input and authorization inside one transaction and commits retry-stable
+receipts with the data change. Document compilation and presentation are
+not current architecture; they are [Apps 001 and 003](../plans/README.md).
+The QuickJS sandbox that evaluates collection schemas lives here too and is
+shared by canopyd, the merge sidecar, and the daemon's providers.
 
+## Protocol encoding and identity
 
-## Repository and runtimes
+Canonical CBOR and `canonicalCBORHash` live in `protocol`. Snapshot bundles
+contain only a version and hash-ordered object byte strings (raw files and
+canonical CBOR directories); the root stays in the request URL. Directory
+objects carry ordinary CSV, JSON, and JSONL source and schema entries plus a
+directory-level `childrenSource` descriptor that interprets them as one child
+set; canopyd validates those graphs, merges disjoint rows by stable identity,
+and projects logical rows at ordinary locators while keeping `_store.*` and
+`schema.ts` out of child navigation.
 
-The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arborsync HTTP service, stores and private state, shared Overstory objects/protocol/client code, canopyd behavior, CLI, server rendering, and the Canopy for the web React application. `@overstory/protocol` has no server or database dependency; `@overstory/canopyd` depends on it and owns hosting, accepted-update storage, access, claims, and authoritative reconciliation. Format rules and tree merging run through the separate `@overstory/canopyd-merge` executable; both use the immutable `@overstory/object-store`. See the [merge process boundary](merge-tool.md). The local HTTP listener composes independently owned sync, account and browser handlers; see the ownership map above.
+For an update string, canopyd derives one credential-scoped digest per
+element over `{ domain: "arbor-update/2", tree, base, change, trace,
+candidate, resolves, ifCurrent }`, with each later element using its
+predecessor's `{ requestDigest, candidate }` as `base`. Accepted rows store
+the element digest for replay, so a longer request resumes after an
+already-applied prefix. Object hashing is not authorization: the caller binds
+the basis to an authorized accepted state in the same tree, and reusing a
+retained change ID in a different request, including a snapshot, is
+rejected. A request the host does not support fails closed with
+`422 unsupported-operation` before any prefix is accepted; the daemon then
+retains the pending request, marks the tree as an error, and suppresses
+resubmission of that request for the synchronizer's lifetime, while the
+native coordinator enters a terminal validation state keeping the durable
+request. Neither client strips operations.
 
-The Apple reference client is a set of Foundation-only Swift 6 packages under `canopy-swift/Packages` (see [Package boundaries](#package-boundaries)); `ArborSyncClient` is the loopback REST client. Canopy and Hunch integrate those packages without making SwiftUI, Clamshell, actor structure, `URLSession`, or package paths part of REST v1.
+Source edits against an accepted basis may ship the edited file as an object
+delta when that is smaller; chained authored records always send the whole
+file, because `reconstructDeltas` resolves delta bases against the accepted
+base root before the request's own objects are stored.
 
-Canopy for the web uses React and BlockNote. Markdown remains canonical: arborsync returns complete operational directory source, BlockNote edits a server-derived block view, and the browser serializes exact/block-granular source for every content write. Child-link reorder is a source write; physical moves remain structural.
+**Net watch catch-up** is unconditional. A client requests
+`GET /.arbor/trees/{tree}/watch` with its confirmed cursor; canopyd captures
+the accepted state at that cursor and the current destination and builds one
+sparse payload between their roots. `from: { id, root }` is the transport
+basis while `update.previous` stays the destination's real predecessor.
+Missing retained basis data answers `resync-required`. Absence of a matching
+digest in a coalesced event is not proof of non-acceptance, so pending
+requests keep their exact retry procedure. Net frames may exceed the ordinary
+1 MiB frame target; the native SSE parser scans new bytes only.
 
-The shared public data boundary is capability-based `NodeSnapshot`,
-`NodeSummary`, and `ChildrenPage`. Managed and untracked filesystem adapters
-delegate expanded directories, Markdown records, CSV/JSON/JSONL collection files, and
-SQLite table/row subtrees through one `NodeProviderRouter`; there is no collection
-page or private parallel node ontology. Representation loaders remain private
-store records.
+<a id="conflict-inspection"></a>
+**Conflict inspection.** `GET /.arbor/trees/{tree}/conflicts?state={acceptedUpdate}`
+returns the decisions retained at that accepted state. `after` and `conflict`
+are mutually exclusive; the reference page size is 32, with no cap of 32 on
+accepted decisions; historical pages keep their identities as current
+advances. Unknown, unavailable, or unauthorized state is 404; malformed query
+or token bindings are 400. A root decision is encoded as `kind: "directory"`
+with the root basis reference and `root: true`, no `placement`, and no
+synthetic filename.
 
-## Package boundaries
-
-The client core is split into three packages that carry the same names in both languages, so a reader can move between the Swift and TypeScript implementations without translating:
-
-- **WorkingTree** (Swift `CanopyWorkingTree`; TypeScript `@overstory/working-tree`, arriving in Plan B alongside the daemon's move) — the durable model of one tree: node records whose content is a reference (inline bytes or a hash), the state store seam (disk on iOS, memory on the Mac and in the browser), the snapshot bridge, and the update reducer with its coordinator. It is named after what it produces, updates, and it is the code `conformance/client-state-machines.json` checks.
-- **ObjectStore** (Swift `OverstoryObjectStore`; TypeScript client overlays remain Plan B; `@overstory/object-store` currently provides the shared filesystem store) — where accepted bytes come from: the `ObjectStore` protocol, an overlay for a working tree's own unaccepted objects, a layered store that consults the overlay first, and platform stores (a directory on iOS, canopyd directly, or the daemon's `/v1/objects` route from `ArborSyncClient`). Every store verifies bytes against their hash before handing them out. It depends only on the protocol package.
-- **OverstoryClient** (Swift `OverstoryClient`; TypeScript `@overstory/client`) — transport and account plumbing: the Overstory client, credentials and pairing, the placement service, and the watch runner. It knows nothing about node records.
-
-`ArborSyncClient` sits beside these as the loopback client for the daemon's bootstrap, credential, object, status, conflict, and pairing routes; `Overstory` holds the protocol model both halves share. Markdown source stays inline in a node record because search, page identity, sibling shadowing, and the delta path read it synchronously; every other file is a hash resolved through the object store on demand, so a working tree neither fetches nor retains every object.
-
-The daemon's placed folder is a working tree whose object store is the folder itself: a file's Overstory object is re-encoded from the file on disk, a directory's from its children, and the folder's index only remembers which hash a path last produced. That is why the daemon can serve `/v1/objects` to every other client on the machine without a second copy of the tree, and why the Mac app's in-memory working tree needs no content store of its own.
-
-## Executable data and documents
-
-`@overstory/apps-runtime` implements the headless runtime used by the Supplies corpus. It lowers portable child queries over ordinary and SQLite providers, validates mounted source bindings, executes each SQLite query in one read snapshot, tracks relation/field/profile dependencies, and publishes a complete replacement only when a relevant committed change alters the canonical output. Its mutation runner validates input and authorization inside one transaction and commits retry-stable receipts with the data change. The [package README](../packages/apps-runtime/README.md) owns these implemented mechanics and focused tests.
-
-Document compilation and presentation are deliberately not described as current architecture. The accepted direction uses isolated JavaScript evaluation, reproducible bundles/manifests/generated declarations, last-valid diagnostics, SSR plus hydration, and a constrained native web surface, but these remain work in [Apps 001 and 003](../plans/README.md#product-completion). Portable behavior belongs in [executable documents](../spec/07-executable-documents.md) and [child backings](../spec/06-child-backings.md); concrete compiler packages, worker topology, generated paths, and bundlers remain replaceable.
+<a id="resource-policy"></a>
+**Resource policy.** `ExecutionAuthority.issue` is trusted host
+infrastructure, not a public mint endpoint; tokens are process-local and
+invalidated on restart while durable update identity survives independently,
+and possessing a token makes no SQLite connection safe. The internal
+`GET /.arbor/execution/authority-watch` authenticates an execution token and
+sends `refresh` or `revoked` SSE events with empty payloads; it conservatively
+invalidates on accepted updates, revocation notifies immediately, and expiry
+and session changes are polled, so providers refresh authority after a
+disconnect. `GET /access` keeps the legacy `snapshot` projection and adds a
+safe `policy` field. The supported scoped update subset: new files and
+directories need `create-child` at the logical parent, raw content changes
+`update-content`, file deletion `delete`; Markdown replacement conservatively
+needs `write` because it can change frontmatter, as do directory deletion or
+retyping, reserved representations, and opaque child stores. Scopes stop at
+TreeIDs and newly created scoped directories cannot conceal nested trees.
+Operation-bearing updates, explicit resolutions, updates to conflicted
+trees, scoped object, snapshot, and watch projections, and granular property
+or store effects fail closed and never widen to write. Concurrent policy
+edits install their restrictive intersection with the alternatives retained
+as a root conflict; removal wins concurrent expansion for non-hosting
+entries; a pending policy conflict locks configuration edits until an
+administrator resolves every alternative.
 
 ## Durability and observation
 
-The local implementation uses a private intent journal, recovery bookkeeping, filesystem observation, and a 1,024-event in-memory SSE replay buffer. Completed mutation identities currently remain available indefinitely through the existing journal. A daemon restart changes the event epoch and clients resynchronize.
+canopyd runs SQLite in WAL mode with `synchronous = NORMAL`; objects are
+fsynced before the commit that names them, so a lost commit leaves only
+unreferenced objects ([deployment](../deploy/README.md#durability)). Each
+update request logs one structured line (tree, status, batch size, total and
+per-phase milliseconds, objects considered, files written, fsyncs, body
+bytes, trace frames and operations, accepted update ids) and returns the
+same phases in a `Server-Timing` header. The log is silent under the test
+runner and never contains request content, subjects, or object identities.
+The Canopy app's network log is its client-side counterpart
+([local system](local-system.md#diagnostic-streams)).
 
-Current private paths include `workspaces.json`, per-workspace directories under `workspaces/<stateID>/`, `journal/` and `journal/mutations/`, `index.sqlite`, `types/tree.gen.d.ts`, safe system records under `system/`, and platform credential-store references. These names are documented for maintainers and migration tooling only. Other implementations may choose a different layout, and ordinary clients must not depend on it.
-
-The exact journal records, replay-window size, retry count, temporary filenames, watcher classifications, recovery database schema, and credential reference layout are tuning/implementation choices. They must still satisfy durable acknowledgement, idempotent retry, lossless resync, secrecy, and last-valid control-file behavior.
-
-The synchronized [`trees.yaml`](../spec/04-accounts-and-devices.md#3-configuration-yaml) contract is normative. `${ARBOR_DATA_HOME:-~/.arbor}`, private paths, and platform credential storage are reference choices documented in [the local system](local-system.md).
-
-## Overstory encoding, reconciliation, and hosting
-
-The canonical CBOR codec and `canonicalCBORHash` live in `@overstory/protocol`; the protocol package implements the object model, SHA-256 addressing, canonical immutable snapshot bundles, strict update JSON/base64, canonical semantic request identity, shared result types, and the Overstory client, while filesystem snapshots and materialization live in `@overstory/fs`. Snapshot bundles contain only a version and hash-ordered object byte strings (raw files and canonical CBOR directories); the root remains in the request URL, while update and observation identity remain in the preceding descriptor read. Any use of JavaScript `localeCompare`, platform enumeration order, or noncanonical CBOR would be a conformance bug; the protocol requires lexicographic UTF-8 entry ordering.
-
-The server-only canopyd package implements access and claims, public HTTP projection, graph validation, authoritative accepted-update reconciliation, and private storage. Update handling separates decision, causal reconciliation and transactional storage from rule computation. The [merge executable](merge-tool.md) owns the shared tree/format-rule implementation and reads shared immutable objects; canopyd validates its proposed result and owns acceptance. Table definitions, the schema version stamp, and the startup schema assertion live in a separate `schema.ts` module that opens the database. canopyd's validation profile bounds one exact collection file to 16 MiB, `schema.ts` to 1 MiB, and the normalized row set to 100,000 rows. canopyd currently retains every accepted root and its reachable objects indefinitely. A caller who can currently read a tree may fetch a known retained root through the immutable snapshot route; accepted-update metadata and history listing remain internal, and the generic object route remains scoped to the current root.
-
-Overstory directory objects carry ordinary CSV/JSON/JSONL source and schema file
-entries plus a directory-level `childrenSource` descriptor that interprets
-them as one child set. canopyd validates those graphs, merges disjoint rows by stable identity,
-and projects logical rows at ordinary public HTML/Markdown locators while
-keeping `_store.*` and `schema.ts` out of child navigation. The Swift replica
-currently preserves these objects losslessly but does not project their rows
-while fully offline.
-
-For an update string, canopyd derives one credential-scoped digest per element. The first canonicalizes `{ domain: "arbor-update", tree, base, change, operations, candidate, resolves, ifCurrent }`; each later element uses `{ requestDigest, candidate }` from its predecessor as the `base` value. Absent `ifCurrent` is encoded as CBOR null ([updates §2.1](../spec/01-tree-operations.md#21-the-update-request)). Successful accepted rows store their element digest for replay, so a longer request can resume after an already-applied prefix. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as canopyd history.
-
-The current request requires `change`, explicit `operations` and `resolves` on every candidate. Snapshot constructors emit `operations: null` and `resolves: []`. TypeScript and Swift retain all semantic fields and include them in digests. Optional `ifCurrent` guards the exact accepted update ID; ordinary writes reconcile. canopyd checks successful replay before the guard and preflights the whole batch, returning `422 unsupported-operation` for any operation or resolution declaration before a prefix is accepted. Read response shapes remain unchanged at this request-side milestone. See the [consolidated contract and adoption boundary](update-protocol.md); installed builds require a coordinated upgrade.
-
-The reference `canopyd` can run locally or behind a deployment provider. Provider environment detection, volume paths, Railway/Hetzner recipes, bootstrap migration variables, credential rotation, backup/restore commands, and operator reset procedures belong in deployment documentation, not the CLI or wire spec.
+The daemon uses a private intent journal, recovery bookkeeping, filesystem
+observation, and a 1,024-event in-memory SSE replay buffer; a restart changes
+the event epoch and clients resynchronize. Private paths are documented for
+maintainers and migration tooling only, in [the local system](local-system.md);
+other implementations may choose a different layout. The synchronized
+[`trees.yaml`](../spec/04-accounts-and-devices.md#3-configuration-yaml)
+contract is normative.
 
 ## Client mechanics
 
-The TypeScript and Swift clients are hand-maintained against common fixtures. Their local arborsync REST clients speak only the daemon's control surface (status, trees, accounts, bootstrap, credential, objects, conflicts, events); there is no local mutation path and therefore no mutation ID or ambiguous-outcome retry. The Swift client uses actors and `AsyncThrowingStream`; the TypeScript client serves the CLI, and the browser-facing wrapper returns with the Plan B web editor. Every native editor is a direct working-tree client: the Mac app and iOS run `CanopyWorkingTree` (`WorkingTree`, `WorkingTreeProvider`, `UpdateMachine`, `UpdateCoordinator`) over `OverstoryObjectStore`, and differ only in the state store (disk on iOS, memory on the Mac) and the platform object store (the iOS objects directory, the daemon's `/v1/objects` route on the Mac, canopyd for a visit without a daemon). The Mac app opens a placed tree through an accepted-root `/v1/bootstrap` and shares the daemon's device credential over loopback; daemon-local pending/conflict state is not imported. A visit is the same client, read-only, following the tree's watch without a coordinator.
+The TypeScript and Swift clients are hand-maintained against common
+fixtures. Their local Arbor Sync REST clients speak only the daemon's control
+surface (status, trees, accounts, bootstrap, credential, objects, conflicts,
+events); there is no local mutation path. Every editor is a direct
+working-tree client. Server updates are one retry domain: a confirmed
+accepted base plus an append-only string of candidate roots and object
+envelopes, with a client-generated change ID per candidate and no separate
+idempotency key. Arbor Sync and the native coordinator each durably retain
+their own semantic prefix across retry and restart, with the objects each
+request carries, so resubmission never consults a live object store.
 
-Server updates are one retry domain. They carry a confirmed accepted base plus an append-only string of candidate roots and immutable-object envelopes, with a client-generated authored change ID per candidate and no separate HTTP idempotency key. Arbor Sync and the native update coordinator each durably retain their own semantic prefix across retry and restart, together with the objects each request carries, so resubmission never consults a live object store. A later local head normally remains one replaceable successor; ambiguous reconnection may persist the one permitted longer request that repeats the possibly transmitted prefix exactly and appends the latest head. Candidates are sparse: a request is cut from the tree's own bytes minus what the base already retains, so a platform-served file is never re-uploaded. One client's pending request or conflict never gates another client; each begins at an accepted authority root and canopyd reconciles their concurrent requests. The Swift Overstory client retries each exact prepared body at most three times, while the TypeScript Overstory client performs one HTTP submission and Arbor Sync owns scheduling and retry. Both synchronization implementations read a descriptor and then fetch its root-addressed snapshot, preserving the descriptor's update and cursor when they materialize that graph. Every client keeps one Overstory watch open per tree (`CanopyWatchRunner` in Swift): a `tree.update` batch that chains from the local accepted base is applied from its object deltas without contacting the server, anything else falls through to the ordinary reconciliation pass, and a periodic fallback pass covers only a disconnected watch. In both cases, changing the object-envelope order or omitting an already-held object does not change a server-derived element identity.
-
-When canopyd returns a conflict for an update string, the thick direct client
-keeps the exact prepared request as part of its durable conflict state. The
-returned `completed` prefix is already processed, `failedIndex` identifies the
-one element shown for review, and the suffix remains unattempted. Resolution
-submits the reviewed element against the verified current descriptor, then the
-client guardedly replays the retained suffix changes in order. The app or
-daemon embedding the client renders effects and persists requested data; it
-does not choose replay order or reinterpret the final local root as the failed
-element.
-
-Exact attempt counts, backoff timing, actor/class names, and editor session coordinators are replaceable. Both clients must preserve exact accepted source, explicit tree scope, opaque PageIDs, one-pass URL decoding, unknown errors, provider-owned directory completeness, and resync-first behavior.
+When canopyd returns a conflict for an update string, the client keeps the
+exact prepared request as durable conflict state: the `completed` prefix is
+already processed, `failedIndex` identifies the element under review, and
+the suffix remains unattempted. Resolution submits the reviewed element
+against the verified current descriptor, then guardedly replays the retained
+suffix in order. The machines, their invariants, and trace compaction are in
+[client state machines](client-state-machines.md).
 
 ## Verification machinery
 
-The repository uses Bun tests, TypeScript checking, shared JSON/SSE protocol fixtures, and Swift Package Manager tests. The usual focused gates are:
-
-```sh
-bun run typecheck
-bun run test
-bun run test:sync-merge
-bun run test:protocol
-bun run build
-git diff --check
-```
-
-These commands and current test counts are implementation evidence, not requirements imposed on independent Overstory implementations. Language-neutral vectors under [`conformance`](../conformance) are the portable part; reference API and algorithm fixtures live under [`tests/fixtures`](../tests/fixtures).
+Bun tests, TypeScript checking, shared JSON and SSE fixtures, and Swift
+Package Manager tests. The usual gates are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+Diagnostics that are not gates: `bun tests/performance/merge-history.bench.ts`
+(synthetic, in memory), `bun tools/replay-update-cost.ts <copy>` (per-phase
+timings replaying edits on a copy of host data), and
+`bun tools/benchmark-merge-tool.ts`. Language-neutral vectors under
+[`conformance/`](../conformance/README.md) are the portable part; reference
+API and algorithm fixtures live under [`tests/fixtures/`](../tests/fixtures/README.md).

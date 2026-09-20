@@ -1,26 +1,91 @@
-# Arbor
+# Overstory
 
-Arbor turns ordinary folders into a shared, browsable space for people and
-agents. Files stay files—readable with `cat`, searchable with `grep`, and
-editable by any existing tool—but a folder can gain a stable identity,
-history, synchronization, and permissions without moving into a walled
-service. Arbor's browser gives the same material a human interface.
+Overstory turns ordinary folders into a shared, browsable space for people and
+agents. Files stay files: readable with `cat`, searchable with `grep`, and
+editable by any existing tool. A folder can gain a stable identity, history,
+synchronization, and permissions without moving into a walled service, and
+the Canopy browsers give the same material a human interface.
 
 The longer-term idea is that documents in this space can also become live
-applications: their data, interface, and permitted operations travel together
-instead of being split across a website, API, database, and account system.
-The reference implementation already provides the local browser/editor, stable
-trees, synchronization, community hosting, accounts, and the headless data
-runtime. Executable-document presentation, hosted agents, and portable
-deployment remain work in progress or specification.
+applications: their data, interface, and permitted operations travel
+together instead of being split across a website, API, database, and account
+system. The reference implementation provides the protocol in two languages,
+a host, a local sync daemon and CLI, the native browser, and the headless
+data runtime. Executable-document presentation, hosted agents, and portable
+deployment remain work in progress or specification only.
 
-For the longer argument, read [A universal dynamic material](docs/intro.md). For the exact current boundary, see [status.md](status.md).
+For the longer argument, read [A universal dynamic material](docs/intro.md).
+For the exact current boundary, see [status.md](status.md).
 
-## Start using Arbor
+## How it fits together
+
+```mermaid
+flowchart TB
+  subgraph protocol["Overstory protocol"]
+    direction LR
+    P["protocol<br/><i>Overstory</i>"]
+    OS["object-store<br/><i>OverstoryObjectStore</i>"]
+  end
+  subgraph host["Host"]
+    direction LR
+    D["canopyd"]
+    M["canopyd-merge<br/>(sidecar)"]
+    AR["apps-runtime"]
+  end
+  subgraph clientstack["Client stack"]
+    direction LR
+    C["client<br/><i>OverstoryClient</i>"]
+    FS["fs"]
+    WT["<i>CanopyWorkingTree</i>"]
+  end
+  subgraph arbor["Arbor local tools"]
+    direction LR
+    AS["arborsync (daemon)"]
+    ASC["arborsync-client<br/><i>ArborSyncClient</i>"]
+    CLI["cli (arbor)"]
+  end
+  subgraph canopy["Canopy browsers"]
+    direction LR
+    WEB["canopy-web"]
+    APP["Canopy app<br/><i>CanopyAppKit, CanopyEditor</i>"]
+  end
+  host --> protocol
+  clientstack --> protocol
+  arbor --> clientstack
+  canopy --> clientstack
+  canopy --> arbor
+  AS -. HTTPS .-> D
+  APP -. HTTPS .-> D
+  M --- D
+  AR --- D
+```
+
+Names in italics are the Swift packages under `canopy-swift/`; the rest are
+TypeScript packages under `packages/`, published as `@overstory/<name>`.
+
+- **The protocol** (`protocol`, `object-store`) is the specification in code:
+  identifiers, the node model, canonical CBOR, objects and snapshots, update
+  contracts, resource policy, the document format, configuration formats, and
+  the HTTP transport. It depends on nothing else in the repository.
+- **The host** (`canopyd`) serves communities, accounts, hosted trees, and
+  public pages. It runs the merge sidecar (`canopyd-merge`) for every
+  accepted update and the executable-document runtime (`apps-runtime`) for
+  queries and mutations.
+- **The client stack** (`client`, `fs`, `CanopyWorkingTree`) synchronizes a
+  working tree against a host: the update machine, the source admission
+  queue, and filesystem materialization.
+- **The Arbor local tools** (`arborsync`, `arborsync-client`, `cli`) are the
+  per-user daemon that keeps placed folders synchronized, its loopback API,
+  and the `arbor` command.
+- **The Canopy browsers** (`canopy-swift/`, `canopy-web`) are the human
+  interface: the Mac and iOS app, and the browser editor that is being
+  rebuilt on the same working tree.
+
+## Start using Overstory
 
 The current persistent setup is for macOS. From a checkout, install the
-dependencies, expose Arbor's commands in your shell, install Arbor Sync as a
-user service, create one local profile identity, and open the current folder:
+dependencies, expose the commands in your shell, install Arbor Sync as a user
+service, create one local profile identity, and open the current folder:
 
 ```sh
 bun install
@@ -30,55 +95,29 @@ arbor me create
 arbor open .
 ```
 
-`bun link` exposes `arbor`, `arborsync`, and `canopyd` from this checkout.
-`arbor daemon install` installs and starts the per-user Arbor Sync launchd
-service; if the signed Arbor app already owns that service, the command leaves
-its registration in place. Later, `arbor open` attaches to that service and
-asks launchd to start it when it is installed but stopped. `arbor me create` is a one-time operation and
-refuses to replace an existing identity. Skip it if `arbor me` already reports
-one.
+`bun link` exposes `arbor`, `arborsync`, `canopyd`, and `arbor-merge` from
+this checkout. `arbor daemon install` installs and starts the per-user Arbor
+Sync launchd service; if the signed Canopy app already owns that service, the
+command leaves its registration in place. `arbor me create` is a one-time
+operation and refuses to replace an existing identity.
 
 `arbor open` accepts a local path, a canonical HTTPS or `arbor://` URL, or no
-locator for the current directory. Until Native 022 Plan B rebuilds Arbor web
-as a working-tree client, the browser route serves a short notice; edit in the
-Arbor app. Linux and Windows daemon supervision are
-not implemented yet; the [CLI reference](docs/cli.md) documents how commands
-select a running Arbor Sync and the isolated data home `arborsync` serves
-under `ARBOR_DATA_HOME`.
+locator for the current directory. Until the browser editor returns, the
+browser route serves a short notice; edit in the Canopy app. Linux and Windows
+daemon supervision are not implemented yet. The [CLI reference](docs/cli.md)
+covers daemon setup, placing synchronized trees, moves, identity backup and
+restore, cloud sessions, and command safety rules.
 
-See the [CLI reference](docs/cli.md) for persistent daemon setup, placing synchronized trees, moves, identity backup and restore, and command safety rules.
+## Run a host
 
-### Short-lived cloud agents
-
-An administrator device can package authorization and relative tree placements
-into one reusable, revocable string. On the cloud machine, `start` blocks until
-the requested folders exactly match their accepted Canopy roots; `finish`
-performs the final upload and stops the isolated Arbor Sync:
-
-```sh
-bundle=$(arbor cloud bundle create \
-  --place https://garden.example/~joe/code code)
-
-ARBOR_CLOUD_BUNDLE="$bundle" arbor cloud start --root /workspace
-# Run the agent against /workspace/code.
-arbor status /workspace/code
-arbor cloud finish --root /workspace
-```
-
-Run `arbor cloud bundle revoke <bundle-id>` on the configured administrator
-device to invalidate every use of that bundle. See the
-[CLI reference](docs/cli.md#short-lived-cloud-sessions) for lifecycle,
-recovery, and credential-handling details.
-
-## Run a Canopy server
-
-A new Canopy community reserves its first account for an existing self-certifying profile. Print the profile TreeID created above:
+A new community reserves its first account for an existing self-certifying
+profile. Print the profile TreeID created above:
 
 ```sh
 arbor me
 ```
 
-Then start Canopy, replacing `tr_...` with that TreeID:
+Then start canopyd, replacing `tr_...` with that TreeID:
 
 ```sh
 canopyd ./garden \
@@ -87,33 +126,46 @@ canopyd ./garden \
   --first-writer-profile tr_...
 ```
 
-Canopy listens at `http://127.0.0.1:4318` by default and prints the reserved account URL. In another terminal, open and claim it:
+canopyd listens at `http://127.0.0.1:4318` by default and prints the reserved
+account URL. In another terminal, open and claim it:
 
 ```sh
 arbor open http://127.0.0.1:4318/~joe
 ```
 
-Restarting the same command serves the existing data directory without bootstrapping again. For public domains, persistent volumes, backups, restoration, and coordinated upgrades, use the [Canopy deployment guide](deploy/README.md).
+Restarting the same command serves the existing data directory without
+bootstrapping again. For public domains, persistent volumes, backups,
+restoration, and coordinated upgrades, use the [deployment guide](deploy/README.md).
 
-## Implementation status
+## Status
 
 | State | Today |
 |---|---|
-| **Implemented and tested** | Local filesystem browser/editor, Arbor tree identity and synchronization, Canopy hosting, profile/account claiming, multi-account configuration and pairing, SQLite-backed query execution and transactional mutations |
-| **In progress** | Compilation, typechecking, React presentation, activation, and Canopy hosting for the [Supplies example](examples/supplies/README.md) |
-| **Specified, not built** | Hosted Arbor agents, portable static/live deployment, and complete Postgres-backed child collections |
+| **Implemented** | Tree identity and synchronization in both languages, canopyd with the merge sidecar and resource policy, the Canopy app as a direct working-tree editor with recovery and conflict review, profile and account claiming, multi-account configuration and pairing, cloud sessions, the SQLite-backed query and mutation core |
+| **In progress** | The browser Canopy, executable-document compilation and presentation, richer editor capture and review, lazy history and storage bounds |
+| **Specified, not built** | Hosted agents, portable static and live deployment, a complete Postgres child provider |
 
-[status.md](status.md) is the implementation-status authority. The [specification](spec.md) intentionally describes portable behavior that may not exist in the reference implementation yet.
+[status.md](status.md) is the authority, row by row. The [specification](spec.md)
+describes portable behavior that may not exist in the reference
+implementation yet.
 
-## Repository guide
+## Repository map
 
-- [Introduction](docs/intro.md) — the motivation and proposed end state.
-- [Specification](spec.md) — the portable Arbor contracts, in numbered reading order.
-- [Documentation map](docs/README.md) — usage, implementation, client-design, and historical documents.
-- [Reference implementation](docs/reference-implementation.md) — the Bun, TypeScript, React, and Swift architecture.
-- [Client design](docs/client.md) — non-normative Arbor web and native product behavior.
-- [Supplies example](examples/supplies/README.md) — the executable-document reference corpus.
-- [Development](DEVELOPMENT.md) — repository layout, setup, tests, and local verification.
-- [Plans](plans/README.md) — active projects, unresolved questions, maintenance themes, and completed evidence.
+| Path | What it is |
+|---|---|
+| [`spec.md`](spec.md), [`spec/`](spec/) | The portable specification: entry page and numbered sections |
+| [`status.md`](status.md) | What the reference implementation does today |
+| [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Arbor tools, browser editor |
+| [`canopy-swift/`](canopy-swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
+| [`conformance/`](conformance/README.md) | Language-neutral vectors both implementations must pass |
+| [`docs/`](docs/README.md) | Usage and reference-implementation documentation |
+| [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
+| [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |
+| [`deploy/`](deploy/README.md) | Running a host on Railway or a VPS; the disposable multi-machine lab |
+| [`migrations/`](migrations/README.md) | The one-off migration procedure and the schema history |
+| [`tools/`](tools/README.md) | Vector regeneration, benchmarks, recovery, and the link check |
+| [`plans/`](plans/README.md) | Remaining work: the outcome menu, the catalog, open questions |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`AGENTS.md`](AGENTS.md) | Setup and gates; how the repository is worked on; instructions for agents |
 
-This repository does not yet have an open-source license. Licensing is awaiting legal advice.
+This repository does not yet have an open-source license. Licensing is
+awaiting legal advice.

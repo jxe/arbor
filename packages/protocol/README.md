@@ -1,11 +1,29 @@
 # @overstory/protocol
 
-Shared Overstory host protocol and replica support. This package defines immutable Overstory objects, update JSON/types/identity, and the TypeScript Overstory client. It must not depend on the server implementation, SQLite, server history, access internals, or the merge engine.
+The Overstory protocol in code. Everything an independent implementation
+would have to reproduce lives here, and nothing else in the workspace is a
+dependency of it. The Swift twin is `canopy-swift/Packages/Overstory`.
 
-The `updates/` directory is the complete public update boundary:
+- `model/`: identifiers and `TreeID`, the node model and node keys, logical
+  paths and URLs, canonical CBOR and hashing, resource policy, protocol errors,
+  SSE parsing, UTF-8 helpers, and the atomic file-write helper shared by the
+  configuration writers and `fs`.
+- `objects.ts`, `snapshots.ts`: immutable objects, directory graphs, and
+  snapshot bundles.
+- `updates/`: the update request and accepted-state contracts, strict JSON and
+  base64 transport encoding, the canonical semantic intent and its digest,
+  object deltas, and applying accepted transitions.
+- `transport.ts`: the HTTP and SSE client (`WireClient`) a host speaks to.
+- `documents/`: the Markdown and directory-document format (spec 02): parsing,
+  child links, document icons, display titles, and document merge.
+- `config/`: `account.yaml`, `trees.yaml`, `devices.yaml`, and resource
+  configuration (spec 04 and 05), tree placements, the host account stores,
+  and the private data-home root.
 
-- `types.ts` — request, result, conflict, access, pairing, and accepted-update values;
-- `json.ts` — strict JSON/base64 transport encoding and decoding;
-- `intent.ts` — the canonical CBOR semantic intent and its derived request digest.
+Subpath exports exist for `hash`, `logical-path`, `logical-url`, `node-key`,
+`node-model`, `path`, `sse`, `utf8`, `file-ops`, `account-config`, and
+`account-config-v2`. Both account-configuration versions are live; retiring
+v1 is [Cleanup 002](../../plans/cleanups/002-retire-v1-account-and-local-state-adapters.md).
 
-Server-only behavior belongs in `@overstory/canopyd`.
+This package must not depend on the host, SQLite, server history, access
+internals, or the merge engine.

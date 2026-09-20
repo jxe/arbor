@@ -1,4 +1,6 @@
 # Overstory: a successor to the web
+
+*This file is the entry point to the specification. The numbered sections live in [`spec/`](spec/); read them in the order of the table below.*
 *Spec overview, v0.8. Overstory names the system, its protocol, and its independently versioned trees; Arbor names the local tools, canopyd the reference host, and Canopy the browsers.*
 
 ## Specification stance

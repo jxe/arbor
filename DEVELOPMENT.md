@@ -79,17 +79,10 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
 
 ## Repository map
 
-- `packages/` — the TypeScript logical model, providers, stores, Overstory implementation, canopyd, the canopyd client library, Arbor Sync, the Arbor Sync client, CLI, editor, renderer, and data runtime.
-- `canopy-swift/` — the Swift clients, synchronization packages, and Canopy application.
-- `spec.md` and `spec/` — portable normative contracts and conformance vocabulary.
-- `conformance/` — language-neutral protocol fixtures.
-- `tests/` — Bun unit, integration, protocol, performance, and browser tests.
-- `examples/supplies/` — the executable-document reference corpus and private SQLite fixture.
-- `docs/` — usage and reference-implementation documentation.
-- `plans/` — remaining work and completed implementation evidence.
-- `deploy/` and `migrations/` — current operator procedures and temporary cutover tooling.
-
-Package boundaries and runtime ownership are described in [the reference implementation](docs/reference-implementation.md). Documentation ownership is summarized in [docs/README.md](docs/README.md).
+The [README](README.md#repository-map) has the directory-by-directory map, and
+[the reference implementation](docs/reference-implementation.md) describes every
+package in both languages, runtime ownership, and the layering rules.
+Documentation ownership is summarized in [docs/README.md](docs/README.md).
 
 ## Verification
 
