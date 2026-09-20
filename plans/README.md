@@ -8,6 +8,7 @@ For current behavior use [status.md](../status.md); for every retained plan and 
 
 | Outcome | What remains | Start here |
 |---|---|---|
+| Make the Mac and iOS apps one client | Accounts, placements, and accepted-choice review through the host on both platforms; the daemon shrinks to the folder service it is | Native [011](swift/011-mac-as-direct-host-client.md) |
 | Extend Native editing and conflict review | Additional move/copy/undo cases, richer review previews and precise inline markers; the core capture, sync and review paths are already implemented | Native [008](swift/008-complete-native-move-copy-undo-capture.md) and [010](swift/010-client-conflict-review.md); server-policy refinements in canopyd [009](canopyd/009-canopy-provenance-merges.md) |
 | Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |
 | Make Overstory applications executable | Resource policy implemented; coordinated cutover pending → source resolution/sidecar → durable authoring/compiler → Supplies across local, native and canopyd; hosted agents follow | Apps [004](apps/004-mutation-permissions.md), [005](apps/005-source-resolution-and-sidecar.md), [006](apps/006-durable-authoring.md), [003](apps/003-development-compiler-and-editor-tooling.md), [001](apps/001-supplies-executable-site.md) |
