@@ -24,7 +24,7 @@ by the existing suites. This plan finishes the job.
 3. **UI copy.** "Make This an Arbor Tree", "This Arbor client is up to date",
    "Disconnect this browser from Arbor?", and the other user-visible strings
    that name the system; the app is Canopy and the trees are Overstory
-   trees. Update the quoted strings in `docs/canopy/design.md` and the tests that
+   trees. Update the quoted strings in `docs/canopy-browser/design.md` and the tests that
    assert them in the same commit.
 4. **`-v2` file names.** After [Cleanup 002](002-retire-v1-account-and-local-state-adapters.md)
    retires the v1 readers, rename `account-config-v2.ts`,

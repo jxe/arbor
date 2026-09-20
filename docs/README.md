@@ -12,7 +12,7 @@ replaceable implementation choices, and **plans** own remaining work.
 - [Specification](../spec/README.md): normative portable behavior, in reading order.
 - [Status](../status.md): what is implemented, installed, deployed, or only specified.
 - [Architecture](architecture.md): every package in both languages, runtime ownership, protocol identity, durability, and verification.
-- [The update machine](update-machine.md): the runner every working tree uses against a host, its coordinator, durable head, recovery, and watching.
+- [CLI reference](cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, safety rules.
 - [Development](../DEVELOPMENT.md): setup, ownership, change discipline, gates.
 
 ## By component
@@ -29,19 +29,18 @@ replaceable implementation choices, and **plans** own remaining work.
 
 **Client stack**
 
-- [State machines](canopy/document-admission.md): the document admission and working-tree update machines, admission invariants, trace compaction.
+- [State machines](canopy-browser/document-admission.md): the document admission and working-tree update machines, admission invariants, trace compaction.
 
 **Arbor Sync and the `arbor` command**
 
-- [CLI reference](arborsync/cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, safety rules.
 - [Arbor Sync REST API](arborsync/arborsync-api.md): the loopback client/daemon boundary.
 - [Conflict review](arborsync/conflict-review.md): how a daemon client presents and submits a synchronization conflict.
 - [The Arbor data home](arborsync/data-home.md): the data home, daemon supervision, watching, credentials, migration, diagnostics.
 
-**Canopy browsers**
+**Canopy browser**
 
-- [Design](canopy/design.md): non-normative interaction design for the browsers; use status for implementation truth.
-- [The document admission machine](canopy/document-admission.md): the editor-side machine, its states and transitions, admission invariants, trace compaction.
-- [Canopy local state](canopy/local-state.md): working trees on iOS and the Mac, the editor recovery store, admission journals, diagnostic streams.
+- [Design](canopy-browser/design.md): non-normative interaction design for the browsers; use status for implementation truth.
+- [The document admission machine](canopy-browser/document-admission.md): the editor-side machine, its states and transitions, admission invariants, trace compaction.
+- [Canopy local state](canopy-browser/local-state.md): working trees on iOS and the Mac, the editor recovery store, admission journals, diagnostic streams.
 
 Remaining work for every component is in [plans](../plans/README.md).

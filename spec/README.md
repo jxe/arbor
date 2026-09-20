@@ -67,7 +67,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | [child backings](06-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
 | [executable documents](07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Overstory operations |
 | [authoring API](08-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
-| [working-tree updates](09-client-synchronization.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install and adoption entries, one self-contained prepared request in flight, one retained successor, validated apply, conflict ownership including adopted prefixes, and exact ambiguous recovery |
+| [working-tree updates](09-client-synchronization.md), with [the update machine's runner](update-machine.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install and adoption entries, one self-contained prepared request in flight, one retained successor, validated apply, conflict ownership including adopted prefixes, and exact ambiguous recovery |
 
 The specification map does not report implementation progress. See
 [status.md](../status.md) for that boundary and [`conformance/`](conformance) for

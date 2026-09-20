@@ -22,7 +22,7 @@ Goal: in the share pane, type a name, see matching people with avatars, pick one
 
 Shippable alone; old clients ignore the new fields.
 
-**Spec** `spec/04-accounts-and-devices.md` §1: add the three fields with rules. `displayName` trimmed, 1–80 scalars, no line breaks. `avatar` a relative path inside the tree (no leading `/`, no `.`/`..`, extension in `png jpg jpeg gif webp`), so avatar visibility equals the profile tree's read access. `description` ≤ 500 scalars. Apply to person and group. Add a short "Directory" paragraph in `spec/05-access-control.md` §4 and `docs/canopy/design.md` next to "Profile control".
+**Spec** `spec/04-accounts-and-devices.md` §1: add the three fields with rules. `displayName` trimmed, 1–80 scalars, no line breaks. `avatar` a relative path inside the tree (no leading `/`, no `.`/`..`, extension in `png jpg jpeg gif webp`), so avatar visibility equals the profile tree's read access. `description` ≤ 500 scalars. Apply to person and group. Add a short "Directory" paragraph in `spec/05-access-control.md` §4 and `docs/canopy-browser/design.md` next to "Profile control".
 
 **Parser** [profile.ts](../../packages/canopyd/src/profile.ts): extend `RootProfileFacts` with `version: 2`, `displayName?`, `description?`, `avatar?: { path, hash }`. Resolve the avatar path to an object hash at parse time by walking child directories with `decodeWireDirectory`; omit on any failure. Export the validators so the CLI reuses them. Keep member-key strictness.
 
@@ -40,7 +40,7 @@ Steps: community members → each readable group tree (as its own `group` entry 
 
 **TS wire**: `RemoteDirectoryEntry` in `packages/protocol` protocol types beside `AccessEntry`; `WireClient.directory()` in [client.ts](../../packages/protocol/src/transport.ts) beside `access()`. Add a fixture under `tests/fixtures/canopy/` and reference it from the protocol conformance test.
 
-**CLI** [index.ts](../../packages/cli/src/index.ts) + [profile-identity.ts](../../packages/arborsync/src/state/profile-identity.ts): `arbor me create --name`, and new `arbor me set [--name] [--avatar <relative path>] [--description]` rewriting `_index.md` frontmatter while preserving body and unknown keys; `--avatar` checks the file exists. Document in `docs/arborsync/cli.md`.
+**CLI** [index.ts](../../packages/cli/src/index.ts) + [profile-identity.ts](../../packages/arborsync/src/state/profile-identity.ts): `arbor me create --name`, and new `arbor me set [--name] [--avatar <relative path>] [--description]` rewriting `_index.md` frontmatter while preserving body and unknown keys; `--avatar` checks the file exists. Document in `docs/cli.md`.
 
 **Tests**: unit `tests/unit/canopyd/profile-facts.test.ts` (accepted fields, oversize dropped, `../x.png` dropped, missing file dropped, nested path resolved, URL dropped). Integration `tests/integration/canopyd/directory.test.ts` modeled on `community-hosting.test.ts`: unhosted member is `kind: unknown` with handle; hosted public profile yields card + fetchable avatar hash; private profile yields identity only; readable group contributes `group:` source and its own entry; unreadable group absent; access-only profile has `sources: ["access"]`; self excluded; unauthenticated and execution token → 401.
 
@@ -64,9 +64,9 @@ Steps: community members → each readable group tree (as its own `group` entry 
 
 **View** new `swift/ArborApp/ArborDirectoryView.swift`: searchable list, sections People / Groups, rows with avatar + title + subtitle + source chips, Refresh toolbar button, "Open profile" (disabled with "Not hosted" when no locator). Homes: macOS `MacManagementTab.people` in the segmented picker ([ArborRootView.swift:1690](../../swift/CanopyApp/ArborRootView.swift)) reusing the existing `openProfile` closure, plus a "People…" command in `ArborWindowCommands`/`ArborApp.swift`; iOS a "People" row in the account panel pushing the view.
 
-**Own profile**: "Edit name & photo…" beside "Open profile" in `MacArborSyncAccountPanel` opening the profile root `_index.md` in the normal editor; users add frontmatter and drop the image file in. Document in `docs/canopy/design.md`. A dedicated two-field sheet is deferred unless the editor already exposes frontmatter editing.
+**Own profile**: "Edit name & photo…" beside "Open profile" in `MacArborSyncAccountPanel` opening the profile root `_index.md` in the normal editor; users add frontmatter and drop the image file in. Document in `docs/canopy-browser/design.md`. A dedicated two-field sheet is deferred unless the editor already exposes frontmatter editing.
 
-**Docs**: finish the `docs/canopy/design.md` Directory section (People tab, refresh, cache locations); update the plan file status and `status.md`.
+**Docs**: finish the `docs/canopy-browser/design.md` Directory section (People tab, refresh, cache locations); update the plan file status and `status.md`.
 
 ## Verification
 

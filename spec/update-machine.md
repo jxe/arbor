@@ -3,15 +3,15 @@
 The update machine runs inside every working tree against an Overstory host:
 the daemon's folder synchronizer and the Canopy app's `CanopyWorkingTree`
 both run it. Its states and transitions are specified in
-[working-tree updates](../spec/09-client-synchronization.md); this document
+[working-tree updates](09-client-synchronization.md); this document
 describes its runner, the update coordinator, and what the coordinator adds
 around the reducer: the durable head, recovery, and watching. The editor-side
-machine above it is [the document admission machine](canopy/document-admission.md).
+machine above it is [the document admission machine](../docs/canopy-browser/document-admission.md).
 
 
 The update machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`)
 and `reduceUpdate` (`@overstory/client`). Both execute the `working-tree-updates` scenarios in
-[`spec/conformance/client-state-machines.json`](../spec/conformance/client-state-machines.json).
+[`spec/conformance/client-state-machines.json`](conformance/client-state-machines.json).
 Its transitions are the spec's; this section is about the runner around it.
 
 `UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and an Overstory

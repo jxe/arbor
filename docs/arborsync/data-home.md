@@ -4,7 +4,7 @@ Replaceable local filesystem, daemon-state, and credential-storage choices of
 Arbor Sync. The synchronized cross-host configuration contract is normative in
 [accounts and devices](../../spec/04-accounts-and-devices.md); the loopback
 API is in [the Arbor Sync REST API](arborsync-api.md); what the Canopy app
-keeps on disk is in [Canopy local state](../canopy/local-state.md).
+keeps on disk is in [Canopy local state](../canopy-browser/local-state.md).
 
 ## Data home
 

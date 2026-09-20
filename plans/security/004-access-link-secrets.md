@@ -10,7 +10,7 @@
 > **Drift check:** inspect `packages/cli/src/index.ts`,
 > `packages/canopy-web/src/App.tsx`,
 > `packages/arborsync/src/service.ts`, `packages/arborsync/src/state/visits.ts`, the protocol
-> client request boundary, native URL handling, and `docs/canopy/design.md`. Stop if
+> client request boundary, native URL handling, and `docs/canopy-browser/design.md`. Stop if
 > browser and native recipients can already traverse a protected multi-page tree
 > with protected assets, edit when granted write access, survive ordinary
 > navigation, and revoke promptly without retaining the raw secret.
@@ -119,7 +119,7 @@ Expected files include:
 - canopyd's bootstrap/session handling and protected asset responses;
 - native URL registration and open handling;
 - focused browser, native, and integration tests; and
-- `docs/canopy/design.md` only if implementation details need clarification.
+- `docs/canopy-browser/design.md` only if implementation details need clarification.
 
 Out of scope: changing the public `#arbor-access=` link format, storing raw link
 secrets for later visits, account-token redesign, offline link access, or

@@ -92,7 +92,7 @@ machine makes each edit durable in the working tree and the update
 coordinator publishes durable heads to the host. On iOS the working tree is on
 disk; on the Mac it is in memory, seeded from the daemon's `GET /v1/bootstrap`
 and backed by its `/v1/objects` route. The layouts are in
-[the local system](canopy/local-state.md#native-working-trees).
+[the local system](canopy-browser/local-state.md#native-working-trees).
 
 **The host** (canopyd) implements access and claims, public HTTP projection,
 graph validation, authoritative reconciliation, and private storage. Update
@@ -200,7 +200,7 @@ bytes, trace frames and operations, accepted update ids) and returns the
 same phases in a `Server-Timing` header. The log is silent under the test
 runner and never contains request content, subjects, or object identities.
 The Canopy app's network log is its client-side counterpart
-([local system](canopy/local-state.md#diagnostic-streams)).
+([local system](canopy-browser/local-state.md#diagnostic-streams)).
 
 The daemon uses a private intent journal, recovery bookkeeping, filesystem
 observation, and a 1,024-event in-memory SSE replay buffer; a restart changes
@@ -229,7 +229,7 @@ already processed, `failedIndex` identifies the element under review, and
 the suffix remains unattempted. Resolution submits the reviewed element
 against the verified current descriptor, then guardedly replays the retained
 suffix in order. The machines, their invariants, and trace compaction are in
-[client state machines](canopy/document-admission.md).
+[client state machines](canopy-browser/document-admission.md).
 
 ## Verification machinery
 

@@ -4,7 +4,7 @@ The document admission machine runs between an editor's undo history and its
 working tree's document session. This is its reference: its states, the data
 each retains, its transitions, and the rules a new editor host must follow.
 The working-tree update machine that runs beneath it is described in
-[the update machine](../update-machine.md).
+[the update machine](../../spec/update-machine.md).
 
 The reference implementations are `DocumentAdmissionMachine` in `CanopyAppKit`
 (Swift) and `reduceAdmission` in `@overstory/client` (TypeScript). Both are
