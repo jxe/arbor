@@ -19,67 +19,61 @@ For the exact current boundary, see [status.md](status.md).
 
 ## How it fits together
 
+Four components, two languages. TypeScript packages live under `packages/`
+as `@overstory/<name>`; Swift packages live under `swift/Packages/`.
+
+- **The Overstory protocol**: the specification in code, plus the libraries
+  every participant uses to hold and synchronize a tree.
+  `protocol`, `object-store`, `client`, `fs`; Swift `Overstory`,
+  `OverstoryObjectStore`, `OverstoryClient`, `CanopyWorkingTree`.
+- **canopyd, the host**: serves communities, accounts, hosted trees, and
+  public pages over HTTPS, accepts updates, and runs two sidecars: the merge
+  tool for every accepted update and the executable-document runtime for
+  queries and mutations. `canopyd`, `canopyd-merge`, `apps-runtime`.
+- **Arbor Sync, the local daemon**, with the `arbor` command: keeps placed
+  folders on a Mac synchronized with their hosts and serves them to local
+  clients over loopback. `arborsync`, `arborsync-client`, `cli`;
+  Swift `ArborSyncClient`.
+- **Canopy, the browsers**: the human interface. The Mac and iOS app edits
+  working trees directly against a host; on the Mac it also uses the daemon
+  for the placed folder. The browser editor is being rebuilt to talk to a
+  host the same way. Swift `CanopyAppKit`, `CanopyEditor`, the app target;
+  `canopy-web`.
+
 ```mermaid
 flowchart TB
-  subgraph protocol["Overstory protocol"]
+  subgraph proto["Overstory protocol and client libraries"]
     direction LR
-    P["protocol<br/><i>Overstory</i>"]
-    OS["object-store<br/><i>OverstoryObjectStore</i>"]
+    P["protocol · object-store<br/><i>Overstory · OverstoryObjectStore</i>"]
+    C["client · fs<br/><i>OverstoryClient · CanopyWorkingTree</i>"]
   end
-  subgraph host["Host"]
+  subgraph host["canopyd, the host (HTTPS)"]
     direction LR
-    D["canopyd"]
-    M["canopyd-merge<br/>(sidecar)"]
-    AR["apps-runtime"]
+    D["canopyd<br/>communities, accounts, hosted trees, public pages, update acceptance"]
+    M["canopyd-merge<br/>merge sidecar"]
+    AR["apps-runtime<br/>queries and mutations"]
   end
-  subgraph clientstack["Client stack"]
+  subgraph arbor["Arbor Sync, the local daemon (loopback)"]
     direction LR
-    C["client<br/><i>OverstoryClient</i>"]
-    FS["fs"]
-    WT["<i>CanopyWorkingTree</i>"]
+    AS["arborsync"]
+    CLI["cli (arbor)<br/>arborsync-client"]
   end
-  subgraph arbor["Arbor local tools"]
+  subgraph canopy["Canopy, the browsers"]
     direction LR
-    AS["arborsync (daemon)"]
-    ASC["arborsync-client<br/><i>ArborSyncClient</i>"]
-    CLI["cli (arbor)"]
-  end
-  subgraph canopy["Canopy browsers"]
-    direction LR
+    APP["Mac and iOS app<br/><i>CanopyAppKit · CanopyEditor · ArborSyncClient</i>"]
     WEB["canopy-web"]
-    APP["Canopy app<br/><i>CanopyAppKit, CanopyEditor</i>"]
   end
-  host --> protocol
-  clientstack --> protocol
-  arbor --> clientstack
-  canopy --> clientstack
-  canopy --> arbor
-  AS -. HTTPS .-> D
-  APP -. HTTPS .-> D
-  M --- D
-  AR --- D
+  D --- M
+  D --- AR
+  AS -- "publishes and watches" --> D
+  APP -- "edits, publishes, watches" --> D
+  WEB -- "edits, publishes, watches" --> D
+  APP -. "placed folder, objects (Mac)" .-> AS
+  CLI --> AS
+  host --> proto
+  arbor --> proto
+  canopy --> proto
 ```
-
-Names in italics are the Swift packages under `swift/`; the rest are
-TypeScript packages under `packages/`, published as `@overstory/<name>`.
-
-- **The protocol** (`protocol`, `object-store`) is the specification in code:
-  identifiers, the node model, canonical CBOR, objects and snapshots, update
-  contracts, resource policy, the document format, configuration formats, and
-  the HTTP transport. It depends on nothing else in the repository.
-- **The host** (`canopyd`) serves communities, accounts, hosted trees, and
-  public pages. It runs the merge sidecar (`canopyd-merge`) for every
-  accepted update and the executable-document runtime (`apps-runtime`) for
-  queries and mutations.
-- **The client stack** (`client`, `fs`, `CanopyWorkingTree`) synchronizes a
-  working tree against a host: the update machine, the source admission
-  queue, and filesystem materialization.
-- **The Arbor local tools** (`arborsync`, `arborsync-client`, `cli`) are the
-  per-user daemon that keeps placed folders synchronized, its loopback API,
-  and the `arbor` command.
-- **The Canopy browsers** (`swift/`, `canopy-web`) are the human
-  interface: the Mac and iOS app, and the browser editor that is being
-  rebuilt on the same working tree.
 
 ## Start using Overstory
 
