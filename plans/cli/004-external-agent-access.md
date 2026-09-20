@@ -1,4 +1,4 @@
-# External agent access through the `arbor` CLI
+# CLI 004: External agent access through the `arbor` CLI
 
 Historical identifier: **Smaller project 004**. The filename number is preserved; this plan now belongs to cli.
 

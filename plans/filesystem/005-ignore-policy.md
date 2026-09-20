@@ -1,4 +1,4 @@
-# Keep ignored filesystem content outside Overstory trees
+# Filesystem 005: Keep ignored filesystem content outside Overstory trees
 
 Historical identifier: **Security 005**. The filename number is preserved; this plan now belongs to filesystem.
 

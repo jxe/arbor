@@ -1,4 +1,4 @@
-# Preview and resume initial working-tree bootstrap
+# Native 006: Preview and resume initial working-tree bootstrap
 
 Historical identifier: **Reliability 006**. The filename number is preserved; this plan now belongs to native.
 

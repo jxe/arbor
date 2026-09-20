@@ -56,7 +56,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Apps 001 — Run the Supplies tree locally, natively, and on canopyd](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003–006**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the adapted [`examples/supplies`](../examples/supplies) corpus as executable documents in local Canopy for the web, signed macOS Overstory, and its canonical canopyd website.
 - [Apps 002 — Host authored conversational interfaces over compiled Overstory handles](apps/002-canopy-hosted-agents.md) — **P1 · PLANNED; depends on Apps 001**, Overstory users, and canopyd execution. Agents reuse the same compiled query/mutation handles and authenticated Overstory-user context rather than introducing a separate data/runtime framework.
 - [Apps 003 — Compile and typecheck executable documents consistently](apps/003-development-compiler-and-editor-tooling.md) — **P1 · PLANNED; depends on historical Data 002 and the Apps 001 Supplies corpus.** This owns the shared compiler and development tooling across `arbor check`, editors, local Overstory, and canopyd.
-- [Apps 004 — Resource policy and coordinated configuration cutover](apps/004-mutation-permissions.md) — **P1 · PLANNED; first.** Implement `who` / `via` / `allow`, scoped updates/watches, and upgrade Joe's configuration, clients and canopyd together.
+- [Apps 004 — Resource policy, execution authority, and coordinated account cutover](apps/004-mutation-permissions.md) — **DEPLOYED on schema 13; provider integration and soak remain.** The rule grammar, governed index, execution tokens, guarded scoped effects, revocation stream, and Canopy consent review are live; provider-specific enforcement, source resolution, and the soak closeout are the remaining work, shared with Apps 005.
 - [Apps 005 — Source resolution and HTTP sidecar](apps/005-source-resolution-and-sidecar.md) — **P1 · PLANNED; after 004.** Define the bridge, implement authorized bindings, then extract current runtime machinery without preserving unused APIs.
 - [Apps 006 — Durable query/mutation authoring](apps/006-durable-authoring.md) — **P1 · PLANNED; after 004/005, with 003.** Combined author/user requirements, resumable steps, backing receipts and the three lifecycle examples.
 
@@ -100,6 +100,13 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
 - [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported canopyd and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
 - [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
+- [Cleanup 006 — Rename code identifiers and UI copy to the Overstory vocabulary](cleanups/006-overstory-identifiers.md) — **READY.** `Wire*` and `Canopy*` type names in both languages, the app's "Arbor" UI strings, and the `-v2` file suffixes once Cleanup 002 lands.
+
+## Usability
+
+`usability/` — Name-based sharing and the user directory.
+
+- [Usability 001 — Name-based sharing, directory, and avatars](usability/001-user-directory.md) — **NEEDS DESIGN.** Share by handle or profile instead of pasted TreeIDs, a per-host directory, and avatars; product design precedes an executor plan.
 
 ## Product Completion
 

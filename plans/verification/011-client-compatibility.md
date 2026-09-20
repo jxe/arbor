@@ -1,4 +1,4 @@
-# Verify compatibility across snapshot and operation-aware clients
+# Verification 011: Verify compatibility across snapshot and operation-aware clients
 
 Split from **Reliability 011 / Sync 011**. This document owns verification only;
 [Filesystem 011](../filesystem/011-independent-writes-after-rejection.md) owns the scheduler change.

@@ -1,4 +1,4 @@
-# Surface accepted document history from canopyd
+# canopyd 007: Surface accepted document history from canopyd
 
 Historical identifier: **Smaller project 007**. The filename number is preserved; this plan now belongs to canopy.
 

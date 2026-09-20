@@ -107,7 +107,7 @@ export function frontmatterPatch(
 /**
  * Web editor host for the Arbor Sync document admission machine. It keeps
  * BlockNote capture, serialization, undo history, and presentation; the
- * machine in `@arbor/arborsync-client` owns every timer, in-flight, successor,
+ * machine in `@overstory/arborsync-client` owns every timer, in-flight, successor,
  * flush, observation, failure, and conflict transition.
  */
 export class EditorCoordinator {

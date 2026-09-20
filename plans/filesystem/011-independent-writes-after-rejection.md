@@ -1,4 +1,4 @@
-# Keep independent filesystem writes moving after a rejection
+# Filesystem 011: Keep independent filesystem writes moving after a rejection
 
 Split from **Reliability 011 / Sync 011**. Status: NEEDS DESIGN; priority selection is open.
 [Verification 011](../verification/011-client-compatibility.md) owns the separate compatibility audit.

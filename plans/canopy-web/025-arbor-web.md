@@ -1,10 +1,10 @@
-# Canopy for the web: one browser editor for `arbor open` and canopyd
+# Web 025: Canopy for the web: one browser editor for `arbor open` and canopyd
 
 > **Executor instructions**: Build Canopy for the web as one browser bundle that is the TypeScript twin of the native app: the same working tree, update machine and document admission machine as the Mac app, the same information architecture and vocabulary, served by two hosts. The **local host** is Arbor Sync on loopback, opened by `arbor open`. The **canopyd host** is a host serving the bundle at a tree's canonical URL for a browser that holds a paired device credential. Nobody edits through the daemon; the browser publishes to canopyd itself. Port surfaces, not chrome: no menu bar, sheets, gestures, audio or camera. Clean breaks over shims. Nothing live (Railway, `~/.arbor`, the iPhone) flips without Joe's go-ahead.
 >
 > **Companion**: [surfaces.md](surfaces.md) is the surface-by-surface inventory this plan builds from; every surface there names its phase here.
 >
-> **Drift check**: `git diff --stat HEAD -- packages/canopy-client packages/object-store packages/wire packages/wire-projection packages/render packages/editor packages/arborsync packages/canopy canopy-swift/ArborApp canopy-swift/Packages/CanopyEditor conformance docs/client.md docs/arborsync-api.md` against the commit this plan is written at.
+> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy canopy-swift/ArborApp canopy-swift/Packages/CanopyEditor conformance docs/client.md docs/arborsync-api.md` against the commit this plan is written at.
 
 ## Status
 

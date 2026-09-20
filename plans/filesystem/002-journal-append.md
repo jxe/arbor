@@ -1,4 +1,4 @@
-# Serialize write-journal appends so counters cannot collide
+# Filesystem 002: Serialize write-journal appends so counters cannot collide
 
 Historical identifier: **Reliability 002**. The filename number is preserved; this plan now belongs to filesystem.
 

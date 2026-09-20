@@ -70,7 +70,7 @@ export interface ArborSyncRESTClientOptions {
   retryDelay?: (attempt: number) => Promise<void>;
 }
 
-// Account, identity, and pairing values are the shared vocabulary in @arbor/core:
+// Account, identity, and pairing values are the shared vocabulary in @overstory/protocol:
 // Arbor Sync reports exactly what Canopy's Wire and the data-home stores use.
 export type { LocalAccountSummary, PairingOffer, ProfileIdentity } from "@overstory/protocol";
 

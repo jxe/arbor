@@ -12,7 +12,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
   return files;
 }
 
-describe("@arbor/wire package boundary", () => {
+describe("@overstory/protocol package boundary", () => {
   test("does not acquire server implementation dependencies", async () => {
     const root = join(import.meta.dir, "../../../packages/protocol/src");
     for (const path of await sourceFiles(root)) {

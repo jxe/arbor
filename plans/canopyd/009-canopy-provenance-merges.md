@@ -1,4 +1,4 @@
-# Remaining canopyd provenance and policy work
+# canopyd 009: Remaining canopyd provenance and policy work
 
 Historical identifier: **Reliability 009**. The filename number is preserved; this plan now belongs to canopy.
 

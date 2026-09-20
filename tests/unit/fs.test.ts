@@ -26,7 +26,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-describe("@arbor/fs logical nodes", () => {
+describe("@overstory/fs logical nodes", () => {
   test("resolves sibling bodies, index fallbacks, implicit bodies, and duplicate bodies", async () => {
     const { fs } = await workspace({
       "sibling.md": "Sibling\n",

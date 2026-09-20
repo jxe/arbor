@@ -1,4 +1,4 @@
-# Reassess remaining conflict-fragment storage gaps
+# canopyd 002: Reassess remaining conflict-fragment storage gaps
 
 Historical identifier: **canopyd storage 002**. The filename number is preserved; this plan now belongs to canopy.
 
@@ -11,7 +11,7 @@ resolution are implemented; their rollout is tracked in [release and verificatio
 ## Existing evidence
 
 The isolated fragment storage proof (removed from the tree; see git history before 2026-09-20
-for `packages/canopyd/src/experimental/conflict-fragments`) was representation evidence only.
+for the since-deleted `experimental/conflict-fragments` module) was representation evidence only.
 The production merge authority now owns accepted/authored semantic state,
 hidden and undo material, and public inspection identities. Do not import the experiment's parallel
 authority, receipt API or owner table, or repeat the completed schema-12 migration.

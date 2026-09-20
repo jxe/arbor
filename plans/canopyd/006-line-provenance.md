@@ -1,4 +1,4 @@
-# Attribute accepted updates and show line provenance
+# canopyd 006: Attribute accepted updates and show line provenance
 
 > **Gate refresh (2026-09-18):** `test:e2e` is currently absent. Use maintained
 > gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
@@ -82,13 +82,13 @@ canopyd already has the content lineage needed for a derived blame calculation:
 - `packages/canopyd/src/updates/store.ts` records a private linear accepted
   history with `previous_root`, `root`, `accepted_at`, credential-scoped
   `subject`, merge provenance, request digest, and transition payload.
-- `packages/canopyd/src/objects.ts` stores immutable hash-verified Overstory file and
+- `packages/object-store` stores immutable hash-verified Overstory file and
   directory objects and can materialize complete retained snapshots.
 - `packages/canopyd/src/updates/transition.ts` builds one exact transition for
   each accepted root without folding history.
 - `packages/protocol/src/objects.ts` represents a file as exact bytes, so Markdown
   source and its LF, CRLF, or CR line endings remain available for comparison.
-- `packages/canopyd/src/updates/merge.ts` correlates uniquely identified
+- `packages/canopyd-merge` (the merge sidecar) correlates uniquely identified
   Markdown pages across moves and renames and the additive Markdown merge works
   on exact source lines.
 - `spec/02-directory-format.md` defines a materialized Markdown document's

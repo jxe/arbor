@@ -1,4 +1,4 @@
-# Preserve node identity across representations
+# Postgres 005: Preserve node identity across representations
 
 Current identifier: **Postgres 005**. Former identifiers: **Smaller project 001 / Data model 001**.
 

@@ -1,4 +1,4 @@
-# One grammar for locator identity surfaces
+# Cleanup 005: One grammar for locator identity surfaces
 
 Current identifier: **Cleanup 005**. Former identifiers: **Smaller project 002 / Data model 002**.
 

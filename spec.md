@@ -5,7 +5,7 @@
 
 ## Specification stance
 
-This is the aspirational public contract for Overstory. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](status.md) records what the reference implementation actually does; implemented outcomes (completed plan, deleted; see git history) preserve evidence, and the [planning index](plans/README.md) owns remaining work.
+This is the aspirational public contract for Overstory. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](status.md) records what the reference implementation actually does; the [planning index](plans/README.md) owns remaining work, and completed plans live in git history.
 
 The specification contains only behavior that must remain portable across independently implemented Overstory components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Overstory requirements.
 

@@ -184,7 +184,7 @@ export async function validateSourceTrace(
  * the last `after`, by the same rule the clients' `compactTrace` applies:
  * every frame's operations must be lineage-free `editSource` operations over
  * `basis` material with a range; per path, the generations compose through
- * `composeSourceEdits` (`@arbor/core`), which needs no intermediate bytes; the
+ * `composeSourceEdits` (`@overstory/protocol`), which needs no intermediate bytes; the
  * composed operations are keyed `edit-0-<i>` in output order (paths in first
  * appearance order) and name each path's object in the first frame. The
  * composed frame is then executed and must reproduce the same result, so a

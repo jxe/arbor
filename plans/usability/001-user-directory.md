@@ -1,4 +1,4 @@
-# Name-based sharing, directory, and avatars
+# Usability 001: Name-based sharing, directory, and avatars
 
 ## Context
 

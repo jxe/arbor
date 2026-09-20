@@ -1,4 +1,4 @@
-# Pack retained objects into compressed group files
+# canopyd 001: Pack retained objects into compressed group files
 
 Historical identifier: **canopyd storage 001**. The filename number is preserved; this plan now belongs to canopy.
 

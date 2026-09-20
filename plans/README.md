@@ -11,7 +11,7 @@ For current behavior use [status.md](../status.md); for every retained plan and 
 | Extend Native editing and conflict review | Additional move/copy/undo cases, richer review previews and precise inline markers; the core capture, sync and review paths are already implemented | Native [008](canopy-swift/008-complete-native-move-copy-undo-capture.md) and [010](canopy-swift/010-client-conflict-review.md); server-policy refinements in canopyd [009](canopyd/009-canopy-provenance-merges.md) |
 | Bring back Canopy for the web | One browser bundle served by Arbor Sync (`arbor open`) and by canopyd, running the same working tree and update machine as the Mac app, with the native surfaces ported | Web [025](canopy-web/025-arbor-web.md) and its [surface inventory](canopy-web/surfaces.md) |
 | Make Overstory applications executable | Resource policy implemented; coordinated cutover pending → source resolution/sidecar → durable authoring/compiler → Supplies across local, native and canopyd; hosted agents follow | Apps [004](apps/004-mutation-permissions.md), [005](apps/005-source-resolution-and-sidecar.md), [006](apps/006-durable-authoring.md), [003](apps/003-development-compiler-and-editor-tooling.md), [001](apps/001-supplies-executable-site.md) |
-| Make sharing easier | Safe access links; design name-based sharing, avatars and coherent group management | Security [004](security/004-access-link-secrets.md), [product design](catalog.md#product-completion) |
+| Make sharing easier | Safe access links; design name-based sharing, avatars and coherent group management | Security [004](security/004-access-link-secrets.md), Usability [001](usability/001-user-directory.md), [product design](catalog.md#product-completion) |
 | Browse document history and authorship | Show accepted document versions, restore an earlier version as a new edit, and explain who contributed current lines | canopyd [007](canopyd/007-canopy-document-history.md) and [006](canopyd/006-line-provenance.md) |
 | Bound storage and improve slow paths | Operation frames and lazy history loading (approved); measure retained storage and worker costs before packing; progressive placement and targeted performance work | canopyd [010](canopyd/010-operation-frames-and-lazy-history.md), [001](canopyd/001-pack-object-storage.md), Native [006](canopy-swift/006-progressive-replica-bootstrap.md), [performance candidates](catalog.md#hardening-efficiency-polish-etc) |
 | Strengthen safety and delivery | Ignore policy, URL/response/secret boundaries, CI; close compatibility windows only when their explicit conditions hold | [Security](catalog.md#security-boundaries), [CI](catalog.md#testing-and-ci) and [ignore policy](filesystem/005-ignore-policy.md), [cleanups](catalog.md#compatibility-cutoffs) |
@@ -55,7 +55,8 @@ contracts remain in [open questions](open-questions.md).
 | `security/` | Input, rendering, authorization and sharing boundaries |
 | `testing/` | Implement CI and test isolation |
 | `verification/` | Compatibility evidence, manual acceptance and release/soak checks |
-| `cleanups/` | Compatibility cutoffs and locator simplification |
+| `cleanups/` | Compatibility cutoffs, locator simplification, and identifier renames |
+| `usability/` | Name-based sharing, the user directory, and avatars |
 
 The [catalog](catalog.md) follows this layout. Completed plans are deleted; git history keeps
 them, and each active plan records any identifier it inherited.
@@ -70,17 +71,6 @@ them, and each active plan records any identifier it inherited.
   labels are workstream assessments, not the current global priority order.
 - Check source, tests and `git status` before implementation. Preserve portable contracts and
   historical verification records; do not revive removed architecture from an old checklist.
-
-<!-- Preserve inbound links from older documentation while directing readers to the catalog. -->
-<a id="source-intent-milestones"></a>
-<a id="what-to-do-soon"></a>
-<a id="highly-important"></a>
-<a id="arbor-sync"></a>
-<a id="cleanups"></a>
-<a id="product-completion"></a>
-<a id="later-portable-deployment"></a>
-<a id="hardening-efficiency-polish-etc"></a>
-<a id="open-questions-and-completed-work"></a>
 
 The former long sections are in the [detailed catalog](catalog.md). Completed implementation and
 superseded designs are deleted and remain in git history.

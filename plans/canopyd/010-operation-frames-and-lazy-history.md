@@ -1,4 +1,4 @@
-# Operations as evidence frames; history loaded lazily
+# canopyd 010: Operations as evidence frames; history loaded lazily
 
 Status: PLANNED (approved 2026-09-19, not started). Sole user; wire changes are clean
 breaks, but Phase 2 ships Mac, iPhone and server together. Related:

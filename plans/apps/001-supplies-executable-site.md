@@ -35,7 +35,7 @@ The canopyd supplies Overstory users, so Supplies has no login system or applica
 profile changes. The browser never receives raw SQLite, credentials, server
 handle implementations, or unrelated private rows.
 
-The existing app at `/Users/joe/src/supplies` stays live and unchanged until the
+The existing Supplies app (a separate repository) stays live and unchanged until the
 Overstory version has been built, populated, staged, and cut over. SQLite is the
 only runtime backing required for this milestone; a Postgres runtime driver is
 measurement-driven follow-up, not a gate.
