@@ -4,7 +4,7 @@
 >
 > **Companion**: [surfaces.md](surfaces.md) is the surface-by-surface inventory this plan builds from; every surface there names its phase here.
 >
-> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy swift/ArborApp swift/Packages/CanopyEditor conformance docs/client.md docs/arborsync-api.md` against the commit this plan is written at.
+> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy swift/ArborApp swift/Packages/CanopyEditor conformance docs/canopy/design.md docs/arbor/arborsync-api.md` against the commit this plan is written at.
 
 ## Status
 
@@ -95,7 +95,7 @@ One writable working tree per tree per browser profile through `navigator.locks`
 
 ### Keyboard
 
-The native shortcut map ports except where the browser owns the key. Reassignments are fixed in [surfaces.md §9](surfaces.md#9-keyboard-map) and documented in `docs/client.md` under the phase that implements each surface.
+The native shortcut map ports except where the browser owns the key. Reassignments are fixed in [surfaces.md §9](surfaces.md#9-keyboard-map) and documented in `docs/canopy/design.md` under the phase that implements each surface.
 
 ## Projects and phases
 
@@ -117,7 +117,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 **Phase 4 — editor pane, minimum.** Surface [4](surfaces.md#4-editor-pane) items marked B1: BlockNote document bound to the admission machine through `EditorHost.persistCommit`, document footer (backlinks, sync chip), block menu with Turn Into tiles, @mention, autotransforms, inline marks, images to `Assets`, undo, find in page, New Document/Folder, Trash/Restore with confirmations, title-rename proposal, orphan-trash prompt, Source and Properties, History/Recover. Source admission uses the existing TypeScript source-admission session: real transactions capture original source and basis; do not infer move/copy from final text; support only operation forms the browser captures and the server executes.
 *Verify*: `bun run build`, `bun run test:e2e` restored with disposable canopyd: edit in the browser and see the folder update within a second; edit on disk and see the page update; close the tab mid-edit and reopen to see the browser's own head replay once; leave a daemon request pending or conflicted and the browser still publishes; a second tab opens read-only.
 
-**Phase 5 — docs and release.** `docs/client.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/arborsync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/reference-implementation.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [release and soak](../verification/release-and-soak.md).
+**Phase 5 — docs and release.** `docs/canopy/design.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/arbor/arborsync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/architecture.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [release and soak](../verification/release-and-soak.md).
 
 ### B2 — the canopyd host and the account surfaces
 
@@ -127,7 +127,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 **Phase 7 — accounts, devices, share, sync status, app permissions, network log.** Surfaces [6, 7, 8, 12](surfaces.md) on both hosts. One **Accounts / Sync Status** dialog with a persistent tab selector and a dialog-level cache. Devices with **This browser / Active / Administrator** tags, the ellipsis actions as `devices.yaml` edits through the configuration tree's working tree on both hosts, with the last-administrator rule enforced by canopyd's existing account-configuration merge; pairing shows the QR and code so a phone or another browser can join. Share with the tracked-tree hierarchy (heading with canonical address, invite row, **Who has access** with **Can view / Can edit / Remove access**, scoped and app permissions). Sync Status with the twelve user-facing states, current-document detail, **Sync Now** and **Network Log…**. Network log as a filterable list over the browser's own `WireNetworkLog` in IndexedDB with **Copy**, **Clear**.
 *Verify*: server tests for non-admin, stale-write, last-admin and deauthorization failures; dialog opens immediately at the requested tab and never flashes a first-load spinner on tab change; Share is content-sized, closes on Escape and restores focus; Sync Status orders save failure, conflict, offline, pending, syncing, healthy correctly.
 
-**Phase 8 — docs and release.** Spec: none required (pairing already admits ordinary devices; no new routes). `docs/reference-implementation.md` gains the static mount, CORS and the loader. `docs/client.md` profile/pairing and share sections gain the browser rows. Railway deploy with go-ahead; soak.
+**Phase 8 — docs and release.** Spec: none required (pairing already admits ordinary devices; no new routes). `docs/architecture.md` gains the static mount, CORS and the loader. `docs/canopy/design.md` profile/pairing and share sections gain the browser rows. Railway deploy with go-ahead; soak.
 
 ### B3 — choice review and editor depth
 

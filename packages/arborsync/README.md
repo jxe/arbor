@@ -22,6 +22,6 @@ that the `arbor` command and the Canopy app use.
   index. Exported at `@overstory/arborsync/state` for tests and tools.
 - `events.ts`, `cursors.ts`, `conflict-tree.ts`, `cli.ts`.
 
-The API is documented in [the Arbor Sync REST API](../../docs/arborsync-api.md),
-and the data home in [the local system](../../docs/local-system.md). The
+The API is documented in [the Arbor Sync REST API](../../docs/arbor/arborsync-api.md),
+and the data home in [the local system](../../docs/arbor/data-home.md). The
 daemon has no editor path.

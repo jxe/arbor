@@ -7,7 +7,7 @@
 
 This is the aspirational public contract for Overstory. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](../status.md) records what the reference implementation actually does; the [planning index](../plans/README.md) owns remaining work, and completed plans live in git history.
 
-The specification contains only behavior that must remain portable across independently implemented Overstory components. The [reference documentation](../docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Overstory requirements.
+The specification contains only behavior that must remain portable across independently implemented Overstory components. The [reference documentation](../docs/architecture.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Overstory requirements.
 
 The normative surface begins with tree reads, updates, watching, and editor
 round trips, introducing the logical model and canonical lossless Overstory values
@@ -76,7 +76,7 @@ implementations.
 
 ## Conformance
 
-Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](../docs/reference-implementation.md), including the local API, CLI, and client design, is informative rather than normative.
+Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](../docs/architecture.md), including the local API, CLI, and client design, is informative rather than normative.
 
 The checked-in configuration vectors describe the revised three-file
 `account-config-v2` graph. The old `account-config-v1` grammar remains only in
@@ -125,7 +125,7 @@ An execution runtime resolves authored source locators by the ordinary
 [resolution rules](03-locators.md#4-resolution-rules) and obtains each host-backed
 source's accepted state through the ordinary [current-tree read](01-tree-operations.md#111-reading-the-current-tree)
 under its execution token; there is no separate binding route. [Executable documents](07-executable-documents.md#8-host-and-server-boundaries)
-defines execution authority use; [reference sidecar documentation](../docs/execution-sidecar.md)
+defines execution authority use; [reference sidecar documentation](../docs/canopyd/execution-sidecar.md)
 owns HTTP forwarding and provider bindings. Implementations
 may extract the runtime without preserving the unused legacy query/mutation APIs.
 

@@ -277,14 +277,14 @@ ref.
 Authored source locators resolve by the ordinary [resolution rules](03-locators.md#4-resolution-rules);
 a host-backed source's accepted state comes from the ordinary
 [current-tree read](01-tree-operations.md#111-reading-the-current-tree), and provider
-bindings are private host configuration ([sidecar boundary](../docs/execution-sidecar.md#provider-bindings)).
+bindings are private host configuration ([sidecar boundary](../docs/canopyd/execution-sidecar.md#provider-bindings)).
 A host-authenticated runtime receives an [execution token](05-access-control.md#21-execution-tokens)
 binding the caller, executable and bounded authority; authored JavaScript receives
 handles rather than this token. The runtime presents it when resolving sources,
 reading or watching host data, or submitting ordinary guarded updates. Code and
 provider identity asserted in public input never establish execution authority.
 HTTP forwarding and process details belong to the
-[reference sidecar boundary](../docs/execution-sidecar.md). The sidecar may use the host and direct
+[reference sidecar boundary](../docs/canopyd/execution-sidecar.md). The sidecar may use the host and direct
 backing providers in the same invocation. Authority invalidation reaches provider
 operations and live output, not merely the initial HTTP request.
 

@@ -219,7 +219,7 @@ until a second concrete history authority exists.
 Retain `restoreRecovery`, `/v1/recovery`, the filesystem `WriteJournal`, and
 Trash recovery for diagnostics or a separately labelled lost-content repair
 surface. Their mapping into `WorkspaceHistoryEntry` is already removed; keep it
-removed and document the distinction in `docs/arborsync-api.md` and the
+removed and document the distinction in `docs/arbor/arborsync-api.md` and the
 reference implementation docs.
 
 Update `ArborHistoryView` and its loading/error states:
@@ -245,8 +245,8 @@ Expected implementation scope:
   filesystem recovery and, if required, add the thin authenticated proxy;
 - `swift/Packages/Overstory`, `CanopyAppKit`, `ArborSyncClient`, and `CanopyEditor`
   session/binding code and tests; and
-- `swift/CanopyApp`, `swift/CanopyAppTests`, `docs/arborsync-api.md`,
-  `docs/reference-implementation.md`, and the two coordinated plan files.
+- `swift/CanopyApp`, `swift/CanopyAppTests`, `docs/arbor/arborsync-api.md`,
+  `docs/architecture.md`, and the two coordinated plan files.
 
 Out of scope:
 

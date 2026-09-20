@@ -73,5 +73,5 @@ The dated verification checkpoints that used to live in
 boundary, tree-read ownership cleanup, active request adoption) are in git
 history under that path. Their surviving contracts are now in
 [tree operations §2.1](../../spec/01-tree-operations.md#21-the-update-request),
-[the reference implementation](../../docs/reference-implementation.md), and
+[the reference implementation](../../docs/architecture.md), and
 the release-order rules in [the deployment guide](../../packages/canopyd/deploy/README.md#release-order).

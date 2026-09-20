@@ -18,7 +18,7 @@ live deployment. Preserve dirty editors and unrelated work throughout execution.
 
 ## Worktree checkpoint (2026-09-18)
 
-The implemented boundary is summarized in [status.md](../../status.md) and the supported scope rules in [the reference implementation](../../docs/reference-implementation.md#resource-policy)
+The implemented boundary is summarized in [status.md](../../status.md) and the supported scope rules in [the reference implementation](../../docs/architecture.md#resource-policy)
 and Migration 011 (migration 011, deleted after cutover; see git history). Shared TS/Swift
 rules, resource parsing/indexing, execution tokens, guarded effects, replay checks,
 revocation streams and offline schema/configuration preparation are implemented.

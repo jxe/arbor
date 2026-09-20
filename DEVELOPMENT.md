@@ -10,7 +10,7 @@ The TypeScript workspace uses exactly Bun 1.3.14 (a newer Bun canary crashed the
 bun install
 ```
 
-`bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, `bun run canopyd`, and `bun run arbor-merge`. The merge executable runs as a separate Bun process; see [its API and object-store boundary](docs/merge-tool.md). `bun link` additionally exposes the `arbor`, `arborsync`, `canopyd`, and `arbor-merge` executables in the shell; the README quickstart uses that form.
+`bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, `bun run canopyd`, and `bun run arbor-merge`. The merge executable runs as a separate Bun process; see [its API and object-store boundary](docs/canopyd/merge-tool.md). `bun link` additionally exposes the `arbor`, `arborsync`, `canopyd`, and `arbor-merge` executables in the shell; the README quickstart uses that form.
 
 ### Developing Overstory with Quagmire
 
@@ -122,7 +122,7 @@ Arbor names the local tools only: the `arbor` command, Arbor Sync, the
 ## Repository map
 
 The [README](README.md#repository-map) has the directory-by-directory map, and
-[the reference implementation](docs/reference-implementation.md) describes every
+[the reference implementation](docs/architecture.md) describes every
 package in both languages, runtime ownership, and the layering rules.
 Documentation ownership is summarized in [docs/README.md](docs/README.md).
 

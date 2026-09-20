@@ -199,7 +199,7 @@ Required invariants:
   authorization, and focused host tests
 - language-neutral HTTP fixtures for full, partial, resumed, mismatched, and
   unsatisfiable immutable range responses
-- `spec/01-tree-operations.md`, `docs/reference-implementation.md`, native
+- `spec/01-tree-operations.md`, `docs/architecture.md`, native
   client/state-machine documentation, `status.md`, and plan indexes
 
 **Out of scope**:

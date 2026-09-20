@@ -3,7 +3,7 @@
 
 The current version is Arbor Sync REST v1.
 
-The protocol request grammar is in [tree operations §2.1](../spec/01-tree-operations.md#21-the-update-request); these local REST routes and filesystem scheduling
+The protocol request grammar is in [tree operations §2.1](../../spec/01-tree-operations.md#21-the-update-request); these local REST routes and filesystem scheduling
 do not acquire new capabilities from that specification.
 
 Arbor Sync makes placed folders content-addressable and keeps each one equal
@@ -36,17 +36,17 @@ at OS-shaped routes (§6) continues.
 
 The reference listener dispatches to separate sync, account and browser handlers.
 This internal decomposition does not change route names, responses, credentials,
-ports or client discovery; see [local service ownership](reference-implementation.md#local-service-ownership).
+ports or client discovery; see [local service ownership](../architecture.md#runtime-ownership).
 
 ## 1. Shared values
 
 REST v1 reuses the portable model, read, locator, access, update, and
 observation values defined across the specification. In particular,
 `TreeID`, `LogicalPath`, `JSONValue`, and `NodeRef` come from the
-[Overstory data model](../spec/01-tree-operations.md#the-arbor-data-model), while
+[Overstory data model](../../spec/01-tree-operations.md#the-arbor-data-model), while
 `EventCursor`, `Hash`, `AccessLevel`, `TreeKind`, `TreeDescriptor`, and
 `RemoteTreeDescriptor` come from the
-[current-tree read](../spec/01-tree-operations.md#111-reading-the-current-tree).
+[current-tree read](../../spec/01-tree-operations.md#111-reading-the-current-tree).
 REST v1 adds the following local values:
 
 ```ts
@@ -102,10 +102,10 @@ access and historical state; resolution does not duplicate a `writable` flag.
 ## 2. Access and errors
 
 Access subjects, levels, and the `none` removal rule are defined once in
-[configuration](../spec/04-accounts-and-devices.md#3-configuration-yaml). Configuration
+[configuration](../../spec/04-accounts-and-devices.md#3-configuration-yaml). Configuration
 and mutation requests use the protocol's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
-digest ([access control §1](../spec/05-access-control.md#1-subjects-and-rules)).
+digest ([access control §1](../../spec/05-access-control.md#1-subjects-and-rules)).
 
 Every non-2xx JSON error uses the protocol's `ArborError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
@@ -204,7 +204,7 @@ forever because the body is content-addressed. A malformed hash or missing
 The daemon looks the object up in this order:
 
 1. The placed workspace's object index (`objects` table, see
-   `local-system.md`): a file row re-reads the file and re-encodes it as an Overstory
+   `data-home.md`): a file row re-reads the file and re-encodes it as an Overstory
    raw file bytes; a directory row re-encodes the directory from its children
    rows, walking the subtree only where a child row is missing or invalid.
 2. The tree's stored pending update body, including transmitted successors.
@@ -289,7 +289,7 @@ legacy community configuration); with several accounts connected the parameter
 is required (`400 invalid-request`). A missing credential is `404 not-found`.
 Serving the token over loopback is deliberate and adds no authority: any
 local process running as the user can already read the credential store and
-write the placed folders the daemon synchronizes. `local-system.md` records
+write the placed folders the daemon synchronizes. `data-home.md` records
 the exposure.
 
 ## 4. Account bootstrap, forget, and conflict review
@@ -399,7 +399,7 @@ readable through the daemon.
 ## 7. Reference fixtures
 
 The TypeScript and Swift reference clients consume the REST JSON and SSE
-fixtures under [`tests/fixtures/arborsync`](../tests/fixtures/arborsync):
+fixtures under [`tests/fixtures/arborsync`](../../tests/fixtures/arborsync):
 `status.json`, `conflict-workspace.json`, `error.json` and `errors.json`,
 `cursors.json`, and the `events.sse` / `malformed-event.sse` frames. Their
 shared tests cover explicit tree scope, snapshot/SSE gap freedom, multiline

@@ -35,7 +35,7 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 | `fs` | `WorkspaceFS`: discovery, the write journal, atomic file operations, materialization, watching ([README](../packages/fs/README.md)) | protocol, `@parcel/watcher` |
 | `client` | Tree sync, sync state, account bootstrap and wire, the update machine, the document admission machine, the source admission queue, publisher, and document session, entry transfer | protocol, fs |
 | `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge worker adapter, projection, the `canopyd` CLI ([README](../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, canopyd-merge |
-| `canopyd-merge` | The merge sidecar: contract, intent engine and model, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](merge-tool.md)) | protocol, object-store, apps-runtime, tree-sitter, saxes |
+| `canopyd-merge` | The merge sidecar: contract, intent engine and model, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](canopyd/merge-tool.md)) | protocol, object-store, apps-runtime, tree-sitter, saxes |
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the QuickJS schema sandbox and the collection-file codec) ([README](../packages/apps-runtime/README.md)) | protocol, `quickjs-emscripten`, `csv-parse` |
 | `arborsync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry, placements, connections, local accounts, profile identity, providers, object index) | protocol, client, fs, apps-runtime |
 | `arborsync-client` | `ArborSyncRESTClient` for the daemon's control surface | protocol |
@@ -92,12 +92,12 @@ machine makes each edit durable in the working tree and the update
 coordinator publishes durable heads to the host. On iOS the working tree is on
 disk; on the Mac it is in memory, seeded from the daemon's `GET /v1/bootstrap`
 and backed by its `/v1/objects` route. The layouts are in
-[the local system](local-system.md#native-working-trees).
+[the local system](canopy/local-state.md#native-working-trees).
 
 **The host** (canopyd) implements access and claims, public HTTP projection,
 graph validation, authoritative reconciliation, and private storage. Update
 handling separates decision, causal reconciliation, and transactional storage
-from rule computation; the [merge sidecar](merge-tool.md) computes every
+from rule computation; the [merge sidecar](canopyd/merge-tool.md) computes every
 merge and returns retained state, and canopyd validates the result and owns
 acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../packages/canopyd/migrations/README.md#schema-history)
@@ -200,12 +200,12 @@ bytes, trace frames and operations, accepted update ids) and returns the
 same phases in a `Server-Timing` header. The log is silent under the test
 runner and never contains request content, subjects, or object identities.
 The Canopy app's network log is its client-side counterpart
-([local system](local-system.md#diagnostic-streams)).
+([local system](canopy/local-state.md#diagnostic-streams)).
 
 The daemon uses a private intent journal, recovery bookkeeping, filesystem
 observation, and a 1,024-event in-memory SSE replay buffer; a restart changes
 the event epoch and clients resynchronize. Private paths are documented for
-maintainers and migration tooling only, in [the local system](local-system.md);
+maintainers and migration tooling only, in [the local system](arbor/data-home.md);
 other implementations may choose a different layout. The synchronized
 [`trees.yaml`](../spec/04-accounts-and-devices.md#3-configuration-yaml)
 contract is normative.
@@ -229,7 +229,7 @@ already processed, `failedIndex` identifies the element under review, and
 the suffix remains unattempted. Resolution submits the reviewed element
 against the verified current descriptor, then guardedly replays the retained
 suffix in order. The machines, their invariants, and trace compaction are in
-[client state machines](client-state-machines.md).
+[client state machines](client/state-machines.md).
 
 ## Verification machinery
 

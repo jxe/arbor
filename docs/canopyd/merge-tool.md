@@ -27,7 +27,7 @@ cleanup; queued successors can start a replacement. canopyd shutdown drains the
 active job, rejects queued work, and closes its worker. Custom executables retain
 one-shot mode unless `persistent: true` is explicitly configured.
 
-The [typed and validated contract](../packages/canopyd-merge/src/contract.ts) is the
+The [typed and validated contract](../../packages/canopyd-merge/src/contract.ts) is the
 source of truth. For example, a tree merge takes these fields (replace abbreviated
 hashes with actual SHA-256 object hashes):
 
@@ -156,7 +156,7 @@ grammar; editors express undo and redo as ordinary edits, and the evaluator
 answers `unsupported` if it sees the kind. `composeFrames` in
 `packages/canopyd/src/updates/source-edits.ts` collapses a run of plain
 `editSource` frames into one by executing the composition; the same rule lets
-clients compact a debounced burst (see [client state machines](client-state-machines.md#trace-compaction)).
+clients compact a debounced burst (see [client state machines](../client/state-machines.md#trace-compaction)).
 
 **Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
 `authored: { object, state }` for the exact candidate before reconciliation, a

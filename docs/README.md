@@ -11,24 +11,34 @@ replaceable implementation choices, and **plans** own remaining work.
 - [Introduction](intro.md): the longer argument and the intended end state.
 - [Specification](../spec/README.md): normative portable behavior, in reading order.
 - [Status](../status.md): what is implemented, installed, deployed, or only specified.
+- [Architecture](architecture.md): every package in both languages, runtime ownership, protocol identity, durability, and verification.
+- [Development](../DEVELOPMENT.md): setup, ownership, change discipline, gates.
 
-## Using Overstory
+## By component
 
-- [CLI reference](cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, and safety rules.
-- [Deploying a host](../packages/canopyd/deploy/README.md): Railway and VPS deployment, the canopyd environment, backups, upgrades, and rollback.
-- [Migrations](../packages/canopyd/migrations/README.md): the one-off migration procedure, Railway facts, and the schema history.
-- [Development](../DEVELOPMENT.md): setup, verification gates, and Quagmire coordination.
+**Overstory protocol.** The spec is the documentation; its executable half is
+[`spec/conformance/`](../spec/conformance/README.md).
 
-## Reference implementation
+**Host (canopyd)**
 
-- [Reference implementation](reference-implementation.md): every package in both languages, runtime ownership, durability, hosting, and verification.
-- [Local system](local-system.md): the data home, native working trees, the editor recovery store, admission journals, diagnostics, daemon supervision, and credentials.
-- [Arbor Sync REST API](arborsync-api.md): the loopback client/daemon boundary.
-- [Merge tool](merge-tool.md): the merge sidecar, its request contract, operation evaluation, the format support table, and limits.
-- [Client state machines](client-state-machines.md): the document admission and working-tree update machines, admission invariants, and trace compaction.
-- [Execution sidecar](execution-sidecar.md): the target boundary between canopyd and the executable-document runtime.
+- [Deploying a host](../packages/canopyd/deploy/README.md): Railway and VPS deployment, the canopyd environment, backups, upgrades, rollback.
+- [Migrations](../packages/canopyd/migrations/README.md): the one-off migration procedure, Railway facts, the schema history.
+- [Merge tool](canopyd/merge-tool.md): the merge sidecar, its request contract, operation evaluation, the format support table, limits.
+- [Execution sidecar](canopyd/execution-sidecar.md): the target boundary between canopyd and the executable-document runtime.
 
-## Design
+**Client stack**
 
-- [Client design](client.md): non-normative interaction design for the Canopy browsers; use status for implementation truth.
-- [Plans](../plans/README.md): the outcome menu, the detailed catalog, and open questions.
+- [State machines](client/state-machines.md): the document admission and working-tree update machines, admission invariants, trace compaction.
+
+**Arbor local tools**
+
+- [CLI reference](arbor/cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, safety rules.
+- [Arbor Sync REST API](arbor/arborsync-api.md): the loopback client/daemon boundary.
+- [The Arbor data home](arbor/data-home.md): the data home, daemon supervision, watching, credentials, migration, diagnostics.
+
+**Canopy browsers**
+
+- [Client design](canopy/design.md): non-normative interaction design for the browsers; use status for implementation truth.
+- [Canopy local state](canopy/local-state.md): working trees on iOS and the Mac, the editor recovery store, admission journals, diagnostic streams.
+
+Remaining work for every component is in [plans](../plans/README.md).

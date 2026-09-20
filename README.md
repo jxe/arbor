@@ -104,7 +104,7 @@ operation and refuses to replace an existing identity.
 `arbor open` accepts a local path, a canonical HTTPS or `arbor://` URL, or no
 locator for the current directory. Until the browser editor returns, the
 browser route serves a short notice; edit in the Canopy app. Linux and Windows
-daemon supervision are not implemented yet. The [CLI reference](docs/cli.md)
+daemon supervision are not implemented yet. The [CLI reference](docs/arbor/cli.md)
 covers daemon setup, placing synchronized trees, moves, identity backup and
 restore, cloud sessions, and command safety rules.
 
@@ -157,7 +157,7 @@ implementation yet.
 | [`status.md`](status.md) | What the reference implementation does today |
 | [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Arbor tools, browser editor. The host's [deployment guide](packages/canopyd/deploy/README.md) and [migrations](packages/canopyd/migrations/README.md) live with it |
 | [`swift/`](swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
-| [`docs/`](docs/README.md) | Usage and reference-implementation documentation |
+| [`docs/`](docs/README.md) | Usage and implementation documentation, organized by component: `canopyd/`, `client/`, `arbor/`, `canopy/`, plus the architecture overview and the introduction |
 | [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
 | [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |
 | [`plans/`](plans/README.md) | Remaining work: the outcome menu, the catalog, open questions |
