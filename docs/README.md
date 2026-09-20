@@ -27,10 +27,6 @@ replaceable implementation choices, and **plans** own remaining work.
 - [Merge tool](canopyd/merge-tool.md): the merge sidecar, its request contract, operation evaluation, the format support table, limits.
 - [Execution sidecar](canopyd/execution-sidecar.md): the target boundary between canopyd and the executable-document runtime.
 
-**Client stack**
-
-- [State machines](canopy-browser/document-admission.md): the document admission and working-tree update machines, admission invariants, trace compaction.
-
 **Arbor Sync and the `arbor` command**
 
 - [Arbor Sync REST API](arborsync/arborsync-api.md): the loopback client/daemon boundary.
