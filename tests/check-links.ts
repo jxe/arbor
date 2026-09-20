@@ -2,7 +2,7 @@
 /**
  * Check every relative Markdown link in tracked `.md` files.
  *
- *   bun tools/check-links.ts [--strict]
+ *   bun tests/check-links.ts [--strict]
  *
  * A link is relative when it has no scheme and no leading `#`. The target
  * must exist on disk (as a file or directory) after stripping any `#anchor`

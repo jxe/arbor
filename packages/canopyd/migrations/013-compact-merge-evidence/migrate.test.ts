@@ -4,10 +4,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeWireDirectory, hashObject, type ObjectHash, stableJSONString } from "@overstory/protocol";
-import { createCanopySchema, AUTHORITY_SCHEMA } from "../../packages/canopyd/src/schema.ts";
-import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
-import { retentionAudit } from "../../packages/canopyd-merge/src/retention.ts";
-import { loadIntentState, storeIntentState } from "../../packages/canopyd-merge/src/state-storage.ts";
+import { createCanopySchema, AUTHORITY_SCHEMA } from "../../../../packages/canopyd/src/schema.ts";
+import { AcceptedUpdateStore } from "../../../../packages/canopyd/src/updates/store.ts";
+import { retentionAudit } from "../../../../packages/canopyd-merge/src/retention.ts";
+import { loadIntentState, storeIntentState } from "../../../../packages/canopyd-merge/src/state-storage.ts";
 import { migrateCompactMergeEvidence } from "./run.ts";
 
 const encoder = new TextEncoder();

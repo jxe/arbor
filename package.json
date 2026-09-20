@@ -22,7 +22,7 @@
     "arborsync": "bun packages/arborsync/src/cli.ts",
     "canopyd": "bun packages/canopyd/src/cli.ts",
     "arbor-merge": "bun packages/canopyd-merge/src/cli.ts",
-    "canopy:railway": "bun deploy/railway-canopy.ts",
+    "canopy:railway": "bun packages/canopyd/deploy/railway-canopy.ts",
     "dev": "bun run arbor -- open",
     "build": "bun build packages/cli/src/index.ts --target=bun --outdir=dist/cli",
     "build:web": "vite build --config packages/canopy-web/vite.config.ts",
@@ -34,8 +34,9 @@
     "test:sync-merge": "bun test tests/unit/protocol-updates/update-intent.test.ts tests/unit/canopyd/update-decision.test.ts tests/unit/canopyd/update-store.test.ts tests/unit/canopyd/update-merge.test.ts tests/integration/canopyd/update-host.test.ts tests/integration/self-sync.test.ts",
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/object-index.bench.ts",
-    "seed:supplies": "bun tools/seed-supplies-fixture.ts",
-    "lab:hcloud": "bun deploy/hcloud-sync-lab/run.ts"
+    "seed:supplies": "bun examples/supplies/scripts/seed-fixture.ts",
+    "check:links": "bun tests/check-links.ts",
+    "lab:hcloud": "bun packages/canopyd/deploy/hcloud-sync-lab/run.ts"
   },
   "dependencies": {
     "@overstory/protocol": "workspace:*",

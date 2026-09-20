@@ -87,7 +87,7 @@ configuration:
 
 Apply that key to pairing claims and prune timestamps/keys older than the
 ten-minute pairing-attempt window. Document the proxy setting and the effect of
-under- or over-counting trusted hops in `deploy/README.md`.
+under- or over-counting trusted hops in `packages/canopyd/deploy/README.md`.
 
 ### 4. Prove the public behavior
 

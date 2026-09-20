@@ -10,7 +10,7 @@ import {
   decodeCollectionFileDescriptor,
 } from "@overstory/protocol/node-model";
 
-const conformance = join(import.meta.dir, "../../conformance");
+const conformance = join(import.meta.dir, "../../spec/conformance");
 
 interface NodeModelFixture {
   version: string;

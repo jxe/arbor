@@ -13,7 +13,7 @@ For multi-machine synchronization, outage, and conflict testing rather than a si
 
 ## Railway
 
-The repository already contains `deploy/Dockerfile.canopyd` and `railway.toml`. Railway builds that image, checks `/`, supplies `PORT`, and restarts a failed process. canopyd refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral canopyd state.
+The repository already contains `packages/canopyd/deploy/Dockerfile.canopyd` and `railway.toml`. Railway builds that image, checks `/`, supplies `PORT`, and restarts a failed process. canopyd refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral canopyd state.
 
 1. Push this Overstory branch to a GitHub repository that Railway can access.
 2. In Railway, create a project and add a service from that repository. The first attempted start may fail safely while the required domain and volume are absent.
@@ -53,11 +53,11 @@ Railway references: [Docker/config-as-code](https://docs.railway.com/config-as-c
 ### Managed Railway Canopies
 
 For repeatable deployments, keep each host's non-secret desired state in
-`deploy/canopies/<domain>.env` and use the repository lifecycle command:
+`packages/canopyd/deploy/canopies/<domain>.env` and use the repository lifecycle command:
 
 ```sh
-bun run canopy:railway apply deploy/canopies/arb.nxhx.org.env
-bun run canopy:railway status deploy/canopies/arb.nxhx.org.env
+bun run canopy:railway apply packages/canopyd/deploy/canopies/arb.nxhx.org.env
+bun run canopy:railway status packages/canopyd/deploy/canopies/arb.nxhx.org.env
 ```
 
 `apply` is idempotent. It requires the checked-out revision to be published on
@@ -72,7 +72,7 @@ the checked-in file is the reviewable desired state and contains no credentials.
 Destruction is deliberately explicit and exact:
 
 ```sh
-bun run canopy:railway destroy deploy/canopies/arb.nxhx.org.env --yes
+bun run canopy:railway destroy packages/canopyd/deploy/canopies/arb.nxhx.org.env --yes
 ```
 
 It deletes only the manifest's `canopy-*` service and its attached volume. DNS
@@ -91,7 +91,7 @@ canopyd reads these variables at start; all are optional.
 | `ARBOR_STATE_PROOF_MB` | 64 | Ceiling for one retained-state proof. Live proofs weigh about 36 MB; a lower ceiling silently rejects every proof and re-validates each request. |
 | `ARBOR_HISTORY_CACHE_MB` | 256 | History validation cache. A 16 MB cache thrashed and gave no benefit. |
 | `ARBOR_CANOPY_NO_WARMUP` | unset | Set to skip the background warm-up of every tree's current semantic state at startup; the first edit after a restart then pays that cost. |
-| `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge worker; see [the merge tool](../docs/merge-tool.md#running-and-configuring). |
+| `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge worker; see [the merge tool](../../../docs/merge-tool.md#running-and-configuring). |
 
 ### Health and readiness
 

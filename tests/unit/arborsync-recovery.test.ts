@@ -7,7 +7,7 @@ import {
   replaceWireFile,
   snapshotFromTransition,
   textAtWirePath,
-} from "../../tools/recovery/arborsync-recovery.ts";
+} from "../../packages/arborsync/recovery/arborsync-recovery.ts";
 
 function file(source: string): [string, Uint8Array] {
   const bytes = new TextEncoder().encode(source);

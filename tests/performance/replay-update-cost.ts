@@ -7,9 +7,9 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { decodeWireDirectory, encodeWireDirectory, hashObject, type WireDirectoryEntry } from "@overstory/protocol";
-import { ObjectStore } from "../packages/object-store/src/index.ts";
-import { MergeTool } from "../packages/canopyd/src/merge-tool.ts";
-import type { IntentRequestInput } from "../packages/canopyd-merge/src/intent-model.ts";
+import { ObjectStore } from "../../packages/object-store/src/index.ts";
+import { MergeTool } from "../../packages/canopyd/src/merge-tool.ts";
+import type { IntentRequestInput, IntentResponse } from "../../packages/canopyd-merge/src/intent-model.ts";
 
 const [dataRoot, treeArg] = process.argv.slice(2);
 if (!dataRoot) throw new Error("usage: replay-update-cost.ts <copied-data-root> [tree-id]");
@@ -75,14 +75,15 @@ async function run(label: string, job: { request: IntentRequestInput; inputs: Ma
   timings = {}; counts = {};
   const readsBefore = objects.readCounters.reads;
   const started = performance.now();
-  const { response, objects: produced } = await tool.evaluate(job.request as never, job.inputs);
+  const { response, objects: produced } = (await tool.evaluate(job.request as never, job.inputs)) as unknown as { response: IntentResponse; objects: Map<string, Uint8Array> };
   const total = performance.now() - started;
   await objects.store([...job.inputs, ...produced].map(([hash, bytes]) => ({ hash, bytes })));
   if (response.outcome !== "evaluated") throw new Error(`${label}: ${JSON.stringify(response)}`);
+  const evaluated = response;
   const round = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Math.round(v)]));
   counts["store-reads"] = objects.readCounters.reads - readsBefore;
-  console.log(JSON.stringify({ label, total: Math.round(total), decisions: response.decisions.length, ...round(timings), counts: round(counts) }));
-  return response.result as { object: string; state: string };
+  console.log(JSON.stringify({ label, total: Math.round(total), decisions: evaluated.decisions.length, ...round(timings), counts: round(counts) }));
+  return evaluated.result as { object: string; state: string };
 }
 
 const warm = await tool.warm(tree, head);

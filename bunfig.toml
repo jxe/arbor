@@ -2,5 +2,5 @@
 preload = ["./tests/helpers/data-home-guard.ts"]
 # Migration suites belong to the migration rehearsal workflow, not product discovery.
 pathIgnorePatterns = [
-  "migrations/**",
+  "packages/canopyd/migrations/**",
 ]

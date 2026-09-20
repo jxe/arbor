@@ -51,7 +51,7 @@ function decodeWireValue(value: unknown): unknown {
 }
 
 const fixtures = join(import.meta.dir, "../fixtures/arborsync");
-const conformance = join(import.meta.dir, "../../conformance");
+const conformance = join(import.meta.dir, "../../spec/conformance");
 const canopyFixtures = join(import.meta.dir, "../fixtures/canopy");
 const json = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(fixtures, name), "utf8")) as T;

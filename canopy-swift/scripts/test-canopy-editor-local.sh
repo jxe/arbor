@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 package_path="$repository_root/canopy-swift/Packages/CanopyEditor"
 lock_path="$package_path/Package.resolved"
 backup_root=$(mktemp -d)

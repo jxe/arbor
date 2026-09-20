@@ -1,5 +1,5 @@
 # Child backings
-*Part of the [Overstory spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
+*Part of the [Overstory spec](README.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
 
 *Owns: how expanded files, collection files, SQLite, Postgres, and later
 external providers supply logical child sets; backing-specific revisions,
@@ -365,7 +365,7 @@ affected scopes or rebuilds from a fresh snapshot before advancing its applied
 root.
 
 `mode: bidirectional` requests the later full-duplex contract
-([deferred 4](../spec.md#deferred)). It is permitted
+([deferred 4](README.md#deferred)). It is permitted
 only when the host has activated the external store as an Overstory-managed
 materialization: the Overstory logical data tree is canonical, external Postgres
 writes are denied, accepted named mutations atomically record the resulting

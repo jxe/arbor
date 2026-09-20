@@ -13,7 +13,7 @@ adds around the reducer: the durable head, recovery, and watching.
 The reference implementations are `DocumentAdmissionMachine` in `CanopyAppKit`
 (Swift) and `reduceAdmission` in `@overstory/protocol` (TypeScript). Both are pure
 reducers that execute every `document-admission` scenario in
-[`conformance/client-state-machines.json`](../conformance/client-state-machines.json);
+[`spec/conformance/client-state-machines.json`](../spec/conformance/client-state-machines.json);
 the editor host (`ArborDocumentBinding` today; the Plan B web editor later)
 runs the effects.
 
@@ -228,7 +228,7 @@ history boundaries.
 
 The update machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`)
 and `reduceUpdate` (`@overstory/client`). Both execute the `working-tree-updates` scenarios in
-[`conformance/client-state-machines.json`](../conformance/client-state-machines.json).
+[`spec/conformance/client-state-machines.json`](../spec/conformance/client-state-machines.json).
 Its transitions are the spec's; this section is about the runner around it.
 
 `UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and an Overstory
@@ -312,7 +312,7 @@ there is no separate view cache, local merge engine or client-owned conflict.
 ## 9. Admission invariants and trace compaction
 
 These rules hold in both queues and are checked by
-`conformance/source-admission-queue.json`:
+`spec/conformance/source-admission-queue.json`:
 
 - Root equality never chooses which parent an author meant. A candidate graph
   must equal its child's basis; matching bytes are not lineage.

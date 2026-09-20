@@ -3,7 +3,7 @@ import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:f
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const ROOT = resolve(import.meta.dir, "..", "..");
+const ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
 const STATE_ROOT = join(ROOT, ".arbor-lab");
 const TAILSCALE_AUTH_KEY_ENV = "TAILSCALE_AUTH_KEY";
 const ROLES = ["community", "alice", "bob", "carol"] as const;
@@ -423,7 +423,7 @@ async function deployRevision(state: LabState, role: Role): Promise<void> {
 }
 
 async function provision(state: LabState): Promise<void> {
-  const bootstrap = await readFile(join(ROOT, "deploy/hcloud-sync-lab/bootstrap-ubuntu.sh"), "utf8");
+  const bootstrap = await readFile(join(ROOT, "packages/canopyd/deploy/hcloud-sync-lab/bootstrap-ubuntu.sh"), "utf8");
   for (const role of ROLES) {
     await waitForSSH(state, role);
     console.log(`Provisioning arbor-${role}…`);
@@ -529,7 +529,7 @@ async function configure(state: LabState): Promise<void> {
     ].join("\n"));
     await ssh(state, role, ["ping", "-c", "1", "-W", "5", communityIP], { timeoutMs: 10_000 });
   }
-  await ssh(state, "community", ["bash", "/opt/arbor-current/deploy/hcloud-sync-lab/configure-node.sh", "community"]);
+  await ssh(state, "community", ["bash", "/opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/configure-node.sh", "community"]);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const health = await ssh(state, "community", ["curl", "-fsS", "http://127.0.0.1:4318/.arbor/health"], {
       allowFailure: true,
@@ -542,7 +542,7 @@ async function configure(state: LabState): Promise<void> {
   const token = await authorityToken(state);
   for (const role of ["alice", "bob", "carol"] as const) {
     await ssh(state, role, [
-      "bash", "/opt/arbor-current/deploy/hcloud-sync-lab/configure-node.sh", role, CLIENT_PATHS[role],
+      "bash", "/opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/configure-node.sh", role, CLIENT_PATHS[role],
     ], { stdin: `${token}\n`, timeoutMs: 120_000 });
   }
   state.steps.configured = new Date().toISOString();
@@ -565,7 +565,7 @@ async function authorityToken(state: LabState): Promise<string> {
 async function authorizationNode<T>(state: LabState, role: Role, mode: string, input: unknown): Promise<T> {
   const result = await ssh(state, role, [
     "/usr/local/bin/bun",
-    "/opt/arbor-current/deploy/hcloud-sync-lab/authorization-node.ts",
+    "/opt/arbor-current/packages/canopyd/deploy/hcloud-sync-lab/authorization-node.ts",
     mode,
   ], {
     stdin: `${JSON.stringify(input)}\n`,
@@ -1114,7 +1114,7 @@ async function continueRun(state: LabState): Promise<void> {
     );
   }
   if (!state.steps.configured) await configure(state);
-  console.log(`Lab ${state.runId} is ready. Run \`bun run lab:hcloud test\` or follow deploy/hcloud-sync-lab.md.`);
+  console.log(`Lab ${state.runId} is ready. Run \`bun run lab:hcloud test\` or follow packages/canopyd/deploy/hcloud-sync-lab.md.`);
 }
 
 async function main(): Promise<void> {

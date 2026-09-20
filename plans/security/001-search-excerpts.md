@@ -263,7 +263,7 @@ Stop and report back (do not improvise) if:
 - `SearchResult` turns out to be consumed by the Swift client under `canopy-swift/`
   (check with `grep -rn "excerpt" canopy-swift/`). Changing a cross-language protocol
   shape requires updating the Swift client and the fixtures under
-  `conformance/`, which is outside this plan's scope — report and
+  `spec/conformance/`, which is outside this plan's scope — report and
   stop, since a smaller fix (escape to an HTML string server-side) may be
   preferable in that case.
 - Typecheck after step 2 reports errors in files outside the In-scope list.

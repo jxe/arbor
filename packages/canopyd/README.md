@@ -9,7 +9,7 @@ depends on it except tests and the deployment tooling.
   response mapping, with no update policy; `cli.ts`: `canopyd`.
 - `schema.ts`: the SQLite table definitions, the schema version stamp, the
   startup schema assertion, and `openCanopyDatabase`. The stamps are listed in
-  the [schema history](../../migrations/README.md#schema-history).
+  the [schema history](../../packages/canopyd/migrations/README.md#schema-history).
 - `updates/`: `decision.ts` (the identity-only current, accept, and merge
   table), `reconcile.ts` (invokes the merge sidecar only when both sides
   changed), `transition.ts`, `store.ts` (private accepted history and the
@@ -31,4 +31,4 @@ operational state. A caller with read access may fetch any retained accepted
 root from `GET /.arbor/trees/{TreeID}/snapshots/{root}` as a canonical CBOR
 bundle; the route exposes no history listing, and unknown, wrong-tree,
 pruned, and unauthorized roots are indistinguishable. Operating the host is
-described in [the deployment guide](../../deploy/README.md).
+described in [the deployment guide](../../packages/canopyd/deploy/README.md).

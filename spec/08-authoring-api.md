@@ -1,5 +1,5 @@
 # Authoring API
-*Part of the [Overstory spec](../spec.md): the `overstory/react` and `overstory/data` packages an executable document is written against. This is a library contract versioned with those packages; the execution model it exposes is defined by [executable documents](07-executable-documents.md).*
+*Part of the [Overstory spec](README.md): the `overstory/react` and `overstory/data` packages an executable document is written against. This is a library contract versioned with those packages; the execution model it exposes is defined by [executable documents](07-executable-documents.md).*
 
 *Owns: the `overstory/react` and `overstory/data` exports and their React behavior. References: [executable documents](07-executable-documents.md) for every semantic guarantee.*
 

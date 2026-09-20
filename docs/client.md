@@ -1,6 +1,6 @@
 # Overstory client reference design
 
-Canopy for the web and Canopy are the reference human clients, not normative UIs. Portable content, locator, and protocol requirements live in the [Overstory specification](../spec.md). Another implementation may use different controls, layout, editor, platform conventions, and local daemon boundary.
+Canopy for the web and Canopy are the reference human clients, not normative UIs. Portable content, locator, and protocol requirements live in the [Overstory specification](../spec/README.md). Another implementation may use different controls, layout, editor, platform conventions, and local daemon boundary.
 
 This document records the intended Canopy for the web/native product design so those choices do not leak into protocol contracts. It is not an implementation-status page: [status.md](../status.md) records what currently works, including differences between the web and native clients.
 

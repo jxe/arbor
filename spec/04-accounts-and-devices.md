@@ -1,5 +1,5 @@
 # Accounts and devices
-*Part of the [Overstory spec](../spec.md): profile identity, host accounts, the private account-configuration tree, devices, and how a hosted tree is declared and activated.*
+*Part of the [Overstory spec](README.md): profile identity, host accounts, the private account-configuration tree, devices, and how a hosted tree is declared and activated.*
 
 *Owns: profile documents, self-certifying person identity, host account claims, the account-configuration graph and YAML, device pairing, tree activation, and the `account-config-v2` write and merge rules. References: [locators](03-locators.md) for the host-defined canonical URLs, [access control](05-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization. Filesystem placements and private identity keys are deliberately local rather than part of this portable graph.*
 
@@ -235,7 +235,7 @@ lifecycle operation rather than an ordinary file-only edit.
 
 Removing an uninitialized tree declaration cancels its reservation. Removing
 an active remote tree declaration is invalid until Overstory specifies a remote
-deletion lifecycle ([deferred 1](../spec.md#deferred)).
+deletion lifecycle ([deferred 1](README.md#deferred)).
 
 YAML never contains refs, update IDs, retry state, conflict choices, status,
 device credential digests, raw credentials, identity private keys, signatures,

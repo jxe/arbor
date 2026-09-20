@@ -4,7 +4,7 @@ Historical identifier: **canopyd storage 002**. The filename number is preserved
 
 Status: DEFERRED / NEEDS REASSESSMENT. No production backend replacement is scheduled.
 The old prerequisite of adding fine-grained state to a schema-11-only authority is obsolete:
-[schema 12](../../migrations/README.md#schema-history) now retains merge semantic states and their
+[schema 12](../../packages/canopyd/migrations/README.md#schema-history) now retains merge semantic states and their
 complete immutable dependencies. Independent source choices, fragment reads and guarded range
 resolution are implemented; their rollout is tracked in [release and verification](../verification/release-and-soak.md).
 

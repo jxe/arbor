@@ -173,7 +173,7 @@ recomputes the closure from those roots). Objects hold 319 MB of old merge
 states in the pre-chunked format (~2.1–2.6 MB each across ~1,108 files) that
 current states still reference through their change envelopes.
 
-- Schema 14 → 15, `migrations/013-compact-merge-evidence/` set up like 012
+- Schema 14 → 15, `packages/canopyd/migrations/013-compact-merge-evidence/` set up like 012
   (offline `run.ts`, README, `migrate.test.ts`), rehearsed on the local copy
   first, live only with Joe's go-ahead. No wire change; server deploys alone.
 - Merge records: `evidence.inputs` becomes the three input roots (base,
@@ -264,7 +264,7 @@ current states still reference through their change envelopes.
 ## Verification
 - Per phase: `bun run typecheck`, `bun run test`, `bun run test:protocol`,
   `swift test --package-path canopy-swift/Packages/CanopyWorkingTree`,
-  `tools/test-arbor-quagmire-local.sh`, both app builds.
+  `canopy-swift/scripts/test-canopy-editor-local.sh`, both app builds.
 - Live: the canopyd update log line (`trace-frames`, `body-bytes`, `w-path`,
   `history-mb`, `retention`) and Native's network log (`out=` bytes, `note`
   rows) before and after each deployed phase; `docs/canopy-update-performance.md`
@@ -278,7 +278,7 @@ current states still reference through their change envelopes.
 - The retired causal-undo journal is why undo is an ordinary edit: on the Mac
   it reached 432 records and 75 MB, and every admission re-encoded and fsynced
   all of it, 7.2 s per edit against a host that answered in about 250 ms.
-  `conformance/causal-undo.json` was deleted with it;
+  `spec/conformance/causal-undo.json` was deleted with it;
   `page-conversion-undo.json` remains.
 - The old 100,000-object / 1 GB per-tree quota checks were removed from update
   acceptance; nothing bounds retained storage today, and periodic storage

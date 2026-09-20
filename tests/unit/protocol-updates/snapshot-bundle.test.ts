@@ -20,7 +20,7 @@ function fixture(): TreeSnapshot {
 
 describe("immutable snapshot bundle", () => {
   test("matches the language-neutral canonical bundle vector", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../../conformance/protocol-snapshot-bundles.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../../spec/conformance/protocol-snapshot-bundles.json"), "utf8")) as {
       valid: Array<{
         root: string;
         objects: Array<{ hash: string; canonicalCborBase64: string }>;

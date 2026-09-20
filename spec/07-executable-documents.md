@@ -1,5 +1,5 @@
 # Executable documents
-*Part of the [Overstory spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Overstory user identity, hosting, confinement, consent, and transcripts. The `overstory/react` and `overstory/data` packages a document is written against are the [authoring API](08-authoring-api.md).*
+*Part of the [Overstory spec](README.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Overstory user identity, hosting, confinement, consent, and transcripts. The `overstory/react` and `overstory/data` packages a document is written against are the [authoring API](08-authoring-api.md).*
 
 *Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [model and Overstory encoding](01-tree-operations.md) for synchronized values and the [authoring API](08-authoring-api.md) for package surfaces.*
 
@@ -106,10 +106,10 @@ or tree traversal but cannot change its meaning. Backing-specific relational
 operations require an explicitly backing-coupled handle.
 Results have automatic deterministic ordering by canonical stable
 key, falling back to canonical path; authored ordering is not portable yet
-([deferred 8](../spec.md#deferred)).
+([deferred 8](README.md#deferred)).
 Relationships, joins, grouping, aggregates, explicit ordering, pagination
 operators, and unbounded traversal are capability extensions rather than
-baseline semantics ([deferred 8](../spec.md#deferred)). A provider may push a portable plan into SQL, indexes, or
+baseline semantics ([deferred 8](README.md#deferred)). A provider may push a portable plan into SQL, indexes, or
 tree traversal, but cannot change its meaning. An unavailable capability fails
 before data access rather than silently loading an entire tree into executable
 memory. There is no authored `database()` source or `.relations` namespace.
@@ -168,7 +168,7 @@ access, determinism, and version contract. A read-only placement projection may
 materialize a reviewed node query into SQLite and serve its last completely
 applied state offline. This specification does not define general cross-server
 query discovery, delegated authorization, or server-to-server routing
-([deferred 2](../spec.md#deferred)).
+([deferred 2](README.md#deferred)).
 
 ## 5. Mutations
 
@@ -225,7 +225,7 @@ Expected failures are declared public errors with stable codes and safe
 messages; other thrown values become a generic internal error without stack
 traces, SQL, paths, or private row data.
 
-External non-tree effects require a separately specified effect and consent contract ([deferred 3](../spec.md#deferred)). Durable coordination across supported tree/database providers is defined here; arbitrary external effects are not implied.
+External non-tree effects require a separately specified effect and consent contract ([deferred 3](README.md#deferred)). Durable coordination across supported tree/database providers is defined here; arbitrary external effects are not implied.
 
 ## 6. Components, imports, and consent
 
@@ -563,7 +563,7 @@ network reachability independently grants accepted-snapshot access, broadens
 the readable tree graph, or exposes raw stores, credentials, private handler
 source, unrelated rows, or private diagnostics. Cross-server query discovery,
 delegated authorization, and server-to-server execution routing remain
-unspecified ([deferred 2](../spec.md#deferred)).
+unspecified ([deferred 2](README.md#deferred)).
 
 ### 12.4 Durable workflow execution
 
@@ -600,7 +600,7 @@ receipts defined above; this section adds only what is specific to agents.
 
 ### 13.1 Agent files
 
-An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database. The portable frontmatter key set is not yet defined ([deferred 6](../spec.md#deferred)).
+An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database. The portable frontmatter key set is not yet defined ([deferred 6](README.md#deferred)).
 
 An agent file is versioned, linked, shared, and access-controlled like other
 authored Markdown. Moving it preserves the stable key derived from its `id`

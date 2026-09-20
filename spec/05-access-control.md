@@ -1,5 +1,5 @@
 # Access control
-*Part of the [Overstory spec](../spec.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
+*Part of the [Overstory spec](README.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
 
 *Owns: `who` / `via` / `allow` rules. References: [account configuration](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; [Apps 004](../plans/apps/004-mutation-permissions.md) owns implementation and coordinated migration.*
 

@@ -135,7 +135,7 @@ arbor open http://127.0.0.1:4318/~joe
 
 Restarting the same command serves the existing data directory without
 bootstrapping again. For public domains, persistent volumes, backups,
-restoration, and coordinated upgrades, use the [deployment guide](deploy/README.md).
+restoration, and coordinated upgrades, use the [deployment guide](packages/canopyd/deploy/README.md).
 
 ## Status
 
@@ -145,7 +145,7 @@ restoration, and coordinated upgrades, use the [deployment guide](deploy/README.
 | **In progress** | The browser Canopy, executable-document compilation and presentation, richer editor capture and review, lazy history and storage bounds |
 | **Specified, not built** | Hosted agents, portable static and live deployment, a complete Postgres child provider |
 
-[status.md](status.md) is the authority, row by row. The [specification](spec.md)
+[status.md](status.md) is the authority, row by row. The [specification](spec/README.md)
 describes portable behavior that may not exist in the reference
 implementation yet.
 
@@ -153,19 +153,16 @@ implementation yet.
 
 | Path | What it is |
 |---|---|
-| [`spec.md`](spec.md), [`spec/`](spec/) | The portable specification: entry page and numbered sections |
+| [`spec/`](spec/README.md) | The portable specification: entry page, numbered sections, and the conformance vectors both implementations must pass |
 | [`status.md`](status.md) | What the reference implementation does today |
-| [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Arbor tools, browser editor |
+| [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Arbor tools, browser editor. The host's [deployment guide](packages/canopyd/deploy/README.md) and [migrations](packages/canopyd/migrations/README.md) live with it |
 | [`canopy-swift/`](canopy-swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
-| [`conformance/`](conformance/README.md) | Language-neutral vectors both implementations must pass |
 | [`docs/`](docs/README.md) | Usage and reference-implementation documentation |
 | [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
 | [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |
-| [`deploy/`](deploy/README.md) | Running a host on Railway or a VPS; the disposable multi-machine lab |
-| [`migrations/`](migrations/README.md) | The one-off migration procedure and the schema history |
-| [`tools/`](tools/README.md) | Vector regeneration, benchmarks, recovery, and the link check |
 | [`plans/`](plans/README.md) | Remaining work: the outcome menu, the catalog, open questions |
-| [`DEVELOPMENT.md`](DEVELOPMENT.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`AGENTS.md`](AGENTS.md) | Setup and gates; how the repository is worked on; instructions for agents |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md), [`AGENTS.md`](AGENTS.md) | How the repository is worked on: setup, ownership, change discipline, gates; and the short list of things that differ for agents |
 
-This repository does not yet have an open-source license. Licensing is
-awaiting legal advice.
+This repository does not yet have an open-source license, so contributions
+cannot be accepted yet; licensing is awaiting legal advice. [DEVELOPMENT.md](DEVELOPMENT.md)
+describes how the repository is worked on.

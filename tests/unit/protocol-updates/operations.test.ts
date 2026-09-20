@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import fixtures from "../../../conformance/protocol-authored-updates.json";
+import fixtures from "../../../spec/conformance/protocol-authored-updates.json";
 import { canonicalUpdateIntent, decodeUpdateRequestJSON, encodeUpdateRequestJSON, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
 import type { UpdateIntentBase } from "@overstory/protocol";
 

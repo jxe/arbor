@@ -309,7 +309,7 @@ conservative format rules are described next.
 ```sh
 bun test tests/integration/canopyd-merge tests/unit/canopyd/update-merge.test.ts tests/unit/canopyd/source-reconciliation.test.ts
 bun test tests/unit/canopyd-merge
-bun tools/benchmark-merge-tool.ts
+bun tests/performance/benchmark-merge-tool.ts
 bun run typecheck
 bun run test:protocol
 ```

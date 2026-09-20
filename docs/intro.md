@@ -321,7 +321,7 @@ adapters are specified direction, not current commands.
 # Who wants to build this?
 
 There is a working [reference implementation](reference-implementation.md),
-an aspirational portable [specification](../spec.md), and an explicit account of
+an aspirational portable [specification](../spec/README.md), and an explicit account of
 [what works now](../status.md). But I'm too busy running MAI to turn this into a
 startup. Who wants to?
 

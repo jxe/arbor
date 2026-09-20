@@ -1,5 +1,5 @@
 # Walkthrough
-*Part of the [Overstory spec](../spec.md): a non-normative tour of one account's first day. Nothing here adds a requirement; every step links to the section that defines it.*
+*Part of the [Overstory spec](README.md): a non-normative tour of one account's first day. Nothing here adds a requirement; every step links to the section that defines it.*
 
 Joe runs a host for `garden.example` and wants to publish a folder of notes,
 let Alice follow it from her own laptop, add a small database to it, and put a

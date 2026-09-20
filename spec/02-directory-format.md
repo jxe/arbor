@@ -1,5 +1,5 @@
 # Portable directory projection
-*Part of the [Overstory spec](../spec.md): one human-editable filesystem/Markdown
+*Part of the [Overstory spec](README.md): one human-editable filesystem/Markdown
 projection of the [Overstory data model](01-tree-operations.md).*
 
 *Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](03-locators.md)) and the [property write](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions).*

@@ -42,7 +42,7 @@ and runs `CanopyAppTests` through xcodebuild.
 
 `CanopyEditor` depends on a pinned Quagmire release. Never run
 `swift build` on it standalone while it is in editable mode; use
-`tools/test-arbor-quagmire-local.sh` and see [DEVELOPMENT.md](../DEVELOPMENT.md#developing-overstory-with-quagmire).
+`canopy-swift/scripts/test-canopy-editor-local.sh` and see [DEVELOPMENT.md](../DEVELOPMENT.md#developing-overstory-with-quagmire).
 
 ## Naming
 

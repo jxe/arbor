@@ -1,41 +1,23 @@
-# Working in Overstory
+# Working in this repository
 
-These instructions apply to the whole repository.
+Everything about how the repository is worked on, for people and agents
+alike, is in [DEVELOPMENT.md](DEVELOPMENT.md): setup, what each directory
+owns, change discipline, vocabulary, and the verification gates. Read it
+first. The points below are the ones that most often go wrong for an agent.
 
-## Sources of truth
-
-- Read `git status`, the relevant source, and its tests before trusting prose or plan status.
-- `status.md` owns current implementation status. `spec.md` and `spec/` own portable behavior, including behavior the reference implementation has not built yet.
-- `docs/` records usage, replaceable implementation choices, and client design. Do not move implementation details into the portable specification.
-- `plans/` contains only remaining work. Delete completed or superseded executor plans; git history is the record. Put lasting verification evidence in `status.md` or `docs/` before deleting.
-- Numbers are stable identifiers within a plan directory, not an implicit execution order; indexes own priority and dependencies.
-
-## Change discipline
-
-- Preserve exact Markdown/source fidelity when an operation does not require normalization.
-- Keep TreeID, logical path, stable-key, and tree-boundary scope explicit across client, server, and persistence layers.
-- Protocol changes must update the TypeScript and Swift models, language-neutral conformance fixtures, reference API documentation, and focused tests together.
-- Do not weaken an aspirational portable contract merely to match a staged reference UI.
-- Prefer a direct implementation and existing vocabulary. Introduce a general adapter or framework only when a second concrete implementation requires it.
-- Preserve unrelated working-tree changes. Do not rewrite completed historical evidence as if it were current planning.
-
-## Verification
-
-Use the smallest focused tests while developing, then run the relevant gates from `DEVELOPMENT.md`. At minimum, documentation-only changes require a repository-wide relative-link check (`bun tools/check-links.ts`) and `git diff --check`; path moves also require every affected build or fixture test.
-
-## Quagmire development
-
-The pinning rules, the local workspace override, the editable-mode test
-wrapper, and the release sequence are in
-[DEVELOPMENT.md](DEVELOPMENT.md#developing-overstory-with-quagmire). The
-short version: both pins (`canopy-swift/project.yml` and
-`canopy-swift/Packages/CanopyEditor/Package.swift`) name the same exact
-release; never commit a local path; run standalone `CanopyEditor` tests only
-through `tools/test-arbor-quagmire-local.sh`; never `swift build` that
-package standalone while it is in editable mode.
-
-## Vocabulary
-
-Overstory is the system and the protocol; canopyd is the reference host;
-Canopy is the browser family; Arbor names only the local tools (`arbor`,
-Arbor Sync, `arbor://`, `.arbor`, `ARBOR_*`).
+- Read `git status`, the relevant source, and its tests before trusting
+  prose or a plan's status label. `status.md` is the status authority;
+  `spec/` is intentionally ahead of the implementation.
+- `plans/` contains only remaining work. Delete a completed or superseded
+  plan after recording its evidence in `status.md` or `docs/`; do not mark
+  it done in place.
+- Documentation-only changes still run `bun run check:links` and
+  `git diff --check`; path moves also run every affected build or fixture
+  test.
+- Never `swift build` or `swift test` the `CanopyEditor` package standalone
+  while its Quagmire dependency is in editable mode; use
+  `canopy-swift/scripts/test-canopy-editor-local.sh`, which preserves the
+  tracked lock. Both Quagmire pins must name the same exact release, and a
+  local path never lands in a committed manifest.
+- Live data, installed apps, and the public host are never changed without
+  Joe's explicit go-ahead. `/.arbor/health` is a full audit, not a probe.

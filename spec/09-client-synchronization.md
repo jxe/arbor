@@ -1,5 +1,5 @@
 # Working-tree updates
-*Part of the [Overstory spec](../spec.md): how a client that owns a working tree turns its local heads into accepted updates and applies accepted results. Overstory request identity, plural update strings, and watching are defined by [tree operations](01-tree-operations.md); this chapter defines the client state machine that uses them safely.*
+*Part of the [Overstory spec](README.md): how a client that owns a working tree turns its local heads into accepted updates and applies accepted results. Overstory request identity, plural update strings, and watching are defined by [tree operations](01-tree-operations.md); this chapter defines the client state machine that uses them safely.*
 
 *Owns: the update machine, its states, retained durable data, entries, and transitions. References: [tree operations §2–3](01-tree-operations.md) for the request and watch contracts. Reference timing values are not part of Overstory compatibility.*
 
@@ -18,7 +18,7 @@ transitions named below and otherwise keeps at most one ordinary request in
 flight per tree.
 
 The shared fixture
-[`conformance/client-state-machines.json`](../conformance/client-state-machines.json)
+[`conformance/client-state-machines.json`](conformance/client-state-machines.json)
 freezes the transition scenarios under `working-tree-updates`. The reference
 reducers are `UpdateMachine` in `CanopyWorkingTree` (Swift, run by
 `UpdateCoordinator`) and `reduceUpdate` in `@overstory/client` (TypeScript,

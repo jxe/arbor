@@ -52,7 +52,7 @@ Read `packages/protocol/src/model/protocol.ts`, `packages/canopyd-merge/src/acco
 `packages/canopyd/src/account-policy.ts`, `host.ts`, access/group evaluation,
 update acceptance and watch/object handlers. Inspect `tests/unit/account-config-v2.test.ts`,
 `tests/unit/canopyd/group-access.test.ts`, source acceptance tests, Swift Overstory
-and configuration consumers, conformance account fixtures, and `migrations/README.md`.
+and configuration consumers, conformance account fixtures, and `packages/canopyd/migrations/README.md`.
 Inventory current deployed schema/version and actual configuration identities;
 do not reuse the obsolete schema 6 assumption in the former plan.
 
@@ -89,7 +89,7 @@ Do not edit retained historical migrations or silently migrate on server startup
    bytes where possible and record intentional YAML changes. Verify all accounts,
    not merely Joe, even if inventory confirms Joe is the sole user.
 3. Back up database, immutable objects, configuration history, local private state
-   and authored manifests per `migrations/README.md`. Verify archive checksums,
+   and authored manifests per `packages/canopyd/migrations/README.md`. Verify archive checksums,
    counts and restoreability. Rehearse on an isolated production copy with no
    outbound execution/provider effects. Migration atomically installs new accepted
    config roots/policy indexes/schema and retains reconstructable old roots.

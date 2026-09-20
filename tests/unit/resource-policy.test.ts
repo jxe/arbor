@@ -9,7 +9,7 @@ import {
 } from "@overstory/protocol";
 import { parseResourceConfiguration } from "../../packages/protocol/src/config/resource-configuration.ts";
 import { ExecutionAuthority } from "../../packages/canopyd/src/execution-authority.ts";
-import fixtures from "../../conformance/resource-policy.json";
+import fixtures from "../../spec/conformance/resource-policy.json";
 
 describe("resource policy contract", () => {
   test("shared positive and negative vectors", () => {

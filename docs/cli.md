@@ -301,4 +301,4 @@ arbor mv https://old.example/~joe/todos https://arb.example/~joe/todos
 
 `canopyd` and `arborsync` are separate executables with their own process-level
 options. Railway/VPS deployment procedures belong in
-[`deploy/README.md`](../deploy/README.md), not in this command reference.
+[`packages/canopyd/deploy/README.md`](../packages/canopyd/deploy/README.md), not in this command reference.

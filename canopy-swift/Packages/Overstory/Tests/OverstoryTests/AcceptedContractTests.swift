@@ -7,7 +7,7 @@ struct AcceptedContractTests {
     @Test("Shared read and chain vectors")
     func vectors() throws {
         let root=ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath:$0) }
-            ?? URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../conformance").standardizedFileURL
+            ?? URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../spec/conformance").standardizedFileURL
         let file=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:root.appending(path:"protocol-accepted-state.json"))) as? [String:Any])
         for c in try #require(file["cases"] as? [[String:Any]]) {
             var v=try #require(c["value"] as? [String:Any])
@@ -45,7 +45,7 @@ struct AcceptedContractTests {
     @Test("Complete accepted read transport and confirmed identity bindings")
     func transport() throws {
         let root=ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath:$0) }
-            ?? URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../conformance").standardizedFileURL
+            ?? URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../spec/conformance").standardizedFileURL
         let file=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:root.appending(path:"protocol-accepted-transport.json"))) as? [String:Any])
         for c in try #require(file["cases"] as? [[String:Any]]) {
             let data=try JSONSerialization.data(withJSONObject:#require(c["value"]))

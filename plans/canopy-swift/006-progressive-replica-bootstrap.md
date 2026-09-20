@@ -356,7 +356,7 @@ bun run build
 swift test --package-path canopy-swift/Packages/Overstory
 swift test --package-path canopy-swift/Packages/ArborReplica
 swift test --package-path canopy-swift/Packages/OverstoryClient
-tools/test-arbor-quagmire-local.sh
+canopy-swift/scripts/test-canopy-editor-local.sh
 git diff --check
 ```
 

@@ -9,14 +9,14 @@ replaceable implementation choices, and **plans** own remaining work.
 
 - [README](../README.md): what Overstory is, how the pieces fit, quickstarts.
 - [Introduction](intro.md): the longer argument and the intended end state.
-- [Specification](../spec.md): normative portable behavior, in reading order.
+- [Specification](../spec/README.md): normative portable behavior, in reading order.
 - [Status](../status.md): what is implemented, installed, deployed, or only specified.
 
 ## Using Overstory
 
 - [CLI reference](cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, and safety rules.
-- [Deploying a host](../deploy/README.md): Railway and VPS deployment, the canopyd environment, backups, upgrades, and rollback.
-- [Migrations](../migrations/README.md): the one-off migration procedure, Railway facts, and the schema history.
+- [Deploying a host](../packages/canopyd/deploy/README.md): Railway and VPS deployment, the canopyd environment, backups, upgrades, and rollback.
+- [Migrations](../packages/canopyd/migrations/README.md): the one-off migration procedure, Railway facts, and the schema history.
 - [Development](../DEVELOPMENT.md): setup, verification gates, and Quagmire coordination.
 
 ## Reference implementation

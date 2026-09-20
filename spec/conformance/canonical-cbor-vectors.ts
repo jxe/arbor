@@ -8,7 +8,7 @@ const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 const emptyDirectory = encodeWireDirectory({ type: "directory", entries: [] });
 // Historical protocol-update-intent.json and protocol-operations.json retain the previous
 // encoding's exact bytes and digests. Do not rehash them through the active codec.
-for (const path of ["conformance/protocol-authored-updates.json", "conformance/protocol-authored-transport.json"]) {
+for (const path of ["spec/conformance/protocol-authored-updates.json", "spec/conformance/protocol-authored-transport.json"]) {
   const fixture = JSON.parse(await readFile(path, "utf8"));
   for (const c of fixture.cases) {
     if (!c.valid) continue;
@@ -23,7 +23,7 @@ for (const path of ["conformance/protocol-authored-updates.json", "conformance/p
   }
   await writeFile(path,JSON.stringify(fixture,null,2)+"\n");
 }
-const endpointsPath = "conformance/protocol-endpoints.json";
+const endpointsPath = "spec/conformance/protocol-endpoints.json";
 const endpoints = JSON.parse(await readFile(endpointsPath,"utf8"));
 for (const c of endpoints.cases) {
   if (!c.request.body?.updates) continue;
@@ -45,7 +45,7 @@ for (const path of ["tests/fixtures/arborsync/bootstrap.json", "tests/fixtures/a
 }
 
 // Object models are the symbolic source of truth; payloads are raw for files.
-const objectPath = "conformance/protocol-objects.json";
+const objectPath = "spec/conformance/protocol-objects.json";
 const objectVectors = JSON.parse(await readFile(objectPath, "utf8"));
 for (const vector of objectVectors.objects) {
   const bytes = vector.model.type === "file" ? Buffer.from(vector.model.bytesBase64, "base64") : encodeWireDirectory(vector.model);
@@ -83,7 +83,7 @@ const invalid = [
   { name: "indefinite-length-array", canonicalCBORBase64: b64(Uint8Array.from([0x9f, 0x01, 0xff])), reason: "indefinite lengths are not canonical" },
   { name: "non-text-map-key", canonicalCBORBase64: b64(Uint8Array.from([0xa1, 0x01, 0x02])), reason: "map keys must be text" },
 ];
-await writeFile("conformance/canonical-cbor-values.json", JSON.stringify({ version: 1, valid, invalid }, null, 2) + "\n");
+await writeFile("spec/conformance/canonical-cbor-values.json", JSON.stringify({ version: 1, valid, invalid }, null, 2) + "\n");
 console.log("Regenerated Wire vectors");
 
 // Reference kinds control sparse graph validation, including directory-shaped files.
@@ -103,4 +103,4 @@ const graphVectors = [
   graph("kind-conflict", "complete", [{ name: "dir", directory: graphDirectory.hash }, { name: "file", file: graphDirectory.hash }], [graphDirectory], false),
   graph("unreachable", "complete", [], [graphLeaf], false),
 ];
-await writeFile("conformance/protocol-graphs.json", JSON.stringify({ version: 1, cases: graphVectors }, null, 2) + "\n");
+await writeFile("spec/conformance/protocol-graphs.json", JSON.stringify({ version: 1, cases: graphVectors }, null, 2) + "\n");

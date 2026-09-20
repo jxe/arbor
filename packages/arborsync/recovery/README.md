@@ -1,6 +1,6 @@
 # ArborSync tree recovery
 
-`tools/recovery/recover-arborsync-tree.ts` is a deliberately separate recovery path for
+`packages/arborsync/recovery/recover-arborsync-tree.ts` is a deliberately separate recovery path for
 a placed tree whose disk, pending ArborSync transition, retained editor
 admissions, and current canopyd snapshot may disagree.
 
@@ -12,7 +12,7 @@ historical tree and a disk-structure candidate with that record's exact
 document source overlaid. Nothing is submitted during preparation.
 
 ```sh
-bun tools/recovery/recover-arborsync-tree.ts prepare \
+bun packages/arborsync/recovery/recover-arborsync-tree.ts prepare \
   --tree tr_example \
   --output /private/path/recovery-evidence \
   --exclude /placed/tree/Trash
@@ -22,7 +22,7 @@ Inspect `manifest.json`, the extracted Markdown under `sources/`, and the
 candidate names before selecting one. Submission is a distinct command:
 
 ```sh
-bun tools/recovery/recover-arborsync-tree.ts submit \
+bun packages/arborsync/recovery/recover-arborsync-tree.ts submit \
   --manifest /private/path/recovery-evidence/manifest.json \
   --candidate disk-with-admission-009 \
   --expect-current-update 1336 \

@@ -222,8 +222,8 @@ could be mistaken for safe attribution. Compatibility, TypeScript, Swift, and
 fixture changes must land atomically with the server change.
 
 Extend the schema established by canopyd 007 and create the next
-available disposable migration directory under `migrations/` following
-`migrations/001-if-match-and-model-hash/` and `migrations/README.md`. Do not
+available disposable migration directory under `packages/canopyd/migrations/` following
+`migrations/001-if-match-and-model-hash/` and `packages/canopyd/migrations/README.md`. Do not
 rebuild or duplicate its `document_versions` index. At execution time take the
 next available number and update this plan/index before work. The migration
 must:
@@ -318,7 +318,7 @@ Expected implementation scope:
 - `spec/01-tree-operations.md`, `spec/05-access-control.md`, conformance
   fixtures, reference implementation documentation, and focused Bun/Swift
   tests; and
-- the next disposable `migrations/NNN-accepted-update-actors/` directory and
+- the next disposable `packages/canopyd/migrations/NNN-accepted-update-actors/` directory and
   its lifecycle test/runbook.
 
 Out of scope even if it looks adjacent:

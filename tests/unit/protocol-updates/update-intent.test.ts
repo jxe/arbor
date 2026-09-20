@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import fixtures from "../../../conformance/protocol-authored-transport.json";
-import oldIntent from "../../../conformance/protocol-update-intent.json";
-import deltas from "../../../conformance/protocol-object-deltas.json";
+import fixtures from "../../../spec/conformance/protocol-authored-transport.json";
+import oldIntent from "../../../spec/conformance/protocol-update-intent.json";
+import deltas from "../../../spec/conformance/protocol-object-deltas.json";
 import { decodeObjectDeltas, decodeUpdateRequestJSON, encodeUpdateRequestJSON, updateRequestDigest, updateRequestDigests } from "@overstory/protocol";
 
 for (const c of fixtures.cases) test(`active transport: ${c.name}`, () => {

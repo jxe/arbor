@@ -25,7 +25,7 @@ interface UrlCase {
   expectedRewritten?: string;
 }
 
-const conformance = join(import.meta.dir, "../../conformance");
+const conformance = join(import.meta.dir, "../../spec/conformance");
 
 describe("logical URL resolution", () => {
   test("resolves every shared fixture case identically", async () => {

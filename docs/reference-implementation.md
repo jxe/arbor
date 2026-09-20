@@ -2,7 +2,7 @@
 
 This document records the architecture and operating choices of the current
 reference implementation. It is informative; the normative contracts live in
-[spec.md](../spec.md), and [status.md](../status.md) says which of the
+[spec/README.md](../spec/README.md), and [status.md](../status.md) says which of the
 behavior below is installed or deployed.
 
 ## Components
@@ -100,7 +100,7 @@ handling separates decision, causal reconciliation, and transactional storage
 from rule computation; the [merge sidecar](merge-tool.md) computes every
 merge and returns retained state, and canopyd validates the result and owns
 acceptance. Table definitions, the schema stamp, and the startup schema
-assertion live in `schema.ts`; the [schema history](../migrations/README.md#schema-history)
+assertion live in `schema.ts`; the [schema history](../packages/canopyd/migrations/README.md#schema-history)
 lists every stamp.
 
 **Executable data.** `apps-runtime` lowers portable child queries over
@@ -193,7 +193,7 @@ administrator resolves every alternative.
 
 canopyd runs SQLite in WAL mode with `synchronous = NORMAL`; objects are
 fsynced before the commit that names them, so a lost commit leaves only
-unreferenced objects ([deployment](../deploy/README.md#durability)). Each
+unreferenced objects ([deployment](../packages/canopyd/deploy/README.md#durability)). Each
 update request logs one structured line (tree, status, batch size, total and
 per-phase milliseconds, objects considered, files written, fsyncs, body
 bytes, trace frames and operations, accepted update ids) and returns the
@@ -236,8 +236,8 @@ suffix in order. The machines, their invariants, and trace compaction are in
 Bun tests, TypeScript checking, shared JSON and SSE fixtures, and Swift
 Package Manager tests. The usual gates are in [DEVELOPMENT.md](../DEVELOPMENT.md).
 Diagnostics that are not gates: `bun tests/performance/merge-history.bench.ts`
-(synthetic, in memory), `bun tools/replay-update-cost.ts <copy>` (per-phase
+(synthetic, in memory), `bun tests/performance/replay-update-cost.ts <copy>` (per-phase
 timings replaying edits on a copy of host data), and
-`bun tools/benchmark-merge-tool.ts`. Language-neutral vectors under
-[`conformance/`](../conformance/README.md) are the portable part; reference
+`bun tests/performance/benchmark-merge-tool.ts`. Language-neutral vectors under
+[`spec/conformance/`](../spec/conformance/README.md) are the portable part; reference
 API and algorithm fixtures live under [`tests/fixtures/`](../tests/fixtures/README.md).

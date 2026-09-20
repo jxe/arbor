@@ -1,6 +1,6 @@
 # Migration 013: compact merge evidence and old merge states (14 → 15)
 
-Carries [canopyd 010](../../plans/canopyd/010-operation-frames-and-lazy-history.md)
+Carries [canopyd 010](../../../../plans/canopyd/010-operation-frames-and-lazy-history.md)
 Phase 3b. Server-only: no wire field changes, so Native is unaffected and the
 server deploys alone. It must land before Phase 4, because lazy history changes
 what the evaluator reads, and that would silently change what the old
@@ -71,7 +71,7 @@ this cutover when writers are quiesced.
 After the archive backup and with writers quiesced:
 
 ```sh
-bun migrations/013-compact-merge-evidence/run.ts /data | tee live-report.json
+bun packages/canopyd/migrations/013-compact-merge-evidence/run.ts /data | tee live-report.json
 ```
 
 Progress goes to stderr as JSON events; the report is the single JSON line on
@@ -85,7 +85,7 @@ superseded objects behind; a rerun reports `migrated: false`.
 ## Verification
 
 ```sh
-bun run test:migration migrations/013-compact-merge-evidence
+bun run test:migration packages/canopyd/migrations/013-compact-merge-evidence
 ```
 
 Then serve the migrated copy with the new build and confirm it opens and warms

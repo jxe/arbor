@@ -1,7 +1,7 @@
 // Hash every file under the given placement paths into a manifest, or diff two
 // manifests. Used to prove a migration did not rewrite authored files.
-//   bun run migrations/tools/authored-manifest.ts write <manifest.json> <path>...
-//   bun run migrations/tools/authored-manifest.ts diff <before.json> <after.json>
+//   bun run packages/canopyd/migrations/tools/authored-manifest.ts write <manifest.json> <path>...
+//   bun run packages/canopyd/migrations/tools/authored-manifest.ts diff <before.json> <after.json>
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 

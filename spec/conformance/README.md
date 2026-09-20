@@ -1,8 +1,8 @@
 # Overstory conformance vectors
 
-These language-neutral vectors accompany the portable [Overstory specification](../spec.md). Independent implementations use them to verify exact authored-format, locator, synchronized-configuration, wire-object, request-identity, HTTP-value, and observation behavior.
+These language-neutral vectors accompany the portable [Overstory specification](../../README.md). Independent implementations use them to verify exact authored-format, locator, synchronized-configuration, wire-object, request-identity, HTTP-value, and observation behavior.
 
-The vectors are normative only where their owning specification defines an exact representation or result. Reference daemon responses, client presentation values, and replaceable host algorithms live under [`tests/fixtures`](../tests/fixtures) instead.
+The vectors are normative only where their owning specification defines an exact representation or result. Reference daemon responses, client presentation values, and replaceable host algorithms live under [`tests/fixtures`](../../tests/fixtures) instead.
 
 `url-resolution.json` is the shared TypeScript/Swift locator contract. Its
 `legacyStableKeyCandidate` field records input-only migration evidence; it does
@@ -47,7 +47,7 @@ request's objects and still prove the same identity.
 Overstory object vectors use `bytesBase64` for exact stored bytes: raw payloads for
 files and canonical CBOR for directories. Entry target keys (`file`, `directory`,
 `tree`) determine interpretation; payload bytes never determine file kind.
-Regenerate the vectors with `bun tools/canonical-cbor-vectors.ts`.
+Regenerate the vectors with `bun spec/conformance/canonical-cbor-vectors.ts`.
 
 `protocol-authored-updates.json` binds the consolidated target request grammar and exact
 CBOR/digests in TypeScript and Swift. `protocol-accepted-state.json` binds target accepted
@@ -63,9 +63,9 @@ fixed count cap without duplicating fixture text. The previous deployed-format
 `accepted-ambiguity.json` records planned semantic scenarios, not executable claims
 that a host supports those effects. `protocol-operations.json` and
 `protocol-update-intent.json` are likewise grammar and digest vectors: they do
-not assert that their effects execute today. [status.md](../status.md) is the
+not assert that their effects execute today. [status.md](../../status.md) is the
 authority for the implemented subset; the request grammar itself is in
-[tree operations §2.1](../spec/01-tree-operations.md#21-the-update-request).
+[tree operations §2.1](../../spec/01-tree-operations.md#21-the-update-request).
 
 - `cross-document-copy.json` supplies the same exact UTF-8 source span, destination
   and foreign-document capture to Swift and TypeScript admission tests. Both must

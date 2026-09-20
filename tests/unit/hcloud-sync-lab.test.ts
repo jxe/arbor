@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { labChildEnvironment, tailscaleAuthKeyFromEnvironment } from "../../deploy/hcloud-sync-lab/run";
+import { labChildEnvironment, tailscaleAuthKeyFromEnvironment } from "../../packages/canopyd/deploy/hcloud-sync-lab/run";
 
 describe("hcloud sync lab Tailscale authentication", () => {
   test("keeps interactive authentication when the environment variable is absent", () => {

@@ -240,7 +240,7 @@ sufficient decision evidence for explanation and reproducibility; it need not cr
 a user-visible conflict solely to resolve it immediately. Deterministic rule and
 projection behavior must be specified where promised by the format contract.
 
-The shared decision scenarios in [accepted ambiguity](../conformance/accepted-ambiguity.json)
+The shared decision scenarios in [accepted ambiguity](conformance/accepted-ambiguity.json)
 cover these semantic obligations. They are scenario requirements, not an additional
 Overstory encoding or a claim that the reference implementation supports them already.
 

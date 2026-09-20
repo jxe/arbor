@@ -1,5 +1,5 @@
 # Tree reads, writes, watching, and editor round trips
-*Part of the [Overstory spec](../spec.md): the logical tree model and the operations that read, change, observe, and faithfully materialize copies.*
+*Part of the [Overstory spec](README.md): the logical tree model and the operations that read, change, observe, and faithfully materialize copies.*
 
 ## The Overstory data model
 
@@ -639,7 +639,7 @@ contributions must be unique within their stated scopes; dependencies cannot ref
 self but cycles between decisions are permitted. Empty alternative sets, invalid
 selected IDs, malformed references and invalid values fail decoding. Open decisions
 have at least two alternatives. Responses are private and must not be stored by shared
-HTTP caches. The [target read vectors](../conformance/protocol-accepted-state.json) bind
+HTTP caches. The [target read vectors](conformance/protocol-accepted-state.json) bind
 paired TypeScript and Swift models; they do not assert server execution.
 
 ## 2. Updates and writes
@@ -1102,7 +1102,7 @@ When the value being identified is already an exact byte sequence, Overstory
 hashes those bytes directly instead. In particular, `schemaFingerprint` is
 the SHA-256 of the exact UTF-8 bytes of `schema.ts`, and therefore equals
 that file's object hash. The
-[`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
+[`canonical-cbor-values`](conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
 
 ### 4.2 Stream framing and errors

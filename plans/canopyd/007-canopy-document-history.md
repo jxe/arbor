@@ -240,7 +240,7 @@ Expected implementation scope:
 - `spec/01-tree-operations.md`, `spec/05-access-control.md`, Overstory/reference API
   docs, and language-neutral conformance fixtures;
 - `packages/canopyd/src/`, `packages/protocol/src/`, focused tests, and the next
-  disposable `migrations/NNN-document-history/`;
+  disposable `packages/canopyd/migrations/NNN-document-history/`;
 - `packages/arborsync/src/` and `packages/fs/src/` only to preserve and relabel
   filesystem recovery and, if required, add the thin authenticated proxy;
 - `canopy-swift/Packages/Overstory`, `CanopyAppKit`, `ArborSyncClient`, and `CanopyEditor`
@@ -325,7 +325,7 @@ shows unchanged accepted rows, observations, roots, and object hashes.
 
 ```sh
 swift test --package-path canopy-swift/Packages/ArborSyncClient
-tools/test-arbor-quagmire-local.sh
+canopy-swift/scripts/test-canopy-editor-local.sh
 bun test tests/integration/server.test.ts
 rg -n 'client\.recovery|restoreRecovery|No local recovery history' \
   canopy-swift/Packages/ArborSyncClient canopy-swift/CanopyApp
@@ -345,7 +345,7 @@ bun run test:protocol
 bun test
 swift test --package-path canopy-swift/Packages/Overstory
 swift test --package-path canopy-swift/Packages/ArborSyncClient
-tools/test-arbor-quagmire-local.sh
+canopy-swift/scripts/test-canopy-editor-local.sh
 xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -sdk macosx \
   -derivedDataPath /tmp/arbor-canopy-history-macos CODE_SIGNING_ALLOWED=NO build
 xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -sdk iphonesimulator \

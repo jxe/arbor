@@ -50,9 +50,9 @@ interface RailwayVolumeInstance {
 
 function usage(): never {
   console.error(`Usage:
-  bun run canopy:railway apply <deploy/canopies/name.env>
-  bun run canopy:railway status [deploy/canopies/name.env]
-  bun run canopy:railway destroy <deploy/canopies/name.env> --yes`);
+  bun run canopy:railway apply <packages/canopyd/deploy/canopies/name.env>
+  bun run canopy:railway status [packages/canopyd/deploy/canopies/name.env]
+  bun run canopy:railway destroy <packages/canopyd/deploy/canopies/name.env> --yes`);
   process.exit(2);
 }
 
@@ -91,7 +91,7 @@ export function parseCanopyDeploymentConfig(source: string): CanopyDeploymentCon
 
 async function command(program: string, args: string[], options: { json?: boolean } = {}): Promise<any> {
   const child = Bun.spawn([program, ...args], {
-    cwd: resolve(import.meta.dir, ".."),
+    cwd: resolve(import.meta.dir, "..", "..", ".."),
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",

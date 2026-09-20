@@ -3,15 +3,15 @@ import { readdir, rm, stat, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { ObjectStore } from "@overstory/object-store";
 import { decodeWireDirectory, hashObject, type ObjectHash, stableJSONString } from "@overstory/protocol";
-import { assertCurrentCanopySchema } from "../../packages/canopyd/src/schema.ts";
-import { retentionAudit } from "../../packages/canopyd-merge/src/retention.ts";
+import { assertCurrentCanopySchema } from "../../../../packages/canopyd/src/schema.ts";
+import { retentionAudit } from "../../../../packages/canopyd-merge/src/retention.ts";
 import {
   loadIntentState,
   storeIntentState,
   storeSharedIntentState,
-} from "../../packages/canopyd-merge/src/state-storage.ts";
-import { loadStateMap, updateStateMap } from "../../packages/canopyd-merge/src/state-map.ts";
-import type { IntentState } from "../../packages/canopyd-merge/src/intent-model.ts";
+} from "../../../../packages/canopyd-merge/src/state-storage.ts";
+import { loadStateMap, updateStateMap } from "../../../../packages/canopyd-merge/src/state-map.ts";
+import type { IntentState } from "../../../../packages/canopyd-merge/src/intent-model.ts";
 
 /** Schema 14 → 15: merge evidence and old merge states become compact.
  *
@@ -343,7 +343,7 @@ async function directoryBytes(path: string): Promise<number> {
 
 if (import.meta.main) {
   const args = Bun.argv.slice(2);
-  if (args.length !== 1) throw new Error("Usage: bun migrations/013-compact-merge-evidence/run.ts <data-root>");
+  if (args.length !== 1) throw new Error("Usage: bun packages/canopyd/migrations/013-compact-merge-evidence/run.ts <data-root>");
   const report = await migrateCompactMergeEvidence(resolve(args[0]!), event => console.error(JSON.stringify(event)));
   console.log(JSON.stringify(report));
 }

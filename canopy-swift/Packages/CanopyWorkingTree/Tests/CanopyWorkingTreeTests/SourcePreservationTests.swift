@@ -9,7 +9,7 @@ func sourcePreservationFixtures() throws {
     struct Part: Decodable { let source: [Int]; let replacement: [Int] }
     struct Case: Decodable { let name: String; let source: String; let replacement: String; let lineage: [Part]; let valid: Bool }
     struct Fixture: Decodable { let cases: [Case] }
-    let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path:"../../../../../conformance/source-preservation.json")
+    let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path:"../../../../../spec/conformance/source-preservation.json")
     for value in try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:path)).cases {
         let patch = WorkspaceDocumentPatch(baseContentRevision:"r", edits:[WorkspaceSourceEdit(utf8Range:0..<value.source.utf8.count,replacement:value.replacement,lineage:value.lineage.map { .init(source:$0.source[0]..<$0.source[1],replacement:$0.replacement[0]..<$0.replacement[1]) })])
         if value.valid {
@@ -38,7 +38,7 @@ func sourceCopyFixtures() async throws {
     }
     struct Case: Decodable { let source:String; let replacement:String; let copies:[Part]; let lineage:[Part]?; let valid:Bool }
     struct Fixture: Decodable { let cases:[Case] }
-    let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../conformance/source-copy.json")
+    let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../spec/conformance/source-copy.json")
     for value in try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:path)).cases {
         let patch = WorkspaceDocumentPatch(baseContentRevision:"r",edits:[.init(utf8Range:0..<value.source.utf8.count,replacement:value.replacement,lineage:value.lineage?.map(\.value),copies:value.copies.map(\.value))])
         if !value.valid { #expect(throws:(any Error).self) { try patch.applying(to:value.source) }; continue }

@@ -15,13 +15,13 @@ bun install
 bun run typecheck
 bun run test
 bun run test:protocol
-bun tools/check-links.ts
+bun tests/check-links.ts
 git diff --check
 ```
 
 ## Where things live and who owns what
 
-- `spec.md` and `spec/` own portable behavior, including behavior the
+- `spec/README.md` and `spec/` own portable behavior, including behavior the
   reference implementation has not built yet. Do not weaken a portable
   contract to match a staged UI.
 - `status.md` owns current implementation status. Implemented, installed,
@@ -30,7 +30,7 @@ git diff --check
   detail does not move into the specification.
 - `plans/` owns remaining work only. A completed plan is deleted after its
   evidence lands in `status.md` or `docs/`; git history is the record.
-- `conformance/` owns language-neutral vectors; `tests/fixtures/` owns
+- `spec/conformance/` owns language-neutral vectors; `tests/fixtures/` owns
   reference-implementation fixtures.
 
 The [README's repository map](README.md#repository-map) lists every directory.

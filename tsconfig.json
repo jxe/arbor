@@ -23,9 +23,10 @@
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "tests/**/*.ts",
-    "migrations/**/*.ts"
+    "packages/canopyd/migrations/**/*.ts"
   ],
   "exclude": [
-    "packages/canopy-web/**"
+    "packages/canopy-web/**",
+    "packages/canopyd/deploy/hcloud-sync-lab/authorization-node.ts"
   ]
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { decodeUpdateRequestJSON } from "../../../packages/protocol/src/updates/json.ts";
-import vectors from "../../../conformance/protocol-authored-updates.json";
+import vectors from "../../../spec/conformance/protocol-authored-updates.json";
 import { authoredRequestIdentities, decodeAuthoredRequestIntent } from "../../../packages/protocol/src/updates/authored-contract.ts";
 
 describe("target authored update contract", () => {

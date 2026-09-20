@@ -9,7 +9,7 @@ private var fixtures: URL {
     }
     return URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
-        .appending(path: "../../../../../conformance")
+        .appending(path: "../../../../../spec/conformance")
         .standardizedFileURL
 }
 

@@ -1,10 +1,10 @@
 # Developing Overstory
 
-This document describes how to work on the reference implementation. It is not a contribution or licensing policy.
+This document describes how to work on the repository: setup, what each directory owns, change discipline, and the verification gates. There is no license yet, so it is not a contribution policy.
 
 ## Requirements and setup
 
-The TypeScript workspace uses exactly Bun 1.3.14 (a newer Bun canary crashed the parallel test suite; pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Canopy for the web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
+The TypeScript workspace uses exactly Bun 1.3.14 (a newer Bun canary crashed the parallel test suite; pinned in `.bun-version`, `package.json` `packageManager`, and `packages/canopyd/deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Canopy for the web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
 
 ```sh
 bun install
@@ -51,7 +51,7 @@ swift package edit quagmire --path ../../../../quagmire
 Run the local package tests through the repository wrapper:
 
 ```sh
-tools/test-arbor-quagmire-local.sh
+canopy-swift/scripts/test-canopy-editor-local.sh
 ```
 
 SwiftPM removes an editable dependency from `Package.resolved` whenever it runs.
@@ -77,6 +77,48 @@ use the test wrapper above after restoring it so SwiftPM cannot leave the
 lockfile dirty.
 Keep the local Xcode workspace in place for ongoing coordinated development.
 
+## What owns what
+
+- `spec/` owns portable behavior, including behavior the reference
+  implementation has not built yet; `spec/conformance/` holds the
+  language-neutral vectors. Do not weaken a portable contract to match a
+  staged UI, and do not move implementation detail into the specification.
+- `status.md` owns current implementation status. Implemented, installed,
+  deployed, and verified are separate claims.
+- `docs/` owns usage and replaceable implementation choices.
+- `plans/` owns remaining work only. A completed plan is deleted after its
+  evidence lands in `status.md` or `docs/`; git history is the record.
+  Numbers are stable identifiers within a plan directory, not an order.
+- `tests/fixtures/` owns reference-implementation fixtures, as opposed to
+  the portable vectors under `spec/conformance/`.
+- The host's operating material lives with the host:
+  `packages/canopyd/deploy/` and `packages/canopyd/migrations/`.
+
+## Change discipline
+
+- Read `git status`, the relevant source, and its tests before trusting
+  prose or a plan's status label.
+- A protocol change updates the TypeScript and Swift models, the
+  conformance vectors, the reference documentation, and focused tests
+  together.
+- Keep TreeID, logical path, stable key, and tree-boundary scope explicit
+  across client, host, and persistence layers.
+- Preserve exact Markdown and source fidelity when an operation does not
+  require normalization.
+- Prefer a direct implementation and the existing vocabulary. Introduce an
+  adapter or framework only when a second concrete implementation needs it.
+- Preserve unrelated working-tree changes, and never rewrite completed
+  historical evidence as if it were current planning.
+- Commit the regenerated `canopy-swift/Canopy.xcodeproj` whenever
+  `canopy-swift/project.yml` changes.
+
+## Vocabulary
+
+Overstory is the system and its protocol. canopyd is the reference host.
+Canopy is the browser family (`canopy-swift/`, `packages/canopy-web/`).
+Arbor names the local tools only: the `arbor` command, Arbor Sync, the
+`arbor://` scheme, the `.arbor` data home, and `ARBOR_*` variables.
+
 ## Repository map
 
 The [README](README.md#repository-map) has the directory-by-directory map, and
@@ -96,6 +138,7 @@ bun run build
 bun run test:performance
 bun test tests/unit/canopyd-merge tests/integration/canopyd-merge
 swift test --package-path canopy-swift/Packages/ArborSyncClient
+bun run check:links
 git diff --check
 ```
 
@@ -103,8 +146,8 @@ git diff --check
 itself to `tests/unit` and `tests/integration`. Bare `bun test` uses the same
 product boundary: `bunfig.toml` excludes all migration tests from default
 discovery. Run the migration-specific suite during its rehearsal with
-`bun run test:migration migrations/NNN-<name>` as described in
-[the migration procedure](migrations/README.md).
+`bun run test:migration packages/canopyd/migrations/NNN-<name>` as described in
+[the migration procedure](packages/canopyd/migrations/README.md).
 
 `bun run test:protocol` checks the language-neutral fixtures, reference REST
 fixtures, and disposable live Arbor Sync/canopyd behavior against the Swift

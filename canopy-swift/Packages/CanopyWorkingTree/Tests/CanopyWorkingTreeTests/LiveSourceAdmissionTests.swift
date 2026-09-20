@@ -301,7 +301,7 @@ extension LiveSourceAdmissionTests {
         guard let address = environment["ARBOR_SOURCE_TEST_URL"], let origin = URL(string:address),
               let token = environment["ARBOR_SOURCE_TEST_TOKEN"], let treeID = environment["ARBOR_SOURCE_TEST_TREE"] else { return }
         struct Fixture: Decodable { let graph: WireSnapshot }
-        let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../conformance/entry-actions.json")
+        let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../spec/conformance/entry-actions.json")
         let fixture = try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:path))
         let root = FileManager.default.temporaryDirectory.appending(path:"compound-live-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at:root) }

@@ -1,8 +1,8 @@
 services:
   arbor:
     build:
-      context: ..
-      dockerfile: deploy/Dockerfile.canopyd
+      context: ../../..
+      dockerfile: packages/canopyd/deploy/Dockerfile.canopyd
     restart: unless-stopped
     env_file: .env
     command:

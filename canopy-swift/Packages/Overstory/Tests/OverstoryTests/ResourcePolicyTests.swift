@@ -6,7 +6,7 @@ import Testing
 struct ResourcePolicyTests {
     @Test func sharedVectors() throws {
         let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../conformance").standardizedFileURL
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../spec/conformance").standardizedFileURL
         let data = try Data(contentsOf: root.appending(path: "resource-policy.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]])
         for vector in fixture["valid"] ?? [] {

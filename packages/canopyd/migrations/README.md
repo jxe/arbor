@@ -15,9 +15,9 @@ Two things live here:
   when the cutover is verified on every host and its backups have aged out.
 
 Migration tests are lifecycle checks, not part of the product test suite.
-`bunfig.toml` therefore excludes all of `migrations/` from default `bun test`
+`bunfig.toml` therefore excludes all of `packages/canopyd/migrations/` from default `bun test`
 discovery, including the active migration. Run the migration being authored or
-rehearsed explicitly with `bun run test:migration migrations/NNN-<name>`; that
+rehearsed explicitly with `bun run test:migration packages/canopyd/migrations/NNN-<name>`; that
 command overrides the default discovery exclusion for the requested path while
 retaining the repository's normal test preload.
 
@@ -34,7 +34,7 @@ Joe is the only user, so the writers are quiesced, not the server. Every
 fifteen minutes; the rehearsal is where the time should go.
 
 1. **Back up as one archive, while the old image is still running.** The
-   deployed image predates the migration and has no `migrations/` directory,
+   deployed image predates the migration and has no `packages/canopyd/migrations/` directory,
    so the backup is an inline command over ssh: `VACUUM INTO` for the database
    plus a tar of `objects/`.
 
@@ -62,11 +62,11 @@ fifteen minutes; the rehearsal is where the time should go.
    `restore-canopy`, run the migration on one, and compare:
 
    ```sh
-   bun run test:migration migrations/NNN-<name>
-   bun run migrations/tools/restore-canopy.ts volume.tar before
-   bun run migrations/tools/restore-canopy.ts volume.tar migrated
-   bun run migrations/NNN-<name>/run.ts migrated | tee report.json
-   bun run migrations/tools/compare-canopy-roots.ts before migrated
+   bun run test:migration packages/canopyd/migrations/NNN-<name>
+   bun run packages/canopyd/migrations/tools/restore-canopy.ts volume.tar before
+   bun run packages/canopyd/migrations/tools/restore-canopy.ts volume.tar migrated
+   bun run packages/canopyd/migrations/NNN-<name>/run.ts migrated | tee report.json
+   bun run packages/canopyd/migrations/tools/compare-canopy-roots.ts before migrated
    ```
 
    Then serve the migrated copy with the new build and verify it. The server
@@ -75,7 +75,7 @@ fifteen minutes; the rehearsal is where the time should go.
 
    ```sh
    bun run canopyd migrated --url https://<public-domain> --port 4399 --hostname 127.0.0.1
-   bun run migrations/tools/verify.ts http://127.0.0.1:4399 report.json --sync http://127.0.0.1:4317
+   bun run packages/canopyd/migrations/tools/verify.ts http://127.0.0.1:4399 report.json --sync http://127.0.0.1:4317
    ```
 
    Record the result in the migration's README. Repeat until green.
@@ -83,7 +83,7 @@ fifteen minutes; the rehearsal is where the time should go.
    the authored manifest over every placement path and copy `~/.arbor`:
 
    ```sh
-   bun run migrations/tools/authored-manifest.ts write authored-before.json <placement paths…>
+   bun run packages/canopyd/migrations/tools/authored-manifest.ts write authored-before.json <placement paths…>
    cp -a ~/.arbor dot-arbor.before
    ```
 5. **Quiesce writers.** `bun run arbor daemon stop`; make sure Canopy is not
@@ -96,7 +96,7 @@ fifteen minutes; the rehearsal is where the time should go.
 7. **Migrate in place.**
 
    ```sh
-   railway ssh -- bun run migrations/NNN-<name>/run.ts /data | tee live-report.json
+   railway ssh -- bun run packages/canopyd/migrations/NNN-<name>/run.ts /data | tee live-report.json
    ```
 
    The report must match the rehearsal's roots exactly. The CLI prefixes its
@@ -110,9 +110,9 @@ fifteen minutes; the rehearsal is where the time should go.
    Placements should be idle within seconds. Then:
 
    ```sh
-   bun run migrations/tools/verify.ts https://<public-domain> live-report.json --sync http://127.0.0.1:4317
-   bun run migrations/tools/authored-manifest.ts write authored-after.json <placement paths…>
-   bun run migrations/tools/authored-manifest.ts diff authored-before.json authored-after.json
+   bun run packages/canopyd/migrations/tools/verify.ts https://<public-domain> live-report.json --sync http://127.0.0.1:4317
+   bun run packages/canopyd/migrations/tools/authored-manifest.ts write authored-after.json <placement paths…>
+   bun run packages/canopyd/migrations/tools/authored-manifest.ts diff authored-before.json authored-after.json
    ```
 9. **Round trip one edit.** Create a small file in a placed tree, watch the
    tree's `update` advance in `GET /.arbor/trees/{id}`, fetch its canonical
@@ -164,7 +164,7 @@ than it understands. The stamps that have shipped:
 | 13 | Resource policy: governed rule index persisted in the accepted transaction, plus a durable account format marker (set by migration 011 even for all-private configurations) that rejects old privilege writes after conversion. Required matching Mac and iPhone clients. |
 
 Client-side formats have their own ladders, recorded in [the local system
-reference](../docs/local-system.md): iOS working-tree format marker 4, local
+reference](../../../docs/local-system.md): iOS working-tree format marker 4, local
 update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 ## Writing the next migration
@@ -173,5 +173,5 @@ Copy the most recent migration directory (today `013-compact-merge-evidence/`) a
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice);
 a `migrate.test.ts` runnable with
-`bun run test:migration migrations/NNN-<name>`. Batch wire changes into one
+`bun run test:migration packages/canopyd/migrations/NNN-<name>`. Batch wire changes into one
 migration whenever they are ready together.

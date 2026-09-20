@@ -1,6 +1,6 @@
 // Verify a cutover: server health, each public tree's ref against the migration
 // report, every local placement idle, and the authored manifest unchanged.
-//   bun run migrations/tools/verify.ts <canopy-origin> <report.json> [--manifest before.json after.json] [--sync http://127.0.0.1:4317 | --no-sync]
+//   bun run packages/canopyd/migrations/tools/verify.ts <canopy-origin> <report.json> [--manifest before.json after.json] [--sync http://127.0.0.1:4317 | --no-sync]
 // The report is what a migration's run.ts prints: { trees: [{ id, root }] }.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";

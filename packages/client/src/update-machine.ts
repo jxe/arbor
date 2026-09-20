@@ -8,7 +8,7 @@
  * the runner persists what each state says it retains and executes the
  * effects the reducer returns. The Swift twin is `UpdateMachine` in
  * `CanopyWorkingTree`; both execute `working-tree-updates` in
- * `conformance/client-state-machines.json`. This module moves to
+ * `spec/conformance/client-state-machines.json`. This module moves to
  * `@overstory/working-tree` in Plan B.
  */
 

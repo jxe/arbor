@@ -133,7 +133,7 @@ describe("lazy snapshots and the object index", () => {
 
 describe("canonical tree objects", () => {
   test("matches the language-neutral canonical object vectors", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/protocol-objects.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/conformance/protocol-objects.json"), "utf8")) as {
       objects: Array<{
         model: { type: "file"; bytesBase64: string } | {
           type: "directory";
@@ -155,7 +155,7 @@ describe("canonical tree objects", () => {
   });
 
   test("keeps strict invalid object bytes as language-neutral vectors", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/protocol-objects.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/conformance/protocol-objects.json"), "utf8")) as {
       invalid: Array<{ name: string; canonicalCborBase64: string }>;
     };
     expect(fixture.invalid.map((item) => item.name)).toEqual([
@@ -370,7 +370,7 @@ describe("canonical tree objects", () => {
   });
 });
 
-const cborVectors = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/canonical-cbor-values.json"), "utf8")) as {
+const cborVectors = JSON.parse(await readFile(join(import.meta.dir, "../../spec/conformance/canonical-cbor-values.json"), "utf8")) as {
   valid: Array<{ name: string; value: unknown; canonicalCBORBase64: string; hash: `sha256:${string}` }>;
   invalid: Array<{ name: string; canonicalCBORBase64: string }>;
 };

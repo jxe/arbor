@@ -20,7 +20,7 @@ async function run(command: string[], environment: Record<string, string> = {}):
 }
 
 const fixtures = {
-  ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
+  ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../spec/conformance"),
   ARBOR_REFERENCE_FIXTURES: join(import.meta.dir, "../fixtures"),
 };
 
@@ -166,7 +166,7 @@ try {
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
       ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees),
     });
-    await run(["tools/test-arbor-quagmire-local.sh", "--filter", "LiveEditorAdmissionTests"], {
+    await run(["canopy-swift/scripts/test-canopy-editor-local.sh", "--filter", "LiveEditorAdmissionTests"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
     });

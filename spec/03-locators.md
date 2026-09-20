@@ -1,5 +1,5 @@
 # Overstory locators
-*Part of the [Overstory spec](../spec.md): portable references through primary
+*Part of the [Overstory spec](README.md): portable references through primary
 TreeID identity, tree-relative paths, revisions, and DNS/host canonical
 lookup.*
 
@@ -28,7 +28,7 @@ canonical lookup: the URI's DNS authority places/selects a host, then that
 host resolves its longest readable registered boundary to a TreeID. `authority`
 here is the URI authority component. Operating-system paths and `system:` content
 addresses are facilities of a local implementation, not portable Overstory
-locators; a separately specified capability field ([deferred 9](../spec.md#deferred)) may use a
+locators; a separately specified capability field ([deferred 9](README.md#deferred)) may use a
 `system:` reference without making it a content locator.
 
 Canonical public names are replaceable human names, not tree identity. A
@@ -131,7 +131,7 @@ the content fragment and executable documents retain their full query-string
 namespace.
 
 This version does not define one Markdown relative link carrying both a
-stable key and a separate within-node content fragment ([deferred 7](../spec.md#deferred)).
+stable key and a separate within-node content fragment ([deferred 7](README.md#deferred)).
 Authors choose rename-healable node navigation or within-node navigation for
 that link. A later structured fragment form may add both without changing the
 three-part node reference.
