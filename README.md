@@ -157,7 +157,7 @@ implementation yet.
 | [`status.md`](status.md) | What the reference implementation does today |
 | [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Arbor tools, browser editor. The host's [deployment guide](packages/canopyd/deploy/README.md) and [migrations](packages/canopyd/migrations/README.md) live with it |
 | [`swift/`](swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
-| [`docs/`](docs/README.md) | Usage and implementation documentation, organized by component: `canopyd/`, `arborsync/`, `canopy/`, plus the architecture overview, the shared state machines, and the introduction |
+| [`docs/`](docs/README.md) | Usage and implementation documentation, organized by component: `canopyd/`, `arborsync/`, `canopy/`, plus the architecture overview, the shared update machine, and the introduction |
 | [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
 | [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |
 | [`plans/`](plans/README.md) | Remaining work: the outcome menu, the catalog, open questions |

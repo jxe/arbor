@@ -229,7 +229,7 @@ already processed, `failedIndex` identifies the element under review, and
 the suffix remains unattempted. Resolution submits the reviewed element
 against the verified current descriptor, then guardedly replays the retained
 suffix in order. The machines, their invariants, and trace compaction are in
-[client state machines](state-machines.md).
+[client state machines](canopy/document-admission.md).
 
 ## Verification machinery
 

@@ -175,7 +175,7 @@ An editor runs a document admission machine against its own working tree. A
 successful admission acknowledges durable authored intent, not acceptance by
 the host and not agreement with the current projected document. The admission and
 publication machines remain separate. The reference reducers are described in
-[client state machines](../docs/state-machines.md).
+[client state machines](../docs/canopy/document-admission.md).
 
 ### Exact authored basis
 

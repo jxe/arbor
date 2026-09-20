@@ -1,26 +1,22 @@
-# Client state machines: document admission and working-tree updates
+# The document admission machine
 
-Two state machines sit between an editor and accepted canopyd history. The
-**document admission machine** runs between an editor's undo history and its
-working tree's document session; this document is its reference: its states,
-the data each retains, its transitions, and the rules a new editor host must
-follow. The
-**update machine** runs inside a working tree against Overstory and is
-specified in [working-tree updates](../spec/09-client-synchronization.md);
-section 8 below describes its runner, the update coordinator, and what it
-adds around the reducer: the durable head, recovery, and watching.
+The document admission machine runs between an editor's undo history and its
+working tree's document session. This is its reference: its states, the data
+each retains, its transitions, and the rules a new editor host must follow.
+The working-tree update machine that runs beneath it is described in
+[the update machine](../update-machine.md).
 
 The reference implementations are `DocumentAdmissionMachine` in `CanopyAppKit`
-(Swift) and `reduceAdmission` in `@overstory/protocol` (TypeScript). Both are pure
-reducers that execute every `document-admission` scenario in
-[`spec/conformance/client-state-machines.json`](../spec/conformance/client-state-machines.json);
-the editor host (`ArborDocumentBinding` today; the Plan B web editor later)
-runs the effects.
+(Swift) and `reduceAdmission` in `@overstory/client` (TypeScript). Both are
+pure reducers that execute every `document-admission` scenario in
+[`spec/conformance/client-state-machines.json`](../../spec/conformance/client-state-machines.json);
+the editor host (`ArborDocumentBinding` today; the web editor later) runs the
+effects.
 
-The target admission policy is [exact authored basis](../spec/09-client-synchronization.md#exact-authored-basis).
+The target admission policy is [exact authored basis](../../spec/09-client-synchronization.md#exact-authored-basis).
 Both reducers capture base source and revision in each admission effect. The
 durable source admission queue (`SourceAdmissionQueue` in `CanopyWorkingTree`
-and `@overstory/client`; journals described in [the local system](canopy/local-state.md#source-admission-journals))
+and `@overstory/client`; journals described in [Canopy local state](local-state.md#source-admission-journals))
 retains tree bases and explicit dependencies. Installed Canopy clients use it;
 the TypeScript session and publisher are library APIs not yet connected to an
 editor host. The `conflict` phase and `mergeLocally` effect below are legacy
@@ -167,7 +163,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 
 An editor runs the admission machine against its own working tree: admission
 is working-tree durability, and the working tree's update machine (spec
-[working-tree updates §2](../spec/09-client-synchronization.md#2-the-update-machine))
+[working-tree updates §2](../../spec/09-client-synchronization.md#2-the-update-machine))
 publishes durable heads behind a trailing delay and materializes only accepted
 state. Arbor Sync admits no editor generations; its folder is always a
 source (the reducers have no filesystem role), and every daemon request is
@@ -200,116 +196,7 @@ failed element first, and then replays the exact later local changes in order.
 Most conflicts therefore produce one content review; another review appears
 only if a later guarded replay or canopyd submission independently conflicts.
 
-## 7. Conflict review for Arbor Sync clients
-
-Treat tree status and review evidence as separate facts. `sync: "conflict"`
-means automatic synchronization stopped; it does not authorize a choice.
-Fetch `/v1/conflicts?tree=...` and offer resolution only after that request
-returns the durable, identity-fenced Base, Current, Mine, and canopyd Draft
-values. A missing or unavailable workspace is an error state, never an empty
-conflict and never permission to keep local or remote implicitly.
-
-The UI may present Current, Mine, `Both` when `offersBoth` is true, and Edit
-when at least one returned value is textual. It submits those semantic choices
-and the opaque workspace identity to Arbor Sync. The daemon owns graph
-replacement, validates every resulting object hash, rechecks both the remote
-accepted update and local candidate, and durably records the reviewed result
-before clearing the conflict. On a stale-identity response, discard the open
-review and fetch it again.
-
-Persist review material before depending on it for recovery. A restart must
-not turn remembered status into fabricated evidence, and losing connectivity
-after the first successful review fetch must not make the four graphs vanish.
-If `unattemptedCount` is nonzero, keep the suffix untouched and disable submit;
-the failed element and later update-string elements are distinct authored
-history boundaries.
-
-## 8. The update machine and its coordinator
-
-The update machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`)
-and `reduceUpdate` (`@overstory/client`). Both execute the `working-tree-updates` scenarios in
-[`spec/conformance/client-state-machines.json`](../spec/conformance/client-state-machines.json).
-Its transitions are the spec's; this section is about the runner around it.
-
-`UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and an Overstory
-transport and keeps `UpdateControl` (`sync/update-control.json` under the tree's
-state root, schema 3 for source admission and schema 2 for snapshot publication). The control retains:
-
-- **The durable head** `UpdateHead { base, root, generation, objects }`,
-  written by `syncImmediately` before the reducer sees `localHead`. Its
-  objects are the tree's own bytes (inline state plus overlay) the base does
-  not retain; above roughly 32 MiB they spill to `sync/objects/<hash>` and are
-  referenced by hash. The head is cleared when an attempt supersedes it or the
-  tree returns to current.
-- **The attempt** `UpdateAttempt`: one exact request body with every envelope
-  it carries and its element digests. The transport is handed
-  the body and nothing else. Overlay collection between prepare and resend
-  therefore cannot change a resubmission; a test wipes the overlay and asserts
-  byte-identical bodies.
-- **The next base** for pending snapshot publication, source-journal publication
-  identity and receipts, and the accepted unresolved signal. Conflicts and holds
-  are not current control fields.
-
-**Sparse bodies.** A candidate's objects are the local graph (validated as a
-sparse spine) minus every hash reachable from the base through directory
-objects; file hashes are collected from directory entries without fetching
-files. The immediate-delta fast path reads the base file through the object
-store and falls back to the full object on a miss. Reconciliation and
-watch-transition replay run on a sparse basis: the local graph plus every
-delta base, fetched once each, replayed in `.sparseFiles` mode and bridged
-back with the tree's own file metadata.
-
-**Recovery.** On entry, a retained attempt maps to `prepared`, and a head with no attempt becomes a one-element
-attempt (its objects make it self-contained) and also maps to `prepared`.
-When an accepted result arrives for a candidate the tree no longer holds and
-the tree has no pending work (it was re-seeded from canopyd while the durable
-record carried the work), the coordinator applies the decision, clears the
-attempt and next base, and pulls the current snapshot; it never re-submits
-the seed.
-
-**Rejected requests and old records.** A rejected submission keeps its exact
-attempt for retry and reports the error. It never creates a conflict workspace,
-changes the authored basis, or submits an implicit resolution. Before decoding a
-control file, the loader rejects any non-null legacy `conflict` or `hold` field,
-even an unfamiliar payload, without rewriting the file. Historical backups and
-the previous client provide recovery for unexpected old work.
-
-**Watching.** `CanopyWatchRunner` (`OverstoryClient`) follows one tree's watch
-stream, feeds every event to the coordinator, reconnects with backoff, and
-recovers an expired cursor through `recoverWatchGap`. iOS, the Mac, and
-visits share it.
-
-Native's source-enabled provider routes structural actions, imports and assets
-through the same coordinator-owned admission journal as document edits. It stages
-an action against an immutable candidate, retains the snapshot before returning,
-and supplies pending candidate views for navigation and document sessions. These
-snapshot records preserve explicit predecessor identity alongside source-operation
-records. Local Trash nodes and locally held file objects are private recovery
-material in the same structural record, excluded from Overstory candidates. Publication
-and watch still install only canopyd's accepted projection into the accepted tree.
-Native always enables source admission. Its constructor refuses old pending
-snapshot work rather than selecting a legacy conflict workflow, and source journals
-cannot downgrade to snapshot mode. Clean older controls can activate source mode.
-Local filesystem document CAS and
-divergent editor-recovery drafts remain separate from accepted canopyd conflicts.
-
-For source-enabled Native, structural admission is available only when pending
-records form one predecessor chain whose starting graph matches the installed
-accepted graph. This comparison is a local display/action policy, not a change to
-any authored identity or publication basis. Source and structural retention share
-one serialization tail so a structural capture cannot race an arriving branch.
-
-If the queue branches, navigation retains the pending structural candidate and its
-contiguous successors; if that prefix has settled, navigation uses the installed
-accepted projection. Individual document sessions keep their own retained source
-generations. Structural actions, imports and assets report
-`awaitingCanopyReconciliation` before preparing more work. Provider capabilities
-advertise that restriction; the coordinator enforces it independently of UI state.
-Publication continues and the restriction is recomputed as canopyd accepts work.
-The queue and accepted-change receipts reconstruct this policy after restart;
-there is no separate view cache, local merge engine or client-owned conflict.
-
-## 9. Admission invariants and trace compaction
+## 7. Admission invariants and trace compaction
 
 These rules hold in both queues and are checked by
 `spec/conformance/source-admission-queue.json`:

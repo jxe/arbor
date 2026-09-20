@@ -16,4 +16,4 @@ Client-side synchronization against an Overstory host. The Swift twin is
 - `entry-transfer.ts`: entry move, copy, and action preparation.
 
 The machines and their invariants are described in
-[client state machines](../../docs/state-machines.md).
+[client state machines](../../docs/canopy/document-admission.md).
