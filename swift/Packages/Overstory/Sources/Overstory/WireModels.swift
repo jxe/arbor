@@ -97,6 +97,23 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
         self.conflicted = conflicted
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case conflicted, id, kind, access, canonical, root, update
+    }
+
+    /// `conflicted` arrived after early placements were saved on disk; a
+    /// descriptor stored without it is not conflicted. The host always sends it.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        conflicted = try container.decodeIfPresent(Bool.self, forKey: .conflicted) ?? false
+        id = try container.decode(String.self, forKey: .id)
+        kind = try container.decode(String.self, forKey: .kind)
+        access = try container.decode(String.self, forKey: .access)
+        canonical = try container.decodeIfPresent(WireCanonicalDescriptor.self, forKey: .canonical)
+        root = try container.decode(String.self, forKey: .root)
+        update = try container.decode(String.self, forKey: .update)
+    }
+
     public func validated() throws -> Self {
         guard !id.isEmpty else { throw ArborWireValidationError.invalidValue("Tree ID is empty") }
         try validateObjectHash(root)
