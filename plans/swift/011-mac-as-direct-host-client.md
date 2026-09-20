@@ -104,7 +104,6 @@ are deleted rather than kept as adapters.
    where it says the app "asks the daemon" for accounts. Note in
    [Web 025](../canopy-web/025-arbor-web.md) that the browser's `LocalHost`
    should target the reduced surface.
-
 7. **Fold the TypeScript client into the CLI.** After step 5 the only
    caller of `@overstory/arborsync-client` is `packages/cli`. Move the client
    to `packages/cli/src/daemon-client.ts`, delete the package, its workspace
