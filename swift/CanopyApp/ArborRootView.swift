@@ -749,7 +749,10 @@ struct ArborRootView: View {
     @State private var reviewingChoices = false
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @State private var sidebarListSelection: WorkspaceIdentity?
+    @State private var pageRenameLocation: WorkspaceLocation?
+    @State private var pageRenameDraft = ""
     @FocusState private var sidebarSearchFocused: Bool
+    @FocusState private var pageRenameFocused: Bool
 #if os(macOS)
     @State private var sidebarTitlebarAccessoryInstalled = false
     @State private var sidebarSearchFocusRequest = 0
@@ -1445,7 +1448,7 @@ struct ArborRootView: View {
                     Text("/")
                         .foregroundStyle(.secondary)
                 }
-                Text(String(leaf))
+                pageFilenameHeading(String(leaf), location: location)
             } else {
                 Text(path)
             }
@@ -1455,7 +1458,82 @@ struct ArborRootView: View {
         .lineLimit(1)
         .truncationMode(.head)
     }
+
+    @ViewBuilder
+    private func pageFilenameHeading(_ filename: String, location: WorkspaceLocation) -> some View {
+        if pageRenameLocation == location {
+            Text(pageRenameDraft.isEmpty ? "Page name" : pageRenameDraft)
+                .font(.system(size: 15, weight: .regular))
+                .hidden()
+                .overlay(alignment: .leading) {
+                    TextField("Page name", text: $pageRenameDraft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 15, weight: .regular))
+                        .focused($pageRenameFocused)
+                        .onSubmit(commitPageRename)
+                        .onExitCommand(perform: cancelPageRename)
+                        .onChange(of: pageRenameFocused) { wasFocused, isFocused in
+                            if wasFocused && !isFocused { commitPageRename() }
+                        }
+                }
+        } else {
+            Text(filename)
+                .font(.system(size: 15, weight: .regular))
+            if canRenamePage(at: location) {
+                Button(action: beginPageRename) {
+                    mutedMacToolbarIcon("pencil")
+                }
+                .buttonStyle(.plain)
+                .mutedMacToolbarHover()
+                .help("Rename Page")
+                .accessibilityLabel("Rename Page")
+            }
+        }
+    }
+
+    private func canRenamePage(at location: WorkspaceLocation) -> Bool {
+        location == model.currentLocation
+            && canRenameCurrentPage
+    }
+
+    private func beginPageRename() {
+        guard canRenamePage(at: model.currentLocation),
+              let filename = model.currentReference.path.split(separator: "/").last else { return }
+        pageRenameDraft = String(filename)
+        pageRenameLocation = model.currentLocation
+        Task { @MainActor in
+            await Task.yield()
+            pageRenameFocused = true
+        }
+    }
+
+    private func commitPageRename() {
+        guard pageRenameLocation != nil else { return }
+        let name = pageRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentName = model.currentReference.path.split(separator: "/").last.map(String.init) ?? ""
+        pageRenameLocation = nil
+        pageRenameFocused = false
+        guard !name.isEmpty, name != currentName else { return }
+        Task { await model.renameCurrentPage(to: name) }
+    }
+
+    private func cancelPageRename() {
+        pageRenameLocation = nil
+        pageRenameFocused = false
+    }
+#else
+    private func beginPageRename() {}
 #endif
+
+    private var canRenameCurrentPage: Bool {
+#if os(macOS)
+        model.node?.isWritable == true
+            && model.currentReference.path != "/"
+            && !model.currentReference.path.hasPrefix("/Trash/")
+#else
+        false
+#endif
+    }
 
     private var recordingErrorBinding: Binding<Bool> {
         Binding(
@@ -1591,6 +1669,7 @@ struct ArborRootView: View {
             reviewChoiceCount: workspace.conflictReview.map(\.decisions.count),
             showAccounts: showAccountsPanel,
             movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
+            renamePage: beginPageRename,
             movePageToTrash: { trashConfirmationPresented = true },
             restorePage: {
                 Task { await model.perform(.restore(reference: model.currentReference)) }
@@ -1610,6 +1689,7 @@ struct ArborRootView: View {
                 && model.binding != nil
                 && model.currentReference.path != "/"
                 && !model.currentReference.path.hasPrefix("/Trash/"),
+            canRenamePage: canRenameCurrentPage,
             canMovePageToTrash: model.node?.isWritable == true
                 && model.currentReference.path != "/"
                 && !model.currentReference.path.hasPrefix("/Trash/"),
@@ -1839,6 +1919,11 @@ struct ArborRootView: View {
             }
             pageFrameContent(for: location)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+#if os(macOS)
+                .simultaneousGesture(TapGesture().onEnded {
+                    if pageRenameLocation != nil { pageRenameFocused = false }
+                })
+#endif
         }
         .overlay(alignment: .top) {
             if location == model.currentLocation {

@@ -87,6 +87,8 @@ private struct ArborNavigationCommands: Commands {
             Divider()
             Button("Restore Page") { commands?.restorePage() }
                 .disabled(commands?.canRestorePage != true)
+            Button("Rename Page…") { commands?.renamePage() }
+                .disabled(commands?.canRenamePage != true)
             Button("Move Page…") { commands?.movePage() }
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(commands?.canMovePage != true)

@@ -1842,4 +1842,63 @@ extension CanopyEditorTests {
         #expect(spans.first?.source == record.range)
         #expect(spans.first?.document?.path == "/origin.md")
     }
+
+    @Test("Page rename healing rewrites authored paths without changing the title")
+    @MainActor
+    func pageRenameLinkHealing() async throws {
+        let tree: TreeID = "tr_healing"
+        let root = WorkspaceNode(
+            reference: .init(tree: tree, path: "/"),
+            title: "Home",
+            surface: .directory(summary: nil),
+            provenance: .init(authority: .local, sourceDescription: "Test")
+        )
+        let target = WorkspaceNode(
+            reference: .init(tree: tree, path: "/old-name", stableKey: markdownStableKey("pg_target")),
+            title: "A Different Title",
+            surface: .markdown(source: "# A Different Title\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let source = WorkspaceNode(
+            reference: .init(tree: tree, path: "/source", stableKey: markdownStableKey("pg_source")),
+            title: "Source",
+            surface: .markdown(source: "[Target](old-name#pg_target)\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let child = WorkspaceNode(
+            reference: .init(tree: tree, path: "/old-name/child", stableKey: markdownStableKey("pg_child")),
+            title: "Child",
+            surface: .markdown(source: "[Source](../source#pg_source)\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let childBacklink = WorkspaceNode(
+            reference: .init(tree: tree, path: "/child-source", stableKey: markdownStableKey("pg_child_source")),
+            title: "Child source",
+            surface: .markdown(source: "[Child](old-name/child)\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(
+            nodes: [root, target, source, child, childBacklink],
+            children: [root.id: [target.id, source.id, childBacklink.id], target.id: [child.id]]
+        )
+        let workspace = ArborEditorWorkspace(provider: provider)
+        let action = WorkspaceStructuralAction.rename(reference: target.reference, name: "private-name")
+        let healingSources = await workspace.linkHealingSources(for: action)
+        let renamed = try #require(try await provider.perform(action))
+        await workspace.healLinks(
+            in: healingSources,
+            movedFrom: target.reference.path,
+            to: renamed.reference
+        )
+
+        let healed = try await provider.openDocument(source.reference).snapshot()
+        #expect(healed.source == "[Target](private-name#pg_target)\n")
+        let healedChildBacklink = try await provider.openDocument(childBacklink.reference).snapshot()
+        #expect(healedChildBacklink.source == "[Child](private-name/child)\n")
+        let movedChild = try await provider.resolve(.init(tree: tree, path: "/private-name/child", stableKey: child.reference.stableKey))
+        let healedChild = try await provider.openDocument(movedChild.reference).snapshot()
+        #expect(healedChild.source == "[Source](../source#pg_source)\n")
+        #expect(renamed.title == "A Different Title")
+        await workspace.closeAll()
+    }
 }

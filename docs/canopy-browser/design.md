@@ -114,6 +114,8 @@ Overstory clients favor user-facing nouns and effects:
 
 File menus provide ordinary rename, move, copy, Trash, restore, and asset import where the resolved node permits them. Actions on child links resolve an explicit child reference and retain its tree scope; deleting an ordinary link never implies Trash.
 
+**Rename Page** changes the current page's logical path without changing its authored title. A corresponding directory, sibling Markdown body, and all descendant pages move as one node. Rename and Move proactively rewrite readable paths in links to the moved subtree and links authored by moved pages; stable page identity remains the resolution fallback if healing loses a concurrent-edit race.
+
 ## Agents
 
 Overstory clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../../spec/07-executable-documents.md#13-agents); Overstory's panels, streaming presentation, and approval controls are reference design.

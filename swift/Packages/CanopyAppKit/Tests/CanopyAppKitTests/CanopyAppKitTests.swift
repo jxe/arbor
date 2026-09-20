@@ -151,6 +151,7 @@ struct WorkspaceCoordinatorTests {
         let renamed = try #require(try await provider.perform(.rename(reference: original, name: "hello")))
         #expect(renamed.reference.path == "/hello")
         #expect(renamed.reference.identity == original.identity)
+        #expect(renamed.title == "Welcome")
         let resolved = try await provider.resolve(.init(tree: "tr_sample", path: "/stale", stableKey: markdownStableKey("pg_welcome")))
         #expect(resolved.reference.path == "/hello")
     }

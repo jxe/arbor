@@ -17,6 +17,7 @@ import {
   applySourceEdits,
   canonicalNodePath,
   isPageID,
+  nodePathFromPhysical,
   pageIDFromStableKey,
   pageIDStableKey,
   resolveLogicalURL,
@@ -147,6 +148,7 @@ export class WorkspaceEditor implements AsyncDisposable {
       );
     }
     await this.prepareSourcePatch(request.operations);
+    const linkHealingPaths = await this.linkHealingPaths(request.operations);
     const requestHash = sha256(stableJSONString(request));
     const existing = await this.mutations.prepare(request.mutationID, requestHash, request);
     await this.protocolFault("protocol:intent-recorded");
@@ -175,6 +177,7 @@ export class WorkspaceEditor implements AsyncDisposable {
       },
     );
     await this.refreshDerivedViews(request.operations);
+    await this.proactivelyHealLinks(linkHealingPaths, effects);
     await this.mutations.markMaterialized(request.mutationID, requestHash, effects);
     if (!materializationFaulted) await this.protocolFault("protocol:materialized");
     return this.completeMaterialized(request.mutationID, requestHash, effects, "api");
@@ -235,6 +238,32 @@ export class WorkspaceEditor implements AsyncDisposable {
 
   private async expandedNode(inputPath: string): Promise<ExpandedNode> {
     return this.surface.expandedNode(inputPath);
+  }
+
+  private async linkHealingPaths(operations: readonly WorkspaceOperation[]): Promise<Set<string>> {
+    if (!operations.some((operation) => operation.op === "rename" || operation.op === "move")) {
+      return new Set();
+    }
+    const discovery = await this.fs.discoverRecursively();
+    return new Set(discovery.files
+      .filter((file) => file.name.endsWith(".md"))
+      .map((file) => nodePathFromPhysical(file.treePath)));
+  }
+
+  private async proactivelyHealLinks(paths: ReadonlySet<string>, effects: readonly MutationEffect[]): Promise<void> {
+    if (paths.size === 0) return;
+    const moves = effects.flatMap((effect) => effect.previousPath
+      ? [{ from: effect.previousPath, to: effect.ref.path }]
+      : []);
+    const movedPath = (path: string): string => {
+      const move = moves.find(({ from }) => path === from || path.startsWith(`${from}/`));
+      return move ? move.to + path.slice(move.from.length) : path;
+    };
+    const current = new Set([...paths].map(movedPath));
+    for (const effect of effects) if (effect.previousPath) current.add(effect.ref.path);
+    await Promise.all([...current].map(async (path) => {
+      try { await this.expandedNode(path); } catch {}
+    }));
   }
 
   private async write(

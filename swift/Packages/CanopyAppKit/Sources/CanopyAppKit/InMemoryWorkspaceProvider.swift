@@ -141,21 +141,11 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
     public func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
         switch action {
         case let .rename(reference, name):
-            var node = try await resolve(reference)
+            let node = try await resolve(reference)
             guard node.isWritable else { throw WorkspaceProviderError.readOnly(reference) }
             let parent = node.reference.parent?.path ?? "/"
             let path = parent == "/" ? "/\(name)" : "\(parent)/\(name)"
-            let oldIdentity = node.id
-            node.reference.path = path
-            node.title = name
-            nodesByIdentity.removeValue(forKey: oldIdentity)
-            nodesByIdentity[node.id] = node
-            if oldIdentity != node.id {
-                for key in childrenByIdentity.keys where childrenByIdentity[key]?.contains(oldIdentity) == true {
-                    childrenByIdentity[key] = childrenByIdentity[key]?.map { $0 == oldIdentity ? node.id : $0 }
-                }
-            }
-            return node
+            return try relocate(node, to: path, newTitle: nil)
         case let .createMarkdown(parent, name, source):
             let parentNode = try await resolve(parent)
             let path = parentNode.reference.path == "/" ? "/\(name)" : "\(parentNode.reference.path)/\(name)"

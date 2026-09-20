@@ -304,6 +304,26 @@ describe("workspace service", () => {
     expect(trashed.effects.some((item) => item.ref.stableKey === moved!.ref.stableKey)).toBe(true);
   });
 
+  test("renaming a page proactively heals authored links to its stable identity", async () => {
+    await writeFile(join(root, "healing-target.md"), "---\nid: a13k9z\n---\n# Target\n");
+    await writeFile(join(root, "healing-source.md"), "[Target](healing-target#a13k9z)\n");
+    const target = await workspace.editor.snapshot({ tree: workspace.tree, path: "/healing-target", stableKey: null });
+    await workspace.editor.snapshot({ tree: workspace.tree, path: "/healing-source", stableKey: null });
+
+    await workspace.editor.executeMutation({
+      mutationID: "link-healing-rename-0001",
+      operations: [{ op: "rename", ref: target.ref, name: "healed-target" }],
+    } as never);
+
+    let source = "";
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      source = await readFile(join(root, "healing-source.md"), "utf8");
+      if (source.includes("healed-target#a13k9z")) break;
+      await Bun.sleep(50);
+    }
+    expect(source).toContain("[Target](healed-target#a13k9z)");
+  });
+
   test("soft deletes and restores", async () => {
     const deleted = await workspace.editor.delete("/folder/child");
     expect(deleted.trashPath).toStartWith("/Trash/folder/child");

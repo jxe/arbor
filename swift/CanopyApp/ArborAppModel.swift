@@ -1457,8 +1457,20 @@ final class ArborWorkspaceState {
 
     @discardableResult
     func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
+        let healingSources = await editorWorkspace.linkHealingSources(for: action)
+        let movedFrom: String? = switch action {
+        case let .rename(reference, _), let .move(reference, _): reference.path
+        default: nil
+        }
         let result = try await provider.perform(action)
         latestStructuralReceipt = WorkspaceStructuralReceipt(action: action, result: result)
+        if let result, let movedFrom, !healingSources.isEmpty {
+            await editorWorkspace.healLinks(
+                in: healingSources,
+                movedFrom: movedFrom,
+                to: result.reference
+            )
+        }
         return result
     }
 
@@ -1498,6 +1510,8 @@ final class ArborWorkspaceState {
 @MainActor
 @Observable
 final class ArborAppModel {
+    private static let manuallyNamedPagesDefaultsKey = "Canopy.manuallyNamedPages"
+
     private struct PagePresentationKey: Hashable {
         let tabID: UUID
         let location: WorkspaceLocation
@@ -1549,6 +1563,9 @@ final class ArborAppModel {
     private var pageIndexTree: TreeID?
     private var pageIndexResults: [WorkspaceSearchResult] = []
     private var dismissedTitleRenameProposals = Set<String>()
+    private var manuallyNamedPageKeys = Set(
+        UserDefaults.standard.stringArray(forKey: manuallyNamedPagesDefaultsKey) ?? []
+    )
 
     init(workspace: ArborWorkspaceState) {
         self.workspace = workspace
@@ -1570,6 +1587,10 @@ final class ArborAppModel {
         case let .localPath(path): return WorkspaceReference(tree: "local", path: path)
         case .remote: return workspace.home
         }
+    }
+
+    private func manualPageNameKey(_ reference: WorkspaceReference) -> String {
+        "\(reference.tree.rawValue)|\(reference.stableKey ?? reference.path)"
     }
     var canGoBack: Bool { tabs.canGoBack }
     var canGoForward: Bool { tabs.canGoForward }
@@ -1994,6 +2015,7 @@ final class ArborAppModel {
     func evaluateTitleRenameProposal() async {
         guard let binding, let node, node.isWritable,
               binding.reference.path != "/",
+              !manuallyNamedPageKeys.contains(manualPageNameKey(binding.reference)),
               binding.lastError == nil, binding.conflict == nil else {
             titleRenameProposal = nil
             return
@@ -2069,6 +2091,26 @@ final class ArborAppModel {
             if navigateToResult, let result { await navigate(to: result.reference) }
             else if let receipt = workspace.latestStructuralReceipt { await reconcile(receipt) }
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    func renameCurrentPage(to name: String) async {
+        let reference = currentReference
+        await workspace.flush()
+        do {
+            let renamed = try await workspace.perform(.rename(reference: reference, name: name))
+            manuallyNamedPageKeys.insert(manualPageNameKey(reference))
+            if let renamed {
+                manuallyNamedPageKeys.insert(manualPageNameKey(renamed.reference))
+            }
+            UserDefaults.standard.set(
+                manuallyNamedPageKeys.sorted(),
+                forKey: Self.manuallyNamedPagesDefaultsKey
+            )
+            titleRenameProposal = nil
+            if let receipt = workspace.latestStructuralReceipt { await reconcile(receipt) }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func offerToTrashLinkedPage(_ target: WorkspaceNode, from source: WorkspaceReference) {

@@ -46,6 +46,7 @@ struct ArborWindowCommands {
     var reviewChoiceCount: Int?
     var showAccounts: () -> Void
     var movePage: () -> Void
+    var renamePage: () -> Void
     var movePageToTrash: () -> Void
     var restorePage: () -> Void
     var canGoBack: Bool
@@ -58,6 +59,7 @@ struct ArborWindowCommands {
     var canRecordAudio: Bool
     var canShare: Bool
     var canMovePage: Bool
+    var canRenamePage: Bool
     var canMovePageToTrash: Bool
     var canRestorePage: Bool
 }

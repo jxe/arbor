@@ -66,6 +66,124 @@ public final class ArborEditorWorkspace {
         try await coordinator.flushAll()
     }
 
+    /// Capture the documents whose readable link paths may become stale before
+    /// a page changes location. Stable identity still makes those links work;
+    /// this list lets the structural action also repair their authored paths.
+    public func linkHealingSources(for action: WorkspaceStructuralAction) async -> [WorkspaceReference] {
+        let reference: WorkspaceReference
+        switch action {
+        case let .rename(candidate, _), let .move(candidate, _): reference = candidate
+        default: return []
+        }
+        var descendants: [WorkspaceReference] = []
+        var pending = [reference]
+        var visited = Set<WorkspaceIdentity>()
+        while let candidate = pending.popLast(), visited.insert(candidate.identity).inserted {
+            descendants.append(candidate)
+            if let children = try? await provider.children(of: candidate) {
+                pending.append(contentsOf: children.map(\.reference))
+            }
+        }
+        var backlinks: [WorkspaceReference] = []
+        for descendant in descendants {
+            backlinks.append(contentsOf: (try? await provider.backlinks(to: descendant).map(\.reference)) ?? [])
+        }
+        var seen = Set<WorkspaceIdentity>()
+        return (backlinks + descendants).filter { seen.insert($0.identity).inserted }
+    }
+
+    /// Best-effort proactive healing after a move or rename. Lazy stable-key
+    /// resolution remains the fallback if a concurrent edit wins the race.
+    public func healLinks(
+        in sources: [WorkspaceReference],
+        movedFrom oldPath: String,
+        to moved: WorkspaceReference
+    ) async {
+        for source in sources {
+            do {
+                var currentSource = source
+                if source.path == oldPath || source.path.hasPrefix(oldPath + "/") {
+                    currentSource.path = moved.path + source.path.dropFirst(oldPath.count)
+                }
+                let resolvedSource = try await provider.resolve(currentSource)
+                guard resolvedSource.surface.supportsDocumentSession else { continue }
+                let session = try await provider.openDocument(resolvedSource.reference)
+                do {
+                    let snapshot = try await session.snapshot()
+                    let base: String
+                    switch resolvedSource.surface {
+                    case .directory, .directoryDocument, .collection:
+                        base = snapshot.reference.path
+                    default:
+                        base = snapshot.reference.parent?.path ?? snapshot.reference.path
+                    }
+                    let healed = await healedLinkPaths(
+                        in: snapshot.source,
+                        base: base,
+                        tree: snapshot.reference.tree,
+                        movedFrom: oldPath,
+                        to: moved
+                    )
+                    if healed != snapshot.source {
+                        _ = try await session.admit(
+                            source: healed,
+                            baseContentRevision: snapshot.contentRevision
+                        )
+                        try await session.flush()
+                    }
+                } catch {
+                    await session.close()
+                    continue
+                }
+                await session.close()
+            } catch {
+                continue
+            }
+        }
+    }
+
+    private func healedLinkPaths(
+        in source: String,
+        base: String,
+        tree: TreeID,
+        movedFrom oldPath: String,
+        to moved: WorkspaceReference
+    ) async -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#) else {
+            return source
+        }
+        let matches = regex.matches(in: source, range: NSRange(source.startIndex..., in: source))
+        var replacements: [(Range<String.Index>, String)] = []
+        for match in matches {
+            guard let hrefRange = Range(match.range(at: 1), in: source) else { continue }
+            let href = String(source[hrefRange])
+            guard let target = resolveNodeTarget(base: base, href: href),
+                  target.tree == nil || target.tree == tree.rawValue else { continue }
+            let newPath: String?
+            if target.path == oldPath || target.path.hasPrefix(oldPath + "/") {
+                newPath = moved.path + target.path.dropFirst(oldPath.count)
+            } else if let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey),
+                      let resolved = try? await provider.resolve(WorkspaceReference(
+                        tree: tree,
+                        path: target.path,
+                        stableKey: stableKey
+                      )) {
+                newPath = resolved.reference.path
+            } else {
+                newPath = nil
+            }
+            guard let newPath,
+                  let replacement = rewriteLocalLinkPath(base: base, href: href, newPath: newPath),
+                  replacement != href else { continue }
+            replacements.append((hrefRange, replacement))
+        }
+        var result = source
+        for (range, replacement) in replacements.reversed() {
+            result.replaceSubrange(range, with: replacement)
+        }
+        return result
+    }
+
     public func appendTranscript(
         _ transcript: String,
         to stableKey: String,
