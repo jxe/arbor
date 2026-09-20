@@ -4,7 +4,7 @@ This document describes how to work on the reference implementation. It is not a
 
 ## Requirements and setup
 
-The TypeScript workspace uses Bun 1.3.14, and the cross-language client tests require Swift 6 on macOS. Arbor web (`packages/render`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
+The TypeScript workspace uses Bun 1.3.14 (pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Arbor web (`packages/render`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
 
 ```sh
 bun install

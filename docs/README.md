@@ -6,7 +6,7 @@ Arbor separates portable contracts, current implementation status, usage, produc
 
 - [README](../README.md) — concise pitch and working local/Canopy quickstarts.
 - [Current status](../status.md) — what is implemented, partial, or only specified.
-- [Introduction](../intro.md) — the longer argument and intended end state.
+- [Introduction](intro.md) — the longer argument and intended end state.
 - [Specification](../spec.md) — normative portable behavior in numbered reading order.
 
 ## Usage and operation

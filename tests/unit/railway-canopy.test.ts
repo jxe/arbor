@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { serveMaintenance } from "../../packages/canopy/src/cli.ts";
 import { dnsLines, parseCanopyDeploymentConfig } from "../../deploy/railway-canopy.ts";
 
@@ -14,6 +16,14 @@ const valid = [
 ].join("\n");
 
 describe("Railway Canopy deployment config", () => {
+  test("railway.toml names a Dockerfile that exists", () => {
+    const root = join(import.meta.dir, "..", "..");
+    const toml = readFileSync(join(root, "railway.toml"), "utf8");
+    const match = /dockerfilePath = "([^"]+)"/.exec(toml);
+    expect(match).not.toBeNull();
+    expect(existsSync(join(root, match![1]!))).toBe(true);
+  });
+
   test("keeps Railway's root probe healthy during offline maintenance", async () => {
     const server = serveMaintenance(0, "127.0.0.1");
     try {

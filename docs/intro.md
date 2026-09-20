@@ -1,11 +1,11 @@
-# A universal dynamic material (sorry bret)
+# A universal dynamic material
 
 *This is the argument for Arbor's intended end state, not a claim that every
 part exists today. The local workspace, browser/editor, tree synchronization,
 Canopy hosting, profiles/accounts, and headless SQLite query/mutation runtime
 are implemented. Executable-document compilation and presentation, hosted
 agents, Postgres backing, and portable deployment remain in progress or
-specified future work. See [current status](status.md) for the exact boundary.*
+specified future work. See [current status](../status.md) for the exact boundary.*
 
 Many people have observed that there's room for a successor to Dropbox, or to GitHub, for the agent playgrounds we're all making. The state of the art is a folder of markdown files, maybe some CSVs, maybe a SQLite database — a plain directory that an agent reads with `cat` and searches with `grep`. It works surprisingly well. But three things about it are not ideal.
 
@@ -147,7 +147,7 @@ contract are not implemented yet.
 
 ## Now put code in it
 
-The checked-in [Supplies example](examples/supplies/README.md) already exercises
+The checked-in [Supplies example](../examples/supplies/README.md) already exercises
 the headless SQLite query and mutation runtime. The compiler, React
 presentation, automatic activation, native presentation, and Canopy hosting
 needed to make a `.tsx` node run at its ordinary location are the next product
@@ -320,9 +320,9 @@ adapters are specified direction, not current commands.
 
 # Who wants to build this?
 
-There is a working [reference implementation](docs/reference-implementation.md),
-an aspirational portable [specification](spec.md), and an explicit account of
-[what works now](status.md). But I'm too busy running MAI to turn this into a
+There is a working [reference implementation](reference-implementation.md),
+an aspirational portable [specification](../spec.md), and an explicit account of
+[what works now](../status.md). But I'm too busy running MAI to turn this into a
 startup. Who wants to?
 
 It can definitely become a powerhouse. It's time for a new Dropbox, or GitHub, or Vercel — and this is all of them combined, plus the Notion layer on top. The business models are the proven ones: hosted endpoints and managed Arbor trees, team permissions and audit, and eventually a marketplace of views, scripts, and agents that runs on the same rails. Every company adopting agents is about to hit all three of the problems this essay opened with, at once, this year. If someone builds this, there are definitely lots of ways to make money.

@@ -6,7 +6,7 @@ For multi-machine synchronization, outage, and conflict testing rather than a si
 
 ## Railway
 
-The repository already contains `Dockerfile.canopy` and `railway.toml`. Railway builds that image, checks `/`, supplies `PORT`, and restarts a failed process. Arbor refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral Canopy state.
+The repository already contains `deploy/Dockerfile.canopyd` and `railway.toml`. Railway builds that image, checks `/`, supplies `PORT`, and restarts a failed process. Arbor refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral Canopy state.
 
 1. Push this Arbor branch to a GitHub repository that Railway can access.
 2. In Railway, create a project and add a service from that repository. The first attempted start may fail safely while the required domain and volume are absent.

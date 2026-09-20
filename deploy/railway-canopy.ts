@@ -117,7 +117,7 @@ async function configureRuntime(environment: RailwayEnvironment, instance: Railw
     serviceId: instance.serviceId,
     environmentId: environment.id,
     input: {
-      dockerfilePath: "/Dockerfile.canopy",
+      dockerfilePath: "/deploy/Dockerfile.canopyd",
       startCommand: "bun run canopyd",
       healthcheckPath: "/",
       healthcheckTimeout: 10,

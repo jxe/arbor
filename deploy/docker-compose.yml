@@ -2,7 +2,7 @@ services:
   arbor:
     build:
       context: ..
-      dockerfile: Dockerfile.canopy
+      dockerfile: deploy/Dockerfile.canopyd
     restart: unless-stopped
     env_file: .env
     command:

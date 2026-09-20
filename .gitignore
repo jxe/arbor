@@ -12,3 +12,4 @@ native/Packages/*/Packages/
 native/Arbor.local.xcworkspace/
 native/Arbor.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 xcuserdata/
+.claude/

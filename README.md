@@ -1,6 +1,3 @@
----
-id: jrigzm
----
 # Arbor
 
 Arbor turns ordinary folders into a shared, browsable space for people and
@@ -17,7 +14,7 @@ trees, synchronization, community hosting, accounts, and the headless data
 runtime. Executable-document presentation, hosted agents, and portable
 deployment remain work in progress or specification.
 
-For the longer argument, read [A universal dynamic material](intro.md). For the exact current boundary, see [status.md](status.md).
+For the longer argument, read [A universal dynamic material](docs/intro.md). For the exact current boundary, see [status.md](status.md).
 
 ## Start using Arbor
 
@@ -110,7 +107,7 @@ Restarting the same command serves the existing data directory without bootstrap
 
 ## Repository guide
 
-- [Introduction](intro.md) — the motivation and proposed end state.
+- [Introduction](docs/intro.md) — the motivation and proposed end state.
 - [Specification](spec.md) — the portable Arbor contracts, in numbered reading order.
 - [Documentation map](docs/README.md) — usage, implementation, client-design, and historical documents.
 - [Reference implementation](docs/reference-implementation.md) — the Bun, TypeScript, React, and Swift architecture.

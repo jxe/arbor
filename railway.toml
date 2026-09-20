@@ -1,6 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.canopy"
+dockerfilePath = "deploy/Dockerfile.canopyd"
 
 [deploy]
 healthcheckPath = "/"
