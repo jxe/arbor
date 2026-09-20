@@ -75,61 +75,69 @@ flowchart TB
   canopy --> proto
 ```
 
-## Start using Overstory
+## Getting started
 
-The current persistent setup is for macOS. From a checkout, install the
-dependencies, expose the commands in your shell, install Arbor Sync as a user
-service, create one local profile identity, and open the current folder:
+Today the only editor is the Canopy app for macOS and iOS, built from
+`swift/`; the browser editor is being rebuilt. So the path from a checkout
+to a synchronized folder runs through the app once, to claim an account.
+The setup below is for macOS.
+
+**1. Make an identity.** From a checkout, install the dependencies, expose
+the commands in your shell, and create one local profile:
 
 ```sh
 bun install
 bun link
-arbor daemon install
 arbor me create
-arbor open .
-```
-
-`bun link` exposes `arbor`, `arborsync`, `canopyd`, and `arbor-merge` from
-this checkout. `arbor daemon install` installs and starts the per-user Arbor
-Sync launchd service; if the signed Canopy app already owns that service, the
-command leaves its registration in place. `arbor me create` is a one-time
-operation and refuses to replace an existing identity.
-
-`arbor open` accepts a local path, a canonical HTTPS or `arbor://` URL, or no
-locator for the current directory. Until the browser editor returns, the
-browser route serves a short notice; edit in the Canopy app. Linux and Windows
-daemon supervision are not implemented yet. The [CLI reference](docs/cli.md)
-covers daemon setup, placing synchronized trees, moves, identity backup and
-restore, cloud sessions, and command safety rules.
-
-## Run a host
-
-A new community reserves its first account for an existing self-certifying
-profile. Print the profile TreeID created above:
-
-```sh
 arbor me
 ```
 
-Then create the community, naming the founder account and the profile that
-alone may claim it, and serve it:
+`arbor me` prints your public profile TreeID (`tr_…`). It is the only thing
+another host needs to know about you; the private key never leaves the
+profile folder. `arbor me create` is a one-time operation and refuses to
+replace an existing identity.
+
+**2. Get an account on a host.** Either join an existing community or run
+your own.
+
+- *Join:* send your TreeID to the community's administrator. They add you as
+  a member of the community profile with a handle, which reserves the
+  account `https://garden.example/~you` for that exact profile; nobody else
+  can claim it. Membership is authored content: an entry in the community
+  tree's `members:` list with your `profile: arbor://tr_…/` and `handle`.
+- *Run your own:* create a community whose founder account is reserved for
+  your profile, then serve it:
+
+  ```sh
+  canopyd init garden --founder joe=tr_…
+  canopyd serve garden
+  ```
+
+  `serve` listens at `http://127.0.0.1:4318` and prints the founder's
+  reserved account URL on every start until it is claimed. For a public
+  domain, persistent volumes, backups, and upgrades, use the
+  [deployment guide](packages/canopyd/deploy/README.md).
+
+**3. Claim it from Canopy.** Build the app (`xcodegen generate --spec
+swift/project.yml --project swift`, then the `Canopy` scheme; see
+[swift/README.md](swift/README.md)), open the reserved account URL in it, and
+choose **Claim profile**. The app proves your profile to the host and
+installs the account configuration under `~/.arbor`.
+
+**4. Place a folder.** Install Arbor Sync as a user service and publish a
+folder at a path under your account:
 
 ```sh
-canopyd init garden --founder joe=tr_...
-canopyd serve garden
+arbor daemon install
+arbor place ./notes https://garden.example/~joe/notes
 ```
 
-`init` writes the community into `./garden` (or `--data <directory>`) and
-runs once; `serve` listens at `http://127.0.0.1:4318` by default and prints
-the founder's reserved account URL on every start until it is claimed. In
-another terminal, open and claim it:
-
-```sh
-arbor open http://127.0.0.1:4318/~joe
-```
-
-For public domains, persistent volumes, backups,
-restoration, and coordinated upgrades, use the [deployment guide](packages/canopyd/deploy/README.md).
+The folder stays where it is and becomes a synchronized tree: the daemon
+pushes your edits, materializes everyone else's, and the app edits it in
+place. `arbor status` shows every placement; the [CLI reference](docs/cli.md)
+covers moves, sharing, identity backup and restore, cloud sessions, and the
+command safety rules. Linux and Windows daemon supervision are not
+implemented yet.
 
 ## Status
 

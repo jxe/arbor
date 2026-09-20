@@ -13,28 +13,23 @@ installed form shown below: `arbor <command>`.
 ## Quick start
 
 ```sh
-# One-time macOS setup, if the Canopy app is not already managing Arbor Sync.
+# Create your profile identity once, and print its public TreeID.
+arbor me create
+arbor me
+
+# Claim an account from the Canopy app (see the README), then install the
+# per-user Arbor Sync service.
 arbor daemon install
 
-# Once per person, create a self-certifying profile identity.
-arbor me create
-
-# Open the current folder in Canopy for the web.
-arbor open .
-
-# Browse a remote tree without first placing it locally.
-arbor open https://garden.example/~joe/notes
-
-# Place a local folder at a canonical canopyd URL and keep it synchronized.
+# Publish a local folder at a path under your claimed account, or place a
+# remote tree at a local path.
 arbor place ./notes https://garden.example/~joe/notes
-
-# Place an existing remote tree in a local folder and keep it synchronized.
 arbor place https://garden.example/~joe/notes ~/Documents/notes
-```
 
-If Arbor Sync is already running, skip `arbor daemon install`. Run `arbor open`
-with no locator to open the current directory. Skip `arbor me create` when an
-identity already exists; it refuses to replace one.
+# Inspect placements, or open a remote tree in the browser.
+arbor status
+arbor open https://garden.example/~joe/notes
+```
 
 ## Conventions
 
