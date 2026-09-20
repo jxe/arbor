@@ -105,6 +105,27 @@ are deleted rather than kept as adapters.
    [Web 025](../canopy-web/025-arbor-web.md) that the browser's `LocalHost`
    should target the reduced surface.
 
+7. **Fold the TypeScript client into the CLI.** After step 5 the only
+   caller of `@overstory/arborsync-client` is `packages/cli`. Move the client
+   to `packages/cli/src/daemon-client.ts`, delete the package, its workspace
+   entry, and its root dependency, and point the four tests that drive a
+   disposable daemon through it (`tests/unit/protocol.test.ts`,
+   `tests/integration/{server,self-sync,cli-sync}.test.ts`) at the CLI
+   package. Web 025's `LocalHost` writes its own browser-safe client against
+   the reduced surface; it does not reuse this one.
+8. **Fold the Swift client into the app.** Nothing under `swift/Packages`
+   imports `ArborSyncClient`; `CanopyEditor` lists it as a dependency but
+   never imports it. The REST client, the process supervisor, the loopback
+   services, and their models are macOS-only in practice (launchctl,
+   `SMAppService`), so they are app code. Move the four files to
+   `swift/CanopyApp/ArborSync/` behind `#if os(macOS)`, remove the package
+   from `project.yml` and from `CanopyEditor/Package.swift`, regenerate the
+   Xcode project, and move `ArborSyncClientTests` into `CanopyAppTests` (or
+   into a `tests/protocol/conformance.ts` scenario, which today runs them by
+   package path and must be updated either way). Gate: `bun run
+   test:protocol` and a macOS app build green; six platform-neutral Swift
+   packages remain.
+
 ## Out of scope
 
 - Making the Mac keep a durable on-disk working tree with the folder as a
