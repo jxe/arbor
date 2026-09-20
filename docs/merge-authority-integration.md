@@ -32,7 +32,7 @@ Unchanged path occurrences retain provenance; changed snapshot bytes acquire an
 opaque origin. A checkpoint does not claim a move, copy or resolution. There is no
 second local/client merge engine, migration rewrite of historical roots, or object
 store layout change. The store remains append-only; packing and GC remain in the
-[packfile plan](../plans/canopy/001-pack-object-storage.md).
+[packfile plan](../plans/canopyd/001-pack-object-storage.md).
 
 ## Existing clients
 

@@ -19,14 +19,12 @@ Owners: Native [008](../canopy-swift/008-complete-native-move-copy-undo-capture.
 - [ ] Complete 010's macOS/iPhone hands-on gate: layout, typing, focus, selection, scrolling,
   keyboard routing, VoiceOver, large text and installed review-draft recovery.
 
-Evidence: [source cutover](../../docs/native-source-cutover.md) records the older installed source-mode
-build; [capture checkpoint](../../docs/source-admission-queue.md) and
-[review checkpoint](../../docs/native-conflict-review.md) record newer implemented behavior.
+Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/local-system.md), [client state machines](../../docs/client-state-machines.md), and [Native 010](../canopy-swift/010-client-conflict-review.md).
 Passing builds and automated tests do not establish interactive acceptance.
 
 ## Server refinements
 
-Owner: canopyd [009](../canopy/009-canopy-provenance-merges.md).
+Owner: canopyd [009](../canopyd/009-canopy-provenance-merges.md).
 
 - [ ] Rehearse, deploy and verify independent source-range inspection and the subsequent Markdown
   transfer/list-insertion refinements. Record the exact revision and packaged worker together.
@@ -58,7 +56,7 @@ elapsed calendar time alone is insufficient.
 Historical plans: Native 022 (completed plan, deleted; see git history),
 Arbor Sync 001 (completed plan, deleted; see git history),
 Reliability 012 (completed plan, deleted; see git history).
-The [progress investigation](../../docs/native-sync-progress.md) preserves the reproduced failures
+The deleted progress investigation (git history: `docs/native-sync-progress.md`) preserved the reproduced failures
 without claiming to prove the original incident's exact cause.
 
 ## Compatibility windows remain separate
@@ -69,3 +67,23 @@ operator decisions and backup conditions. A date passing does not close those wi
 
 When a gate passes, record exact revision/date/evidence in its owning checkpoint, then remove
 that completed checkbox here. Do not keep finished release steps as an evergreen executor plan.
+
+## Manual recipes retained from the deleted checkpoints
+
+**Editor recovery.** Rebuild the app and use a disposable page: edit offline,
+reconnect without Sync Now, verify host and peer convergence, then verify the
+page's Local History survives reopening. Preserve real user text before
+intentionally testing process interruption.
+
+**Automatic publication.** Verify ordinary automatic Mac edit publication and
+subsequent edits after a merge or reconnect without Sync Now. If publication
+stalls again, capture the machine phase and the actual preparation error
+before any manual retry; the two historical stalls were a no-work pass that
+left `preparing: true` with no task, and a preparation failure raised outside
+the submission error handler. The fix must never clear a pending request,
+rewrite its digest, discard a saved head, or alter protocol semantics.
+
+**Resource policy soak.** Exercise Canopy consent and revocation and
+configuration conflict resolution on the isolated production copy, including
+queued configuration writes. Keep the schema 13 migration backups until this
+soak closes.

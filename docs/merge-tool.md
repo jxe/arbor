@@ -1,20 +1,13 @@
 # Merge executable and shared objects
 
-The reference implementation has a TypeScript merge package, `@overstory/canopyd-merge`, and
-an `arbor-merge` executable script run by Bun. It is on main and deployed to
-`arb.nxhx.org`. The authority integration adds schema 12 ownership records; it does not change
-object layout, public Overstory, or require a client cutover. See the
-[integration checkpoint](merge-authority-integration.md) and
-offline migration (migration 010, deleted after cutover; see git history).
-
-The incremental-state implementation connects canopyd to the executable's existing
-sequential persistent mode: one worker and a bounded FIFO queue, with no fan-out.
-This is deployed to `arb.nxhx.org` as of September 18, 2026.
-canopyd still owns
-accepted history, causal reconstruction, authorization, guards, conflict identity,
-retention and atomic acceptance. The executable owns the existing format rules
-and tree merge computation. It has no database connection or credentials in its
-API; this is a trusted local worker, not an OS sandbox for arbitrary plugins.
+The reference implementation has a TypeScript merge package,
+`@overstory/canopyd-merge`, and an `arbor-merge` executable script run by Bun.
+canopyd runs it as a sidecar: one persistent worker with a bounded FIFO queue
+and no fan-out. canopyd owns accepted history, causal reconstruction,
+authorization, guards, conflict identity, retention, and atomic acceptance.
+The executable owns the format rules and the tree merge computation. It has
+no database connection or credentials in its API; it is a trusted local
+worker, not an OS sandbox for arbitrary plugins.
 
 ## API and execution
 
@@ -63,10 +56,10 @@ The two lists must agree. canopyd proves the causal history and reconstructs the
 proposal before asking a format rule whether it is valid. The source result is
 that proposal with a resolved/unresolved/inapplicable decision and reason. Existing
 plain-text and Markdown-prose rules validate it conservatively; they do not infer
-operations from snapshots. Authored execution and unresolved alternatives now use
-the operation-bearing tree request described in [operation evaluation](merge-operation-evaluation.md).
-canopyd now forwards authoritative operations through that request. The proposal-only
-source rule remains a diagnostic API; it is not canopyd's source acceptance path.
+operations from snapshots. Authored execution and unresolved alternatives use the operation-bearing
+tree request described under [operation evaluation](#operation-evaluation).
+The proposal-only source rule remains a diagnostic API; it is not canopyd's
+source acceptance path.
 
 The rule revision identifies algorithm semantics; it is not a versioned client API.
 Unrecognized rules, invalid responses or missing material fail evaluation. There
@@ -118,8 +111,140 @@ that validation. Per-evaluation proofs survive until acceptance even when they
 are too large for the optional cross-request cache. Material validation compares
 against the preceding validated state; graph validation inherits unchanged
 structure only from an accepted root. Retention independently checks availability
-of staged dependencies before acceptance. See the [scaling measurements and
-remaining limits](canopy-update-performance.md#structural-diagnosis-and-fixes).
+of staged dependencies before acceptance.
+
+## Operation evaluation
+
+A tree request may carry authored operations. There is one evaluator; snapshot
+requests, source-proposal validation, and account rules are different inputs
+to the same executable, not separately deployed engines.
+
+```ts
+{
+  kind: "tree",
+  tree: "tree-scope",
+  base: { object: baseRoot, state: retainedToolState },
+  current: { object: currentRoot, state: retainedCurrentToolState },
+  incoming: {
+    object: exactCandidateRoot,
+    change: "authored-change",
+    trace: [/* frames of SourceOperation values */],
+    resolves: [/* tool decision keys whose guards canopyd checked */]
+  },
+  rules: {
+    id: "tree-default", revision: 1,
+    config: {
+      maxBytes: 33554432, maxNodes: 20000, maxMillis: 5000,
+      proseInsertions: "preserve-both",
+      formats: { "/records.csv": { format: "csv", recordKey: "id" } }
+    }
+  }
+}
+```
+
+A first basis can omit `state`; later evaluations retain the returned state
+object beside its root. Equal roots never imply equal retained intent, and the
+evaluator never invents operations from a diff.
+
+**Frames.** Operations arrive as a trace: a chain of `{ before, after,
+operations }` frames from the request's base root to the candidate. References
+are frame-local, operation keys are unique across the trace, and every frame
+must reproduce its own `after`. A trace is evidence the evaluator checks in
+full, never a hint; an absent trace is snapshot semantics. The protocol bounds
+a trace to 64 frames and 1024 operations. `undoOperation` is not in the
+grammar; editors express undo and redo as ordinary edits, and the evaluator
+answers `unsupported` if it sees the kind. `composeFrames` in
+`packages/canopyd/src/updates/source-edits.ts` collapses a run of plain
+`editSource` frames into one by executing the composition; the same rule lets
+clients compact a debounced burst (see [client state machines](client-state-machines.md#trace-compaction)).
+
+**Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
+`authored: { object, state }` for the exact candidate before reconciliation, a
+generated-object manifest, decision proposals, and evidence naming the three
+input roots, the change and operation keys, the rule revision, configuration,
+and policy reasons. The rule is deterministic, so the three roots reproduce
+every object it read; the read set itself is not retained. Typed inabilities
+are `invalid`, `missing-context`, `unsupported`, and `limit`. Unsupported
+operation kinds are not successful no-ops, invalid candidates publish no staged
+output, and an inability to evaluate is neither a conflict resolution nor an
+accepted receipt; canopyd decides admission and fallback.
+
+**Choices.** Text choices identify immutable basis ranges and their material
+alternatives; independent overlaps can remain separate decisions, and a format
+refusal can couple the file. Structural ambiguity couples the containing tree.
+Explicit alternative bindings map canopyd's authorized material references into
+the retained proposal. Enclosing choices retain the old context and depend on
+the enclosed decisions; discarding guarded child material requires coherent
+declarations. Selective undo preserves independent edits, and if later work
+interferes with the inverse the tool retains the pre-undo tree as an
+alternative rather than discarding that work. canopyd defaults to independent
+source choices with current material selected; `mergeTool.contentChoices:
+"file"` restores whole-file presentation, and format rules can still couple
+choices.
+
+### Format support contract
+
+Rules preserve bytes by applying verified source spans; they never print or
+normalize a parsed tree, and parser success alone is not enough to merge. These
+are the automatic subsets; other simultaneous changes retain alternatives.
+
+| Format | Automatic subset | Requires review |
+| --- | --- | --- |
+| Text | Disjoint verified origins, including retained lineage and transport | Overlaps and competing anchors by default |
+| Markdown | Stable host structure; prose, heading/list text, task values and simple table cells; independent embedded regions; concurrent known embedded edits delegate to their format | Structural delimiter/order changes, ambiguous links, escaped tables and unsupported embedded combinations |
+| JSON | Different values under unique, unchanged object-key paths | Duplicate keys, array ordering, key creation/removal or competing values |
+| JSONL | Independent record fields with configured unique `recordKey` and stable order | Missing/nonunique keys, key/order/schema changes |
+| YAML | Different mapping values with unique stable keys and preserved source | Anchors, aliases, tags, sequences, multiline scalars and parse warnings |
+| TOML | Different mapping values under stable unique tables/keys | Dotted keys, arrays, multiline constructs and structural changes |
+| CSV/TSV | Different cells with configured unique `recordKey`, unchanged header and row order | Key/schema/order changes, malformed quoting and duplicate keys |
+| TS/JS, Swift, Python | Parser-backed literal changes in distinct uniquely named declarations or supported members; syntax and binding topology unchanged | Binding/operator/import/export changes, overloads, decorators, macros, wrappers, directives and ambiguous declarations |
+| HTML | Different values under unique element/attribute structure with unchanged order | Repeated unkeyed siblings, duplicate IDs, scripts/styles and event handlers |
+| XML | Distinct values in a strict, uniquely structured namespace-free document | Namespaces, DTDs/entities and repeated sibling identity |
+| CSS | Different unique declaration values with stable selectors/properties/order | Duplicate declarations, variables, unsupported selectors and cascade-changing structure |
+| Binary/media | Entry move/copy and independent tree changes | Competing opaque content; no byte concatenation |
+
+The `exact-source-disjoint-v1` rule merges concurrent disjoint edits from the
+same accepted basis when complete history is retained, with at most 64
+intervening accepted states and 4096 combined operations; automatic
+concurrency is limited to `.txt` and uncomplicated Markdown paragraphs, and
+both the original and the combined source must pass a conservative recognition
+check.
+
+The `markdown-source-transfer` rule replays identity-verified moves and copies
+of plain and self-contained formatted paragraphs, including across documents,
+when basis, current, authored, and replayed versions all preserve protected
+host blocks and embedded content. It never uses similarity as identity.
+Competing destinations for the same anchor still require review.
+
+Markdown defaults to `proseInsertions: "preserve-both"`: competing additions
+of ordinary prose, paragraphs, and list or task items are kept in stable
+contribution order with exact bytes, no separators, and no deduplication.
+`"review"` requires review instead. Plain text defaults to review and can opt
+in. Structured formats cannot opt into concatenation.
+
+Tree-sitter grammars and the strict XML parser are pinned dependencies. Only
+grammar modules are cached; parsed trees are disposed after evaluation.
+Neither authored source nor parser IDs execute with host IO authority, and
+collection schema evaluation stays in the QuickJS sandbox.
+
+### Retained state and lazy history
+
+Retained state has active material (nodes, decisions) and five history maps
+(`outputs`, `effects`, `origins`, `alternatives`, `changes`), each a
+hash-partitioned map of immutable records. A state is `editable` when the
+evaluation that recorded it enforced every deletion in its effects map on its
+nodes. Transported results, results kept under `conflictProjection:
+"current"`, and checkpoint or imported states are not editable and take one
+complete scan, after which their result is editable. Reading a record that was
+not loaded is an evaluator error, never "absent".
+
+### Limits
+
+Requests are bounded to 8 MiB at the CLI with at most 1024 operations.
+Parser-backed analysis caps source at 256 KiB, syntax traversal at 20,000
+nodes, and each parse at 100 ms. Exceeding a budget returns `limit`; an
+analyzer that cannot prove independence preserves choices. No timeout can
+commit accepted state inside this process.
 
 ## Objects, authority and failure
 
@@ -176,26 +301,24 @@ caller's working directory or execute authored schemas in the host runtime.
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint
 checks; plain-text and Markdown source-proposal validation; account configuration
-v1/v2 merging. The [operation evaluator](merge-operation-evaluation.md) adds exact authored-operation execution, nested choices and conservative format rules; its verified support contract completes the tool-only scope of 013.
+v1/v2 merging. Exact authored-operation execution, nested choices, and the
+conservative format rules are described next.
 
 ## Verification
 
 ```sh
-bun test tests/integration/merge tests/unit/canopyd/update-merge.test.ts tests/unit/canopyd/source-reconciliation.test.ts
+bun test tests/integration/canopyd-merge tests/unit/canopyd/update-merge.test.ts tests/unit/canopyd/source-reconciliation.test.ts
+bun test tests/unit/canopyd-merge
+bun tools/benchmark-merge-tool.ts
 bun run typecheck
-bun run test
 bun run test:protocol
-bun run build
 ```
 
-The dedicated corpus compares exact roots, bytes, decisions and evidence against
-the ported rules, exercises both execution modes, and checks concurrent staging,
-corrupt objects, malformed output, nonzero exits and forced timeouts. A real HTTP
-case verifies accepted ambiguity, replay, continued publication, restart and
-integrity with a missing worker. A process test runs a collection merge
-with an empty environment and working directory outside the checkout.
-
-September 17, 2026 verification: 822 product tests passed, including 27 process and
-failure tests; TypeScript checking, the full cross-language protocol suite, the
-CLI build, frozen dependency installation, relative-link checks and diff whitespace
-checks passed. No live data, installed clients or deployments were changed.
+The corpus compares exact roots, bytes, decisions, and evidence against the
+ported rules, exercises both execution modes, and checks concurrent staging,
+corrupt objects, malformed output, nonzero exits, and forced timeouts. A real
+HTTP case verifies accepted ambiguity, replay, continued publication, restart,
+and integrity with a missing worker. A process test runs a collection merge
+with an empty environment from a working directory outside the checkout.
+`tests/unit/canopyd-merge/lazy-history.test.ts` compares every lazily loaded
+result against an eager reference that reads all history.

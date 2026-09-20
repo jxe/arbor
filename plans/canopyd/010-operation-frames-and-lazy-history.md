@@ -6,7 +6,7 @@ breaks, but Phase 2 ships Mac, iPhone and server together. Related:
 [canopyd 006](006-line-provenance.md) / [007](007-canopy-document-history.md) (archival
 states remain their retained roots), [Native 008](../canopy-swift/008-complete-native-move-copy-undo-capture.md)
 (client capture that Phase 3 replaces), and the measurements in
-[canopy-update-performance](../../docs/canopy-update-performance.md).
+the deleted performance log (git history: `docs/canopy-update-performance.md`; its surviving facts are at the end of this plan).
 
 ## Context
 
@@ -242,7 +242,7 @@ current states still reference through their change envelopes.
 - Gate: 20 live edits on a tree with a live decision show the same outcomes and
   the reduced phases.
 
-### Phase 6 — Spec and docs, written ahead of each phase (plans/canopy/009 :28-30)
+### Phase 6 — Spec and docs, written ahead of each phase (plans/canopyd/009 :28-30)
 - spec/10: :82 "each frame MUST reproduce its `after`"; :100 reworded per D3;
   new Trace section. spec/01: :744 digest covers `trace`. spec/09:
   per-generation capture and coalescing.
@@ -269,3 +269,21 @@ current states still reference through their change envelopes.
   `history-mb`, `retention`) and Native's network log (`out=` bytes, `note`
   rows) before and after each deployed phase; `docs/canopy-update-performance.md`
   records them.
+
+## Retained facts from the deleted checkpoints
+
+- Migration 013 compacted `evidence.inputs` to the three input roots (base,
+  current, incoming). The rule is deterministic, so those roots reproduce every
+  object it read; Phase 4 must not reintroduce a retained read set.
+- The retired causal-undo journal is why undo is an ordinary edit: on the Mac
+  it reached 432 records and 75 MB, and every admission re-encoded and fsynced
+  all of it, 7.2 s per edit against a host that answered in about 250 ms.
+  `conformance/causal-undo.json` was deleted with it;
+  `page-conversion-undo.json` remains.
+- The old 100,000-object / 1 GB per-tree quota checks were removed from update
+  acceptance; nothing bounds retained storage today, and periodic storage
+  accounting or fsck is deferred to this plan's measurement phase.
+- The host latency target is under 100 ms of server processing for a small
+  fast-forward including validation and durable acceptance. Divergent-merge
+  and live latency are not established; cold startup is about 5 s and the
+  first edit after a restart is measured in seconds unless warm-up ran.

@@ -6,7 +6,7 @@ Historical identifier: **Reliability 008 / Sync 008**. Status: PARTIAL; prioriti
 
 This plan covers command capture in the Native editor and its Quagmire bridge.
 canopyd and the merge tool already execute the supported operation kinds; their
-reconciliation policies remain in [canopyd 009](../canopy/009-canopy-provenance-merges.md).
+reconciliation policies remain in [canopyd 009](../canopyd/009-canopy-provenance-merges.md).
 
 When you move a paragraph, copy blocks to another page or undo an earlier command, Overstory can
 send canopyd both the resulting text and a record of what you did. That gives canopyd evidence
@@ -24,8 +24,8 @@ peer edits rather than simply restore an old whole-document snapshot.
 Ordinary source edits, exact source-backed copies (including same-tree cross-document copies),
 page/entry moves and copies, typing/copy undo, and turning blocks into a new page with undo/redo
 have implementation evidence. Their exact scope and release status live in the
-[capture checkpoint](../../docs/source-admission-queue.md), especially
-[cross-document copy and page conversion](../../docs/source-admission-queue.md#cross-document-copies-and-page-conversion-undo).
+the admission queue (journals in [the local system](../../docs/local-system.md#source-admission-journals), invariants in [client state machines](../../docs/client-state-machines.md#9-admission-invariants-and-trace-compaction)), especially
+cross-document copy and page conversion (`conformance/cross-document-copy.json`, `conformance/page-conversion-undo.json`).
 The durable queue and source publication path already exist. Do not rebuild them.
 
 ## Remaining command coverage
@@ -58,12 +58,12 @@ undo stack after restart is separate from retaining already-authored undo reques
 - Do not retarget an old action to a newer basis, infer identity from equal bytes or silently
   discard captured operations. Preserve local work and expose a problem if it cannot be encoded.
 - canopyd executes and reconciles the operations. Its existing support must cover every emitted
-  form before client release. Server policy belongs to [canopyd 009](../canopy/009-canopy-provenance-merges.md);
+  form before client release. Server policy belongs to [canopyd 009](../canopyd/009-canopy-provenance-merges.md);
   conflict review belongs to [Native 010](010-client-conflict-review.md).
 - Keep publication running while accepted choices remain unresolved. Explicit guarded review
   resolves choices; ordinary editing and equal bytes do not.
 
-Browser integration belongs to [Web 025](../web/025-arbor-web.md) (formerly Web 023).
+Browser integration belongs to [Web 025](../canopy-web/025-arbor-web.md) (formerly Web 023).
 Installation of already-built work belongs to [release verification](../verification/release-and-soak.md).
 Neither is unfinished Native command capture in this plan.
 

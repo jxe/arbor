@@ -104,3 +104,14 @@ another, so there are no base chains to protect when pruning.
 - Changing object hashes, canonical encodings, update IDs, or Overstory formats.
 - Deltas between objects.
 - Synchronizing packs between Canopies.
+
+## Compaction obligations
+
+Schema 9 made basis and candidate roots explicit retention dependencies of
+each authored change, checked by integrity verification. Any packing or
+pruning must retain those graphs together with the operation records and
+inverse material, and must keep the store append-only from the point of view
+of accepted receipts: historical rule results and receipts are never
+recomputed. A future collector must pin job inputs, staged inputs, results
+awaiting commit, hidden alternatives, and provenance dependencies; the merge
+job manifest alone is not a completed lease protocol.

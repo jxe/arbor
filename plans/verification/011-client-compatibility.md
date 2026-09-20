@@ -12,8 +12,7 @@ Live installation and observation gates remain in [release and soak](release-and
 ## Completed foundation
 
 The accepted-state cutover (migration 006, deleted after cutover; see git history),
-[Native source cutover](../../docs/native-source-cutover.md) and
-[schema-12 authority integration](../../docs/merge-authority-integration.md) record the completed
+The native source cutover and the schema-12 authority integration (git history: `docs/native-source-cutover.md`, `docs/merge-authority-integration.md`) recorded the completed
 contract, installed source clients and deployed eight-operation authority. They are not future
 implementation steps. Source-range inspection and Native review have subsequent source evidence;
 installation/deployment must follow their own recorded gates.
@@ -64,5 +63,15 @@ have passing evidence or an explicitly accepted scope decision.
 [Filesystem 011](../filesystem/011-independent-writes-after-rejection.md) separately owns
 scheduling independent work after rejection. Capture, server policy and Native review remain
 in [Native 008](../canopy-swift/008-complete-native-move-copy-undo-capture.md),
-[canopyd 009](../canopy/009-canopy-provenance-merges.md) and
+[canopyd 009](../canopyd/009-canopy-provenance-merges.md) and
 [Native 010](../canopy-swift/010-client-conflict-review.md).
+
+## Checkpoint record
+
+The dated verification checkpoints that used to live in
+`docs/update-wire-contract.md` (accepted read transport, main integration
+boundary, tree-read ownership cleanup, active request adoption) are in git
+history under that path. Their surviving contracts are now in
+[tree operations §2.1](../../spec/01-tree-operations.md#21-the-update-request),
+[the reference implementation](../../docs/reference-implementation.md), and
+the release-order rules in [the deployment guide](../../deploy/README.md#release-order).

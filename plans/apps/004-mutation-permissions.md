@@ -18,7 +18,7 @@ live deployment. Preserve dirty editors and unrelated work throughout execution.
 
 ## Worktree checkpoint (2026-09-18)
 
-See [implementation evidence and limits](../../docs/resource-policy-implementation.md)
+The implemented boundary is summarized in [status.md](../../status.md) and the supported scope rules in [the reference implementation](../../docs/reference-implementation.md#resource-policy)
 and Migration 011 (migration 011, deleted after cutover; see git history). Shared TS/Swift
 rules, resource parsing/indexing, execution tokens, guarded effects, replay checks,
 revocation streams and offline schema/configuration preparation are implemented.
@@ -58,7 +58,7 @@ do not reuse the obsolete schema 6 assumption in the former plan.
 
 ## Remaining implementation/rehearsal boundaries
 
-The [checkpoint](../../docs/resource-policy-implementation.md) records completed
+The deleted checkpoint document (git history: `docs/resource-policy-implementation.md`) recorded completed
 implementation and verification. Before enabling the first sidecar application:
 
 - Exercise Native consent/revocation and exact configuration conflict resolution on

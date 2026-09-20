@@ -21,7 +21,7 @@ There is one current Wire request shape and digest contract. The singular reques
 ## Remaining milestones
 
 - [008: operation execution and editor emission](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md), enabled one operation family at a time.
-- [009: Canopy correspondence, provenance, and accepted conflicts](../plans/canopy/009-canopy-provenance-merges.md).
+- [009: Canopy correspondence, provenance, and accepted conflicts](../plans/canopyd/009-canopy-provenance-merges.md).
 - [010: contextual conflict review](../plans/canopy-swift/010-client-conflict-review.md), including stale-review and crash safety.
 
 Cross-language fixtures live in `conformance/protocol-operations.json` and `conformance/protocol-update-intent.json`. The semantic examples are grammar/digest vectors; they do not assert that their effects execute today. `status.md` remains authoritative for the implemented subset.

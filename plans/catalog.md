@@ -19,9 +19,9 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Web client
 
-`web/` — Restore the browser working-tree client, then its interface and editor features.
+`canopy-web/` — Restore the browser working-tree client, then its interface and editor features.
 
-- [Web 025 — Canopy for the web: one browser editor for `arbor open` and canopyd](web/025-arbor-web.md) — **P1 · PLANNED; after the Native 022 soak closeout.** One bundle behind a `WebHost` interface, served by Arbor Sync on loopback and by canopyd at canonical URLs; TypeScript twins of the Swift working tree, app model and editor host; three projects (B1 local editor, B2 canopyd host and account surfaces, B3 choice review and editor depth) with a soak between each. The [surface inventory](web/surfaces.md) lists every native surface with its web treatment. Supersedes Web 023, 008 and 005, now in `_done/web/` (completed plan, deleted; see git history).
+- [Web 025 — Canopy for the web: one browser editor for `arbor open` and canopyd](canopy-web/025-arbor-web.md) — **P1 · PLANNED; after the Native 022 soak closeout.** One bundle behind a `WebHost` interface, served by Arbor Sync on loopback and by canopyd at canonical URLs; TypeScript twins of the Swift working tree, app model and editor host; three projects (B1 local editor, B2 canopyd host and account surfaces, B3 choice review and editor depth) with a soak between each. The [surface inventory](canopy-web/surfaces.md) lists every native surface with its web treatment. Supersedes Web 023, 008 and 005, now in `_done/web/` (completed plan, deleted; see git history).
 
 ## Local filesystem
 
@@ -34,14 +34,14 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## canopyd authority, storage and history
 
-`canopy/` — Merge policy, retained state, accepted history and provenance.
+`canopyd/` — Merge policy, retained state, accepted history and provenance.
 
-- [canopyd 001](canopy/001-pack-object-storage.md): measure storage before choosing packing or pruning.
-- [canopyd 002](canopy/002-composable-conflict-fragments.md): reassess only residual fragment-representation gaps against schema 12.
-- [canopyd 006 — Attribute accepted updates and show line provenance](canopy/006-line-provenance.md) — **P2 · PLANNED; depends on canopyd 007 and coordinates retained-root policy with canopyd 001.** Reuse canopyd's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
-- [canopyd 007 — Surface accepted document history from canopyd](canopy/007-canopy-document-history.md) — **P1 · PLANNED; execute before canopyd 006 and coordinate retained-root policy with canopyd 001.** Surface accepted document history and restore-as-new-change from canopyd while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
-- [canopyd 009](canopy/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
-- [canopyd 010 — Operations as evidence frames; history loaded lazily](canopy/010-operation-frames-and-lazy-history.md) — **P1 · PLANNED (approved 2026-09-19).** Optional root-to-root operation frames on the protocol, one frame per editor generation coalesced by concatenation, and a server that loads history by touched page with a deletion watermark instead of scanning it whole; collapsing old history is deferred.
+- [canopyd 001](canopyd/001-pack-object-storage.md): measure storage before choosing packing or pruning.
+- [canopyd 002](canopyd/002-composable-conflict-fragments.md): reassess only residual fragment-representation gaps against schema 12.
+- [canopyd 006 — Attribute accepted updates and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; depends on canopyd 007 and coordinates retained-root policy with canopyd 001.** Reuse canopyd's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
+- [canopyd 007 — Surface accepted document history from canopyd](canopyd/007-canopy-document-history.md) — **P1 · PLANNED; execute before canopyd 006 and coordinate retained-root policy with canopyd 001.** Surface accepted document history and restore-as-new-change from canopyd while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
+- [canopyd 009](canopyd/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
+- [canopyd 010 — Operations as evidence frames; history loaded lazily](canopyd/010-operation-frames-and-lazy-history.md) — **P1 · PLANNED (approved 2026-09-19).** Optional root-to-root operation frames on the protocol, one frame per editor generation coalesced by concatenation, and a server that loads history by touched page with a deletion watermark instead of scanning it whole; collapsing old history is deferred.
 
 ## CLI and external agents
 

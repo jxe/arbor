@@ -435,7 +435,7 @@ a schema 3 journal's flat operation list is read once as that same single frame
 and rewritten, in both the Swift and the TypeScript queue. `request(through:)`
 is unchanged: it still concatenates each record's element in dependency order.
 
-Phase 3 of [plan 010](../plans/canopy/010-operation-frames-and-lazy-history.md)
+Phase 3 of [plan 010](../plans/canopyd/010-operation-frames-and-lazy-history.md)
 is what makes the chain longer than one, by emitting a frame per coalesced
 editor generation instead of re-deriving one claim against the oldest basis.
 

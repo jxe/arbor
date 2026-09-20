@@ -677,7 +677,11 @@ type CandidateUpdate = TransitionPayload & {
 selects snapshot semantics. A trace is a chain of tree-root to tree-root frames
 that fully explains the candidate using [source operations](10-source-intent.md);
 every frame must reproduce its own result. An empty trace is valid only for an
-explicit resolution with no content edits.
+explicit resolution with no content edits. A trace carries at most 64 frames
+and 1024 operations. A trace is evidence the authority checks in full, never a
+hint it may skip. There is no capability-discovery endpoint or negotiation
+mechanism: a request the authority does not support fails closed with no
+translation and no alternate route.
 `resolves` declares guarded decisions endorsed by this candidate; empty means none.
 These fields are required, included
 in request identity, and preserved verbatim in an adopted or retried prefix.

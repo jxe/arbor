@@ -4,7 +4,7 @@ This document describes how to work on the reference implementation. It is not a
 
 ## Requirements and setup
 
-The TypeScript workspace uses Bun 1.3.14 (pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Canopy for the web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
+The TypeScript workspace uses exactly Bun 1.3.14 (a newer Bun canary crashed the parallel test suite; pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Canopy for the web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
 
 ```sh
 bun install
@@ -18,8 +18,9 @@ Overstory's committed project metadata pins an exact released Quagmire version f
 GitHub. That is the default for contributors who are not changing the editor. Do
 not replace those committed dependencies with local paths.
 
-To develop Overstory and Quagmire together, clone Quagmire beside Overstory so the
-checkouts have this layout:
+To develop Overstory and Quagmire together, clone Quagmire beside this checkout
+so the layout is as below. The Quagmire directory must be named exactly
+`quagmire`: Xcode's package-identity override matches on that name.
 
 ```text
 src/
@@ -100,6 +101,7 @@ bun run test
 bun run test:protocol
 bun run build
 bun run test:performance
+bun test tests/unit/canopyd-merge tests/integration/canopyd-merge
 swift test --package-path canopy-swift/Packages/ArborSyncClient
 git diff --check
 ```

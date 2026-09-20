@@ -6,7 +6,7 @@ September 19, 2026: batched durable object writes, `synchronous = NORMAL`, and p
 
 ## Baseline before operation frames (2026-09-19)
 
-Phase 0 of [plan 010](../plans/canopy/010-operation-frames-and-lazy-history.md)
+Phase 0 of [plan 010](../plans/canopyd/010-operation-frames-and-lazy-history.md)
 records what an edit costs before operations become frames and history is loaded
 lazily. Nothing here changes behaviour.
 

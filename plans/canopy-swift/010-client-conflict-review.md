@@ -4,7 +4,7 @@ Historical identifier: **Reliability 010**. The filename number is preserved; th
 
 Status: IN PROGRESS. Priority: P1. Native grouped review and generic editor accessories are
 implemented and integrated with main; they are not installed or manually
-verified. See the [implementation and verification checkpoint](../../docs/native-conflict-review.md).
+verified. The implemented behavior is listed at the end of this plan.
 The remaining Phase 1 work below precedes finer contextual editor work.
 
 ## Outcome and ownership
@@ -19,7 +19,7 @@ specified in 004 (completed plan, deleted; see git history). Its old
 rejected-candidate workflow is not the implementation model. Preserve relevant
 source-fidelity and crash-safety scenarios, not its retired client conflict machine.
 [008](008-complete-native-move-copy-undo-capture.md) owns operation support and client emission;
-[009](../canopy/009-canopy-provenance-merges.md) owns better server reconciliation.
+[009](../canopyd/009-canopy-provenance-merges.md) owns better server reconciliation.
 [011](../verification/011-client-compatibility.md) owns compatible adoption. Filesystem
 review remains separate from the Native working tree.
 
@@ -28,8 +28,8 @@ Before implementation inspect git status, current source and tests, especially
 [accepted inspection types](../../packages/protocol/src/updates/accepted-contract.ts),
 [authored operations and resolution declarations](../../packages/protocol/src/updates/authored-contract.ts),
 and the [live source-admission tests](../../canopy-swift/Packages/CanopyWorkingTree/Tests/CanopyWorkingTreeTests/LiveSourceAdmissionTests.swift).
-Use the [deployed acceptance checkpoint](../../docs/accepted-entry-conflicts.md)
-and [queue checkpoint](../../docs/source-admission-queue.md) for implementation
+Use the conflict inspection contract in [the reference implementation](../../docs/reference-implementation.md#conflict-inspection)
+and the admission invariants in [client state machines](../../docs/client-state-machines.md#9-admission-invariants-and-trace-compaction) for implementation
 history, not as a substitute for checking current code.
 
 The shared client owns pinned inspection, durable drafts, guarded submission and
@@ -43,7 +43,7 @@ TypeScript, conformance fixtures and the client state-machine specification.
 
 The implemented sidebar list, page markers, exact-source comparison/composition,
 draft persistence, source-range resolution, grouped structural resolution and generic Quagmire accessories are documented in the
-[checkpoint](../../docs/native-conflict-review.md). Keep their supported scope and
+list at the end of this plan. Keep their supported scope and
 conservative accepted-state freshness checks explicit while completing this phase.
 
 - Complete the [Native hands-on release gate](../verification/release-and-soak.md#native-release-and-hands-on-review)
@@ -102,3 +102,23 @@ provenance visualization and post-acceptance causal undo are not first-release
 requirements. Local draft editing may be undone before submission; do not simulate
 causal undo afterward by restoring an old whole-tree snapshot. Merge binary design
 and operation expansion remain separate work, not prerequisites for this UI.
+
+## Implemented behavior to preserve
+
+- The host requires exact accepted-state guards, so any accepted-state change
+  requires explicit review of the latest evidence, even when projected bytes
+  are equal or the update is unrelated. Relaxing this needs a compatible host
+  and client policy together.
+- Sources beyond 4,000 combined lines bypass line diffing and are shown as raw
+  source. Byte ranges are never presented as guessed paragraph locations until
+  a validated source-to-block mapping exists.
+- Alternative material is read through the ordinary `object(tree, hash)`
+  route. A newer local draft is not removed by an older accepted submission;
+  retirement compares a byte-preserving draft hash.
+- The review state lives in `sync/conflict-review.json` (schema 2, reads 1).
+  The UI depends on Quagmire 0.8.0's `EditorAccessory` API.
+
+Known gaps: interactive focus, selection, scroll, VoiceOver, large text, and
+IME remain a manual gate on both platforms; binary rendering and export and
+format-specific reconstruction are outside the surface; there is no
+TypeScript review controller.

@@ -4,7 +4,7 @@
 > gates from [DEVELOPMENT.md](../../DEVELOPMENT.md). Browser acceptance remains
 > required where this plan changes browser behavior: establish focused coverage
 > for available surfaces, and coordinate restored editor E2E with
-> [Web 025](../web/025-arbor-web.md) (formerly Web 023). Do not claim
+> [Web 025](../canopy-web/025-arbor-web.md) (formerly Web 023). Do not claim
 > browser verification from a passing build alone.
 
 Historical identifier: **Smaller project 006**. The filename number is preserved; this plan now belongs to canopy.

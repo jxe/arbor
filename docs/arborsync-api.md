@@ -3,9 +3,7 @@
 
 The current version is Arbor Sync REST v1.
 
-The [consolidated canopyd Overstory contract](update-protocol.md) is specified ahead
-of implementation, with paired target models and fixtures. Active Overstory submission
-still uses the current encoding; these local REST routes and filesystem scheduling
+The protocol request grammar is in [tree operations §2.1](../spec/01-tree-operations.md#21-the-update-request); these local REST routes and filesystem scheduling
 do not acquire new capabilities from that specification.
 
 Arbor Sync makes placed folders content-addressable and keeps each one equal

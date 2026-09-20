@@ -86,7 +86,7 @@ fifteen minutes; the rehearsal is where the time should go.
    bun run migrations/tools/authored-manifest.ts write authored-before.json <placement paths…>
    cp -a ~/.arbor dot-arbor.before
    ```
-5. **Quiesce writers.** `bun run arbor daemon stop`; make sure Overstory is not
+5. **Quiesce writers.** `bun run arbor daemon stop`; make sure Canopy is not
    running on the iPhone.
 6. **Deploy once.** `railway up --detach -y`, then poll `railway deployment
    list` until the build succeeds (a few minutes). The new server finds the
@@ -149,9 +149,27 @@ will not fire.
 - Agents are refused deletes on Railway; deletion steps are for a person.
 - Never put credentials, digests, or content in a report or shell history.
 
+## Schema history
+
+canopyd stamps its SQLite schema version and refuses to serve a newer stamp
+than it understands. The stamps that have shipped:
+
+| Schema | Change |
+|---|---|
+| 8 | Accepted records store predecessor IDs and unresolved flags; retention may remove a predecessor without changing its successor's link. |
+| 9 | `authored_changes`: exact operations and evidence stored atomically with the accepted record, ref, and observation; owning accepted records protected by a foreign key; basis and candidate roots are explicit retention dependencies. Compaction must keep those graphs and the operation records together. |
+| 10 | `accepted_conflicts`: competing entries retained as whole-entry choices. |
+| 11 | Optional physical parent path on the private entry encoding; missing parents keep the historical root meaning. |
+| 12 | `accepted_merge_states`, owned by the accepted update ID: accepted and authored state hashes, public inspections, the complete immutable dependency closure, original intent and validation evidence. The accepted row, inspection ownership, and transition commit in one transaction; objects are hash-verified and durably stored first; schema-11 records stay readable. |
+| 13 | Resource policy: governed rule index persisted in the accepted transaction, plus a durable account format marker (set by migration 011 even for all-private configurations) that rejects old privilege writes after conversion. Required matching Mac and iPhone clients. |
+
+Client-side formats have their own ladders, recorded in [the local system
+reference](../docs/local-system.md): iOS working-tree format marker 4, local
+update-control schema 3 (source mode), and admission journal schemas 2 to 4.
+
 ## Writing the next migration
 
-Copy `001-if-match-and-model-hash/` as the template: a `README.md` with the
+Copy the most recent migration directory (today `013-compact-merge-evidence/`) as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice);
 a `migrate.test.ts` runnable with

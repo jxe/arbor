@@ -3,7 +3,7 @@
 This records the completed tool-only scope of
 Reliability 013 (completed plan, deleted; see git history).
 It runs in `codex/merge-tool`; it is not deployed. Canopy integration is described in the [authority checkpoint](merge-authority-integration.md);
-future retention extensions remain in [009](../plans/canopy/009-canopy-provenance-merges.md), and editor capture is
+future retention extensions remain in [009](../plans/canopyd/009-canopy-provenance-merges.md), and editor capture is
 [008](../plans/canopy-swift/008-complete-native-move-copy-undo-capture.md). No public Wire or client
 state-machine change accompanies this implementation.
 
@@ -64,7 +64,7 @@ deterministically. Canopy still owns durable request receipts and accepted ident
 
 ## Operations as frames
 
-Since [Canopy 010](../plans/canopy/010-operation-frames-and-lazy-history.md)
+Since [Canopy 010](../plans/canopyd/010-operation-frames-and-lazy-history.md)
 Phase 1, the evaluator reads a change's operations as a **trace**: a chain of
 frames, each carrying the operations that take one tree root to the next.
 

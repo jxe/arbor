@@ -28,11 +28,11 @@ hashes, collection-file child-set hashes, and schema fingerprints) uses this enc
 
 `client-state-machines.json` freezes the transition scenarios of the two
 client state machines: `document-admission` for an editor against its
-working tree's document session (`DocumentAdmissionMachine` in `ArborKit`,
-`reduceAdmission` in `@overstory/protocol`; one transport, a rejected admission runs
+working tree's document session (`DocumentAdmissionMachine` in `CanopyAppKit`,
+`reduceAdmission` in `@overstory/client`; one transport, a rejected admission runs
 the host's local merge helper), and `working-tree-updates` for the update
 machine a working tree runs against Overstory (`UpdateMachine` in
-`ArborWorkingTree`, `reduceUpdate` in `@overstory/client`; every working
+`CanopyWorkingTree`, `reduceUpdate` in `@overstory/client`; every working
 tree is a source, there is no filesystem role). Roots, updates, cursors, and
 digests are tokens. The `working-tree-updates` scenarios include adoption: a request whose
 leading elements were adopted from another working tree resubmits them
@@ -61,15 +61,11 @@ fixed count cap without duplicating fixture text. The previous deployed-format
 `protocol-update-intent.json` and `protocol-operations.json` remain compatibility evidence.
 
 `accepted-ambiguity.json` records planned semantic scenarios, not executable claims
-that host supports those effects. See the [target contract and adoption boundary](../docs/update-protocol.md)
-and [Plan 011](../plans/verification/011-client-compatibility.md).
-
-
-`causal-undo.json` binds the Swift/TypeScript source-admission transaction trace:
-coalesced undo names the original transactions in reverse order, and redo names
-the inverse group. Both queues verify the historical operation targets and retain
-them through settlement and restart. Its edit offsets and lengths are UTF-8 byte
-coordinates; the trace is client admission metadata, not an additional Overstory format.
+that a host supports those effects. `protocol-operations.json` and
+`protocol-update-intent.json` are likewise grammar and digest vectors: they do
+not assert that their effects execute today. [status.md](../status.md) is the
+authority for the implemented subset; the request grammar itself is in
+[tree operations §2.1](../spec/01-tree-operations.md#21-the-update-request).
 
 - `cross-document-copy.json` supplies the same exact UTF-8 source span, destination
   and foreign-document capture to Swift and TypeScript admission tests. Both must
@@ -78,4 +74,30 @@ coordinates; the trace is client admission metadata, not an additional Overstory
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
 
-- `resource-policy.json`: shared valid/invalid `who` / `via` / `allow` / `within` grammar, consumed by TypeScript and Swift ArborWire.
+- `resource-policy.json`: shared valid/invalid `who` / `via` / `allow` / `within` grammar, consumed by `@overstory/protocol` and Swift `Overstory`.
+
+## Index
+
+| Vector | Binds |
+|---|---|
+| `accepted-ambiguity.json` | Planned semantic conflict scenarios (not executable claims) |
+| `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
+| `client-state-machines.json` | Document admission and working-tree update machines |
+| `configuration-yaml.json` | `account.yaml`, `trees.yaml`, `devices.yaml` parsing and validation |
+| `cross-document-copy.json` | Cross-document copy capture in both admission queues |
+| `directory-documents.json` | Directory document projection (spec 02) |
+| `entry-actions.json` | Entry move, copy, remove, and restore semantics |
+| `errors.json` | Protocol error shapes and codes |
+| `node-model.json` | Provider-neutral node model decoding |
+| `node-targets.json` | Node target resolution |
+| `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid |
+| `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
+| `resource-policy.json` | `who` / `via` / `allow` / `within` rule grammar |
+| `source-admission-queue.json` | Admission queue records and trace compaction (`traces`) |
+| `source-copy.json`, `source-preservation.json` | Source transfer and exact-byte preservation |
+| `url-resolution.json` | Locator resolution (spec 03) |
+| `protocol-accepted-state.json`, `protocol-accepted-transport.json` | Accepted states, receipts, inspection, and catch-up transport |
+| `protocol-authored-updates.json`, `protocol-authored-transport.json` | The authored request grammar, digests, and transport encodings |
+| `protocol-endpoints.json` | Route shapes |
+| `protocol-graphs.json`, `protocol-objects.json`, `protocol-object-deltas.json`, `protocol-snapshot-bundles.json`, `protocol-values.json` | Objects, directory graphs, deltas, snapshot bundles, and canonical values |
+| `protocol-operations.json`, `protocol-update-intent.json` | Source operations and the update digest |

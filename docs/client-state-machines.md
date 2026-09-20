@@ -18,14 +18,13 @@ the editor host (`ArborDocumentBinding` today; the Plan B web editor later)
 runs the effects.
 
 The target admission policy is [exact authored basis](../spec/09-client-synchronization.md#exact-authored-basis).
-The reference implementation is in transition: both reducers now capture base source
-and revision in each admission effect; Native delivers a validated source intent and
-retains its guarded patch in independent recovery. The [durable source admission queue](source-admission-queue.md) now retains tree
-bases and explicit dependencies. Swift sessions and publication consume those
-records behind an opt-in gate; TS integration and deployed server coverage remain
-before enabling stale-basis admission in installed clients.
-The `conflict` phase and `mergeLocally` effect below are legacy compatibility behavior,
-not the target policy for concurrent canopyd edits. Existing recovery remains readable.
+Both reducers capture base source and revision in each admission effect. The
+durable source admission queue (`SourceAdmissionQueue` in `CanopyWorkingTree`
+and `@overstory/client`; journals described in [the local system](local-system.md#source-admission-journals))
+retains tree bases and explicit dependencies. Installed Canopy clients use it;
+the TypeScript session and publisher are library APIs not yet connected to an
+editor host. The `conflict` phase and `mergeLocally` effect below are legacy
+compatibility behavior, not the target policy for concurrent host edits.
 
 ## 1. Three layers, three clocks
 
@@ -48,8 +47,6 @@ session uses `retainedBasis`: it durably queues exact intent before acknowledgem
 and recovered drafts retain their original basis and patch without local review.
 The default `compareAndSwap` policy preserves legacy provider behavior during the
 transition. This is a local provider contract, not canopyd operation advertisement.
-See the [source admission integration](source-admission-queue.md#swift-session-and-publication-integration)
-for the current opt-in boundary and remaining release gates.
 
 ## 2. States and retained data
 
@@ -230,8 +227,7 @@ history boundaries.
 ## 8. The update machine and its coordinator
 
 The update machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`)
-and `reduceUpdate` (`@overstory/client`, moving to `@overstory/working-tree`
-in Plan B). Both execute the `working-tree-updates` scenarios in
+and `reduceUpdate` (`@overstory/client`). Both execute the `working-tree-updates` scenarios in
 [`conformance/client-state-machines.json`](../conformance/client-state-machines.json).
 Its transitions are the spec's; this section is about the runner around it.
 
@@ -294,8 +290,7 @@ and watch still install only canopyd's accepted projection into the accepted tre
 Native always enables source admission. Its constructor refuses old pending
 snapshot work rather than selecting a legacy conflict workflow, and source journals
 cannot downgrade to snapshot mode. Clean older controls can activate source mode.
-The [installed cutover](native-source-cutover.md) verified both devices had no
-retained legacy work before retiring that path. Local filesystem document CAS and
+Local filesystem document CAS and
 divergent editor-recovery drafts remain separate from accepted canopyd conflicts.
 
 For source-enabled Native, structural admission is available only when pending
@@ -313,3 +308,33 @@ advertise that restriction; the coordinator enforces it independently of UI stat
 Publication continues and the restriction is recomputed as canopyd accepts work.
 The queue and accepted-change receipts reconstruct this policy after restart;
 there is no separate view cache, local merge engine or client-owned conflict.
+
+## 9. Admission invariants and trace compaction
+
+These rules hold in both queues and are checked by
+`conformance/source-admission-queue.json`:
+
+- Root equality never chooses which parent an author meant. A candidate graph
+  must equal its child's basis; matching bytes are not lineage.
+- A retried suffix repeats the original accepted prefix. It never rebases onto
+  a visible peer state, and a client never rebases a successor locally to
+  bypass the host's guard; that is the host's decision.
+- The first save of an empty directory body creates an explicit snapshot. A
+  client never invents an empty file hash to use as source material.
+- Source edits against an accepted basis may ship the edited file as an object
+  delta when that is smaller. Chained authored records always send the whole
+  file, because the host resolves delta bases against the accepted base root
+  before the request's own objects are stored.
+
+<a id="trace-compaction"></a>
+**Trace compaction.** A debounced burst is one admission and normally one
+frame per editor generation. Adjacent plain frames compact: every operation
+must be a lineage-free `editSource` over `basis` material with a range, the
+generations compose per path through `composeSourceEdits`, the composed
+operations are keyed `edit-<k>-<i>` in output order, and a run that returns to
+its starting root yields no frame. Frames carrying lineage, copies, or
+operation material name the generation they were captured against and are
+never merged. A trace that would exceed the protocol's 64 frames or 1024
+operations is dropped to `trace: null`; exact bytes stay authoritative. The
+same rule runs in the host's `composeFrames`, which proves a composition by
+executing it.
