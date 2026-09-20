@@ -15,15 +15,15 @@ Historical identifier: **Smaller project 007**. The filename number is preserved
 > ```sh
 > git diff --stat 670a240..HEAD -- \
 >   packages/canopyd packages/protocol packages/arborsync packages/fs \
->   canopy-swift/Packages/Overstory canopy-swift/Packages/CanopyAppKit \
->   canopy-swift/Packages/ArborReplica canopy-swift/Packages/ArborSyncClient \
->   canopy-swift/Packages/CanopyEditor canopy-swift/CanopyApp canopy-swift/CanopyAppTests \
+>   swift/Packages/Overstory swift/Packages/CanopyAppKit \
+>   swift/Packages/ArborReplica swift/Packages/ArborSyncClient \
+>   swift/Packages/CanopyEditor swift/CanopyApp swift/CanopyAppTests \
 >   spec docs conformance tests migrations plans/canopy plans/postgres plans/cleanups plans/cli plans/native plans/web
 > git status --short -- \
 >   packages/canopyd packages/protocol packages/arborsync packages/fs \
->   canopy-swift/Packages/Overstory canopy-swift/Packages/CanopyAppKit \
->   canopy-swift/Packages/ArborReplica canopy-swift/Packages/ArborSyncClient \
->   canopy-swift/Packages/CanopyEditor canopy-swift/CanopyApp canopy-swift/CanopyAppTests \
+>   swift/Packages/Overstory swift/Packages/CanopyAppKit \
+>   swift/Packages/ArborReplica swift/Packages/ArborSyncClient \
+>   swift/Packages/CanopyEditor swift/CanopyApp swift/CanopyAppTests \
 >   spec docs conformance tests migrations plans/canopy plans/postgres plans/cleanups plans/cli plans/native plans/web
 > ```
 >
@@ -243,9 +243,9 @@ Expected implementation scope:
   disposable `packages/canopyd/migrations/NNN-document-history/`;
 - `packages/arborsync/src/` and `packages/fs/src/` only to preserve and relabel
   filesystem recovery and, if required, add the thin authenticated proxy;
-- `canopy-swift/Packages/Overstory`, `CanopyAppKit`, `ArborSyncClient`, and `CanopyEditor`
+- `swift/Packages/Overstory`, `CanopyAppKit`, `ArborSyncClient`, and `CanopyEditor`
   session/binding code and tests; and
-- `canopy-swift/CanopyApp`, `canopy-swift/CanopyAppTests`, `docs/arborsync-api.md`,
+- `swift/CanopyApp`, `swift/CanopyAppTests`, `docs/arborsync-api.md`,
   `docs/reference-implementation.md`, and the two coordinated plan files.
 
 Out of scope:
@@ -283,7 +283,7 @@ stop/restart Arbor Sync, or launch the app unless Joe separately authorizes it.
 ```sh
 bun run typecheck
 bun run test:protocol
-swift test --package-path canopy-swift/Packages/Overstory
+swift test --package-path swift/Packages/Overstory
 ```
 
 Expected: all commands exit zero and TS/Swift accept and reject the same cases.
@@ -324,11 +324,11 @@ shows unchanged accepted rows, observations, roots, and object hashes.
 **Verify:**
 
 ```sh
-swift test --package-path canopy-swift/Packages/ArborSyncClient
-canopy-swift/scripts/test-canopy-editor-local.sh
+swift test --package-path swift/Packages/ArborSyncClient
+swift/scripts/test-canopy-editor-local.sh
 bun test tests/integration/server.test.ts
 rg -n 'client\.recovery|restoreRecovery|No local recovery history' \
-  canopy-swift/Packages/ArborSyncClient canopy-swift/CanopyApp
+  swift/Packages/ArborSyncClient swift/CanopyApp
 ```
 
 Expected: tests exit zero; the final `rg` has no production History mapping
@@ -343,12 +343,12 @@ affected by the session/API changes:
 bun run typecheck
 bun run test:protocol
 bun test
-swift test --package-path canopy-swift/Packages/Overstory
-swift test --package-path canopy-swift/Packages/ArborSyncClient
-canopy-swift/scripts/test-canopy-editor-local.sh
-xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -sdk macosx \
+swift test --package-path swift/Packages/Overstory
+swift test --package-path swift/Packages/ArborSyncClient
+swift/scripts/test-canopy-editor-local.sh
+xcodebuild -workspace swift/Canopy.local.xcworkspace -scheme Canopy -sdk macosx \
   -derivedDataPath /tmp/arbor-canopy-history-macos CODE_SIGNING_ALLOWED=NO build
-xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -sdk iphonesimulator \
+xcodebuild -workspace swift/Canopy.local.xcworkspace -scheme Canopy -sdk iphonesimulator \
   -derivedDataPath /tmp/arbor-canopy-history-ios CODE_SIGNING_ALLOWED=NO build
 git diff --check
 ```

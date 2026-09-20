@@ -1262,7 +1262,7 @@ class Engine {
         for (const branch of parent.alternatives) {
           const context = await this.context(branch.state),
             retained = context.decisions.find((d) => d.key === decision.key);
-          // A dependency can be present only in another altercanopy-swift/context.
+          // A dependency can be present only in another alterswift/context.
           if (!retained || retained.context) continue;
           const updated = clone(decision);
           delete updated.context;

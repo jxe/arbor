@@ -4,7 +4,7 @@ Status: PLANNED (approved 2026-09-19, not started). Sole user; wire changes are 
 breaks, but Phase 2 ships Mac, iPhone and server together. Related:
 [canopyd 001](001-pack-object-storage.md) (retained roots stay retained; nothing here prunes),
 [canopyd 006](006-line-provenance.md) / [007](007-canopy-document-history.md) (archival
-states remain their retained roots), [Native 008](../canopy-swift/008-complete-native-move-copy-undo-capture.md)
+states remain their retained roots), [Native 008](../swift/008-complete-native-move-copy-undo-capture.md)
 (client capture that Phase 3 replaces), and the measurements in
 the deleted performance log (git history: `docs/canopy-update-performance.md`; its surviving facts are at the end of this plan).
 
@@ -126,7 +126,7 @@ together for Phase 2.
   have `operations.length > 0`. `intent.ts`: canonical field `trace`; bump
   `domain` to `arbor-update/2` so old receipts cannot collide. `types.ts:75`
   follows.
-- Swift mirror: `canopy-swift/Packages/Overstory/.../WireAuthoredContract.swift`
+- Swift mirror: `swift/Packages/Overstory/.../WireAuthoredContract.swift`
   (:117, :137-150), `WireModels.swift:489-524` `WireCandidateUpdate.trace`.
 - canopyd: `canopy.ts:1186, 1198, 1233, 1304` `operations !== null` → `trace !== null`;
   `merge-state-store.ts` request shape; `source-intent-store.ts` `operations_json`
@@ -134,7 +134,7 @@ together for Phase 2.
   (`tests/unit/canopyd/schema-migration.test.ts`); `merge-tool.ts` `"trace" in
   request.incoming`.
 - Clients: `packages/client/src/source-admission-queue.ts:144-160` and
-  `canopy-swift/.../SourceAdmissionQueue.swift:132-174` emit one frame per record;
+  `swift/.../SourceAdmissionQueue.swift:132-174` emit one frame per record;
   journal schema 4 converts stored `update.operations`. `request(through:)` unchanged.
 - Conformance: regenerate `protocol-authored-updates.json`, `protocol-update-intent.json`,
   `protocol-authored-transport.json`, `source-admission-queue.json`,
@@ -144,10 +144,10 @@ together for Phase 2.
   logs `trace-frames: 1`.
 
 ### Phase 3 — Client coalescing: one frame per generation
-- `canopy-swift/Packages/CanopyAppKit/.../DocumentAdmissionMachine.swift`: keep the list
+- `swift/Packages/CanopyAppKit/.../DocumentAdmissionMachine.swift`: keep the list
   of generations since the last admission (each with its captured patch,
   lineage, copies and source hash) instead of only the latest.
-- `canopy-swift/Packages/CanopyEditor/.../ArborDocumentBinding.swift:510-548`:
+- `swift/Packages/CanopyEditor/.../ArborDocumentBinding.swift:510-548`:
   `persist` builds one frame per generation against the previous generation's
   ledger and hands the list to the queue. Delete the "captured intent mismatch"
   fail-closed branch and the exact-source fallback.
@@ -263,8 +263,8 @@ current states still reference through their change envelopes.
 
 ## Verification
 - Per phase: `bun run typecheck`, `bun run test`, `bun run test:protocol`,
-  `swift test --package-path canopy-swift/Packages/CanopyWorkingTree`,
-  `canopy-swift/scripts/test-canopy-editor-local.sh`, both app builds.
+  `swift test --package-path swift/Packages/CanopyWorkingTree`,
+  `swift/scripts/test-canopy-editor-local.sh`, both app builds.
 - Live: the canopyd update log line (`trace-frames`, `body-bytes`, `w-path`,
   `history-mb`, `retention`) and Native's network log (`out=` bytes, `note`
   rows) before and after each deployed phase; `docs/canopy-update-performance.md`

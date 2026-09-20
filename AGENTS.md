@@ -16,7 +16,7 @@ first. The points below are the ones that most often go wrong for an agent.
   test.
 - Never `swift build` or `swift test` the `CanopyEditor` package standalone
   while its Quagmire dependency is in editable mode; use
-  `canopy-swift/scripts/test-canopy-editor-local.sh`, which preserves the
+  `swift/scripts/test-canopy-editor-local.sh`, which preserves the
   tracked lock. Both Quagmire pins must name the same exact release, and a
   local path never lands in a committed manifest.
 - Live data, installed apps, and the public host are never changed without

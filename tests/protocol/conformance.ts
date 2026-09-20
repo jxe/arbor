@@ -119,8 +119,8 @@ try {
       if (!placed?.root || !placed.update) throw new Error("Placed tree did not record its accepted base");
 
       const daemon = { ARBOR_TEST_URL: control.url, ARBOR_TEST_TREE: tree };
-      await run(["swift", "test", "--package-path", "canopy-swift/Packages/ArborSyncClient"], { ...fixtures, ...daemon });
-      await run(["swift", "test", "--package-path", "canopy-swift/Packages/CanopyAppKit"], fixtures);
+      await run(["swift", "test", "--package-path", "swift/Packages/ArborSyncClient"], { ...fixtures, ...daemon });
+      await run(["swift", "test", "--package-path", "swift/Packages/CanopyAppKit"], fixtures);
       // Exercise a real accepted conflict through the baseline filesystem client.
       const basis = (await owner.descriptor(tree)).tree;
       const snapshot = await owner.snapshot(tree, basis.root);
@@ -159,14 +159,14 @@ try {
       ARBOR_WIRE_TEST_TOKEN: authorityToken,
       ARBOR_WIRE_TEST_TREE: tree,
     };
-    await run(["swift", "test", "--package-path", "canopy-swift/Packages/Overstory"], { ...fixtures, ...wire });
-    await run(["swift", "test", "--package-path", "canopy-swift/Packages/OverstoryClient"], { ...fixtures, ...wire });
-    await run(["swift", "test", "--package-path", "canopy-swift/Packages/CanopyWorkingTree"], {
+    await run(["swift", "test", "--package-path", "swift/Packages/Overstory"], { ...fixtures, ...wire });
+    await run(["swift", "test", "--package-path", "swift/Packages/OverstoryClient"], { ...fixtures, ...wire });
+    await run(["swift", "test", "--package-path", "swift/Packages/CanopyWorkingTree"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
       ARBOR_REVIEW_TEST_TREES: JSON.stringify(reviewTrees),
     });
-    await run(["canopy-swift/scripts/test-canopy-editor-local.sh", "--filter", "LiveEditorAdmissionTests"], {
+    await run(["swift/scripts/test-canopy-editor-local.sh", "--filter", "LiveEditorAdmissionTests"], {
       ...fixtures, ARBOR_CROSS_DOCUMENT_TEST_TREE: crossDocumentTree, ARBOR_SOURCE_TEST_URL: canopy.url,
       ARBOR_SOURCE_TEST_TOKEN: authorityToken, ARBOR_SOURCE_TEST_TREE: sourceTree,
     });

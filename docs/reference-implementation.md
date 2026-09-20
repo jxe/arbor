@@ -9,7 +9,7 @@ behavior below is installed or deployed.
 
 Five components, two languages. Every TypeScript package lives under
 `packages/<name>` and is published as `@overstory/<name>`; every Swift
-package lives under `canopy-swift/Packages/<Name>`.
+package lives under `swift/Packages/<Name>`.
 
 | Component | TypeScript | Swift | Owns |
 |---|---|---|---|
@@ -54,8 +54,8 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 | `ArborSyncClient` | The loopback REST client for the daemon and its process supervisor | CanopyAppKit, OverstoryObjectStore, Overstory |
 | `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec, editor recovery, conflict analysis | ArborSyncClient, CanopyAppKit, Quagmire |
 
-`canopy-swift/Canopy.xcodeproj` is generated from `canopy-swift/project.yml`
-by xcodegen and committed; see [canopy-swift/README.md](../canopy-swift/README.md).
+`swift/Canopy.xcodeproj` is generated from `swift/project.yml`
+by xcodegen and committed; see [swift/README.md](../swift/README.md).
 
 ## Runtime ownership
 

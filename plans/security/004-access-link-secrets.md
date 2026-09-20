@@ -152,9 +152,9 @@ Run:
 ```sh
 bun test tests/integration/canopyd/update-host.test.ts tests/integration/system-trees.test.ts
 bun run typecheck
-swift test --package-path canopy-swift/Packages/OverstoryClient
-xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' build
-xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' build
+swift test --package-path swift/Packages/OverstoryClient
+xcodebuild -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' build
+xcodebuild -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' build
 git diff --check
 ```
 

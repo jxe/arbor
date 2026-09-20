@@ -6,10 +6,10 @@ test-results/
 /.backups/
 .DS_Store
 .env
-canopy-swift/Packages/*/.build/
-canopy-swift/Packages/*/.swiftpm/
-canopy-swift/Packages/*/Packages/
-canopy-swift/*.local.xcworkspace/
-canopy-swift/*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+swift/Packages/*/.build/
+swift/Packages/*/.swiftpm/
+swift/Packages/*/Packages/
+swift/*.local.xcworkspace/
+swift/*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 xcuserdata/
 .claude/

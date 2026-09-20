@@ -253,10 +253,10 @@ bun run typecheck
 bun run test:protocol
 bun test
 bun run build
-swift test --package-path canopy-swift/Packages/ArborSyncClient
-swift test --package-path canopy-swift/Packages/Overstory
-xcodebuild build -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
+swift test --package-path swift/Packages/ArborSyncClient
+swift test --package-path swift/Packages/Overstory
+xcodebuild build -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 

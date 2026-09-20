@@ -4,7 +4,7 @@
 >
 > **Companion**: [surfaces.md](surfaces.md) is the surface-by-surface inventory this plan builds from; every surface there names its phase here.
 >
-> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy canopy-swift/ArborApp canopy-swift/Packages/CanopyEditor conformance docs/client.md docs/arborsync-api.md` against the commit this plan is written at.
+> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy swift/ArborApp swift/Packages/CanopyEditor conformance docs/client.md docs/arborsync-api.md` against the commit this plan is written at.
 
 ## Status
 
@@ -13,7 +13,7 @@
 - **Risk**: MEDIUM (B1), MEDIUM (B2: new canopyd surface and browser credential), LOW (B3)
 - **Depends on**: historical Native 022 (implemented and live); Native 022 soak closeout in [release and soak](../verification/release-and-soak.md)
 - **Supersedes**: Web 023 (completed plan, deleted; see git history) (its library and endpoint-removal steps are folded into B1 and B2 below), Web 008 (completed plan, deleted; see git history) (its parity targets are restated per surface in [surfaces.md](surfaces.md)), and the shell items of Web 005 (completed plan, deleted; see git history) (its remaining editor-depth items become the B3 backlog at the end of this plan). Moved to `_done/web/` on 2026-09-19.
-- **Written at**: 2026-09-19, native reference `canopy-swift/ArborApp` and `canopy-swift/Packages/CanopyEditor` at HEAD
+- **Written at**: 2026-09-19, native reference `swift/ArborApp` and `swift/Packages/CanopyEditor` at HEAD
 
 ## Why this matters
 
@@ -131,7 +131,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 
 ### B3 — choice review and editor depth
 
-**Phase 9 — conflict review.** Surface [13](surfaces.md#13-conflict-and-choice-review): `ConflictReviewModel` over the coordinator's inspection routes; choices entry and list in the sidebar; the review panel anchored above the document (no accessory API in BlockNote; a document-anchored panel is enough) with previous/next choice, alternatives, remove toggle, composed source, destination, preview, apply, discard, retained-draft states; per-document conflict view with **Current / Mine / Both / Edit**; the line comparison. Track [Native 010](../canopy-swift/010-client-conflict-review.md) for finer source mapping; do not fork policy.
+**Phase 9 — conflict review.** Surface [13](surfaces.md#13-conflict-and-choice-review): `ConflictReviewModel` over the coordinator's inspection routes; choices entry and list in the sidebar; the review panel anchored above the document (no accessory API in BlockNote; a document-anchored panel is enough) with previous/next choice, alternatives, remove toggle, composed source, destination, preview, apply, discard, retained-draft states; per-document conflict view with **Current / Mine / Both / Edit**; the line comparison. Track [Native 010](../swift/010-client-conflict-review.md) for finer source mapping; do not fork policy.
 *Verify*: the live review scenarios from `docs/native-conflict-review.md` reproduced against disposable canopyd in Playwright.
 
 **Phase 10 — editor depth (the former Web 005 backlog, re-ranked).** Block navigation mode with contiguous selection; keyboard structural editing (Tab/Shift-Tab, ⌥↑/↓, ⌘↩, ⇧⌘P Move to sheet, Move Page sheet); heading folding with fold/unfold all; `:emoji` completion and document icon; Markdown-aware copy/paste; link previews; unsupported-block carrier display; drag handles with drop onto link rows and sidebar rows; multi-tab `SharedWorker` if the B1 soak asked for it. Each item is independently selectable after Phase 9.
@@ -145,7 +145,7 @@ bun run test:protocol
 bun run build
 bun run build:web
 bun run test:e2e
-swift test --package-path canopy-swift/Packages/CanopyWorkingTree
+swift test --package-path swift/Packages/CanopyWorkingTree
 git diff --check
 ```
 

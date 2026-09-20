@@ -2,7 +2,7 @@
 
 The TypeScript workspace. Each directory is one Bun workspace member published
 as `@overstory/<name>`; tests live in [`tests/`](../tests/README.md), not
-here. The Swift twins are under [`canopy-swift/`](../canopy-swift/README.md).
+here. The Swift twins are under [`swift/`](../swift/README.md).
 
 | Component | Package | Purpose |
 |---|---|---|

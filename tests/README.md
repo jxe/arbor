@@ -1,7 +1,7 @@
 # Tests
 
 TypeScript tests live here rather than inside `packages/`; Swift tests live in
-each package's own `Tests/` directory under `canopy-swift/Packages/`. Every
+each package's own `Tests/` directory under `swift/Packages/`. Every
 Bun test file is named `*.test.ts`.
 
 | Directory | What it holds | Runs with |

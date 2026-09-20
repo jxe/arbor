@@ -21,12 +21,12 @@ Historical identifier: **Smaller project 006**. The filename number is preserved
 > ```sh
 > git diff --stat 0ea0f31..HEAD -- \
 >   packages/canopyd packages/protocol packages/arborsync \
->   canopy-swift/Packages/Overstory canopy-swift/Packages/OverstoryClient canopy-swift/Packages/CanopyAppKit \
->   canopy-swift/CanopyApp spec conformance tests migrations plans/canopy
+>   swift/Packages/Overstory swift/Packages/OverstoryClient swift/Packages/CanopyAppKit \
+>   swift/CanopyApp spec conformance tests migrations plans/canopy
 > git status --short -- \
 >   packages/canopyd packages/protocol packages/arborsync \
->   canopy-swift/Packages/Overstory canopy-swift/Packages/OverstoryClient canopy-swift/Packages/CanopyAppKit \
->   canopy-swift/CanopyApp spec conformance tests migrations plans/canopy
+>   swift/Packages/Overstory swift/Packages/OverstoryClient swift/Packages/CanopyAppKit \
+>   swift/CanopyApp spec conformance tests migrations plans/canopy
 > ```
 >
 > Reconcile any changes to accepted-update shapes, schema version, update
@@ -111,7 +111,7 @@ only metadata for lines in the currently readable source; it reuses project
 007's document-version index instead of adding a second historical index.
 
 The native app already has `ArborSourceInspector` in
-`canopy-swift/CanopyApp/ArborDailyDriverViews.swift`. `CanopyAppKit` has local recovery
+`swift/CanopyApp/ArborDailyDriverViews.swift`. `CanopyAppKit` has local recovery
 history, but that is not canopyd accepted history and must not be relabeled as
 shared line provenance.
 
@@ -311,9 +311,9 @@ Expected implementation scope:
   `host.ts`, `updates/store.ts`, and one focused new provenance module;
 - `packages/protocol/src/` models, strict JSON decoding, exports, and client;
 - `packages/arborsync/src/service.ts` and `server.ts`, plus `packages/arborsync-client`;
-- `canopy-swift/Packages/Overstory`, `ArborSync`, and `CanopyAppKit` models, clients, and
+- `swift/Packages/Overstory`, `ArborSync`, and `CanopyAppKit` models, clients, and
   focused tests;
-- `canopy-swift/CanopyApp/ArborAppModel.swift`, `ArborRootView.swift`, and
+- `swift/CanopyApp/ArborAppModel.swift`, `ArborRootView.swift`, and
   `ArborDailyDriverViews.swift` for the first visible presentation;
 - `spec/01-tree-operations.md`, `spec/05-access-control.md`, conformance
   fixtures, reference implementation documentation, and focused Bun/Swift
@@ -407,7 +407,7 @@ fail with typed errors rather than high memory growth or partial results.
 bun run typecheck
 bun test tests/integration/canopyd/update-host.test.ts tests/integration/self-sync.test.ts
 bun run test:protocol
-swift test --package-path canopy-swift/Packages/ArborSyncClient
+swift test --package-path swift/Packages/ArborSyncClient
 ```
 
 Expected: TypeScript and Swift decode identical fixtures; current authorized
@@ -433,13 +433,13 @@ history or returns non-current source.
 **Verify:**
 
 ```sh
-swift test --package-path canopy-swift/Packages/Overstory
-swift test --package-path canopy-swift/Packages/OverstoryClient
-swift test --package-path canopy-swift/Packages/CanopyAppKit
-xcodebuild build -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy \
+swift test --package-path swift/Packages/Overstory
+swift test --package-path swift/Packages/OverstoryClient
+swift test --package-path swift/Packages/CanopyAppKit
+xcodebuild build -workspace swift/Canopy.local.xcworkspace -scheme Canopy \
   -destination 'platform=macOS' \
   -derivedDataPath /tmp/arbor-line-provenance-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy \
+xcodebuild build-for-testing -workspace swift/Canopy.local.xcworkspace -scheme Canopy \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath /tmp/arbor-line-provenance-ios CODE_SIGNING_ALLOWED=NO
 ```
@@ -499,7 +499,7 @@ bun run test
 bun run test:protocol
 bun run build
 bun run test:performance
-swift test --package-path canopy-swift/Packages/ArborSyncClient
+swift test --package-path swift/Packages/ArborSyncClient
 git diff --check
 ```
 

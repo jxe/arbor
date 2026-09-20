@@ -10,12 +10,12 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 ## Native clients
 
-`canopy-swift/` — Native placement, offline data, editor command capture and accepted-choice review.
+`swift/` — Native placement, offline data, editor command capture and accepted-choice review.
 
-- [Native 003 — Project collection files into native offline replicas](canopy-swift/003-native-offline-collection-file-projection.md) — **DEFERRED; depends on historical Data 002 and 011 and Apps 003.** Promote when offline collection-row browsing is selected as a product requirement; its plan does not currently authorize implementation.
-- [Native 006 — Preview and resume initial working-tree bootstrap](canopy-swift/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
-- [Native 008 — Complete native move, copy, and undo capture](canopy-swift/008-complete-native-move-copy-undo-capture.md) — **FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
-- [Native 010 — Extend accepted-choice review](canopy-swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
+- [Native 003 — Project collection files into native offline replicas](swift/003-native-offline-collection-file-projection.md) — **DEFERRED; depends on historical Data 002 and 011 and Apps 003.** Promote when offline collection-row browsing is selected as a product requirement; its plan does not currently authorize implementation.
+- [Native 006 — Preview and resume initial working-tree bootstrap](swift/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
+- [Native 008 — Complete native move, copy, and undo capture](swift/008-complete-native-move-copy-undo-capture.md) — **FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
+- [Native 010 — Extend accepted-choice review](swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
 
 ## Web client
 

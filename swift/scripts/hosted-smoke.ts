@@ -11,7 +11,7 @@
  * and the harness's test waits for the edit to reach the folder through
  * Canopy and the daemon.
  *
- *   bun canopy-swift/scripts/hosted-smoke.ts [extra xcodebuild arguments]
+ *   bun swift/scripts/hosted-smoke.ts [extra xcodebuild arguments]
  *
  * The Xcode project must already be generated (`cd native && xcodegen
  * generate`). Nothing here touches the user's real `~/.arbor` or Application

@@ -28,8 +28,8 @@ src/
 └── quagmire/
 ```
 
-Create a local Xcode workspace named `canopy-swift/Canopy.local.xcworkspace`, add
-`canopy-swift/Canopy.xcodeproj` and the sibling Quagmire package to it, and build the
+Create a local Xcode workspace named `swift/Canopy.local.xcworkspace`, add
+`swift/Canopy.xcodeproj` and the sibling Quagmire package to it, and build the
 `Canopy` scheme from that workspace. The workspace is ignored by Git. Xcode
 treats the local package as an override for the remote dependency with the same
 identity, so Overstory uses the Quagmire working tree while its published project
@@ -44,14 +44,14 @@ The standalone `CanopyEditor` package has its own SwiftPM dependency state. Put
 it in editable mode once if you run its tests directly:
 
 ```sh
-cd canopy-swift/Packages/CanopyEditor
+cd swift/Packages/CanopyEditor
 swift package edit quagmire --path ../../../../quagmire
 ```
 
 Run the local package tests through the repository wrapper:
 
 ```sh
-canopy-swift/scripts/test-canopy-editor-local.sh
+swift/scripts/test-canopy-editor-local.sh
 ```
 
 SwiftPM removes an editable dependency from `Package.resolved` whenever it runs.
@@ -59,19 +59,19 @@ The wrapper retains local editable resolution for the build, then restores the
 tracked published lock exactly so local testing does not dirty the repository.
 
 After a tested Quagmire revision is released, first leave the standalone
-package's editable mode, update the exact version in both `canopy-swift/project.yml`
-and `canopy-swift/Packages/CanopyEditor/Package.swift`, regenerate the project and
+package's editable mode, update the exact version in both `swift/project.yml`
+and `swift/Packages/CanopyEditor/Package.swift`, regenerate the project and
 standalone lock, then restore the local override:
 
 ```sh
-swift package --package-path canopy-swift/Packages/CanopyEditor unedit quagmire
-xcodegen generate --spec canopy-swift/project.yml --project canopy-swift
-swift package --package-path canopy-swift/Packages/CanopyEditor resolve
-swift package --package-path canopy-swift/Packages/CanopyEditor edit quagmire \
+swift package --package-path swift/Packages/CanopyEditor unedit quagmire
+xcodegen generate --spec swift/project.yml --project swift
+swift package --package-path swift/Packages/CanopyEditor resolve
+swift package --package-path swift/Packages/CanopyEditor edit quagmire \
   --path ../quagmire
 ```
 
-Commit `canopy-swift/Packages/CanopyEditor/Package.resolved` with the matching
+Commit `swift/Packages/CanopyEditor/Package.resolved` with the matching
 Quagmire pin and generated project. Editable mode remains local SwiftPM state;
 use the test wrapper above after restoring it so SwiftPM cannot leave the
 lockfile dirty.
@@ -109,13 +109,13 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
   adapter or framework only when a second concrete implementation needs it.
 - Preserve unrelated working-tree changes, and never rewrite completed
   historical evidence as if it were current planning.
-- Commit the regenerated `canopy-swift/Canopy.xcodeproj` whenever
-  `canopy-swift/project.yml` changes.
+- Commit the regenerated `swift/Canopy.xcodeproj` whenever
+  `swift/project.yml` changes.
 
 ## Vocabulary
 
 Overstory is the system and its protocol. canopyd is the reference host.
-Canopy is the browser family (`canopy-swift/`, `packages/canopy-web/`).
+Canopy is the browser family (`swift/`, `packages/canopy-web/`).
 Arbor names the local tools only: the `arbor` command, Arbor Sync, the
 `arbor://` scheme, the `.arbor` data home, and `ARBOR_*` variables.
 
@@ -137,7 +137,7 @@ bun run test:protocol
 bun run build
 bun run test:performance
 bun test tests/unit/canopyd-merge tests/integration/canopyd-merge
-swift test --package-path canopy-swift/Packages/ArborSyncClient
+swift test --package-path swift/Packages/ArborSyncClient
 bun run check:links
 git diff --check
 ```

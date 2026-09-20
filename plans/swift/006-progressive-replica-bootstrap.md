@@ -29,8 +29,8 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 >
 > ```sh
 > git diff --stat 9b7da49..HEAD -- \
->   canopy-swift/CanopyApp \
->   canopy-swift/Packages/OverstoryClient canopy-swift/Packages/Overstory \
+>   swift/CanopyApp \
+>   swift/Packages/OverstoryClient swift/Packages/Overstory \
 >   packages/canopyd packages/protocol tests docs spec/01-tree-operations.md
 > git status --short
 > ```
@@ -187,7 +187,7 @@ Required invariants:
 **In scope**:
 
 - a bootstrap reducer, durable checkpoint types, and placement effect runner
-  under `canopy-swift/Packages/OverstoryClient/Sources/OverstoryClient/`
+  under `swift/Packages/OverstoryClient/Sources/OverstoryClient/`
 - `ReplicaPlacementService` migration to that runner and a typed progress/
   preview/result API
 - `ArborWireClient` object fetch reuse plus streamed/resumable snapshot download
@@ -283,7 +283,7 @@ children, cycles, and a root mismatch exactly as the existing in-memory API
 does. Make `snapshot(tree:root:)` call the same validation core so there is one
 security boundary.
 
-**Verify**: `swift test --package-path canopy-swift/Packages/Overstory` passes with
+**Verify**: `swift test --package-path swift/Packages/Overstory` passes with
 stubbed split-body delivery, progress, resume, cancellation, response timeout,
 inactivity timeout, malformed ranges, and all existing codec vectors.
 
@@ -300,7 +300,7 @@ Change `ArborWorkspaceState.place` so a wire-format mismatch or replacement
 never deletes the current replica/sync state before the new staging replica is
 ready. Emit a typed installed handoff containing the pinned root/update/cursor.
 
-**Verify**: `swift test --package-path canopy-swift/Packages/OverstoryClient` passes with
+**Verify**: `swift test --package-path swift/Packages/OverstoryClient` passes with
 restart/fault injection at every durable boundary, exact partial reuse, corrupt
 partial recovery, no mutation of an existing replica on failure, exact snapshot
 round-trip, and one handoff only after successful promotion.
@@ -353,14 +353,14 @@ bun run typecheck
 bun run test:protocol
 bun run test
 bun run build
-swift test --package-path canopy-swift/Packages/Overstory
-swift test --package-path canopy-swift/Packages/ArborReplica
-swift test --package-path canopy-swift/Packages/OverstoryClient
-canopy-swift/scripts/test-canopy-editor-local.sh
+swift test --package-path swift/Packages/Overstory
+swift test --package-path swift/Packages/ArborReplica
+swift test --package-path swift/Packages/OverstoryClient
+swift/scripts/test-canopy-editor-local.sh
 git diff --check
 ```
 
-For iOS, build the ignored `canopy-swift/Canopy.local.xcworkspace` so the sibling
+For iOS, build the ignored `swift/Canopy.local.xcworkspace` so the sibling
 Quagmire checkout overrides the exact published package pin. Test a fresh
 placement with Network Link Conditioner or a throttled local server, interrupt
 it after measurable progress, relaunch, and verify the second request resumes

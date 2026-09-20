@@ -1,4 +1,4 @@
-# canopy-swift
+# swift
 
 The Swift side of Overstory: the protocol and client packages that mirror
 the TypeScript workspace, and the Canopy app for macOS and iOS.
@@ -24,7 +24,7 @@ launchd label and the support directory, so installed data is found.
 After editing `project.yml`, regenerate and commit the result:
 
 ```sh
-xcodegen generate --spec canopy-swift/project.yml --project canopy-swift
+xcodegen generate --spec swift/project.yml --project swift
 ```
 
 Do not edit `project.pbxproj` by hand. The app's pre-build script bundles
@@ -34,7 +34,7 @@ Do not edit `project.pbxproj` by hand. The app's pre-build script bundles
 ## Tests
 
 Each package has its own `Tests/` directory and runs with
-`swift test --package-path canopy-swift/Packages/<Name>`. The cross-language
+`swift test --package-path swift/Packages/<Name>`. The cross-language
 gate, `bun run test:protocol`, runs several of them against the shared
 conformance vectors and disposable live services. `scripts/hosted-smoke.ts`
 starts a local host, claims an account into the app's disposable data home,
@@ -42,7 +42,7 @@ and runs `CanopyAppTests` through xcodebuild.
 
 `CanopyEditor` depends on a pinned Quagmire release. Never run
 `swift build` on it standalone while it is in editable mode; use
-`canopy-swift/scripts/test-canopy-editor-local.sh` and see [DEVELOPMENT.md](../DEVELOPMENT.md#developing-overstory-with-quagmire).
+`swift/scripts/test-canopy-editor-local.sh` and see [DEVELOPMENT.md](../DEVELOPMENT.md#developing-overstory-with-quagmire).
 
 ## Naming
 

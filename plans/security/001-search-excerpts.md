@@ -260,8 +260,8 @@ Stop and report back (do not improvise) if:
 
 - The code at `packages/arborsync/src/state/indexer.ts:136-143` or
   `packages/canopy-web/src/App.tsx:951` does not match the excerpts above.
-- `SearchResult` turns out to be consumed by the Swift client under `canopy-swift/`
-  (check with `grep -rn "excerpt" canopy-swift/`). Changing a cross-language protocol
+- `SearchResult` turns out to be consumed by the Swift client under `swift/`
+  (check with `grep -rn "excerpt" swift/`). Changing a cross-language protocol
   shape requires updating the Swift client and the fixtures under
   `spec/conformance/`, which is outside this plan's scope — report and
   stop, since a smaller fix (escape to an HTML string server-side) may be

@@ -171,8 +171,8 @@ include:
   `filesystem-node-surface.ts`;
 - `packages/fs/src/discovery.ts` and `workspace-fs.ts`;
 - `packages/arborsync-client/src/index.ts`;
-- `canopy-swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift`;
-- `canopy-swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/WorkingTreeSemantics.swift`;
+- `swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift`;
+- `swift/Packages/CanopyWorkingTree/Sources/CanopyWorkingTree/WorkingTreeSemantics.swift`;
 - shared conformance fixtures and focused TypeScript/Swift tests.
 
 Out of scope: changing TreeID, NodeRef, wire-object, row-key, or Markdown
@@ -199,12 +199,12 @@ Run focused suites first, then the complete matrix:
 bun test tests/unit/logical-url.test.ts tests/unit/directory-document.test.ts tests/unit/discovery.test.ts tests/integration/workspace.test.ts tests/integration/server.test.ts tests/integration/canopyd/update-host.test.ts
 bun run typecheck
 bun run test:protocol
-swift test --package-path canopy-swift/Packages/ArborSyncClient
-swift test --package-path canopy-swift/Packages/CanopyWorkingTree
+swift test --package-path swift/Packages/ArborSyncClient
+swift test --package-path swift/Packages/CanopyWorkingTree
 bun test
 bun run build
-xcodebuild build -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
+xcodebuild build -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 

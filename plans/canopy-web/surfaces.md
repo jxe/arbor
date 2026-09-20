@@ -2,7 +2,7 @@
 
 The surface-by-surface inventory behind [Web 025](025-arbor-web.md). Each native surface is listed with its Swift source, what the web version keeps, which host it applies to, and the project (B1, B2, B3) that builds it. **Keep** means the same labels, states and actions; **adapt** means the same information in browser-idiomatic form; **not ported** is a decision, not a gap. Native polish (menu bar, sheets, gestures, sounds, camera, audio) is listed at the end so nobody reads its absence as an omission.
 
-Reference: `canopy-swift/ArborApp/*.swift` and `canopy-swift/Packages/CanopyEditor` at the commit the plan was written (2026-09-19). Quote the native strings when building; parity is in the vocabulary as much as the layout.
+Reference: `swift/ArborApp/*.swift` and `swift/Packages/CanopyEditor` at the commit the plan was written (2026-09-19). Quote the native strings when building; parity is in the vocabulary as much as the layout.
 
 | # | Surface | Native source | Web | Host | Project |
 |---|---|---|---|---|---|
@@ -104,7 +104,7 @@ One dialog with a persistent `Accounts` / `Sync Status` selector; the Accounts c
 - Per account: `~handle`, host or `Account ABCD1234`, `Open profile`; `Devices` rows with label and tags `This browser` / `This Mac` / `Active` / `Administrator`; ellipsis menu `Make Administrator`, `Remove Administrator`, `Deauthorize Device` (destructive; disabled for the last administrator or a non-administrator caller); confirmation `Deauthorize <label>?`; results `<label> can now manage sharing.` / `<label> was deauthorized.`
 - `Pair another device…` shows the QR (generated client-side) and the `Confirm on both devices` code, for a phone or another browser.
 - **Pair this browser** (canopyd host, and the local host when the daemon has no credential): paste the code (`Paste Pairing Code`, `The clipboard has no pairing code.`), show `Pairing with your Mac…`, then the account appears. No camera.
-- Identity: `Profile TreeID` (monospaced, selectable), `Copy Profile TreeID`, `Send this public ID to the canopyd administrator before claiming your account.`, URL field and `Claim Account` — local host only, with an existing identity; identity creation stays canopy-swift/CLI.
+- Identity: `Profile TreeID` (monospaced, selectable), `Copy Profile TreeID`, `Send this public ID to the canopyd administrator before claiming your account.`, URL field and `Claim Account` — local host only, with an existing identity; identity creation stays swift/CLI.
 - `Disconnect` is quiet and destructive: `Disconnect this browser from Arbor?` with `Your server tree is not deleted.`; on the canopyd host it forgets the browser credential.
 - States: `No canopyd account` (`Claim or pair an account to manage its devices.`), `Loading account…`, `Could not refresh: …` with `Try Again`.
 

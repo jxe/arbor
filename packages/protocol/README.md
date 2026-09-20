@@ -2,7 +2,7 @@
 
 The Overstory protocol in code. Everything an independent implementation
 would have to reproduce lives here, and nothing else in the workspace is a
-dependency of it. The Swift twin is `canopy-swift/Packages/Overstory`.
+dependency of it. The Swift twin is `swift/Packages/Overstory`.
 
 - `model/`: identifiers and `TreeID`, the node model and node keys, logical
   paths and URLs, canonical CBOR and hashing, resource policy, protocol errors,

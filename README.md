@@ -60,7 +60,7 @@ flowchart TB
   AR --- D
 ```
 
-Names in italics are the Swift packages under `canopy-swift/`; the rest are
+Names in italics are the Swift packages under `swift/`; the rest are
 TypeScript packages under `packages/`, published as `@overstory/<name>`.
 
 - **The protocol** (`protocol`, `object-store`) is the specification in code:
@@ -77,7 +77,7 @@ TypeScript packages under `packages/`, published as `@overstory/<name>`.
 - **The Arbor local tools** (`arborsync`, `arborsync-client`, `cli`) are the
   per-user daemon that keeps placed folders synchronized, its loopback API,
   and the `arbor` command.
-- **The Canopy browsers** (`canopy-swift/`, `canopy-web`) are the human
+- **The Canopy browsers** (`swift/`, `canopy-web`) are the human
   interface: the Mac and iOS app, and the browser editor that is being
   rebuilt on the same working tree.
 
@@ -156,7 +156,7 @@ implementation yet.
 | [`spec/`](spec/README.md) | The portable specification: entry page, numbered sections, and the conformance vectors both implementations must pass |
 | [`status.md`](status.md) | What the reference implementation does today |
 | [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Arbor tools, browser editor. The host's [deployment guide](packages/canopyd/deploy/README.md) and [migrations](packages/canopyd/migrations/README.md) live with it |
-| [`canopy-swift/`](canopy-swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
+| [`swift/`](swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
 | [`docs/`](docs/README.md) | Usage and reference-implementation documentation |
 | [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
 | [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |

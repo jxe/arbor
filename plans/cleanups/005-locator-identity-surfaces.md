@@ -58,7 +58,7 @@ and the `~row-` segment rule.
 ## Work once decided
 
 - Parsers: `packages/protocol/src/model/logical-url.ts` and
-  `canopy-swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift` change together;
+  `swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift` change together;
   `spec/conformance/url-resolution.json` is the shared contract and gains a case per surface.
 - Renderers: the Markdown alias translation in `overstory/react`'s `Markdown`, the HTTP
   projection redirect rule (locators §6), and link healing in arborsync all read the table.

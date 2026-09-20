@@ -17,7 +17,7 @@ by the existing suites. This plan finishes the job.
    browser (`CanopyAccountStore`, `CanopyWatchRunner`, `CanopyObjectStore`).
    Pick one spelling per concept (`ProtocolClient`, `HostAccountStore`) and
    rename with the type checker as the guide.
-2. **Swift identifiers.** The 81 `Wire*` names in `canopy-swift/Packages`
+2. **Swift identifiers.** The 81 `Wire*` names in `swift/Packages`
    (`ArborWireClient`, `ArborWireValidationError`, `WireModels`,
    `WireObjects`, and the rest), the `Arbor*` view and model types in
    `CanopyApp/`, and the `Arbor*` file names in `CanopyEditor`.
