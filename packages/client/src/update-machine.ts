@@ -9,7 +9,7 @@
  * effects the reducer returns. The Swift twin is `UpdateMachine` in
  * `CanopyWorkingTree`; both execute `working-tree-updates` in
  * `conformance/client-state-machines.json`. This module moves to
- * `@arbor/working-tree` in Plan B.
+ * `@overstory/working-tree` in Plan B.
  */
 
 /** Trailing delay before unsent durable local work is published. */
