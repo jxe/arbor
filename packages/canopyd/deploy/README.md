@@ -20,16 +20,18 @@ The repository already contains `packages/canopyd/deploy/Dockerfile.canopyd` and
 3. Attach a volume to the service at `/data`. Railway then supplies `RAILWAY_VOLUME_MOUNT_PATH`; canopyd stores its SQLite and immutable objects there.
 4. Under **Networking**, either generate a Railway domain or add your own domain. For a custom domain, add both the CNAME and TXT records Railway shows. Railway terminates TLS.
 5. Create the founder's profile identity locally with `arbor me create`, then
-   run `arbor me` and copy its public Profile TreeID. Under **Settings →
-   Deploy**, set the start command with that exact identity and your chosen
-   community and first-writer handles:
+   run `arbor me` and copy its public Profile TreeID. The start command is
+   `bun run canopyd serve`; an unattended host creates its community from
+   three service variables on the first start with an empty volume and
+   ignores them afterwards:
 
-   ```sh
-   bun run canopyd -- --community garden --first-writer joe \
-     --first-writer-profile tr_...
+   ```text
+   ARBOR_COMMUNITY_HANDLE=garden
+   ARBOR_FIRST_WRITER_HANDLE=joe
+   ARBOR_FIRST_WRITER_PROFILE=tr_...
    ```
 
-   canopyd initially uses `garden` as the community profile's display name; its writer can edit that profile later. With a Railway-provided domain, canopyd derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, add one service variable containing the hostname (without a scheme):
+   The community's display name starts as its handle; its writer can edit the profile later. (On your own machine the same step is `canopyd init garden --founder joe=tr_...`.) With a Railway-provided domain, canopyd derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, add one service variable containing the hostname (without a scheme):
 
    ```text
    ARBOR_DOMAIN=garden.example.com
@@ -275,7 +277,8 @@ Create the founder's identity locally with `arbor me create`, and copy its
 Profile TreeID from `arbor me`. Edit `.env` so `ARBOR_DOMAIN` is the real
 hostname, `COMMUNITY_HANDLE` and `FIRST_WRITER_HANDLE` have the values you
 want, and `FIRST_WRITER_PROFILE` is that exact TreeID. Compose passes all three
-bootstrap values to `canopyd`. Start the service:
+bootstrap values to `canopyd serve` as environment variables; they matter only
+on the first start with an empty volume. Start the service:
 
 ```sh
 docker compose up -d --build

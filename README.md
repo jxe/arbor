@@ -111,24 +111,24 @@ profile. Print the profile TreeID created above:
 arbor me
 ```
 
-Then start canopyd, replacing `tr_...` with that TreeID:
+Then create the community, naming the founder account and the profile that
+alone may claim it, and serve it:
 
 ```sh
-canopyd ./garden \
-  --community garden \
-  --first-writer joe \
-  --first-writer-profile tr_...
+canopyd init garden --founder joe=tr_...
+canopyd serve garden
 ```
 
-canopyd listens at `http://127.0.0.1:4318` by default and prints the reserved
-account URL. In another terminal, open and claim it:
+`init` writes the community into `./garden` (or `--data <directory>`) and
+runs once; `serve` listens at `http://127.0.0.1:4318` by default and prints
+the founder's reserved account URL on every start until it is claimed. In
+another terminal, open and claim it:
 
 ```sh
 arbor open http://127.0.0.1:4318/~joe
 ```
 
-Restarting the same command serves the existing data directory without
-bootstrapping again. For public domains, persistent volumes, backups,
+For public domains, persistent volumes, backups,
 restoration, and coordinated upgrades, use the [deployment guide](packages/canopyd/deploy/README.md).
 
 ## Status

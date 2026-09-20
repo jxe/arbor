@@ -1,12 +1,21 @@
 #!/usr/bin/env bun
 import { mkdir, stat } from "node:fs/promises";
-import { basename, resolve } from "node:path";
-import { serveCanopy, type CanopyBootstrapAccount } from "./index.ts";
+import { resolve } from "node:path";
+import { CanopyDaemon, serveCanopy, type CanopyBootstrapAccount } from "./index.ts";
+
+const USAGE = `Usage:
+  canopyd init <community> --founder <handle>=<TreeID> [--data <directory>]
+  canopyd [serve] [<directory>] [--url <canonical-url>] [--port <number>] [--hostname <host>]
+
+init creates a new community once: its handle, and the founder account that
+only the named self-certifying profile may claim. The data directory defaults
+to ./<community>. serve runs an existing community; it is the default command.
+An unattended serve of an empty directory (Railway, Compose) creates the
+community from ARBOR_COMMUNITY_HANDLE, ARBOR_FIRST_WRITER_HANDLE, and
+ARBOR_FIRST_WRITER_PROFILE, or from ARBOR_ACCOUNTS_JSON / ARBOR_ACCOUNT_TOKEN.`;
 
 function usage(): never {
-  console.error(`Usage:
-  canopyd [data-directory] [--url <canonical-url>] [--port <number>] [--hostname <host>]
-          [--community <handle>] [--first-writer <handle>] [--first-writer-profile <TreeID>]`);
+  console.error(USAGE);
   process.exit(2);
 }
 
@@ -23,13 +32,25 @@ function positionals(args: string[], options: string[]): string[] {
   return args.filter((arg, index) => !arg.startsWith("--") && (index === 0 || !valued.has(args[index - 1]!)));
 }
 
-function defaultHandle(input: string | undefined, fallback: string): string {
-  const normalized = (input ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63);
-  return /^[a-z0-9](?:[a-z0-9-]{0,62})$/.test(normalized) ? normalized : fallback;
+function rejectUnknown(args: string[], known: string[]): void {
+  const unknown = args.filter((arg) => arg.startsWith("--") && !known.includes(arg));
+  if (unknown.length) throw new Error(`Unknown canopyd option: ${unknown[0]}\n${USAGE}`);
+}
+
+function hostnameOption(args: string[]): string {
+  return option(args, "--hostname") ?? "0.0.0.0";
+}
+
+function parsePort(args: string[]): number {
+  const port = Number(option(args, "--port") ?? process.env.PORT ?? 4318);
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+    throw new Error("Canopy port must be an integer from 0 through 65535");
+  }
+  return port;
+}
+
+async function hasCommunity(dataRoot: string): Promise<boolean> {
+  return stat(resolve(dataRoot, "canopy.sqlite3")).then(() => true).catch(() => false);
 }
 
 /**
@@ -59,19 +80,49 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
   return server;
 }
 
-export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<void> {
-  const valuedOptions = ["--url", "--port", "--hostname", "--community", "--first-writer", "--first-writer-profile"];
-  const positional = positionals(args, valuedOptions);
-  if (positional.length > 1) usage();
-  const unknown = args.filter((arg) => arg.startsWith("--") && !valuedOptions.includes(arg));
-  if (unknown.length) throw new Error(`Unknown canopyd option: ${unknown[0]}`);
-
-  const requestedPort = Number(option(args, "--port") ?? process.env.PORT ?? 4318);
-  if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65_535) {
-    throw new Error("Canopy port must be an integer from 0 through 65535");
+/** `canopyd init <community> --founder <handle>=<TreeID> [--data <directory>]` */
+export async function initCommunity(args: string[]): Promise<void> {
+  const valued = ["--founder", "--data"];
+  rejectUnknown(args, valued);
+  const positional = positionals(args, valued);
+  if (positional.length !== 1) usage();
+  const handle = positional[0]!;
+  const founder = option(args, "--founder");
+  if (!founder) throw new Error("init requires --founder <handle>=<TreeID>: the account handle and the profile that may claim it");
+  const separator = founder.indexOf("=");
+  if (separator <= 0 || separator === founder.length - 1) {
+    throw new Error(`--founder must be <handle>=<TreeID>, got ${JSON.stringify(founder)}`);
   }
+  const founderHandle = founder.slice(0, separator);
+  const founderProfile = founder.slice(separator + 1);
+  const dataRoot = resolve(option(args, "--data") ?? handle);
+  if (await hasCommunity(dataRoot)) {
+    throw new Error(`${dataRoot} already holds a community; run \`canopyd serve ${dataRoot}\` instead`);
+  }
+  await mkdir(dataRoot, { recursive: true, mode: 0o700 });
+  process.env.ARBOR_CANOPY_NO_WARMUP ||= "1";
+  const canopy = await CanopyDaemon.open(dataRoot, {
+    handle,
+    name: handle,
+    firstWriter: { handle: founderHandle, profileTree: founderProfile },
+    accounts: [],
+  });
+  await canopy[Symbol.asyncDispose]();
+  console.log(`Created community ${handle} in ${dataRoot}`);
+  console.log(`Founder account ~${founderHandle} is reserved for profile ${founderProfile}`);
+  console.log(`Start it with: canopyd serve ${dataRoot}`);
+}
+
+/** `canopyd [serve] [<directory>] [--url ...] [--port ...] [--hostname ...]` */
+export async function serveCommunity(args: string[]): Promise<void> {
+  const valued = ["--url", "--port", "--hostname"];
+  rejectUnknown(args, valued);
+  const positional = positionals(args, valued);
+  if (positional.length > 1) usage();
+
+  const requestedPort = parsePort(args);
   if (process.env.ARBOR_CANOPY_MAINTENANCE?.trim()) {
-    const server = serveMaintenance(requestedPort, option(args, "--hostname") ?? "0.0.0.0");
+    const server = serveMaintenance(requestedPort, hostnameOption(args));
     const stop = () => { server.stop(true); process.exit(0); };
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
@@ -92,7 +143,10 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
     ?? `http://127.0.0.1:${requestedPort}`;
   const dataRoot = resolve(positional[0] ?? process.env.ARBOR_CANOPY_DATA ?? process.env.RAILWAY_VOLUME_MOUNT_PATH ?? ".arbor-canopy");
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
-  const existingCanopy = await stat(resolve(dataRoot, "canopy.sqlite3")).then(() => true).catch(() => false);
+  const existingCanopy = await hasCommunity(dataRoot);
+
+  // Unattended bootstrap of an empty data directory comes only from the
+  // environment; the interactive path is `canopyd init`.
   const configuredAccounts = process.env.ARBOR_ACCOUNTS_JSON
     ? JSON.parse(process.env.ARBOR_ACCOUNTS_JSON) as CanopyBootstrapAccount[]
     : null;
@@ -103,38 +157,35 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
     name: process.env.ARBOR_ACCOUNT_NAME ?? "Owner",
     communityWriter: true,
   }] : []);
-  const requestedCommunityHandle = option(args, "--community") ?? process.env.ARBOR_COMMUNITY_HANDLE;
-  const requestedFirstWriterHandle = option(args, "--first-writer") ?? process.env.ARBOR_FIRST_WRITER_HANDLE;
-  const requestedFirstWriterProfile = option(args, "--first-writer-profile") ?? process.env.ARBOR_FIRST_WRITER_PROFILE;
-  if (!existingCanopy && !accounts.length && !process.stdin.isTTY) {
-    if (!requestedCommunityHandle) throw new Error("A new unattended community requires --community <handle>");
-    if (!requestedFirstWriterHandle) throw new Error("A new unattended community requires --first-writer <handle>");
-    if (!requestedFirstWriterProfile) throw new Error("A new unattended community requires --first-writer-profile <TreeID>");
+  const envCommunity = process.env.ARBOR_COMMUNITY_HANDLE;
+  const envFounderHandle = process.env.ARBOR_FIRST_WRITER_HANDLE;
+  const envFounderProfile = process.env.ARBOR_FIRST_WRITER_PROFILE;
+  let firstWriter: { handle: string; profileTree: string } | undefined;
+  if (!existingCanopy) {
+    if (!envCommunity) {
+      throw new Error(
+        `No community at ${dataRoot}. Create one with \`canopyd init <community> --founder <handle>=<TreeID> --data ${dataRoot}\`, `
+        + "or set ARBOR_COMMUNITY_HANDLE with ARBOR_FIRST_WRITER_HANDLE and ARBOR_FIRST_WRITER_PROFILE for an unattended start.",
+      );
+    }
+    if (!accounts.length) {
+      if (!envFounderHandle || !envFounderProfile) {
+        throw new Error("An unattended new community requires ARBOR_FIRST_WRITER_HANDLE and ARBOR_FIRST_WRITER_PROFILE (or ARBOR_ACCOUNTS_JSON)");
+      }
+      firstWriter = { handle: envFounderHandle, profileTree: envFounderProfile };
+    }
   }
-  const communityHandle = defaultHandle(requestedCommunityHandle ?? basename(dataRoot), "community");
-  const firstWriterHandle = !existingCanopy && !accounts.length
-    ? defaultHandle(requestedFirstWriterHandle ?? process.env.USER, "owner")
-    : undefined;
-  if (firstWriterHandle && !requestedFirstWriterProfile) {
-    throw new Error("A new claim-first community requires --first-writer-profile <TreeID>");
-  }
-  if (firstWriterHandle && new URL(publicOrigin).port === "0") {
-    throw new Error("A new claim-first community needs a stable nonzero --port or explicit --url");
-  }
+  const communityHandle = envCommunity ?? "community";
 
   let running: Awaited<ReturnType<typeof serveCanopy>>;
   try {
     running = await serveCanopy({
       dataRoot,
       publicOrigin,
-      community: {
-        handle: communityHandle,
-        name: communityHandle,
-        ...(firstWriterHandle ? { firstWriter: { handle: firstWriterHandle, profileTree: requestedFirstWriterProfile! } } : {}),
-      },
+      community: { handle: communityHandle, name: communityHandle, ...(firstWriter ? { firstWriter } : {}) },
       accounts,
       port: requestedPort,
-      hostname: option(args, "--hostname") ?? "0.0.0.0",
+      hostname: hostnameOption(args),
     });
   } catch (error) {
     // A data root written by another schema version is not served and not
@@ -142,7 +193,7 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
     // the migration in place, then restart.
     if (error instanceof Error && /schema version/.test(error.message)) {
       console.error(error.message);
-      const server = serveMaintenance(requestedPort, option(args, "--hostname") ?? "0.0.0.0");
+      const server = serveMaintenance(requestedPort, hostnameOption(args));
       const stop = () => { server.stop(true); process.exit(0); };
       process.on("SIGINT", stop);
       process.on("SIGTERM", stop);
@@ -156,11 +207,14 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
     running.canopy.resetAccountToken(resetAccount, accountToken);
     console.log(`Reset the device credential for ~${resetAccount}; remove ARBOR_RESET_ACCOUNT after recovery.`);
   }
-  console.log(`${existingCanopy ? "Serving" : "Created"} ${running.canopy.communityHandle()} at ${running.url}`);
+  console.log(`${existingCanopy ? "Serving" : "Created and serving"} ${running.canopy.communityHandle()} at ${running.url}`);
   console.log(`Data: ${dataRoot}`);
-  if (firstWriterHandle) {
-    console.log(`First writer profile: ${running.url}/~${firstWriterHandle}`);
-    console.log("Open Arbor locally and claim this address from the profile control.");
+  const unclaimed = running.canopy.unclaimedFounderHandle();
+  if (unclaimed) {
+    if (new URL(publicOrigin).port === "0") {
+      throw new Error("A community whose founder account is still unclaimed needs a stable nonzero --port or an explicit --url");
+    }
+    console.log(`Founder account ${running.url}/~${unclaimed} is reserved and unclaimed; open it in Canopy and claim it with the founder's profile.`);
   }
   const shutdown = async () => {
     running.server.stop(true);
@@ -169,6 +223,14 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+}
+
+export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<void> {
+  const [first, ...rest] = args;
+  if (first === "init") return initCommunity(rest);
+  if (first === "serve") return serveCommunity(rest);
+  if (first === "--help" || first === "-h" || first === "help") usage();
+  return serveCommunity(args);
 }
 
 if (import.meta.main) {

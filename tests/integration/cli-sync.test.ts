@@ -400,13 +400,16 @@ describe("Canopy deployment guards", () => {
       ARBOR_OWNER_TOKEN: "",
       ARBOR_ACCOUNTS_JSON: "",
     };
-    const missingCommunity = await canopyFailure([join(sandbox, "unattended-no-community")], bootstrapEnv);
-    expect(missingCommunity).toContain("requires --community <handle>");
+    const missingCommunity = await canopyFailure([join(sandbox, "unattended-no-community")], { ...bootstrapEnv, ARBOR_COMMUNITY_HANDLE: "" });
+    expect(missingCommunity).toContain("No community at");
+    expect(missingCommunity).toContain("canopyd init <community> --founder <handle>=<TreeID>");
     const missingFirstWriter = await canopyFailure(
-      [join(sandbox, "unattended-no-writer"), "--community", "garden"],
-      bootstrapEnv,
+      [join(sandbox, "unattended-no-writer")],
+      { ...bootstrapEnv, ARBOR_COMMUNITY_HANDLE: "garden", ARBOR_FIRST_WRITER_HANDLE: "", ARBOR_FIRST_WRITER_PROFILE: "" },
     );
-    expect(missingFirstWriter).toContain("requires --first-writer <handle>");
+    expect(missingFirstWriter).toContain("requires ARBOR_FIRST_WRITER_HANDLE and ARBOR_FIRST_WRITER_PROFILE");
+    const badFounder = await canopyFailure(["init", "lab", "--founder", "joe", "--data", join(sandbox, "init-bad-founder")], bootstrapEnv);
+    expect(badFounder).toContain("--founder must be <handle>=<TreeID>");
   });
 });
 

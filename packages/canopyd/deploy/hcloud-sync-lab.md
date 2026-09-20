@@ -152,14 +152,13 @@ Run the community as one systemd service with the equivalent of:
 
 ```sh
 cd /opt/arbor
-bun run canopyd /var/lib/arbor-canopy \
-  --community sync-lab \
+bun run canopyd serve /var/lib/arbor-canopy \
   --url http://arbor-community:4318 \
   --hostname 0.0.0.0 \
   --port 4318
 ```
 
-The service's root-only environment file supplies `ARBOR_ACCOUNT_HANDLE=owner` and `ARBOR_ACCOUNT_TOKEN`. Tailscale MagicDNS makes `http://arbor-community:4318` stable within the lab. This is intentionally private HTTP inside the encrypted tailnet; public HTTPS projection is a separate deployment test.
+The service's root-only environment file supplies `ARBOR_COMMUNITY_HANDLE=sync-lab`, `ARBOR_ACCOUNT_HANDLE=owner`, and `ARBOR_ACCOUNT_TOKEN`; the first start with an empty data directory creates the community from them. Tailscale MagicDNS makes `http://arbor-community:4318` stable within the lab. This is intentionally private HTTP inside the encrypted tailnet; public HTTPS projection is a separate deployment test.
 
 On each client:
 

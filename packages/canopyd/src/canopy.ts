@@ -746,6 +746,11 @@ export class CanopyDaemon implements AsyncDisposable {
     return row?.value ?? null;
   }
 
+  /** The founder account's handle while it is still reserved for its profile and unclaimed; null once claimed or when the community was bootstrapped with token accounts. */
+  unclaimedFounderHandle(): string | null {
+    return this.firstWriterHandle();
+  }
+
   setCommunityHost(host: string, allowTestPortChange = false): void {
     this.accounts.setCommunityHost(host, allowTestPortChange);
   }

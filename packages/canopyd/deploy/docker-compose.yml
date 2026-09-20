@@ -5,16 +5,11 @@ services:
       dockerfile: packages/canopyd/deploy/Dockerfile.canopyd
     restart: unless-stopped
     env_file: .env
-    command:
-      - bun
-      - run
-      - canopyd
-      - --community
-      - ${COMMUNITY_HANDLE}
-      - --first-writer
-      - ${FIRST_WRITER_HANDLE}
-      - --first-writer-profile
-      - ${FIRST_WRITER_PROFILE}
+    command: ["bun", "run", "canopyd", "serve"]
+    environment:
+      ARBOR_COMMUNITY_HANDLE: ${COMMUNITY_HANDLE}
+      ARBOR_FIRST_WRITER_HANDLE: ${FIRST_WRITER_HANDLE}
+      ARBOR_FIRST_WRITER_PROFILE: ${FIRST_WRITER_PROFILE}
     volumes:
       - arbor-data:/data
     expose:
