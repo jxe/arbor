@@ -41,7 +41,7 @@ type DatabaseChange =
   | { precision: "schema"; store: NodeRef; schema: Hash };
 ```
 
-The local transaction snapshot is neither a node revision nor a Wire value.
+The local transaction snapshot is neither a node revision nor an Overstory value.
 The provider cursor orders committed observations. Per-row revisions guard
 direct edits. Schema fingerprints guard compiled meaning. Membership changes
 invalidate affected pages/queries at the narrowest precision the provider can
@@ -54,7 +54,7 @@ prove.
 2. The observer subscribes before sampling or can replay from the pre-read
    cursor, so the first delivered change cannot omit a commit racing the read.
 3. Rollbacks and partial statements never advance observation.
-4. Arbor-owned transactions publish every direct and cascading logical row
+4. Overstory-owned transactions publish every direct and cascading logical row
    effect with the same durable mutation receipt.
 5. External commits may widen to collection/store invalidation; notification is
    only a wakeup until the driver proves a committed boundary.
@@ -77,9 +77,9 @@ prove.
 Choose how observation positions survive restart and how long replay is
 retained:
 
-- Arbor transaction/change tables maintained inside the database;
-- provider-native commit positions plus an Arbor retention index; or
-- a hybrid where Arbor writes are precise and external writes conservatively
+- Overstory transaction/change tables maintained inside the database;
+- provider-native commit positions plus an Overstory retention index; or
+- a hybrid where Overstory writes are precise and external writes conservatively
   invalidate from a native commit wakeup.
 
 SQLite `PRAGMA data_version`, filesystem events, and Postgres `NOTIFY` are
@@ -151,11 +151,11 @@ from an ambiguous diff.
 - Prove snapshot-then-follow behavior for inserts, deletes, updates, DDL,
   external commits, cursor expiry, and listener restart.
 
-### 5. Wire checkpoints and semantic synchronization
+### 5. Overstory checkpoints and semantic synchronization
 
 - Specify a language-neutral canonical checkpoint and incremental transaction
   format, if checkpoints are selected.
-- Make Canopy validate schema, identities, constraints, authorization, and
+- Make canopyd validate schema, identities, constraints, authorization, and
   transaction intent before acceptance.
 - Sync logical effects and accepted observation positions; never upload or
   merge live SQLite/Postgres storage bytes.

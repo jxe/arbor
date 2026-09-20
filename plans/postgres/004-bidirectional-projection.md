@@ -1,4 +1,4 @@
-# Postgres 004: Add Arbor-managed bidirectional database projections
+# Postgres 004: Add Overstory-managed bidirectional database projections
 
 ## Status
 
@@ -14,7 +14,7 @@
 
 ## Target result
 
-One Arbor logical data `TreeID` is canonical. Authority Postgres and each local
+One Overstory logical data `TreeID` is canonical. Authority Postgres and each local
 SQLite placement materialize its accepted logical state. A placement declaring
 `projection: { driver: sqlite, mode: bidirectional }` remains usable offline,
 accepts provisional reviewed mutation intent, and later converges through
@@ -63,11 +63,11 @@ concurrency, parent-delete/child-insert races, cascades, deferred cycles,
 authorization and schema changes, watch loss/resync, corrupt materialization,
 and multiple devices. Prove SQLite and Postgres converge to the same logical
 model and query results and that no credential or physical database state
-crosses the authored/Wire boundary.
+crosses the authored/Overstory boundary.
 
 ## Completion gate
 
-The same application runs locally and on Canopy at one accepted logical state;
+The same application runs locally and on canopyd at one accepted logical state;
 offline named mutations settle exactly once after reconnect; all physical
 materializations converge; constraints and public results agree; and crash
 recovery loses no acknowledged or provisional intent.

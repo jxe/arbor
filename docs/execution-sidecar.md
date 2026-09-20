@@ -1,4 +1,4 @@
-# Canopy execution sidecar boundary
+# canopyd execution sidecar boundary
 
 This is the target reference implementation boundary, not a claim of deployed
 support. [Apps 005](../plans/apps/005-source-resolution-and-sidecar.md) owns its
@@ -18,21 +18,21 @@ Source-only sharing never enables execution; activation explicitly binds reviewe
 code, sponsoring account, providers, and resource limits.
 
 The bridge supports documents, assets, actions, and query streams without exposing
-compiler internals to Canopy. Runtime failures do not disable ordinary tree reads,
+compiler internals to canopyd. Runtime failures do not disable ordinary tree reads,
 watches, updates, or merge execution. Processes, sockets, token formats, deployment
 configuration, and health protocols belong to reference implementation documentation.
 
 The runtime owns compilation, React, query planning/evaluation, dependency tracking,
-input validation, mutation execution and workflow coordination. Canopy owns identity,
+input validation, mutation execution and workflow coordination. canopyd owns identity,
 resource policy, logical resolution, immutable tree reads, accepted watches, and
 guarded updates. Backing providers own snapshots, committed observation, and atomic
 physical effects with retry evidence. Queries choose providers from bindings;
-Canopy need not execute query plans. Optimized provider pushdown must preserve
+canopyd need not execute query plans. Optimized provider pushdown must preserve
 portable semantics and finite execution bounds.
 
 
 The trusted host issues execution tokens over its authenticated runtime channel.
-The sidecar uses `Authorization: Bearer <execution-token>` for Canopy current-tree
+The sidecar uses `Authorization: Bearer <execution-token>` for canopyd current-tree
 reads, object reads, watches and updates. Public headers cannot select the caller,
 sponsor or `via` identity. Token issuance/encoding, local transport, process
 supervision and health checks are implementation details to settle in Apps 005.
@@ -53,9 +53,9 @@ must fail explicitly when the host cannot establish the required authority.
 ## Provider bindings
 
 Locators resolve client-side by the spec's resolution rules against the pinned
-defining-module root; a Canopy-backed source's `(root, update, observedThrough)`
+defining-module root; a host-backed source's `(root, update, observedThrough)`
 and access summary come from the ordinary current-tree read under the execution
-token. Nothing else is asked of Canopy. A provider-backed source (SQLite,
+token. Nothing else is asked of canopyd. A provider-backed source (SQLite,
 Postgres) is mapped to a connection by private host configuration, never by an
 authored filename, DSN or credential, and is published to the runtime as an
 opaque backing descriptor plus schema fingerprint.
@@ -65,7 +65,7 @@ schema contract; it excludes ordinary row/content updates. Code version, binding
 version and data observation cursor are independent. Changing a resource target
 requires fresh grant coverage; an incompatible schema or provider change
 invalidates the compiled plan. Running mutations retain their original concrete
-bindings. Tree watches invalidate dependent Canopy bindings; provider
+bindings. Tree watches invalidate dependent canopyd bindings; provider
 configuration publishes schema changes, and the host cannot infer changes inside
 an unmanaged database. Reconnect and cursor expiry trigger fresh resolution and
 authorization; stale cached metadata never becomes authority. There is no

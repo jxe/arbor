@@ -1,11 +1,11 @@
 # Tree reads, writes, watching, and editor round trips
-*Part of the [Arbor spec](../spec.md): the logical tree model and the operations that read, change, observe, and faithfully materialize copies.*
+*Part of the [Overstory spec](../spec.md): the logical tree model and the operations that read, change, observe, and faithfully materialize copies.*
 
-## The Arbor data model
+## The Overstory data model
 
 ### Trees and identity
 
-Arbor is conceptually a global hash table of trees:
+Overstory is conceptually a global hash table of trees:
 
 ```ts
 type TreeID = string;
@@ -19,12 +19,12 @@ type JSONValue =
   | JSONValue[]
   | { [name: string]: JSONValue };
 
-type Arbor = Map<TreeID, Tree>;
+type Overstory = Map<TreeID, Tree>;
 ```
 
 The same tree can be placed many times. Copies with the same `TreeID` are
 placements or working trees of one tree. The `TreeID` denotes the same logical tree
-and history wherever Arbor is implemented. Even local, private, unpublished,
+and history wherever Overstory is implemented. Even local, private, unpublished,
 and offline trees have these IDs, although no public service can find them yet.
 Each device, community, and application knows only the partial map it can
 locate and read.
@@ -57,7 +57,7 @@ interface ChildSet {
 }
 ```
 
-In Arbor, records, tables, files, and documents are all ways to read nodes:
+In Overstory, records, tables, files, and documents are all ways to read nodes:
 
 | Reading | Representation |
 |---|---|
@@ -86,15 +86,15 @@ at that placement.
 ### Representation and model equality
 
 Exact representation equality and logical model equality answer different
-questions. A bytes hash identifies one exact authored byte sequence. The Wire
+questions. A bytes hash identifies one exact authored byte sequence. The protocol
 root is the corresponding exact identifier for a complete accepted snapshot:
 as the object hash of the top directory, it transitively commits to the
-canonical Wire encoding of every reachable object. It is not a logical model
+canonical Overstory encoding of every reachable object. It is not a logical model
 hash.
 
 A model hash identifies normalized node state: properties, content, and child
 set, including the child schema and the model hashes of its members. Two
-representations can therefore have different authored bytes and Wire roots but
+representations can therefore have different authored bytes and Overstory roots but
 the same model hash. Model hashes prove that decoding different
 representations produced equivalent logical state; they do not turn two trees
 with different `TreeID`s into the same tree.
@@ -176,7 +176,7 @@ same content-addressed snapshot, while the later descriptor's `update` identifie
 the new accepted state and the enclosing `observedThrough` gives its read/watch boundary.
 
 An execution runtime presenting an [execution token](05-access-control.md#21-execution-tokens)
-obtains a Canopy-backed source's authority summary and coherent `(root, update,
+obtains a host-backed source's authority summary and coherent `(root, update,
 observedThrough)` from this same read. There is no separate source-binding route;
 provider-backed sources are host configuration, not tree state.
 
@@ -231,7 +231,7 @@ neither header for a tree currently readable by `everyone` uses
 `Cache-Control: public, max-age=31536000, immutable`; a response to a request
 carrying either header uses
 `Cache-Control: private, max-age=31536000, immutable`. A client may retain a
-verified response indefinitely. A Canopy need only answer a future origin
+verified response indefinitely. A host need only answer a future origin
 fetch while that accepted root remains retained.
 
 Changing the current root or ACL does not change an already returned snapshot.
@@ -270,12 +270,12 @@ type CollectionFileDescriptor = {
 };
 ```
 
-A directory entry either addresses another Wire object by hash or marks a
-nested Arbor tree boundary by TreeID. A snapshot walk stops at such a boundary:
+A directory entry either addresses another Overstory object by hash or marks a
+nested Overstory tree boundary by TreeID. A snapshot walk stops at such a boundary:
 the nested tree has its own roots, history, and access. `childrenSource`, when
 present, records how authored collection files supply the directory's logical
 children; its projection and validation rules are defined by
-[child backings §2.1](06-child-backings.md#21-accepted-wire-representation).
+[child backings §2.1](06-child-backings.md#21-accepted-overstory-representation).
 
 An `ObjectEnvelope` is JSON transport packaging for the same canonical object
 bytes when another operation, such as an update request, carries objects inside
@@ -468,11 +468,11 @@ must hash to the requested value, and uses the same access-sensitive `Vary` and
 `Cache-Control` policy as an accepted snapshot.
 
 A new origin fetch is authorized by read access to the named tree. Objects are
-content-addressed and shared across a Canopy, so the route does not prove that
+content-addressed and shared across a host, so the route does not prove that
 the hash is reachable from that tree: any retained object whose hash the caller
 knows is returned, and an unknown hash or an unreadable tree is `404`. Knowing a
-hash is therefore treated as knowing its content; this route is a per-Canopy
-existence oracle gated by any tree read, and a Canopy that must not confirm
+hash is therefore treated as knowing its content; this route is a per-host
+existence oracle gated by any tree read, and a host that must not confirm
 content across trees needs a stricter deployment policy. Root hashes of
 unreadable trees are never disclosed by any read, and a tree-boundary entry
 carries only the nested TreeID.
@@ -639,7 +639,7 @@ contributions must be unique within their stated scopes; dependencies cannot ref
 self but cycles between decisions are permitted. Empty alternative sets, invalid
 selected IDs, malformed references and invalid values fail decoding. Open decisions
 have at least two alternatives. Responses are private and must not be stored by shared
-HTTP caches. The [target read vectors](../conformance/wire-accepted-state.json) bind
+HTTP caches. The [target read vectors](../conformance/protocol-accepted-state.json) bind
 paired TypeScript and Swift models; they do not assert server execution.
 
 ## 2. Updates and writes
@@ -774,7 +774,7 @@ on watch separately. A rejection stops the string at that element; its
 successful prefix remains accepted and later elements are not attempted. An accepted
 unresolved decision is a successful result and does not stop the remaining string.
 
-Each `candidate` names the exact Wire root encoding the desired complete tree
+Each `candidate` names the exact Overstory root encoding the desired complete tree
 state. The authority decodes and validates its modeled state and all
 projection-specific fidelity required by that encoding. Each element may omit
 objects available from the preceding graph, but the complete request must be
@@ -1016,7 +1016,7 @@ directly. The normative client behavior is the update machine in
    spine** (directories and Markdown inline, other files by hash and lazily
    fetched from the loopback object route) and, when the daemon holds a
    pending request, **adopts** that request verbatim as its first attempt;
-   elsewhere it installs from Canopy. Either way it records the confirmed
+   elsewhere it installs from the host. Either way it records the confirmed
    `{ root, update, cursor }` watchpoint.
 1. Each authored generation is admitted into the working tree and becomes
    locally durable at once (the document admission machine); unsent
@@ -1060,7 +1060,7 @@ Rejected conflicts never appear on watch.
 
 ### 4.1 CBOR and hashes
 
-Whenever Arbor hashes a structured value, it first encodes that value as
+Whenever Overstory hashes a structured value, it first encodes that value as
 canonical CBOR and then hashes those bytes with SHA-256. The section that
 defines a particular hash defines the value being encoded; this subsection
 defines the common structured-value encoding.
@@ -1071,7 +1071,7 @@ a 64-bit float; UTF-8 text; byte strings; arrays; and maps whose keys are text,
 unique, and ordered by the bytes of their encoded form. Non-finite numbers,
 indefinite lengths, tags, and non-text keys are invalid.
 
-For a Wire object, the envelope is constructed as follows:
+For an Overstory object, the envelope is constructed as follows:
 
 ```text
 objectBytes = fileBytes OR canonicalCBOR(directory)
@@ -1091,10 +1091,10 @@ transition payload.
 Model hashes, collection-file `childSetHash` values, update and mutation
 request digests, and query output hashes apply the same CBOR-then-SHA-256
 procedure to the distinct structured values defined by their own contracts.
-They are not hashes of a Wire object unless their contract says so, and
-nothing on the Wire is identified by canonical JSON text.
+They are not hashes of an Overstory object unless their contract says so, and
+nothing in Overstory is identified by canonical JSON text.
 
-When the value being identified is already an exact byte sequence, Arbor
+When the value being identified is already an exact byte sequence, Overstory
 hashes those bytes directly instead. In particular, `schemaFingerprint` is
 the SHA-256 of the exact UTF-8 bytes of `schema.ts`, and therefore equals
 that file's object hash. The

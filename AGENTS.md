@@ -1,4 +1,4 @@
-# Working in Arbor
+# Working in Overstory
 
 These instructions apply to the whole repository.
 
@@ -44,6 +44,6 @@ Use the smallest focused tests while developing, then run the relevant gates fro
   records the same version, then restore editable mode. Do not commit a lockfile
   with the edited Quagmire dependency omitted.
 - Test coordinated changes locally before releasing Quagmire. Once the tested
-  revision is tagged, update both exact Arbor pins, regenerate
+  revision is tagged, update both exact Overstory pins, regenerate
   `canopy-swift/Canopy.xcodeproj` from `canopy-swift/project.yml`, and commit that dependency
   bump separately. A second remote-package build is not part of this workflow.

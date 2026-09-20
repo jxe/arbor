@@ -25,7 +25,7 @@
 The daemon's search route (`GET /v1/search`) and its FTS5 index
 (`packages/arborsync/src/state/indexer.ts`, tables `files`/`docs`/`links`) were deleted
 with the editor path; `packages/arborsync/src/state/object-index.ts` keeps only the
-object rows, and Arbor web is out of service until Native 022 Plan B. The
+object rows, and Canopy for the web is out of service until Native 022 Plan B. The
 "Current state" excerpts below describe the deleted code and are kept as the
 historical rationale. The requirement stands: search excerpts are inert data
 and highlights are rendered as elements, never as HTML strings. It applies now
@@ -37,7 +37,7 @@ text index it introduces. Rewrite the steps against that code before executing.
 
 The workspace search index builds each result excerpt with SQLite FTS5's
 `snippet()` function, which splices `<mark>` tags into raw document text and
-escapes nothing. Arbor web then renders that string through
+escapes nothing. Canopy for the web then renders that string through
 `dangerouslySetInnerHTML`. Any indexed Markdown file whose body contains HTML
 therefore executes script inside the arborsync origin as soon as a search matches
 it — and that origin has unauthenticated read and write access to the user's
@@ -54,7 +54,7 @@ React elements rather than by an HTML string.
 Files involved:
 
 - `packages/arborsync/src/state/indexer.ts` — SQLite FTS5 index; `search()` produces the excerpt.
-- `packages/canopy-web/src/App.tsx` — Arbor web shell; renders the search results list.
+- `packages/canopy-web/src/App.tsx` — Canopy for the web shell; renders the search results list.
 - `packages/protocol/src/model/protocol.ts` — shared protocol types; `SearchResult` shape crosses the REST boundary.
 
 The excerpt is produced at `packages/arborsync/src/state/indexer.ts:136-143`:
@@ -83,7 +83,7 @@ Repo conventions to match:
   lines are normal in this repo. Match the surrounding density rather than
   reformatting.
 - Types shared across the REST boundary live in `packages/protocol/src/model/protocol.ts`.
-  If you change the wire shape of a search result, change it there, not in a
+  If you change the protocol shape of a search result, change it there, not in a
   local interface.
 - Unit tests live in `tests/unit/*.test.ts` and use `bun:test`. Use
   `tests/unit/journal.test.ts` as the structural exemplar: `describe`/`test`,

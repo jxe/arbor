@@ -1,6 +1,6 @@
-# Arbor local system reference
+# Overstory local system reference
 
-This document records replaceable local filesystem, daemon-state, and credential-storage choices in the current Arbor implementation. The synchronized cross-server configuration contract is normative in [configuration](../spec/04-accounts-and-devices.md); the loopback API is documented separately in [Local Arbor REST API](arborsync-api.md).
+This document records replaceable local filesystem, daemon-state, and credential-storage choices in the current Overstory implementation. The synchronized cross-server configuration contract is normative in [configuration](../spec/04-accounts-and-devices.md); the loopback API is documented separately in [Local Arbor Sync REST API](arborsync-api.md).
 
 ## Data home
 
@@ -44,12 +44,12 @@ after it opens, after any watcher overflow or gap (a `batch` event), and every
 30 minutes by default, logging a `diagnostic` event for each row whose cached
 hash disagrees with the recomputed one and rewriting the row. Objects served
 by hash are always verified against their hash before leaving the daemon; the
-fetch-through cache for objects that live only on Canopy is in memory and
+fetch-through cache for objects that live only on canopyd is in memory and
 bounded.
 
 Raw credentials use the platform credential facility where available and are
 scoped by the selected data home and configuration TreeID. Origin alone is not
-a credential key because two accounts may use one Canopy. Other
+a credential key because two accounts may use one host. Other
 implementations may use an equivalent secret facility, but no raw credential
 or access-link secret belongs in synchronized configuration or authored trees.
 
@@ -59,7 +59,7 @@ iOS keeps each placed tree as a durable working tree beneath the app's private
 support directory, keyed by the percent-encoded `TreeID`:
 
 ```text
-<Application Support>/Arbor/
+<Application Support>/Overstory/
   WorkingTrees/<key>/
     wire-format               # format marker the tree was placed under
     materialized/tree.json    # WorkingTreeState, schema 2
@@ -75,13 +75,13 @@ support directory, keyed by the percent-encoded `TreeID`:
 Schema 2 node records hold a content reference, inline bytes or a hash with
 its size and media type, instead of raw bytes. Markdown source stays inline;
 every other file is a hash resolved on demand through the layered object store
-(`objects/` first, then Canopy), so whole-tree hashing touches only directories
+(`objects/` first, then canopyd), so whole-tree hashing touches only directories
 and Markdown and the tree neither fetches nor retains every object. The state
-files are not decoded leniently: an older layout is re-placed from Canopy
+files are not decoded leniently: an older layout is re-placed from canopyd
 rather than migrated in place. The format marker is `4` (content references,
 the `WorkingTrees/` layout, `update-control.json`); a phone placed under an
-older marker re-places from Canopy on its next launch, which discards edits
-Canopy has not accepted yet, so the phone is synchronized before the build
+older marker re-places from canopyd on its next launch, which discards edits
+canopyd has not accepted yet, so the phone is synchronized before the build
 that carries the new marker is installed.
 
 The Mac keeps no content store. The app opens a tree the daemon has placed as
@@ -92,7 +92,7 @@ over the placed folder. Only the coordinator's durable update control is
 written beneath the app's support directory:
 
 ```text
-<Application Support>/Arbor/
+<Application Support>/Overstory/
   Native Placement.json       # the placed trees the app has opened; the selected one is restored at launch
   Visits.json                 # app-side visit history: origin, tree descriptor, locator, time
   WorkingTrees/<key>/
@@ -106,15 +106,15 @@ and `devices.yaml` on disk exactly as the CLI does and asks the daemon to
 synchronize. The control-mode daemon is the only launchd process: the app
 attaches to it or launches it, never a per-folder daemon. Visits are the app's
 own: a remote tree opened by locator is a read-only in-memory working tree
-following that tree's Wire watch, anonymous unless an account at the same
+following that tree's Overstory watch, anonymous unless an account at the same
 origin holds a credential, with file bytes served by `/v1/objects?origin=`
-when the daemon is running and by Canopy's object route otherwise.
+when the daemon is running and by canopyd's object route otherwise.
 
 ## Daemon supervision
 
 The reference CLI exposes `arbor daemon install|uninstall|start|stop|restart|status|logs` independently of the host service manager. The default data home has exactly one supervised local daemon and all native and command-line clients attach to its Arbor Sync REST origin. An explicit `ARBOR_DATA_HOME` remains an isolated foreground run instead of accidentally becoming a second default service.
 
-macOS implements this contract as the per-user launchd label `org.nxhx.Arbor.arborsync`. A signed Arbor app registers its relocatable bundled agent with `SMAppService`; a CLI-only installation writes a user LaunchAgent pointing at that CLI installation. Both paths use the same label, port, control-mode daemon, and log location, so launchd cannot load competing owners. Future Linux and Windows adapters should preserve the commands and one-daemon-per-data-home invariant while translating them to the native user-service manager.
+macOS implements this contract as the per-user launchd label `org.nxhx.Arbor.arborsync`. A signed Canopy app registers its relocatable bundled agent with `SMAppService`; a CLI-only installation writes a user LaunchAgent pointing at that CLI installation. Both paths use the same label, port, control-mode daemon, and log location, so launchd cannot load competing owners. Future Linux and Windows adapters should preserve the commands and one-daemon-per-data-home invariant while translating them to the native user-service manager.
 
 ## Watching and local activation
 
@@ -132,7 +132,7 @@ rewrite `trees.yaml`, `account.yaml`, or `devices.yaml` in place under
 `accounts/<ConfigurationTreeID>/` with an atomic temporary-file-and-rename
 write, then ask Arbor Sync to synchronize that account. The checkout is a placed
 folder like any other: the daemon watches it, validates the candidate, and
-pushes it; if the account's Canopy is unreachable the edit simply waits on disk
+pushes it; if the account's canopyd is unreachable the edit simply waits on disk
 and is pushed on reconnect. Editors refuse to write while the daemon reports the
 configuration tree in conflict.
 
@@ -140,19 +140,19 @@ A declared placement may sit beneath the data home as a separate mounted tree. L
 
 ## Scopes and durability
 
-The reference daemon knows only actual Arbor trees: placed roots, pathless replicas, and the account-configuration tree, each named by its TreeID. The former `local` scope for untracked filesystem content and the `system:` scope for diagnostics, visits, recovery, and conflict summaries went with the daemon's editor path (Native 022 Phase 7). Status, conflicts, and credential availability are ordinary control-surface responses (`GET /v1/trees`, `GET /v1/conflicts`, `GET /v1/accounts`); browsing an unplaced remote tree is the app's own working-tree visit, served objects through `GET /v1/objects?origin=`, and creates no daemon-side visit record or cache directory.
+The reference daemon knows only actual Overstory trees: placed roots, pathless replicas, and the account-configuration tree, each named by its TreeID. The former `local` scope for untracked filesystem content and the `system:` scope for diagnostics, visits, recovery, and conflict summaries went with the daemon's editor path (Native 022 Phase 7). Status, conflicts, and credential availability are ordinary control-surface responses (`GET /v1/trees`, `GET /v1/conflicts`, `GET /v1/accounts`); browsing an unplaced remote tree is the app's own working-tree visit, served objects through `GET /v1/objects?origin=`, and creates no daemon-side visit record or cache directory.
 
-A pathless placement creates a durable writable private replica. The daemon has no authored-mutation path of its own: the placed folder is its only local source, external filesystem changes are observed and become the next filesystem candidate, and accepted Canopy state is materialized only after its objects, heads, and requests are durable. Editors keep their own working tree, journal, and recovery.
+A pathless placement creates a durable writable private replica. The daemon has no authored-mutation path of its own: the placed folder is its only local source, external filesystem changes are observed and become the next filesystem candidate, and accepted canopyd state is materialized only after its objects, heads, and requests are durable. Editors keep their own working tree, journal, and recovery.
 
 ## Loopback credential exposure
 
-The daemon serves the stored Canopy account credential to any local process
+The daemon serves the stored canopyd account credential to any local process
 over `GET /v1/credential` on its loopback socket. This is deliberate: a local
 process running as the user can already read the credential store and write
 the placed folders the daemon synchronizes under that credential, so handing
 it the token grants nothing further. The
 point is one device identity per installation: the Mac app and the daemon are
-one device to Canopy, sharing authentication and a request-digest scope while
+one device to canopyd, sharing authentication and a request-digest scope while
 remaining independent working-tree clients. The socket binds to
 loopback only and rejects non-loopback `Host` headers; the credential itself
 still lives in the platform credential store (or the file store when
@@ -168,8 +168,8 @@ extracted OS paths into local `placements.yaml`. Its repository artifact and
 compatibility readers remain during the rollback window, but normal startup
 does not perform that conversion implicitly.
 
-Wire format 5 uses raw file payloads and typed directory entries. Sparse
-bootstraps are rooted at the recorded accepted Canopy root and include its
+Overstory format 5 uses raw file payloads and typed directory entries. Sparse
+bootstraps are rooted at the recorded accepted canopyd root and include its
 directories and Markdown; daemon-local pending/conflict state is not part of
 another client's installation. Other file sizes are unknown until read. On a format change, the daemon archives old refs and sync journals beneath
 `.state/format-recovery/` before rebuilding indexes. Native direct replicas retain
@@ -179,7 +179,7 @@ These archives are recovery evidence and are never replayed automatically.
 ## Object-read diagnostics
 
 The local byte lookup still tries indexed filesystem bytes, durable pending
-objects and Canopy, in that order. A failed source may fall through to the next;
+objects and canopyd, in that order. A failed source may fall through to the next;
 only hash-verified bytes are returned. Unexpected failures are written to daemon
 logs with the `[arborsync:object-read]` prefix and structured source/reason fields.
 Permission denial, IO failure, network/HTTP failure, malformed pending data and
@@ -189,5 +189,5 @@ hashes do not produce warnings. Use `arbor daemon logs` to inspect these records
 Records contain the requested hash, tree or local path where available, and
 safe error codes/HTTP status. They omit exception messages, response bodies,
 request URLs and credentials. This is local diagnostic evidence, not a change
-to the REST or Canopy Wire response contract. `WireHTTPError.status` lets local
+to the REST or canopyd Overstory response contract. `WireHTTPError.status` lets local
 callers classify HTTP failures without parsing the human-readable message.

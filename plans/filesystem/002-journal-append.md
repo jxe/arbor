@@ -26,7 +26,7 @@ Historical identifier: **Reliability 002**. The filename number is preserved; th
 
 ## Why this matters
 
-The write journal is what lets Arbor recover a user's in-progress edit after a
+The write journal is what lets Overstory recover a user's in-progress edit after a
 crash. Every journal record carries a monotonic counter `c`, and recovery
 depends on it: `fold` orders records by `c` to decide each block's final state,
 and `reconcile` compares a record's counter against a persisted watermark to
@@ -301,7 +301,7 @@ Stop and report back if:
 
 - The serialization is **per page ID and in-process only**. It does not protect
   against two arborsync processes writing the same journal file. That is a
-  deliberate boundary: Arbor assumes one daemon per data home.
+  deliberate boundary: Overstory assumes one daemon per data home.
 - If a future change adds a public `WriteJournal` method that writes records,
   it must go through `append` (and therefore through `exclusive`) rather than
   calling `appendFile` directly.

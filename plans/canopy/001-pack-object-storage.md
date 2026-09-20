@@ -1,6 +1,6 @@
 # Pack retained objects into compressed group files
 
-Historical identifier: **Canopy storage 001**. The filename number is preserved; this plan now belongs to canopy.
+Historical identifier: **canopyd storage 001**. The filename number is preserved; this plan now belongs to canopy.
 
 ## Status
 
@@ -91,7 +91,7 @@ another, so there are no base chains to protect when pruning.
 
 ## Verification
 
-- Existing Wire, Canopy, and sync suites pass unchanged.
+- Existing Overstory, canopyd, and sync suites pass unchanged.
 - A fixture reads identically from all-loose, mixed, and fully packed stores.
 - Killing the process at each step of a packing pass leaves every object
   readable and a rerun converges.
@@ -101,6 +101,6 @@ another, so there are no base chains to protect when pruning.
 
 ## Non-goals
 
-- Changing object hashes, canonical encodings, update IDs, or Wire formats.
+- Changing object hashes, canonical encodings, update IDs, or Overstory formats.
 - Deltas between objects.
 - Synchronizing packs between Canopies.

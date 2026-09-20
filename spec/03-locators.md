@@ -1,13 +1,13 @@
-# Arbor locators
-*Part of the [Arbor spec](../spec.md): portable references through primary
-TreeID identity, tree-relative paths, revisions, and DNS/Canopy canonical
+# Overstory locators
+*Part of the [Overstory spec](../spec.md): portable references through primary
+TreeID identity, tree-relative paths, revisions, and DNS/host canonical
 lookup.*
 
 *Owns: locator grammar, parsing, resolution, the routes that find trees, and the public HTTP projection. References: row segments ([child backings](06-child-backings.md)).*
 
 ## 1. Forms
 
-Portable Arbor content uses these locator forms:
+Portable Overstory content uses these locator forms:
 
 ```text
 arbor://<TreeID>/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
@@ -24,21 +24,21 @@ name; an authority beginning `tr_` that is not a well-formed TreeID is invalid.
 Relative and tree-rooted paths resolve within an already selected
 tree. Their portable meaning is never an operating-system path. Canonical HTTP
 and `arbor://<authority>/...` names first resolve through the secondary
-canonical lookup: the URI's DNS authority places/selects a Canopy, then that
-Canopy resolves its longest readable registered boundary to a TreeID. `authority`
+canonical lookup: the URI's DNS authority places/selects a host, then that
+host resolves its longest readable registered boundary to a TreeID. `authority`
 here is the URI authority component. Operating-system paths and `system:` content
-addresses are facilities of a local implementation, not portable Arbor
+addresses are facilities of a local implementation, not portable Overstory
 locators; a separately specified capability field ([deferred 9](../spec.md#deferred)) may use a
 `system:` reference without making it a content locator.
 
 Canonical public names are replaceable human names, not tree identity. A
-canonical resolver returns the selected Canopy origin, the `TreeID` selected by
+canonical resolver returns the selected host origin, the `TreeID` selected by
 its longest readable registered boundary, the decoded logical path remainder, optional
 immutable revision, access, and enough server provenance to perform a permitted
 operation.
 
-The current Canopy's first `~handle` segment is an account-policy name, not a
-profile identifier or a requirement of Arbor locators. Another Canopy may
+canopyd's first `~handle` segment is an account-policy name, not a
+profile identifier or a requirement of Overstory locators. Another host may
 allocate account and canonical paths differently. The same handle at two
 Canopies implies no relationship, and one profile `TreeID` may be associated
 with differently shaped account locators at several Canopies. Conversely,
@@ -85,21 +85,21 @@ The portable directory projection has one additional relative-link spelling:
 ```
 
 This is a Markdown compatibility alias for the same stable-key component, not
-an ordinary content fragment. A non-Arbor Markdown reader follows the normal
-relative path and may simply find no matching anchor. An Arbor-aware local
-reader uses the key for resolution and link healing. An Arbor HTTP renderer
+an ordinary content fragment. A non-Overstory Markdown reader follows the normal
+relative path and may simply find no matching anchor. An Overstory-aware local
+reader uses the key for resolution and link healing. An Overstory HTTP renderer
 rewrites the destination to the server-visible
 `walking;arbor-key=<base64url-key>` form before emitting HTML, preserving the
 application query unchanged.
 
 The Markdown alias is permitted only on relative or tree-rooted authored links
-whose Arbor renderer can perform that translation. Raw TreeID, canonical Arbor,
+whose Overstory renderer can perform that translation. Raw TreeID, canonical Overstory,
 and canonical HTTP locators use the path-attached suffix directly. Legacy bare
 `#<PageID>` and `#row=<key>` spellings may be accepted as input during migration,
 but conforming writers emit either the Markdown alias or the path suffix.
 
 Append `;arbor-rev=sha256:<root>` to the final path segment, after any
-identity suffix, to select an immutable wire root of the addressed tree:
+identity suffix, to select an immutable Overstory root of the addressed tree:
 
 ```text
 arbor://<TreeID>/notes;arbor-rev=sha256:<root>
@@ -118,7 +118,7 @@ addressed application document:
 arbor://<TreeID>/Practice;arbor-key=<base64url-key>?id=p_123&edit
 ```
 
-Arbor routing consumes neither application keys nor values. Other fragments
+Overstory routing consumes neither application keys nor values. Other fragments
 remain ordinary content-local navigation and are not used as node identity:
 
 ```text
@@ -156,7 +156,7 @@ Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as in
 
 ## 4. Resolution rules
 
-- A canonical server path resolves to the longest readable registered boundary, as specified by [the wire](#5-finding-trees); an inaccessible nested boundary is not resolved through its parent.
+- A canonical server path resolves to the longest readable registered boundary, as specified by [the protocol](#5-finding-trees); an inaccessible nested boundary is not resolved through its parent.
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known server record.
 - A relative or tree-rooted reference retains the tree scope of its resolution context and cannot cross a nested tree boundary without an explicit canonical or raw locator.
 - When `stableKey` is non-null, the resolver validates it against the addressed schema. A key from a tree identity declaration may repair the path anywhere in that tree; a key from a parent's children declaration may repair only the final child component after the parent path resolves. The declaration site supplies this keyspace; the identity rule has no separate `scope` field.
@@ -174,20 +174,20 @@ Canonical URLs are a secondary index over the global TreeID space:
 type CanonicalURLs = Map<`${DNSName}${PathPrefix}`, TreeID>
 ```
 
-The DNS name reaches one Canopy through normal DNS and HTTPS. Within that
+The DNS name reaches one host through normal DNS and HTTPS. Within that
 authority, resolution selects the longest readable registered path boundary
 and returns its TreeID plus the remaining logical path and optional stable key.
 URL nesting does not imply common storage, history, ownership, or access: if
 one tree is canonical at `/~alice` and another at `/~alice/atlas`, the latter
 boundary wins below it.
 
-Canopy policy assigns each registered canonical boundary to the account allowed
-to declare it. In the current Canopy, boundaries under `/~handle` belong to that
+Host policy assigns each registered canonical boundary to the account allowed
+to declare it. In canopyd, boundaries under `/~handle` belong to that
 local account locator. The account locator may exist without a registered tree
 at exactly `/~handle`; longest-boundary lookup can still resolve declared trees
 below it. This allocation rule is not part of the portable locator grammar.
 
-Canonical placement is mutable naming. Changing the Canopy's DNS name, moving
+Canonical placement is mutable naming. Changing the host's DNS name, moving
 a registered boundary, or renaming a node changes canonical URLs without
 changing TreeID or stable key. Moving the physical server behind an unchanged
 DNS origin changes neither. A raw `arbor://<TreeID>/...` locator remains the

@@ -1,17 +1,17 @@
 # Walkthrough
-*Part of the [Arbor spec](../spec.md): a non-normative tour of one account's first day. Nothing here adds a requirement; every step links to the section that defines it.*
+*Part of the [Overstory spec](../spec.md): a non-normative tour of one account's first day. Nothing here adds a requirement; every step links to the section that defines it.*
 
-Joe runs a Canopy for `garden.example` and wants to publish a folder of notes,
+Joe runs a host for `garden.example` and wants to publish a folder of notes,
 let Alice follow it from her own laptop, add a small database to it, and put a
 page in front of that database. Each step below is one specification concept
 meeting the previous one.
 
 ## 1. Create a profile identity and claim an account
 
-Joe runs `arbor me create`. Arbor creates a local profile folder whose root
+Joe runs `arbor me create`. Overstory creates a local profile folder whose root
 document says `type: person`, generates an Ed25519 identity key in operating-
 system credential storage, and derives the profile `TreeID` from the public
-key. The identity exists before any Canopy account or canonical URL. Because
+key. The identity exists before any host account or canonical URL. Because
 Joe founded Garden, its bootstrap configuration records his public profile
 TreeID and `handle: joe` together. For a community he did not found, Joe would
 send the same public TreeID to its administrator, who would add that exact pair
@@ -52,7 +52,7 @@ accepted configuration update. The server validates the candidate under the
 
 ## 3. Activate it
 
-The laptop encodes the folder as Wire objects: one file object per file, one
+The laptop encodes the folder as Overstory objects: one file object per file, one
 directory object per directory, each addressed by the SHA-256 of its canonical
 CBOR. It sends `POST /.arbor/trees/tr_…/updates` with `base: null` and a
 one-element `updates` string carrying the root hash as `candidate` and every
@@ -102,12 +102,12 @@ Joe creates `practices/schema.ts` exporting a Zod object schema and
 folder is now a file-backed collection: each CSV row is a child node of
 `/practices`, its columns are the child's properties, and its stable key is
 the canonical key JSON of its `id` ([file-backed collections](06-child-backings.md#2-file-backed-collections),
-[row identity](06-child-backings.md#12-member-identity-order-and-pagination)). In the Wire encoding,
+[row identity](06-child-backings.md#12-member-identity-order-and-pagination)). In the protocol encoding,
 the exact CSV and `schema.ts` remain ordinary physical entries while the
 directory's collection-file descriptor identifies them as the source of its
 logical children. The authority recomputes both the schema fingerprint and the
 child-set hash
-([accepted Wire representation](06-child-backings.md#21-accepted-wire-representation)).
+([accepted Overstory representation](06-child-backings.md#21-accepted-overstory-representation)).
 Each row has an ordinary public address such as
 `/~joe/atlas/practices/walking;arbor-key=…` ([public projection](03-locators.md#6-public-http-projection)).
 
@@ -116,7 +116,7 @@ Each row has an ordinary public address such as
 Joe writes `Practices.mdx` importing a handle from `handles.ts`:
 
 ```ts
-import { arbor, query } from "arbor/data"
+import { arbor, query } from "overstory/data"
 
 const practices = arbor("./practices").children
 
@@ -145,7 +145,7 @@ A form on the page calls it as an action. The browser sends
 and a caller-chosen `mutationID`. The runner opens the CSV's whole-file
 transaction, validates keys and constraints, writes a complete replacement,
 and records the receipt with the same durability as the data. Because the
-mutation changed an Arbor-canonical tree, the receipt's `affected` names the
+mutation changed an Overstory-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
 twice ([mutations](07-executable-documents.md#5-mutations),

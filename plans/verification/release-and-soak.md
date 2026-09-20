@@ -26,7 +26,7 @@ Passing builds and automated tests do not establish interactive acceptance.
 
 ## Server refinements
 
-Owner: Canopy [009](../canopy/009-canopy-provenance-merges.md).
+Owner: canopyd [009](../canopy/009-canopy-provenance-merges.md).
 
 - [ ] Rehearse, deploy and verify independent source-range inspection and the subsequent Markdown
   transfer/list-insertion refinements. Record the exact revision and packaged worker together.

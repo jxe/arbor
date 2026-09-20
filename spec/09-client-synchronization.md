@@ -1,7 +1,7 @@
 # Working-tree updates
-*Part of the [Arbor spec](../spec.md): how a client that owns a working tree turns its local heads into accepted updates and applies accepted results. Wire request identity, plural update strings, and watching are defined by [tree operations](01-tree-operations.md); this chapter defines the client state machine that uses them safely.*
+*Part of the [Overstory spec](../spec.md): how a client that owns a working tree turns its local heads into accepted updates and applies accepted results. Overstory request identity, plural update strings, and watching are defined by [tree operations](01-tree-operations.md); this chapter defines the client state machine that uses them safely.*
 
-*Owns: the update machine, its states, retained durable data, entries, and transitions. References: [tree operations §2–3](01-tree-operations.md) for the request and watch contracts. Reference timing values are not part of Wire compatibility.*
+*Owns: the update machine, its states, retained durable data, entries, and transitions. References: [tree operations §2–3](01-tree-operations.md) for the request and watch contracts. Reference timing values are not part of Overstory compatibility.*
 
 ## 1. Scope and conformance
 
@@ -9,8 +9,8 @@ A **working tree** is what an editor edits: the node index of one tree, the
 local objects it has produced, and the machine that turns its heads into
 accepted updates. The daemon's placed folder is a working tree whose object
 store is the folder; the native working tree is one whose object store is a
-layered overlay in front of a platform store. Both talk to Arbor Wire
-directly. Arbor Wire permits a client to post progressively longer append-only
+layered overlay in front of a platform store. Both talk to Overstory
+directly. Overstory permits a client to post progressively longer append-only
 strings while earlier requests are in flight
 ([tree operations §2.1](01-tree-operations.md#21-the-update-request)). That
 permission exists for recovery. A conforming client uses it only in the
@@ -119,7 +119,7 @@ one client's local condition gate another client's publication.
    pulls the current snapshot when the batch does not chain. A watch event
    under pending work triggers publication and never overwrites the head.
 8. **Accepted ambiguity is ordinary acceptance.** Ordinary valid concurrent
-   edits are reconciled or retained as accepted ambiguity by Canopy. A stale
+   edits are reconciled or retained as accepted ambiguity by the host. A stale
    basis alone does not enter a client-owned conflict workflow. For an accepted
    update with `conflicted: true`, apply its projection, retain its accepted
    identity and unresolved signal, and continue ordinary publication. Equal-root
@@ -167,13 +167,13 @@ one client's local condition gate another client's publication.
 
 The reference delays coalesce interactive bursts without visible latency and
 are configurable per client. Changing them requires request-count evidence
-and matching test updates; they are not Wire compatibility values.
+and matching test updates; they are not Overstory compatibility values.
 
 ## 3. Relationship to editor admission
 
 An editor runs a document admission machine against its own working tree. A
 successful admission acknowledges durable authored intent, not acceptance by
-Canopy and not agreement with the current projected document. The admission and
+the host and not agreement with the current projected document. The admission and
 publication machines remain separate. The reference reducers are described in
 [client state machines](../docs/client-state-machines.md).
 
@@ -187,7 +187,7 @@ publication machines remain separate. The reference reducers are described in
 - If the editor authored against R1 and a watch installs R2 before admission, the
   client MUST retain the R1-based edit. It MUST NOT substitute R2 as the basis,
   replay the edit against R2 merely because its byte guards happen to match, or
-  require a local compare-and-swap conflict resolution. Canopy reconciles the
+  require a local compare-and-swap conflict resolution. The host reconciles the
   original intent and preserves genuine overlap as accepted state.
 - Admission MUST validate that the edits applied to the captured basis produce
   the declared candidate exactly, frame by frame: the operations a client states
@@ -202,7 +202,7 @@ publication machines remain separate. The reference reducers are described in
   of incoming projections.
 - Coalescing MUST preserve causal meaning and the correct basis. Requests already
   attempted remain immutable. A successor authored against a submitted candidate
-  MUST retain that dependency, including when Canopy projects a peer alternative.
+  MUST retain that dependency, including when the host projects a peer alternative.
   A client that coalesces several editor generations into one change MUST emit
   one frame per generation, in authored order, rather than re-deriving a single
   claim against the oldest basis. Frames are concatenated, never rebased: each
@@ -218,7 +218,7 @@ publication machines remain separate. The reference reducers are described in
   its provider unexpectedly requires compare-and-swap resolution, retain the
   original basis and pending edits and report an admission failure. Legacy or
   disk-only sessions may retain their separate compare-and-swap policy during
-  compatibility; that policy MUST NOT leak into Canopy intent admission.
+  compatibility; that policy MUST NOT leak into host intent admission.
 
 ### Captured operations and preserved source
 
@@ -245,7 +245,7 @@ bytes is not a causal claim and needs none.
 
 A client MAY discard a retained admission record as soon as its change is
 accepted and no pending admission depends on it. Records MUST NOT retain
-document sources or editor transactions; they retain hashes, the wire element,
+document sources or editor transactions; they retain hashes, the protocol element,
 and enough of the capture to serve a document's hidden candidate and recognize
 an exact retry. Discarding MUST preserve any authored basis still exposed to an
 open editor until the accepted projection has been installed.
@@ -255,11 +255,11 @@ page-creation record retains the branch it introduced and proves that removing
 it restores the pre-creation graph, so the record reproduces its original basis;
 this is a validity check on the record, not an undo claim. Undoing such an
 action in the editor is a source edit like any other and does not remove the
-created page. Concurrent changes remain subject to Canopy reconciliation.
+created page. Concurrent changes remain subject to host reconciliation.
 
 A historical inverse candidate describes its authored basis, not necessarily the
-current projection. Clients MUST NOT install it as Canopy's reconciled state.
-They MAY await Canopy reconciliation before exposing a successor basis that they
+current projection. Clients MUST NOT install it as the host's reconciled state.
+They MAY await host reconciliation before exposing a successor basis that they
 cannot otherwise validly express. Waiting for that basis MUST NOT discard the
 durably retained inverse, change its targets, or pause other queued publication.
 
@@ -275,7 +275,7 @@ Neither kind of successor may be silently rebound to an incoming projection.
 
 Clients need not implement a local merge engine. When pending authored branches
 cannot be presented as one coherent candidate, a client MAY temporarily make
-structural actions, imports and asset creation unavailable until Canopy reconciles
+structural actions, imports and asset creation unavailable until the host reconciles
 them. It MUST report that limitation before acknowledging another such action,
 and MUST continue to retain valid document intent from already-open editors against
 its original basis. This restriction MUST NOT pause publication of retained work.
@@ -291,7 +291,7 @@ a shared deletion snapshot alone is not sufficient to promise local restoration.
 
 An accepted conflict-bearing receipt follows the ordinary accepted-update path:
 validate and durably install its projection and identity, then continue publication.
-Clients obtain conflict decisions through Canopy's tree inspection operations.
+Clients obtain conflict decisions through the host's tree inspection operations.
 Accepted decisions are tree state, not private to the submitting client. An
 unavailable inspection request MUST NOT block normal synchronization.
 
@@ -330,7 +330,7 @@ while allowing provably independent work to proceed. Uncertain transport outcome
 must first use the existing exact-retry/receipt procedure; uncertainty is not
 permission to abandon or rewrite a possibly accepted request.
 
-This does not change the Wire's sequential prefix semantics. The client retains the
+This does not change the protocol's sequential prefix semantics. The client retains the
 original request, basis, rejected and unattempted elements, and later local changes.
 It may prepare a separate candidate against a verified accepted state only after
 establishing that the selected local effects are independent of held work. Different

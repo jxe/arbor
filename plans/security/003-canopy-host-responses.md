@@ -1,8 +1,8 @@
-# Security 003: Harden Canopy responses and rate limiting
+# Security 003: Harden canopyd responses and rate limiting
 
 > **Drift check**: inspect `packages/canopyd/src/host.ts`,
 > `tests/integration/canopy`, and `deploy/` before editing. This plan was
-> reconciled after the authority-to-Canopy rename; stop if a shared response
+> reconciled after the authority-to-canopyd rename; stop if a shared response
 > policy or trusted-proxy abstraction has since landed.
 
 ## Status
@@ -30,12 +30,12 @@ header unless the listener has an explicit trusted-proxy boundary. The
 
 In scope:
 
-- one response-hardening helper used by every Canopy response path;
+- one response-hardening helper used by every host response path;
 - safe MIME/attachment treatment for ordinary stored bytes;
 - a connection-peer rate-limit key by default and an explicit trusted-proxy
   policy for deployed reverse proxies;
 - bounded cleanup of pairing-attempt state;
-- focused Canopy integration tests and deployment documentation.
+- focused canopyd integration tests and deployment documentation.
 
 Out of scope:
 
@@ -72,7 +72,7 @@ remains non-cacheable.
 Use a small reviewed extension allowlist for inert image/text types. Unknown or
 active types—including SVG and HTML—must return
 `application/octet-stream`, `content-disposition: attachment`, and `nosniff`.
-Do not import an arborsync-only MIME table into Canopy.
+Do not import an arborsync-only MIME table into canopyd.
 
 ### 3. Make the throttle key trustworthy and bounded
 
@@ -114,7 +114,7 @@ git diff --check
 
 ## Done criteria
 
-- [ ] Every Canopy response path carries the shared safe headers.
+- [ ] Every host response path carries the shared safe headers.
 - [ ] Unknown or active stored files cannot execute inline.
 - [ ] Direct clients cannot choose their own rate-limit bucket with a header.
 - [ ] Trusted proxy behavior is explicit, documented, and tested.

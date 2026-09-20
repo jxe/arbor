@@ -78,7 +78,7 @@ of the existing contract, not a new protocol version. Schema 10 is not deployed.
 
 - [TypeScript semantic model](../packages/protocol/src/updates/authored-contract.ts).
 - [Swift semantic model](../canopy-swift/Packages/Overstory/Sources/Overstory/WireAuthoredContract.swift).
-- [Shared grammar and identity vectors](../conformance/wire-authored-updates.json).
+- [Shared grammar and identity vectors](../conformance/protocol-authored-updates.json).
 
 These models decode the semantic portion of requests and compute exact CBOR/digests.
 The semantic models exclude transport arrays. The complete request codecs below
@@ -98,7 +98,7 @@ delta quotas and activation restrictions. Semantic validation is shared with the
 existing target models; source execution, reachability and candidate correspondence
 remain authority checks.
 
-The [complete-request vectors](../conformance/wire-authored-transport.json) cover 24
+The [complete-request vectors](../conformance/protocol-authored-transport.json) cover 24
 transport cases with real object bytes and exact semantic identities. Both languages
 also run all 43 semantic vectors through the complete codec. Complete and sparse
 encodings reconstruct the same candidate graph and carry the same digest. Tests
@@ -195,7 +195,7 @@ cannot grant authority.
 
 [TypeScript read models](../packages/protocol/src/updates/accepted-contract.ts),
 [Swift read models](../canopy-swift/Packages/Overstory/Sources/Overstory/WireAcceptedContract.swift)
-and [shared read/chain vectors](../conformance/wire-accepted-state.json) validate the
+and [shared read/chain vectors](../conformance/protocol-accepted-state.json) validate the
 target shapes through the active HTTP codecs as well as standalone models. These checks do not prove
 projection correspondence, server authorization, paging traversal or semantic execution.
 Installation of the consolidated codecs remains part of the coordinated cutover.
@@ -268,7 +268,7 @@ round trips; malformed known reconciliation fields do not pass as extensions.
 Watch binding validation is separate from descriptor policy validation and requires
 observation replay deduplication before checking the confirmed client basis.
 
-[Shared accepted-transport fixtures](../conformance/wire-accepted-transport.json)
+[Shared accepted-transport fixtures](../conformance/protocol-accepted-transport.json)
 cover 24 positive/negative cases, including identity gaps concealed by equal roots,
 omitted metadata transitions, exact Unicode identity, historical receipts, complete
 object hashes, duplicate results and sparse transport. Both languages reconstruct

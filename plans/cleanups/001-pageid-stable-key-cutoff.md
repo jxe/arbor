@@ -25,7 +25,7 @@
 
 ## Problem
 
-Arbor's canonical locator contract already carries provider-neutral stable keys
+Overstory's canonical locator contract already carries provider-neutral stable keys
 through `#arbor-key=<base64url>` and `;arbor-key=<base64url>`. Markdown's
 physical `id` frontmatter is nevertheless still encoded and decoded through
 generic `pageIDStableKey` helpers, workspace identity indexes are named and
@@ -46,7 +46,7 @@ the implicit conversion of ordinary content fragments into identity lookups.
 ## Required behavior
 
 1. Give the Markdown representation/provider boundary one explicit identity
-   codec for converting between an authored Markdown document ID and Arbor's
+   codec for converting between an authored Markdown document ID and Overstory's
    canonical stable-key bytes. A likely home is
    `packages/protocol/src/documents/markdown-identity.ts`; choose a comparably literal
    provider-owned location if ownership has moved by execution time.
@@ -80,7 +80,7 @@ the implicit conversion of ordinary content fragments into identity lookups.
 ### 0. Prove the cutoff is safe
 
 Before modifying source, run a read-only inventory across every active local
-workspace in Arbor's private registry, the canonical hosted account tree and
+workspace in Overstory's private registry, the canonical hosted account tree and
 all accessible hosted/current snapshots, and the configuration for other
 active devices. Inventory:
 
@@ -88,7 +88,7 @@ active devices. Inventory:
 - canonical `#arbor-key=` and network `;arbor-key=` locators;
 - ambiguous or unresolved legacy candidates;
 - durable visit/navigation metadata that stores locators, if present;
-- deployed data-root database names and the status of any pre-Canopy rollback
+- deployed data-root database names and the status of any pre-canopyd rollback
   copies relevant to the surrounding compatibility cutoff.
 
 Write only a private receipt under
@@ -203,8 +203,8 @@ swift test --package-path canopy-swift/Packages/ArborSyncClient
 swift test --package-path canopy-swift/Packages/CanopyWorkingTree
 bun test
 bun run build
-xcodebuild build -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
+xcodebuild build -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' -derivedDataPath /tmp/arbor-pageid-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-pageid-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 

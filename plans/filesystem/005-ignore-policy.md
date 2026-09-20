@@ -1,4 +1,4 @@
-# Keep ignored filesystem content outside Arbor trees
+# Keep ignored filesystem content outside Overstory trees
 
 Historical identifier: **Security 005**. The filename number is preserved; this plan now belongs to filesystem.
 
@@ -41,25 +41,25 @@ Historical identifier: **Security 005**. The filename number is preserved; this 
 
 ## Outcome
 
-Arbor has one explicit filesystem-membership policy. It retains the existing
-mandatory exclusions for Arbor-private and generated directories, adds
+Overstory has one explicit filesystem-membership policy. It retains the existing
+mandatory exclusions for Overstory-private and generated directories, adds
 portable `.arborignore` files, and reads ordinary `.gitignore` files as a
-compatibility source. A matching new local path is opaque to Arbor: it is not
+compatibility source. A matching new local path is opaque to Overstory: it is not
 shown as a tree child, assigned durable identity, parsed, indexed, watched as
-authored content, included in a Wire snapshot, uploaded, overwritten, or
+authored content, included in an Overstory snapshot, uploaded, overwritten, or
 deleted during materialization.
 
-The last accepted Arbor snapshot is the tracked-membership boundary. A path
+The last accepted Overstory snapshot is the tracked-membership boundary. A path
 already present in that accepted tree remains visible and synchronized even if
 a later ignore rule matches it. It leaves the tree only through an explicit
 filesystem deletion or structural mutation, after which a surviving ignored
-local copy is untracked and opaque. This gives Arbor Git's important safety
+local copy is untracked and opaque. This gives Overstory Git's important safety
 property without depending on a Git index and prevents an ignore-file edit
 from silently publishing a tree-wide deletion.
 
 The policy has these fixed semantics:
 
-1. `.arborignore` is Arbor's portable, authoritative spelling. `.gitignore`
+1. `.arborignore` is Overstory's portable, authoritative spelling. `.gitignore`
    uses the same pattern grammar as a compatibility input. Both files remain
    ordinary included tree content and cannot ignore themselves.
 2. Root and nested ignore files apply from their containing directory down.
@@ -67,14 +67,14 @@ The policy has these fixed semantics:
    comments, escaping, and `!` negation. Do not invoke Git or inspect its
    index.
 3. Do not consult `.git/info/exclude`, `core.excludesFile`, or a user's global
-   Git ignore file. Those machine-private sources must not make the same Arbor
+   Git ignore file. Those machine-private sources must not make the same Overstory
    placement produce an invisible, device-dependent tree. A future
    placement-private ignore option belongs in `placements.yaml`; it is not
    part of this plan.
-4. `.git`, `node_modules`, `.arbor`, `Trash`, `.build`, `DerivedData`, Arbor
+4. `.git`, `node_modules`, `.arbor`, `Trash`, `.build`, `DerivedData`, Overstory
    transaction temporaries, nested tree mounts, and symlinks retain their
    current stronger treatment. A negated user pattern cannot re-include an
-   Arbor-private directory or cross a nested-tree boundary.
+   Overstory-private directory or cross a nested-tree boundary.
 5. If an ignore file cannot be decoded or its policy cannot be evaluated
    safely, retain the last valid policy for an open placement, publish a
    structured local diagnostic, and do not construct or submit a candidate
@@ -87,17 +87,17 @@ The policy has these fixed semantics:
 
 ## Why this matters
 
-Arbor currently synchronizes every ordinary file except a short hard-coded set
+Overstory currently synchronizes every ordinary file except a short hard-coded set
 of directory names. A developer can reasonably place a repository expecting
 its ignored `.env`, credential files, caches, generated output, or large build
-artifacts to remain local, but Arbor will currently snapshot and upload most of
+artifacts to remain local, but Overstory will currently snapshot and upload most of
 them. That is both a secret-disclosure risk and a severe mismatch with user
 expectation.
 
 Applying ignore rules only in search or the sidebar would be worse than having
 no feature: invisible files could still upload, or a pull could delete content
-Arbor claimed not to own. The filter therefore belongs at the shared
-`WorkspaceFS`/Wire projection boundary and must be proven consistently across
+Overstory claimed not to own. The filter therefore belongs at the shared
+`WorkspaceFS`/Overstory projection boundary and must be proven consistently across
 every consumer.
 
 ## Current state
@@ -131,13 +131,13 @@ Relevant files and responsibilities:
   implementing pattern matching.
 - `packages/arborsync/src/service.ts:snapshotWorkspace()` and
   `packages/client/src/tree-sync.ts` repeatedly compare physical snapshots
-  with accepted Wire roots, freeze pending candidates, and materialize accepted
+  with accepted Overstory roots, freeze pending candidates, and materialize accepted
   snapshots. Ignore policy and tracked membership must be part of these same
   comparisons or clean placements will appear permanently dirty.
 - `packages/client/src/sync-state.ts` currently retains an accepted root and
   object hashes, but no accepted path-membership view. Extend private sync
   state only as much as needed to recover the tracked-membership invariant
-  offline; do not put ignore metadata in Wire objects or Canopy APIs.
+  offline; do not put ignore metadata in Overstory objects or canopyd APIs.
 - `packages/arborsync/src/state/placements.ts` deliberately accepts only scalar
   `path: TreeID` entries. Do not widen that schema in this plan.
 - `packages/fs/README.md` says all hidden directories other than the fixed set
@@ -152,7 +152,7 @@ Conventions to preserve:
   keep consumers thin and pass one immutable policy/snapshot view through an
   operation rather than rereading ignore files at different times.
 - Discovery is symlink-safe, nested mounted roots are explicit exclusions, and
-  Wire names are ordered with `compareWireNames`, not locale ordering.
+  Overstory names are ordered with `compareWireNames`, not locale ordering.
 - Durable private synchronization state lives beneath `.state`; it does not
   enter authored trees or portable account configuration.
 - Tests use `bun:test`, temporary workspace and state directories, and cleanup
@@ -199,9 +199,9 @@ and verify that `bun.lock` contains only the intended package change.
   configuration, or reproducing Git's staging UI;
 - widening `placements.yaml` or adding device-local pattern configuration;
 - a sidebar toggle, ignored-files browser, or general `arbor ignore` command;
-- changing Wire object shapes, TreeID identity, Canopy merge behavior, ACLs,
+- changing Overstory object shapes, TreeID identity, canopyd merge behavior, ACLs,
   or nested-tree boundary semantics;
-- following symlinks or permitting ignore negation to expose Arbor-private
+- following symlinks or permitting ignore negation to expose Overstory-private
   state; and
 - opportunistic search-index, watcher, or snapshot refactors beyond what the
   shared policy requires.
@@ -210,7 +210,7 @@ and verify that `bun.lock` contains only the intended package change.
 
 - Branch: `codex/security-005-ignore-policy`.
 - Make focused commits with short imperative messages matching current history,
-  for example `Keep ignored files outside Arbor trees`.
+  for example `Keep ignored files outside Overstory trees`.
 - Do not push or open a pull request unless the operator explicitly asks.
 
 ## Steps
@@ -260,7 +260,7 @@ directory descent and file admission. Make `WorkspaceFS.list()` and path
 resolution apply the same view; an ignored untracked path must not become a
 node merely because it was addressed directly. Keep arbitrary filesystem
 browsing with `discovery: "none"` path-addressable and path-only: ignore policy
-limits managed Arbor-tree membership, not the user's ability to open an
+limits managed Overstory-tree membership, not the user's ability to open an
 ordinary absolute local file outside a placement.
 
 For watching, static mandatory globs may remain an optimization, but dynamic
@@ -292,7 +292,7 @@ remote root using the new accepted membership, so the placement becomes idle
 instead of repeatedly re-uploading the preserved copy.
 
 Keep nested mounts and mandatory exclusions stronger than user rules. Do not
-change the Wire snapshot shape.
+change the protocol snapshot shape.
 
 **Verify**: `bun test tests/unit/protocol-objects.test.ts` passes with new round trips for
 new ignored files, tracked matching files, remote deletion, pull preservation,
@@ -302,7 +302,7 @@ and matching-root verification.
 
 Extend Arbor Sync's private per-tree state so restart and offline edits know
 which physical paths belong to the last accepted root. Derive membership by
-walking validated Wire directory objects, excluding boundary entries; never
+walking validated Overstory directory objects, excluding boundary entries; never
 trust an unvalidated path manifest from a server response. Update membership at
 the same durable boundary as accepted root/object retention, including accepted
 local candidates, reconciled server results, watch transitions, and conflict
@@ -332,7 +332,7 @@ scope, control-file inclusion, tracked-membership rule, and the distinction
 between tree content and opaque placement files. Keep `.gitignore` compatibility,
 the fixed implementation exclusions, policy-error recovery, and unsupported
 global/local Git sources in `packages/fs/README.md` and
-`docs/local-system.md` rather than presenting them as universal Wire protocol.
+`docs/local-system.md` rather than presenting them as universal Overstory protocol.
 
 Update the plan index, run the product and protocol suites, run a repository-wide
 relative Markdown-link check, and run `git diff --check`.
@@ -348,7 +348,7 @@ Add tests proving all of the following:
 
 1. A fresh ignored `.env`, credential fixture, ignored directory, and ignored
    Markdown page never appear in discovery, child listing, PageID maps, search,
-   backlinks, generated types, snapshots, or pending Wire objects.
+   backlinks, generated types, snapshots, or pending Overstory objects.
 2. Root/nested `.arborignore` and `.gitignore` patterns, negation, anchoring,
    escaping, directory rules, `**`, Unicode names, and normalized separators
    match deterministically without a Git executable.
@@ -377,7 +377,7 @@ Add tests proving all of the following:
       children, watching, indexing inputs, snapshots, and materialization.
 - [ ] `.arborignore` is specified portably and `.gitignore` works as documented
       compatibility without consulting Git or machine-global configuration.
-- [ ] Fresh matching paths and their contents never enter Wire objects or
+- [ ] Fresh matching paths and their contents never enter Overstory objects or
       diagnostics.
 - [ ] Accepted matching paths remain tracked until explicit removal; changing
       a pattern alone cannot delete accepted content.
@@ -390,7 +390,7 @@ Add tests proving all of the following:
 - [ ] Focused tests, `bun run typecheck`, `bun run test`,
       `bun run test:protocol`, the relative-link check, and
       `git diff --check` all pass.
-- [ ] No global Git configuration, placement schema, Wire shape, Canopy API,
+- [ ] No global Git configuration, placement schema, Overstory shape, canopyd API,
       or unrelated working-tree file changed.
 
 ## STOP conditions
@@ -398,7 +398,7 @@ Add tests proving all of the following:
 Stop and report back rather than improvising if:
 
 - a coherent implementation requires making ignore rules or local absolute
-  paths part of Wire objects, synchronized account configuration, or Canopy;
+  paths part of Overstory objects, synchronized account configuration, or canopyd;
 - an accepted tracked path cannot be distinguished from an ignored untracked
   path after restart without storing or reconstructing a validated membership
   view tied atomically to the accepted root;
@@ -408,7 +408,7 @@ Stop and report back rather than improvising if:
   Unicode behavior deterministically on macOS and Linux;
 - ignore-file reload races can produce a snapshot from one policy and an index
   or candidate from another;
-- the necessary change widens `placements.yaml`, changes Wire shapes, follows
+- the necessary change widens `placements.yaml`, changes Overstory shapes, follows
   symlinks, or weakens nested-tree boundaries; or
 - any focused gate fails twice after a reasonable correction.
 
@@ -420,7 +420,7 @@ Stop and report back rather than improvising if:
   return to its accepted root.
 - Any future placement-private ignore option must compose as a local projection
   mask without changing canonical tree membership or leaking absolute paths.
-- If Arbor later supports multiple writable local placements of one TreeID,
+- If Overstory later supports multiple writable local placements of one TreeID,
   accepted membership remains tree-wide while placement-private masks remain
   local; do not infer canonical deletion from one masked placement.
 - New consumers of workspace enumeration must receive the shared policy view or

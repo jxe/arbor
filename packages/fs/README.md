@@ -1,6 +1,6 @@
 # `@overstory/fs`
 
-`@overstory/fs` is Arbor's only server-side authority for workspace-content I/O. Arbor Sync owns search, collections, generated types, and link healing, but it resolves and mutates materialized content through `WorkspaceFS`.
+`@overstory/fs` is Overstory's only server-side authority for workspace-content I/O. Arbor Sync owns search, collections, generated types, and link healing, but it resolves and mutates materialized content through `WorkspaceFS`.
 
 ## Logical-node invariants
 
@@ -17,7 +17,7 @@
 
 ## Discovery
 
-Startup performs one symlink-safe discovery walk and shares its immutable result with page-ID loading, search indexing, and generated collection types. Discovery never follows symlinks. It omits Arbor-private or generated directories (`.git`, `node_modules`, `.arbor`, `Trash`, `.build`, and `DerivedData`); other hidden working directories, including `.claude`, remain ordinary workspace content.
+Startup performs one symlink-safe discovery walk and shares its immutable result with page-ID loading, search indexing, and generated collection types. Discovery never follows symlinks. It omits Overstory-private or generated directories (`.git`, `node_modules`, `.arbor`, `Trash`, `.build`, and `DerivedData`); other hidden working directories, including `.claude`, remain ordinary workspace content.
 
 ## Coordinators
 

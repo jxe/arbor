@@ -11,7 +11,7 @@ The remaining Phase 1 work below precedes finer contextual editor work.
 
 An accepted tree with unresolved choices remains editable and continues syncing.
 A person can discover those choices, compare preserved alternatives, and submit
-an explicit resolution through Canopy. Review is optional work within the tree,
+an explicit resolution through canopyd. Review is optional work within the tree,
 not a failed-save dialog or a synchronization hold.
 
 This plan owns Native review, including the remaining contextual work previously
@@ -55,16 +55,16 @@ conservative accepted-state freshness checks explicit while completing this phas
   differences visually. Current bounded changed-line highlighting falls back to
   raw source for very large comparisons.
 - Make unrelated accepted updates less disruptive only through an explicit,
-  compatible freshness policy. Current Canopy guards require the current accepted
+  compatible freshness policy. Current canopyd guards require the current accepted
   state; preserve drafts and require renewed review rather than silently retargeting.
 - Expand fault injection across review persistence, submission, installation and
   retirement, including authorization changes and cancellation. Existing live
   tests cover lost accepted responses, restart and newer editor/draft work.
 - Complete cross-language shared review policy when the TypeScript editor-host
-  integration is built. Both Wire clients already read authorized alternatives;
+  integration is built. Both Overstory clients already read authorized alternatives;
   the durable review controller currently lives in the Swift working-tree client.
 
-Use deterministic fixtures and real Canopy integration for the remaining scopes.
+Use deterministic fixtures and real canopyd integration for the remaining scopes.
 Run focused shared-client/Native tests, applicable protocol/conformance checks,
 and the relevant [development gates](../../DEVELOPMENT.md). Distinguish
 built/tested from installed/verified. Record completed evidence in the checkpoint
@@ -72,7 +72,7 @@ and status, and remove completed executor work from this active plan.
 
 ## Phase 2: Contextual review in the editor — later
 
-Ship Phase 1 independently. Add contextual affordances only where Canopy evidence
+Ship Phase 1 independently. Add contextual affordances only where canopyd evidence
 and the editor's exact source mapping support them.
 
 - Place compact inline markers at affected source locations and navigate between
@@ -83,7 +83,7 @@ and the editor's exact source mapping support them.
   before presenting a location. Fall back to page/directory review when placement
   is uncertain, rather than guessing or mutating the document to insert markers.
 - Attach independently resolvable source choices to their verified block locations.
-  The range compiler and Canopy operations are implemented; contextual block mapping
+  The range compiler and canopyd operations are implemented; contextual block mapping
   remains. Keep coupled decisions grouped even when markers appear far apart.
 - Explain verified actions such as moves, copies, deletion and hidden-alternative
   edits. Keep uncertain correspondence and unknown authors explicit.

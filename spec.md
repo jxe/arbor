@@ -1,14 +1,14 @@
-# Arbor: a successor to the web
-*Spec overview, v0.8. The placeholder name **the wire** remains provisional; the system, its independently versioned trees, and first-party clients use the Arbor name.*
+# Overstory: a successor to the web
+*Spec overview, v0.8. Overstory names the system, its protocol, and its independently versioned trees; Arbor names the local tools, canopyd the reference host, and Canopy the browsers.*
 
 ## Specification stance
 
-This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](status.md) records what the reference implementation actually does; implemented outcomes (completed plan, deleted; see git history) preserve evidence, and the [planning index](plans/README.md) owns remaining work.
+This is the aspirational public contract for Overstory. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](status.md) records what the reference implementation actually does; implemented outcomes (completed plan, deleted; see git history) preserve evidence, and the [planning index](plans/README.md) owns remaining work.
 
-The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
+The specification contains only behavior that must remain portable across independently implemented Overstory components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Overstory requirements.
 
 The normative surface begins with tree reads, updates, watching, and editor
-round trips, introducing the logical model and canonical lossless Wire values
+round trips, introducing the logical model and canonical lossless Overstory values
 inside those operations; then the directory projection, locators and their public HTTP projection,
 accounts and devices, access control, child backings,
 executable documents and agents, and the authoring API. Every route is listed
@@ -16,23 +16,23 @@ in the [route index](#route-index). Local
 client/daemon transport, UI controls, CLI commands, runtime algorithms, package
 topology, private-state layout, and test machinery are reference choices.
 
-[Source intent and provenance](spec/10-source-intent.md) defines authored change identities, source references, and explicit operations on the ordinary Wire update route.
+[Source intent and provenance](spec/10-source-intent.md) defines authored change identities, source references, and explicit operations on the ordinary Overstory update route.
 
 ## Thesis
 
-Arbor's global logical space is conceptually a sparse table from `TreeID` to
+Overstory's global logical space is conceptually a sparse table from `TreeID` to
 independently versioned trees. It is a shared identity space, not one enumerable
 database or central authority; every device and community sees only the trees it
 can locate and access. Canonical URLs form a secondary, forest-shaped lookup:
-DNS places a Canopy authority, whose path boundaries select trees. Local,
+DNS places an Overstory host, whose path boundaries select trees. Local,
 private, unpublished, and temporarily disconnected trees
 remain complete even when absent from that lookup. Each person places the
 trees they can reach wherever it makes sense on their own devices. Any folder
-may be backed by ordinary files, an Arbor tree, a database, or a safe connection
+may be backed by ordinary files, an Overstory tree, a database, or a safe connection
 to an existing store. Executable documents and agents read and change those
 placed trees through the same permissioned contracts as human clients.
 
-**Ordinary files and folders to navigate and edit; independent Arbor trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning those trees into executable documents and agents.**
+**Ordinary files and folders to navigate and edit; independent Overstory trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning those trees into executable documents and agents.**
 
 An authored application is isomorphic across placements. Once synchronization
 has settled, the same source tree and logical data roots expose the same nodes,
@@ -44,12 +44,12 @@ projection choices are not application semantics.
 Five concepts organize the system:
 
 1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
-2. An **Arbor tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
+2. An **Overstory tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
 3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](spec/01-tree-operations.md#nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable [representations](spec/01-tree-operations.md#representations) where their represented model agrees.
-4. A **canonical URL lookup** first uses DNS to place a Canopy authority, then resolves that Canopy's longest readable registered boundary back to TreeID and path.
+4. A **canonical URL lookup** first uses DNS to place an Overstory host, then resolves that host's longest readable registered boundary back to TreeID and path.
 5. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
-Ordinary unpromoted files are browsable without gaining a durable Arbor identity. Promotion creates an Arbor tree in place: its local path need not move, its canonical public name is replaceable, and `arbor://<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Arbor trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [locators §5](spec/03-locators.md#5-finding-trees).
+Ordinary unpromoted files are browsable without gaining a durable Overstory identity. Promotion creates an Overstory tree in place: its local path need not move, its canonical public name is replaceable, and `arbor://<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Overstory trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [locators §5](spec/03-locators.md#5-finding-trees).
 
 ## Specification map
 
@@ -57,15 +57,15 @@ New readers should start with the non-normative [walkthrough](spec/00-walkthroug
 
 | File | Public contract |
 |---|---|
-| [tree operations](spec/01-tree-operations.md) | Logical and exact-byte reads; updates and writes; watching and replay; editor round trips; and the model and Wire types each operation needs |
+| [tree operations](spec/01-tree-operations.md) | Logical and exact-byte reads; updates and writes; watching and replay; editor round trips; and the model and Overstory types each operation needs |
 | [directory format](spec/02-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names |
 | [locators](spec/03-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, discovery routes, and public HTTP projection |
-| [accounts and devices](spec/04-accounts-and-devices.md) | Local-first profile identity, Canopy accounts and community-defined allocation, governed account configuration, account-local device pairing, local placements, and tree activation |
+| [accounts and devices](spec/04-accounts-and-devices.md) | Local-first profile identity, host accounts and community-defined allocation, governed account configuration, account-local device pairing, local placements, and tree activation |
 | [access control](spec/05-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
 | [child backings](spec/06-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
-| [executable documents](spec/07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Wire operations |
-| [authoring API](spec/08-authoring-api.md) | The `arbor/react` and `arbor/data` packages, React Actions, hooks, and styling an executable document is written against |
-| [working-tree updates](spec/09-client-synchronization.md) | The update machine a working tree runs against Wire: durable heads with their objects, sparse install and adoption entries, one self-contained prepared request in flight, one retained successor, validated apply, conflict ownership including adopted prefixes, and exact ambiguous recovery |
+| [executable documents](spec/07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Overstory operations |
+| [authoring API](spec/08-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
+| [working-tree updates](spec/09-client-synchronization.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install and adoption entries, one self-contained prepared request in flight, one retained successor, validated apply, conflict ownership including adopted prefixes, and exact ambiguous recovery |
 
 The specification map does not report implementation progress. See
 [status.md](status.md) for that boundary and [`conformance/`](conformance) for
@@ -83,7 +83,7 @@ it is not a valid v2 authored graph.
 
 ## Route index
 
-Every HTTP route an Arbor server exposes, and the section that defines it.
+Every HTTP route an Overstory host exposes, and the section that defines it.
 
 | Route | Defined in |
 |---|---|
@@ -101,26 +101,26 @@ Authentication headers apply to every route ([access control §2](spec/05-access
 
 ## Component roles
 
-- A **wire host** represents one Canopy and owns its local accounts, allocation policy,
+- A **Overstory host** represents one host and owns its local accounts, allocation policy,
   governed private account-configuration trees, hosted-tree boundaries,
   mutable refs, immutable objects, claims, access enforcement, and watch
   streams. A profile `TreeID` may be referenced by accounts at other Canopies;
   no host owns that identity merely because it allocated one of its names. A host
   does not need local filesystem materialization.
-- A **wire client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
+- A **Overstory client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
 - A **backing adapter** supplies the common node/children primitives from one
   representation or external source, including observation, schema, coherent
   snapshots, and physical commit primitives. The execution runtime owns query
   and transaction semantics.
-- An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Arbor location, injects authenticated Arbor user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
+- An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Overstory location, injects authenticated Overstory user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
 - An **agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
 
-The wire carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [configuration](spec/04-accounts-and-devices.md).
+The protocol carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [configuration](spec/04-accounts-and-devices.md).
 
 ## Execution hosts
 
 An execution runtime resolves authored source locators by the ordinary
-[resolution rules](spec/03-locators.md#4-resolution-rules) and obtains each Canopy-backed
+[resolution rules](spec/03-locators.md#4-resolution-rules) and obtains each host-backed
 source's accepted state through the ordinary [current-tree read](spec/01-tree-operations.md#111-reading-the-current-tree)
 under its execution token; there is no separate binding route. [Executable documents](spec/07-executable-documents.md#8-host-and-server-boundaries)
 defines execution authority use; [reference sidecar documentation](docs/execution-sidecar.md)

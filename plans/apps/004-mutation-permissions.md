@@ -74,13 +74,13 @@ implementation and verification. Before enabling the first sidecar application:
   sharing assignments replace only their selected root rule; explicit `--clear-access`
   removes all rules. Cross-account policy transfer remains explicitly unsupported.
 
-## Coordinated Joe configuration and Canopy migration
+## Coordinated Joe configuration and canopyd migration
 
 Implement a new numbered offline migration using the NEXT available identifier.
 Do not edit retained historical migrations or silently migrate on server startup.
 
 1. Inventory Joe's accepted configuration tree(s), roots/update IDs, devices,
-   placements and queued configuration edits read-only. Identify actual Canopy
+   placements and queued configuration edits read-only. Identify actual canopyd
    deployment, binaries and clients. Capture unsaved/recovery state and exact
    configuration bytes before requesting Joe's manual app restart gate.
 2. Produce a reviewable conversion: old `subject/access` maps to `who/allow`
@@ -100,7 +100,7 @@ Do not edit retained historical migrations or silently migrate on server startup
    Reconcile or stop queued configuration writes before cutover. Ship matched
    TS/Swift/CLI parsers and merge-worker policy support before resuming clients.
 5. Prepare concrete deployment and rollback artifacts, then quiesce writers through
-   the documented operator procedure. Upgrade Canopy, merge executable, schema,
+   the documented operator procedure. Upgrade canopyd, merge executable, schema,
    Joe's accepted configuration and clients as one coordinated cutover. Do not
    delete/recreate account or resource TreeIDs, reset content history, or re-pair
    devices merely to migrate policy. Preserve ordinary content trees byte-for-byte.
@@ -121,7 +121,7 @@ escape and nested trees, non-owner delegation/revocation, stale updates, receipt
 queued watch events, safe metadata, parser/merge concurrency and policy migration.
 Use process/restart tests for persisted policy and invalidation reconnect.
 
-Run focused account/access/Canopy tests, then `bun run typecheck`, `bun run test`,
+Run focused account/access/canopyd tests, then `bun run typecheck`, `bun run test`,
 `bun run test:protocol`, `bun run build`, affected Swift package suites including
 Overstory and ArborSyncClient, the explicit migration suite, repository relative-link
 check and `git diff --check`. Run applicable UI tests only where maintained; the

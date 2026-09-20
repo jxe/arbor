@@ -2,7 +2,7 @@
 
 Historical identifier: **Native 024**. The filename number is preserved; this plan now belongs to filesystem.
 
-> **Executor instructions**: Give the Mac app and Arbor web a plain disk editor for folders that are not placed Arbor trees. No update machine, no admission fence, no journal, no recovery: read, write with an etag check, list, watch. Keep it visibly separate from tree synchronization in code and docs. Refuse to open a path inside a placed tree; route it to the tree session instead.
+> **Executor instructions**: Give the Mac app and Canopy for the web a plain disk editor for folders that are not placed Overstory trees. No update machine, no admission fence, no journal, no recovery: read, write with an etag check, list, watch. Keep it visibly separate from tree synchronization in code and docs. Refuse to open a path inside a placed tree; route it to the tree session instead.
 >
 > **Drift check**: `git diff --stat c134a85..HEAD -- packages/arborsync packages/arborsync-client packages/canopy-web canopy-swift/Packages/CanopyAppKit canopy-swift/CanopyApp docs`
 
@@ -13,7 +13,7 @@ Historical identifier: **Native 024**. The filename number is preserved; this pl
 - **Risk**: LOW
 - **Depends on**: Native 022 (for the Mac editor); Web 025 (for the web editor)
 - **Category**: product completion
-- **Planned at**: Arbor `c134a85`, 2026-09-09
+- **Planned at**: Overstory `c134a85`, 2026-09-09
 
 ## Why this matters
 
@@ -31,7 +31,7 @@ POST /v1/fs/mkdir|move|delete?path=&to=   → plain; delete moves to ~/.Trash
 GET  /v1/fs/events?path=     → SSE {kind, path, etag}
 ```
 
-Absolute paths under `$HOME`; a path inside any placed tree is refused with `409 use-tree-session`; etag is `readRevision`; the watcher is `@parcel/watcher` with the existing ignore globs. Arbor web's `FsSession` implements the same scoped API shape with the local transport and the existing local block merge on external change.
+Absolute paths under `$HOME`; a path inside any placed tree is refused with `409 use-tree-session`; etag is `readRevision`; the watcher is `@parcel/watcher` with the existing ignore globs. Canopy for the web's `FsSession` implements the same scoped API shape with the local transport and the existing local block merge on external change.
 
 **Mac provider** (`canopy-swift/Packages/CanopyAppKit/Sources/CanopyAppKit/FilesystemWorkspaceProvider.swift` plus a document session), shaped on `InMemoryWorkspaceProvider`: resolve and children from `FileManager` with the `_index.md` and sibling rules ported from `WorkingTreeSemantics`; bounded title and body search; plain moves, creates, and trash; `readFile`; `admit(source:baseContentRevision:)` as a compare-and-swap on the byte revision; `updates()` from a file watcher. The provider is dumb; the editor host's admission machine runs as for any provider. `openLocalFolder(url)` with a persisted-URL store; Open Folder and Open Location in `ArborRootView`.
 

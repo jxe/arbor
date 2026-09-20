@@ -198,7 +198,7 @@ evidence and exceeded bounds remain explicit failures.
 Accepted unresolved results acknowledge work normally and do not pause sync or stop
 a request's remaining elements. Clients retain exact accepted identity, the unresolved
 signal, the projection underlying authored edits and durable pending local work.
-Canopy owns attribution and resolution semantics on every write path. Clients need
+The host owns attribution and resolution semantics on every write path. Clients need
 no downloaded alternative map or inspection cache to perform ordinary editing.
 Incoming materialization must preserve newer unaccepted local edits and their bases.
 Inspection failures may delay review but cannot alone block ordinary synchronization.
@@ -242,7 +242,7 @@ projection behavior must be specified where promised by the format contract.
 
 The shared decision scenarios in [accepted ambiguity](../conformance/accepted-ambiguity.json)
 cover these semantic obligations. They are scenario requirements, not an additional
-Wire encoding or a claim that the reference implementation supports them already.
+Overstory encoding or a claim that the reference implementation supports them already.
 
 The portable core requires rule identity and revision, evaluated inputs and resulting
 decisions, but does not enumerate implementations or their private counters. Each

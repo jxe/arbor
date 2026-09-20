@@ -8,7 +8,7 @@
 > browser verification from a passing build alone.
 
 > **Drift check:** reconcile this plan against Migration 003, the current
-> Canopy schema stamp, every Arbor data home, account bootstrap routes, native
+> canopyd schema stamp, every Overstory data home, account bootstrap routes, native
 > client methods, person-profile identity work, and the v1/v2 policy branches
 > before changing code. The
 > original 2026-08-28 audit named data-home relocation, CLI checkout migration,
@@ -21,7 +21,7 @@
 - **Effort:** L
 - **Risk:** HIGH
 - **Depends on:** Migration 003's rollback observation window ending on or
-  after 2026-09-17; all supported Canopy, Mac, and iPhone state being proven
+  after 2026-09-17; all supported canopyd, Mac, and iPhone state being proven
   v2/current; removal of the retained rollback backups by Joe; and explicit
   approval to close the v1 compatibility window
 - **Progress:** READY — the read-only receipt below passed on 2026-09-20;
@@ -32,7 +32,7 @@
 
 ## Receipt, 2026-09-20 (read-only)
 
-Live Canopy could not be queried from the agent session, so the check used
+Live canopyd could not be queried from the agent session, so the check used
 the newest Railway backup, `.backups/railway/20260919T155020Z/migrated`:
 
 - `trees.policy`: `account-config-v2` ×1, `ordinary` ×4, no `account-config-v1`.
@@ -49,15 +49,15 @@ the newest Railway backup, `.backups/railway/20260919T155020Z/migrated`:
 
 ## Coupling found on 2026-09-20
 
-`Canopy.ensureAccountConfigTrees` (`packages/canopyd/src/canopy.ts`) creates an
+`canopyd.ensureAccountConfigTrees` (`packages/canopyd/src/canopy.ts`) creates an
 `account-config-v1` configuration tree at startup for any account that lacks
 one. `serveCanopy({ accounts: [...] })` relies on it, and eleven test files
-plus `tools/hcloud-sync-lab.ts` seed their Canopy that way and then read the
+plus `tools/hcloud-sync-lab.ts` seed their canopyd that way and then read the
 result with `readAccountConfigGraph`/`snapshotAccountConfig` and install it
 locally as the singleton layout through `saveCurrentDeviceID` and
 `CommunityConfigStore`. Removing the local adapter alone (Phase 2) therefore
 breaks `self-sync`, `server`, and `protocol/conformance`, and removing the
-Canopy policy alone (Phase 3) breaks the seeding path those same suites use.
+canopyd policy alone (Phase 3) breaks the seeding path those same suites use.
 
 Execute instead as one change with this order, verifying at each step:
 
@@ -86,7 +86,7 @@ Execute instead as one change with this order, verifying at each step:
 
 ## Why this remains a cleanup
 
-Migration 003 completed the persistent Canopy, default Mac home, and iPhone
+Migration 003 completed the persistent canopyd, default Mac home, and iPhone
 cutover from the singleton v1 account graph to plural v2 accounts on
 2026-09-03. The current product layout is now `accounts/<ConfigurationTreeID>/`
 plus local `placements.yaml`, and new browser account claims use a complete
@@ -120,9 +120,9 @@ rollback data before the retention window closes.
 
 ## Evidence already established
 
-Migration 003 records that Canopy schema 5, the default Mac state/layout 4,
+Migration 003 records that canopyd schema 5, the default Mac state/layout 4,
 and the deliberately-last live iPhone pairing and re-placement check passed on
-2026-09-03. Its Canopy archive, restored copies, local-home backup, reports,
+2026-09-03. Its canopyd archive, restored copies, local-home backup, reports,
 and manifests are deliberately retained for two weeks.
 
 A read-only check on 2026-09-04 found the default Mac home has:
@@ -145,18 +145,18 @@ the old string/missing-field readers.
 
 After the observation window, collect one read-only private receipt covering:
 
-1. The live Canopy schema matches the current deployed code (record the exact stamp;
+1. The live canopyd schema matches the current deployed code (record the exact stamp;
    do not require or restore Migration 003's historical schema 5), contains no tree whose policy is
    `account-config-v1`, and every account points to a decodable v2 configuration
    tree.
-2. Every active local Arbor data home has the current private-state stamp,
+2. Every active local Overstory data home has the current private-state stamp,
    plural `accounts/`, valid `placements.yaml`, no root-level v1 account graph,
    no legacy private entries, and no singleton community/device record.
 3. Every workspace registry value is an object with `stateID`, `rootID`, and
    `path`. Record counts by `rootID` prefix without changing the values.
 4. The current iPhone build still opens, lists the migrated account, and can
    synchronize one reversible edit. No supported old build needs the v1 claim,
-   pairing, configuration, or Wire policy.
+   pairing, configuration, or Overstory policy.
 5. Joe confirms the Migration 003 rollback artifacts have aged out and removes
    the retained backups. An agent must not delete those backups.
 
@@ -202,10 +202,10 @@ Commit this phase independently after focused store and workspace tests pass.
 - Make account listing, pairing, forgetting, synchronization, and system-tree
   presentation configuration-TreeID-aware without singleton fallbacks.
 
-Commit this phase independently. Do not mix it with Canopy policy deletion: a
+Commit this phase independently. Do not mix it with canopyd policy deletion: a
 failed local-adapter change must remain easy to revert and diagnose.
 
-### 3. Remove Canopy's v1 account policy
+### 3. Remove canopyd's v1 account policy
 
 - Delete `packages/canopyd/src/account-policy.ts` and use the v2 graph directly
   instead of `AnyAccountConfigGraph`, `v2Graph`, and paired v1/v2 branches.
@@ -255,12 +255,12 @@ bun test
 bun run build
 swift test --package-path canopy-swift/Packages/ArborSyncClient
 swift test --package-path canopy-swift/Packages/Overstory
-xcodebuild build -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
+xcodebuild build -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS' -derivedDataPath /tmp/arbor-v1-cutoff-macos CODE_SIGNING_ALLOWED=NO
+xcodebuild build-for-testing -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/arbor-v1-cutoff-ios CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
 
-Build macOS and iOS sequentially. Before committing the Canopy deletion, serve
+Build macOS and iOS sequentially. Before committing the canopyd deletion, serve
 a restored copy of the post-Migration-003 data with the candidate build and run
 the existing migration verification tool against it. The copy must remain
 at its recorded current schema and every account, tree, access rule, device, root, and placement
@@ -278,14 +278,14 @@ may retain past-tense evidence; active docs and fixtures must describe v2 only.
 
 ## Done criteria
 
-- [ ] The cutoff receipt covers the live Canopy, every active data home, the
+- [ ] The cutoff receipt covers the live canopyd, every active data home, the
   current iPhone, workspace-registry shapes, and client compatibility.
 - [ ] Joe has confirmed and performed removal of Migration 003 rollback data.
 - [ ] Startup reads only the current `.state` and object-valued registry shape
   while preserving every existing workspace `rootID`.
 - [ ] Local Arbor Sync reads only plural account checkouts and local
   `placements.yaml`; it has no singleton record, credential, claim, or watcher.
-- [ ] Canopy accepts, authorizes, merges, and serves only v2 account graphs and
+- [ ] canopyd accepts, authorizes, merges, and serves only v2 account graphs and
   diagnoses an unexpected v1 policy without mutating it.
 - [ ] Browser, CLI, native, E2E, hcloud, and protocol fixtures use the v2 account
   surface without losing behavioral coverage.
@@ -297,7 +297,7 @@ may retain past-tense evidence; active docs and fixtures must describe v2 only.
 ## STOP conditions
 
 - The observation or backup-retention window has not ended.
-- Any live Canopy tree still uses `account-config-v1` or any active local home
+- Any live canopyd tree still uses `account-config-v1` or any active local home
   still has a singleton/mixed layout.
 - A supported Mac, iPhone, CLI, browser, or automation still calls the v1 route
   or expects the v1 graph.

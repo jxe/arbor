@@ -6,7 +6,7 @@
 [005](005-source-resolution-and-sidecar.md); coordinates [003](003-development-compiler-and-editor-tooling.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another
-Canopy execution engine. Portable semantics live in [executable documents](../../spec/07-executable-documents.md)
+canopyd execution engine. Portable semantics live in [executable documents](../../spec/07-executable-documents.md)
 and [authoring API](../../spec/08-authoring-api.md). The illustrative syntax there
 is a design starting point, not an implemented compiler claim.
 
@@ -19,7 +19,7 @@ Draft and typecheck three complete corpus cases together before generalizing:
 2. `saveNote`: user-selected notebook, user create authority, optional read only
    when checks require it, ordinary guarded update, stable retry identity.
 3. `savePractice`: author SQLite reads/pending-save writes, user notebook creation,
-   durable prepare transaction, Canopy page creation, completion transaction.
+   durable prepare transaction, canopyd page creation, completion transaction.
 
 Use `authority: { author, user }` requirements over typed logical handles. Pin
 source resources/schema and explicit user selections. No raw connection strings,
@@ -54,7 +54,7 @@ of server implementations, backing credentials and private schema.
 3. Implement stable named step records with input digest, state and completed result.
    Persist intent before attempting an effect. Backing commit must include retry
    evidence or provide equivalent reconciliation; a local journal alone is insufficient.
-   A whole SQLite transaction is one step. For Canopy reuse ordinary accepted-update
+   A whole SQLite transaction is one step. For canopyd reuse ordinary accepted-update
    identity/receipt and exact guards; extend result mapping only where needed.
 4. Resume by replaying completed outputs under pinned code. Missing code/binding is
    blocked, not upgraded. Automatic keys only for provably stable straight-line calls;
@@ -75,7 +75,7 @@ For prepare-SQLite / create-page / complete-SQLite inject process death:
 
 - before and after intent persistence;
 - before and after each backing commit;
-- after Canopy acceptance but before response/step recording;
+- after canopyd acceptance but before response/step recording;
 - after final receipt commit before HTTP delivery.
 
 At every restart prove one page, one logical save, deterministic payload/IDs, durable
@@ -87,7 +87,7 @@ Use two independent clients and restart real sidecar/backing processes, not only
 ## Queries, React, and consent UX
 
 Preserve snapshot-and-follow including child membership races, relevant invalidation,
-output hashing and full replacement reconnect. Sidecar chooses Canopy/SQLite providers
+output hashing and full replacement reconnect. Sidecar chooses canopyd/SQLite providers
 from bindings. Mixed queries use explicit bounded joins and cursor vectors; no
 implicit atomic snapshot across stores. Initial SSR values hydrate without duplicate
 reads; new subscriptions reauthorize. Separate cache by execution authority/user.

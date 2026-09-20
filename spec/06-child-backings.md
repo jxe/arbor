@@ -1,5 +1,5 @@
 # Child backings
-*Part of the [Arbor spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
+*Part of the [Overstory spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
 
 *Owns: how expanded files, collection files, SQLite, Postgres, and later
 external providers supply logical child sets; backing-specific revisions,
@@ -185,7 +185,7 @@ Markdown must therefore reject a child with content or children unless a later
 target format explicitly represents those parts; equal keys alone do not make
 a lossy conversion model-equivalent.
 
-### 2.1 Accepted Wire representation
+### 2.1 Accepted Overstory representation
 
 An expanded directory represents immediate children with separate entries. A
 collection-file directory instead keeps many logical children in one physical
@@ -204,7 +204,7 @@ Logical children below /books:
 The entry hashes prove and preserve the two files' exact bytes, while the
 directory's `childrenSource` descriptor supplies their logical
 interpretation. Its shape is defined with the
-[Wire directory](01-tree-operations.md#112-reading-an-accepted-snapshot).
+[Overstory directory](01-tree-operations.md#112-reading-an-accepted-snapshot).
 The descriptor fields have these meanings:
 
 | Fields | Meaning |
@@ -236,13 +236,13 @@ A conforming authority validates the descriptor in this order:
 
 The three relevant hashes identify different things. `childSetHash` identifies
 only the decoded child-set contribution. The enclosing node's model hash also
-covers its properties, content, and child schema. The Wire root identifies the
+covers its properties, content, and child schema. The protocol root identifies the
 exact authored object graph. A formatting-only edit can therefore change the
-Wire root while leaving both logical hashes unchanged.
+Overstory root while leaving both logical hashes unchanged.
 
 Database-backed placements are not decoded through a
 `CollectionFileDescriptor`; database pages and WAL files are never
-Wire file bytes or directory objects. Their snapshot, observation, and synchronization rules are
+Overstory file bytes or directory objects. Their snapshot, observation, and synchronization rules are
 the database contracts below.
 
 ### 2.2 File writes and observation
@@ -334,7 +334,7 @@ activate either descriptor.
 
 With no placement `projection`, every execution placement connects directly to
 the declared Postgres store and must resolve the same stable store identity.
-Postgres is then the shared data authority. Arbor introspects schemas, maps each
+Postgres is then the shared data authority. Overstory introspects schemas, maps each
 runtime-owned transaction to Postgres, and observes committed changes; the authored
 tree synchronizes the safe descriptor rather than a database copy.
 
@@ -366,8 +366,8 @@ root.
 
 `mode: bidirectional` requests the later full-duplex contract
 ([deferred 4](../spec.md#deferred)). It is permitted
-only when the host has activated the external store as an Arbor-managed
-materialization: the Arbor logical data tree is canonical, external Postgres
+only when the host has activated the external store as an Overstory-managed
+materialization: the Overstory logical data tree is canonical, external Postgres
 writes are denied, accepted named mutations atomically record the resulting
 scoped model hash, accepted update, and receipt with their Postgres effects,
 and local SQLite publishes reviewed mutation intent or complete candidate
@@ -388,7 +388,7 @@ external writes to the managed authority Postgres are unsupported.
 
 ## 5. Data disclosure
 
-Collection access and executable-document result access are distinct. Publishing a component or query result does not make the backing tree, SQLite file, Postgres connection, or unrelated rows readable. Conversely, putting public and private rows in a publicly readable Arbor tree exposes the backing bytes regardless of query filters. Sites containing row-private data keep the raw data boundary private to the source tree's execution principal or split data into separate Arbor trees, then expose only validated query results.
+Collection access and executable-document result access are distinct. Publishing a component or query result does not make the backing tree, SQLite file, Postgres connection, or unrelated rows readable. Conversely, putting public and private rows in a publicly readable Overstory tree exposes the backing bytes regardless of query filters. Sites containing row-private data keep the raw data boundary private to the source tree's execution principal or split data into separate Overstory trees, then expose only validated query results.
 
 ## 6. Schema identity
 

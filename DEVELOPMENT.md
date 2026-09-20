@@ -1,10 +1,10 @@
-# Developing Arbor
+# Developing Overstory
 
 This document describes how to work on the reference implementation. It is not a contribution or licensing policy.
 
 ## Requirements and setup
 
-The TypeScript workspace uses Bun 1.3.14 (pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Arbor web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
+The TypeScript workspace uses Bun 1.3.14 (pinned in `.bun-version`, `package.json` `packageManager`, and `deploy/Dockerfile.canopyd`; change all three together), and the cross-language client tests require Swift 6 on macOS. Canopy for the web (`packages/canopy-web`) is out of the build and typecheck until Native 022 Plan B rebuilds it as a working-tree client; its browser tests return with it.
 
 ```sh
 bun install
@@ -12,13 +12,13 @@ bun install
 
 `bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, `bun run canopyd`, and `bun run arbor-merge`. The merge executable runs as a separate Bun process; see [its API and object-store boundary](docs/merge-tool.md). `bun link` additionally exposes the `arbor`, `arborsync`, `canopyd`, and `arbor-merge` executables in the shell; the README quickstart uses that form.
 
-### Developing Arbor with Quagmire
+### Developing Overstory with Quagmire
 
-Arbor's committed project metadata pins an exact released Quagmire version from
+Overstory's committed project metadata pins an exact released Quagmire version from
 GitHub. That is the default for contributors who are not changing the editor. Do
 not replace those committed dependencies with local paths.
 
-To develop Arbor and Quagmire together, clone Quagmire beside Arbor so the
+To develop Overstory and Quagmire together, clone Quagmire beside Overstory so the
 checkouts have this layout:
 
 ```text
@@ -31,12 +31,12 @@ Create a local Xcode workspace named `canopy-swift/Canopy.local.xcworkspace`, ad
 `canopy-swift/Canopy.xcodeproj` and the sibling Quagmire package to it, and build the
 `Canopy` scheme from that workspace. The workspace is ignored by Git. Xcode
 treats the local package as an override for the remote dependency with the same
-identity, so Arbor uses the Quagmire working tree while its published project
+identity, so Overstory uses the Quagmire working tree while its published project
 continues to point at the stable tag.
 
 The Raycast `Swift Apps` extension recognizes this workspace automatically for
 both macOS and physical-iPhone builds. It includes the local Quagmire checkout in
-its build fingerprint, so an editor change invalidates a previously cached Arbor
+its build fingerprint, so an editor change invalidates a previously cached Overstory
 build.
 
 The standalone `CanopyEditor` package has its own SwiftPM dependency state. Put
@@ -78,8 +78,8 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
 
 ## Repository map
 
-- `packages/` — the TypeScript logical model, providers, stores, Wire implementation, Canopy, the Canopy client library, Arbor Sync, the Arbor Sync client, CLI, editor, renderer, and data runtime.
-- `canopy-swift/` — the Swift clients, synchronization packages, and native Arbor application.
+- `packages/` — the TypeScript logical model, providers, stores, Overstory implementation, canopyd, the canopyd client library, Arbor Sync, the Arbor Sync client, CLI, editor, renderer, and data runtime.
+- `canopy-swift/` — the Swift clients, synchronization packages, and Canopy application.
 - `spec.md` and `spec/` — portable normative contracts and conformance vocabulary.
 - `conformance/` — language-neutral protocol fixtures.
 - `tests/` — Bun unit, integration, protocol, performance, and browser tests.
@@ -112,7 +112,7 @@ discovery. Run the migration-specific suite during its rehearsal with
 [the migration procedure](migrations/README.md).
 
 `bun run test:protocol` checks the language-neutral fixtures, reference REST
-fixtures, and disposable live Arbor Sync/Canopy behavior against the Swift
+fixtures, and disposable live Arbor Sync/canopyd behavior against the Swift
 clients, including operation grammar/digests, accepted-root bootstrap, and
 independent working-tree durability. Standalone `swift test` checks decoding; live-server cases skip when
 their test URLs are absent. Postgres integration is opt-in:
@@ -126,7 +126,7 @@ The Postgres test creates and drops a uniquely named `arbor_test_*` schema. It d
 
 ## Disposable browser smoke test
 
-Use fresh directories rather than the checked-in fixture or your real Arbor data home:
+Use fresh directories rather than the checked-in fixture or your real Overstory data home:
 
 ```sh
 test_root="$(mktemp -d)"

@@ -1,6 +1,6 @@
 # Reassess remaining conflict-fragment storage gaps
 
-Historical identifier: **Canopy storage 002**. The filename number is preserved; this plan now belongs to canopy.
+Historical identifier: **canopyd storage 002**. The filename number is preserved; this plan now belongs to canopy.
 
 Status: DEFERRED / NEEDS REASSESSMENT. No production backend replacement is scheduled.
 The old prerequisite of adding fine-grained state to a schema-11-only authority is obsolete:
@@ -24,7 +24,7 @@ continuation, restart, exact retry and transaction faults. Identify a concrete u
 measured representation cost before proposing a storage change. User deferral is not automatically
 revoked because the former client prerequisites have landed.
 
-- If the gap is transfer or format policy, use [Canopy 009](009-canopy-provenance-merges.md).
+- If the gap is transfer or format policy, use [canopyd 009](009-canopy-provenance-merges.md).
 - If it is client capture or review, use Native [008](../canopy-swift/008-complete-native-move-copy-undo-capture.md)
   or Native [010](../canopy-swift/010-client-conflict-review.md).
 - If it is retention, packing or garbage collection, use [Storage 001](001-pack-object-storage.md),

@@ -20,7 +20,7 @@ installation/deployment must follow their own recorded gates.
 
 ## Compatibility invariant and remaining evidence
 
-Canopy owns alternatives, attribution and resolution on every write path, including snapshots.
+canopyd owns alternatives, attribution and resolution on every write path, including snapshots.
 Clients retain exact authored bases, immutable requests, unresolved signals and newer local edits.
 Accepted ambiguity must not create a local sync hold. Ordinary saves and equal bytes never imply
 resolution. Never fall back to a server that discards accepted alternatives.
@@ -64,5 +64,5 @@ have passing evidence or an explicitly accepted scope decision.
 [Filesystem 011](../filesystem/011-independent-writes-after-rejection.md) separately owns
 scheduling independent work after rejection. Capture, server policy and Native review remain
 in [Native 008](../canopy-swift/008-complete-native-move-copy-undo-capture.md),
-[Canopy 009](../canopy/009-canopy-provenance-merges.md) and
+[canopyd 009](../canopy/009-canopy-provenance-merges.md) and
 [Native 010](../canopy-swift/010-client-conflict-review.md).

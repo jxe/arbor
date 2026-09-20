@@ -67,7 +67,7 @@ supported backing and prove:
 
 - identical stable refs and logical paths;
 - identical properties, schemas, capabilities, child order, and model hashes;
-- ordinary Markdown links open in non-Arbor editors;
+- ordinary Markdown links open in non-Overstory editors;
 - locator healing preserves key, query, and content-fragment components;
 - portable queries and named mutations produce the same public results and
   accepted logical effects;

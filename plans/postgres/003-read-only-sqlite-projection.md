@@ -69,7 +69,7 @@ foreign keys, decimals, timestamps, bytes, nullable values, schema change,
 concurrent source change during bootstrap, cursor loss, crash during every
 apply phase, corruption, disk full, revoked access, and wrong store identity.
 Prove query equality at one pinned execution identity and prove that no DSN,
-raw private row, or SQLite file enters authored content, Wire objects, logs, or
+raw private row, or SQLite file enters authored content, Overstory objects, logs, or
 public bundles.
 
 ## Completion gate
@@ -85,4 +85,4 @@ explicitly unavailable.
 - Serving a partially applied or schema-mismatched generation would be needed.
 - Implementation requires a projection-specific query, node, identity, or
   endpoint.
-- Credentials or physical database state would enter authored or Wire state.
+- Credentials or physical database state would enter authored or Overstory state.

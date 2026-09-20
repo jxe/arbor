@@ -1,12 +1,12 @@
 # Portable directory projection
-*Part of the [Arbor spec](../spec.md): one human-editable filesystem/Markdown
-projection of the [Arbor data model](01-tree-operations.md).*
+*Part of the [Overstory spec](../spec.md): one human-editable filesystem/Markdown
+projection of the [Overstory data model](01-tree-operations.md).*
 
 *Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](03-locators.md)) and the [property write](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions).*
 
 ## 1. Projection boundary
 
-This format is not the Arbor ontology. It maps ordinary directory entries,
+This format is not the Overstory ontology. It maps ordinary directory entries,
 Markdown/frontmatter, reserved store files, and child-placement syntax to the
 representation-independent nodes, properties, content, children, and identities
 defined by the data model. Another conforming projection may arrange source
@@ -119,14 +119,14 @@ rows, database tables, database records, and mounted boundaries are all children
 when their provider exposes them as such. A transient query result is not a node
 or child unless an explicit materialization operation creates one.
 
-Links use [Arbor locators](03-locators.md). Relative and tree-rooted logical
+Links use [Overstory locators](03-locators.md). Relative and tree-rooted logical
 paths are valid within a resolved tree; cross-tree links use canonical or raw
 TreeID locators. Any schema-identified node may use the Markdown-compatible
 `#arbor-key=<base64url-key>` relative-link alias defined by
 [locators](03-locators.md#2-stable-keys-revisions-and-fragments). When its readable path and
 valid stable key disagree, the key selects the node within its declaring
 keyspace and the authored content may be healed through an ordinary mutation. The alias
-and application query survive healing unchanged. Arbor renderers translate the
+and application query survive healing unchanged. Overstory renderers translate the
 alias to the server-visible path suffix before emitting HTTP links. Nodes with a
 null stable key remain path-identified.
 
@@ -138,22 +138,22 @@ null stable key remain path-identified.
   `_store.yaml` select child/store representation behavior specified by
   [child backings](06-child-backings.md). `_store.yaml` is driver-dispatched; its filename does
   not imply Postgres.
-- `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](07-executable-documents.md).
+- `.ts` and `.tsx` files may define Overstory handles, components, and executable documents as specified by [executable documents](07-executable-documents.md).
 - `.mdx` files may define explicit executable component documents as specified by [executable documents](07-executable-documents.md).
 - Markdown files may define agents as specified by [executable documents](07-executable-documents.md#13-agents).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 
 For a collection-file directory, the selected `_store.csv`, `_store.json`, or
-`_store.jsonl` and `schema.ts` remain exact authored file entries in the Wire
+`_store.jsonl` and `schema.ts` remain exact authored file entries in the protocol
 graph, while the directory's `childrenSource` descriptor marks their decoded
 rows as the complete immediate logical child set. Those reserved files are not
 themselves logical children. `_index.md` may still supply the directory node's
 own content, but mixing collection-file-derived rows with other expanded
-immediate children is invalid. The descriptor's Wire shape is defined with
+immediate children is invalid. The descriptor's Overstory shape is defined with
 [tree snapshots](01-tree-operations.md#112-reading-an-accepted-snapshot);
 its interpretation and validation are defined by
-[child backings §2.1](06-child-backings.md#21-accepted-wire-representation).
+[child backings §2.1](06-child-backings.md#21-accepted-overstory-representation).
 
 ## 6. Reserved names and sidecars
 

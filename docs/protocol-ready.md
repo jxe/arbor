@@ -24,7 +24,7 @@ There is one current Wire request shape and digest contract. The singular reques
 - [009: Canopy correspondence, provenance, and accepted conflicts](../plans/canopy/009-canopy-provenance-merges.md).
 - [010: contextual conflict review](../plans/canopy-swift/010-client-conflict-review.md), including stale-review and crash safety.
 
-Cross-language fixtures live in `conformance/wire-operations.json` and `conformance/wire-update-intent.json`. The semantic examples are grammar/digest vectors; they do not assert that their effects execute today. `status.md` remains authoritative for the implemented subset.
+Cross-language fixtures live in `conformance/protocol-operations.json` and `conformance/protocol-update-intent.json`. The semantic examples are grammar/digest vectors; they do not assert that their effects execute today. `status.md` remains authoritative for the implemented subset.
 
 ## Verification, 2026-09-13
 

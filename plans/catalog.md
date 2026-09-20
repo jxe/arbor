@@ -21,27 +21,27 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `web/` — Restore the browser working-tree client, then its interface and editor features.
 
-- [Web 025 — Arbor web: one browser editor for `arbor open` and Canopy](web/025-arbor-web.md) — **P1 · PLANNED; after the Native 022 soak closeout.** One bundle behind a `WebHost` interface, served by Arbor Sync on loopback and by Canopy at canonical URLs; TypeScript twins of the Swift working tree, app model and editor host; three projects (B1 local editor, B2 Canopy host and account surfaces, B3 choice review and editor depth) with a soak between each. The [surface inventory](web/surfaces.md) lists every native surface with its web treatment. Supersedes Web 023, 008 and 005, now in `_done/web/` (completed plan, deleted; see git history).
+- [Web 025 — Canopy for the web: one browser editor for `arbor open` and canopyd](web/025-arbor-web.md) — **P1 · PLANNED; after the Native 022 soak closeout.** One bundle behind a `WebHost` interface, served by Arbor Sync on loopback and by canopyd at canonical URLs; TypeScript twins of the Swift working tree, app model and editor host; three projects (B1 local editor, B2 canopyd host and account surfaces, B3 choice review and editor depth) with a soak between each. The [surface inventory](web/surfaces.md) lists every native surface with its web treatment. Supersedes Web 023, 008 and 005, now in `_done/web/` (completed plan, deleted; see git history).
 
 ## Local filesystem
 
 `filesystem/` — Filesystem writes, membership and ordinary-folder editing.
 
 - [Filesystem 002 — Serialize write-journal counters and appends per document](filesystem/002-journal-append.md) — **DEFERRED.** Recheck the inherited journal-ordering concern against current code before resuming.
-- [Filesystem 005 — Keep ignored filesystem content outside Arbor trees](filesystem/005-ignore-policy.md) — **P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
+- [Filesystem 005 — Keep ignored filesystem content outside Overstory trees](filesystem/005-ignore-policy.md) — **P1 · PLANNED.** Add portable `.arborignore` and `.gitignore` compatibility through one discovery/watch/index/snapshot/materialization policy; preserve accepted tracked content until explicit removal and never delete ignored local bytes during pull.
 - [Filesystem 011 — Keep independent filesystem writes moving after a rejection](filesystem/011-independent-writes-after-rejection.md) — **NEEDS DESIGN.** Retain rejected work while publishing only effects proven independent.
 - [Filesystem 024 — Add disk editors for non-tree folders](filesystem/024-disk-editors-for-non-tree-folders.md) — **PLANNED; depends on Web 025 for the web.** Add a simple local-file backend without synchronization machinery and refuse paths inside placed trees.
 
-## Canopy authority, storage and history
+## canopyd authority, storage and history
 
 `canopy/` — Merge policy, retained state, accepted history and provenance.
 
-- [Canopy 001](canopy/001-pack-object-storage.md): measure storage before choosing packing or pruning.
-- [Canopy 002](canopy/002-composable-conflict-fragments.md): reassess only residual fragment-representation gaps against schema 12.
-- [Canopy 006 — Attribute accepted updates and show line provenance](canopy/006-line-provenance.md) — **P2 · PLANNED; depends on Canopy 007 and coordinates retained-root policy with Canopy 001.** Reuse Canopy's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
-- [Canopy 007 — Surface accepted document history from Canopy](canopy/007-canopy-document-history.md) — **P1 · PLANNED; execute before Canopy 006 and coordinate retained-root policy with Canopy 001.** Surface accepted document history and restore-as-new-change from Canopy while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
-- [Canopy 009](canopy/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
-- [Canopy 010 — Operations as evidence frames; history loaded lazily](canopy/010-operation-frames-and-lazy-history.md) — **P1 · PLANNED (approved 2026-09-19).** Optional root-to-root operation frames on the wire, one frame per editor generation coalesced by concatenation, and a server that loads history by touched page with a deletion watermark instead of scanning it whole; collapsing old history is deferred.
+- [canopyd 001](canopy/001-pack-object-storage.md): measure storage before choosing packing or pruning.
+- [canopyd 002](canopy/002-composable-conflict-fragments.md): reassess only residual fragment-representation gaps against schema 12.
+- [canopyd 006 — Attribute accepted updates and show line provenance](canopy/006-line-provenance.md) — **P2 · PLANNED; depends on canopyd 007 and coordinates retained-root policy with canopyd 001.** Reuse canopyd's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
+- [canopyd 007 — Surface accepted document history from canopyd](canopy/007-canopy-document-history.md) — **P1 · PLANNED; execute before canopyd 006 and coordinate retained-root policy with canopyd 001.** Surface accepted document history and restore-as-new-change from canopyd while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
+- [canopyd 009](canopy/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
+- [canopyd 010 — Operations as evidence frames; history loaded lazily](canopy/010-operation-frames-and-lazy-history.md) — **P1 · PLANNED (approved 2026-09-19).** Optional root-to-root operation frames on the protocol, one frame per editor generation coalesced by concatenation, and a server that loads history by touched page with a deletion watermark instead of scanning it whole; collapsing old history is deferred.
 
 ## CLI and external agents
 
@@ -53,10 +53,10 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `apps/` — Resource policy → sidecar/source resolution → durable authoring/compiler → Supplies; hosted agents follow.
 
-- [Apps 001 — Run the Supplies tree locally, natively, and on Canopy](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003–006**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the adapted [`examples/supplies`](../examples/supplies) corpus as executable documents in local Arbor web, signed macOS Arbor, and its canonical Canopy website.
-- [Apps 002 — Host authored conversational interfaces over compiled Arbor handles](apps/002-canopy-hosted-agents.md) — **P1 · PLANNED; depends on Apps 001**, Arbor users, and Canopy execution. Agents reuse the same compiled query/mutation handles and authenticated Arbor-user context rather than introducing a separate data/runtime framework.
-- [Apps 003 — Compile and typecheck executable documents consistently](apps/003-development-compiler-and-editor-tooling.md) — **P1 · PLANNED; depends on historical Data 002 and the Apps 001 Supplies corpus.** This owns the shared compiler and development tooling across `arbor check`, editors, local Arbor, and Canopy.
-- [Apps 004 — Resource policy and coordinated configuration cutover](apps/004-mutation-permissions.md) — **P1 · PLANNED; first.** Implement `who` / `via` / `allow`, scoped updates/watches, and upgrade Joe's configuration, clients and Canopy together.
+- [Apps 001 — Run the Supplies tree locally, natively, and on canopyd](apps/001-supplies-executable-site.md) — **P1 · IN PROGRESS; depends on Apps 003–006**, the completed SQLite runtimes, and historical Data 002. This owns the next vertical gate: the adapted [`examples/supplies`](../examples/supplies) corpus as executable documents in local Canopy for the web, signed macOS Overstory, and its canonical canopyd website.
+- [Apps 002 — Host authored conversational interfaces over compiled Overstory handles](apps/002-canopy-hosted-agents.md) — **P1 · PLANNED; depends on Apps 001**, Overstory users, and canopyd execution. Agents reuse the same compiled query/mutation handles and authenticated Overstory-user context rather than introducing a separate data/runtime framework.
+- [Apps 003 — Compile and typecheck executable documents consistently](apps/003-development-compiler-and-editor-tooling.md) — **P1 · PLANNED; depends on historical Data 002 and the Apps 001 Supplies corpus.** This owns the shared compiler and development tooling across `arbor check`, editors, local Overstory, and canopyd.
+- [Apps 004 — Resource policy and coordinated configuration cutover](apps/004-mutation-permissions.md) — **P1 · PLANNED; first.** Implement `who` / `via` / `allow`, scoped updates/watches, and upgrade Joe's configuration, clients and canopyd together.
 - [Apps 005 — Source resolution and HTTP sidecar](apps/005-source-resolution-and-sidecar.md) — **P1 · PLANNED; after 004.** Define the bridge, implement authorized bindings, then extract current runtime machinery without preserving unused APIs.
 - [Apps 006 — Durable query/mutation authoring](apps/006-durable-authoring.md) — **P1 · PLANNED; after 004/005, with 003.** Combined author/user requirements, resumable steps, backing receipts and the three lifecycle examples.
 
@@ -67,7 +67,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Postgres 001 — Complete the provider-neutral Postgres child backing](postgres/001-child-provider.md) — **P2 · PLANNED; depends on historical Data 002 and 007 and Apps 003.**
 - [Postgres 002 — Define observation and semantic synchronization](postgres/002-observation-and-semantic-sync.md) — **P1 · DESIGN REVIEW REQUIRED; depends on Postgres 001.** Define database snapshots, committed observation, logical effects, checkpoints, and semantic synchronization.
 - [Postgres 003 — Build a read-only SQLite projection](postgres/003-read-only-sqlite-projection.md) — **P2 · PLANNED; depends on Postgres 001**, the snapshot/observation subset of Postgres 002, and Apps 003. Materialize a reviewed Postgres query into a rebuildable read-only SQLite placement.
-- [Postgres 004 — Add bidirectional SQLite/Postgres projection](postgres/004-bidirectional-projection.md) — **P2 · DEFERRED; depends on Postgres 001–003.** Add offline mutation intent and Arbor-managed bidirectional materializations only after the one-way sequence is complete.
+- [Postgres 004 — Add bidirectional SQLite/Postgres projection](postgres/004-bidirectional-projection.md) — **P2 · DEFERRED; depends on Postgres 001–003.** Add offline mutation intent and Overstory-managed bidirectional materializations only after the one-way sequence is complete.
 - [Postgres 005 — Preserve representation equivalence](postgres/005-representation-equivalence.md) — **P1 · PLANNED; depends on historical Data 002 and 011.** Preserve node identity and logical equivalence when a child set changes representation.
 
 ## Security boundaries
@@ -76,7 +76,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 - [Security 001 — Render search excerpts without treating indexed content as HTML](security/001-search-excerpts.md) — **P1 · TODO; rescoped by Native 022.** The daemon's search route and FTS index were deleted in Phase 7; the requirement applies to the native search index now and to the Plan B client text index when the web editor returns.
 - [Security 002 — Decode URL paths once at the external boundary](security/002-path-decoding.md) — **P1 · TODO.**
-- [Security 003 — Harden Canopy host responses](security/003-canopy-host-responses.md) — **P2 · TODO.** Apply safe response headers and trustworthy pairing-rate-limit identity.
+- [Security 003 — Harden canopyd host responses](security/003-canopy-host-responses.md) — **P2 · TODO.** Apply safe response headers and trustworthy pairing-rate-limit identity.
 - [Security 004 — Complete access-link sharing without leaking secrets](security/004-access-link-secrets.md) — **P1 · TODO.** Keep native link creation out of the UI until protected browser/native navigation, revocation, and recipient editing pass their staged gates.
 
 ## Testing and CI
@@ -98,7 +98,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 `cleanups/` — Gated compatibility removal and simplification of locator identity surfaces.
 
 - [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
-- [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported Canopy and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
+- [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported canopyd and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
 - [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
 
 ## Product Completion
@@ -106,15 +106,15 @@ manual acceptance and soak gates. Check current source/tests before executing an
 The numbered product work is grouped by owner above. These additional outcomes need design
 or a concrete implementation trigger; they are not new executor plans.
 
-- <a id="later-portable-deployment"></a>**Deploy Arbor apps to third-party web hosts, later** — After Apps 001 proves one compiled Arbor application on local Arbor, native Arbor, and Canopy, make that same application deployable to a third-party platform such as Vercel or Cloudflare. This is not a numbered plan yet because the compiled output does not exist and no specific external host has supplied real requirements.
+- <a id="later-portable-deployment"></a>**Deploy Overstory apps to third-party web hosts, later** — After Apps 001 proves one compiled Canopy application on local Overstory, Canopy, and canopyd, make that same application deployable to a third-party platform such as Vercel or Cloudflare. This is not a numbered plan yet because the compiled output does not exist and no specific external host has supplied real requirements.
   - A fully static application can be emitted as ordinary immutable web files for any static host, but only when all of its documents and queries can be validated and resolved at build time.
-  - An application with live queries or mutations needs an adapter for the chosen hosting platform that preserves Arbor identity, transactions, subscriptions, reconnect behavior, validation, user identity, execution authority, and resource limits.
+  - An application with live queries or mutations needs an adapter for the chosen hosting platform that preserves Overstory identity, transactions, subscriptions, reconnect behavior, validation, user identity, execution authority, and resource limits.
   - Either form keeps each document's assets, initial results, live handlers, declared capabilities, and schema requirements together rather than flattening the application into unrelated pages.
-  - Deployed pages advertise their Arbor source through ordinary web metadata such as `<link rel="arbor">` and `Arbor-Tree`.
+  - Deployed pages advertise their Overstory source through ordinary web metadata such as `<link rel="arbor">` and `Arbor-Tree`.
 
 - **Product gaps awaiting design** — These outcomes need interaction, ownership, recovery, and acceptance decisions before receiving numbered executor plans.
   - **Name-based sharing and profile avatars** — **NEEDS DESIGN.** Define user lookup, ambiguous-name selection, visibility and avatar ownership before writing an executor plan.
-  - **First-party group creation and membership management** — **NEEDS DESIGN.** Create, place, and own a group profile coherently; add and remove structured profile members without teaching users to edit YAML; preserve Canopy reservation and account-disable semantics.
+  - **First-party group creation and membership management** — **NEEDS DESIGN.** Create, place, and own a group profile coherently; add and remove structured profile members without teaching users to edit YAML; preserve canopyd reservation and account-disable semantics.
   - **Profile/device recovery, claim disputes, and administrator reset** — **NEEDS DESIGN.** Preserve the same self-certifying Profile TreeID and provide auditable proof of control rather than raw-credential transfer.
   - **Claimed-member removal/restoration and access-history recovery** — **NEEDS DESIGN.** Define confirmation, revocation, historical visibility, and restoration without a parallel group database.
   - **Persistent-host administration** — **NEEDS DESIGN.** Productize permanent domains, graceful restart, replacement-host restore, and verification while keeping migration scripts procedural.
@@ -140,15 +140,15 @@ before promoting one; an old audit finding is not proof of a current implementat
   - **Provider-specific materialization controls** — **NEEDS DESIGN.** Add a control only when one concrete backing can report a reliable snapshot, progress, cancellation, and failure boundary; keep provider semantics in the owning Postgres or backing plan.
   - **Web-editor boundary.** Structural undo, exact reorder restoration, pointer lifecycle, keyboard access, context-menu focus, bounded history, and scroll restoration stay together in the completed Web 005 plan (deleted; see git history).
 - **Security** — Alpha-stage injection, authorization, secret-handling, hostile-input, sandboxing, and trust-boundary work.
-  - **Isolate Canopy application-code execution** — **WAITING until Canopy executes synchronized `schema.ts`, SSR, query, or mutation code.** Use one separately contained, quota-bound, version-pinned execution boundary shared with Apps 003 rather than a schema-only retrofit.
-  - **Validate directory-entry names on every Wire client read path** — **REVERIFY.** Reject empty, dot, parent, and separator-bearing names before materialization; reuse the server graph invariant and add hostile-object fixtures.
-  - **Replace prose-derived authorization status** — **REVERIFY.** Canopy/Wire responses should classify authorization failures with typed errors rather than English-text matching; coordinate with Security 003 if both touch the response helper.
-  - **Object reachability authorization** — owned by the Canopy object-reachability candidate under Speed below. Its access and invalidation tests must prove that the optimization cannot widen access.
+  - **Isolate canopyd application-code execution** — **WAITING until canopyd executes synchronized `schema.ts`, SSR, query, or mutation code.** Use one separately contained, quota-bound, version-pinned execution boundary shared with Apps 003 rather than a schema-only retrofit.
+  - **Validate directory-entry names on every Overstory client read path** — **REVERIFY.** Reject empty, dot, parent, and separator-bearing names before materialization; reuse the server graph invariant and add hostile-object fixtures.
+  - **Replace prose-derived authorization status** — **REVERIFY.** canopyd/Overstory responses should classify authorization failures with typed errors rather than English-text matching; coordinate with Security 003 if both touch the response helper.
+  - **Object reachability authorization** — owned by the canopyd object-reachability candidate under Speed below. Its access and invalidation tests must prove that the optimization cannot widen access.
   - **Upgrade reachable YAML parsing advisory** — **REVERIFY.** Move the direct `yaml` dependency to a release containing the nested-collection stack-overflow fix, then run frontmatter and `_store.postgres` parsing tests.
   - **Safe ordinary-file metadata and previews** — **NEEDS DESIGN.** Define bounded size/type detection and inert preview rules before exposing richer untracked-file metadata; never parse binary or placeholder bytes as authored text.
 - **Testing and evidence**
   - **Developer browser smoke harness** — **WAITING on Web 025.** Preserve DOM, state, and network probes for deterministic invariants; reserve hands-on checks for hover, focus, pointer drag, and feel.
-  - **Canopy authorization characterization** — **REVERIFY.** Cover revoked grants, read-link write denial, non-admin access mutation, and removal of transitive group access in a dedicated daemon suite.
+  - **canopyd authorization characterization** — **REVERIFY.** Cover revoked grants, read-link write denial, non-admin access mutation, and removal of transitive group access in a dedicated daemon suite.
   - **Cross-client group workflow coverage** — **WAITING.** Add browser and native creation/membership coverage after the first-party flow is designed; do not freeze manual YAML as the UX.
   - **Accessibility and responsive browser audits** — **WAITING on Web 025.** Establish repeatable keyboard, focus, semantic, contrast, and narrow/wide layout checks around the existing objective editor audit.
   - **`mergeBlocks` characterization** — **REVERIFY.** Add direct unit coverage for conservative conflict behavior before changing its alignment algorithm.
@@ -156,7 +156,7 @@ before promoting one; an old audit finding is not proof of a current implementat
   - **Historical boundary.** Exact-artifact native acceptance and completed device-management browser E2E were recorded in completed plans (deleted; see git history); they are not duplicated here.
 - **Speed** — Measured removal of unnecessary rebuilding, unbounded scanning, and response costs.
   - **File-provider exact-source cache invalidation** — **REVERIFY.** Add filesystem-driven invalidation and metrics and deduplicate schema, store, and Markdown reads while retaining exact complete-key-set validation; do not extend the cache to database providers.
-  - **Canopy object reachability index** — **NEEDS DESIGN; preserve Native 022’s implemented retained-root authorization** (retained-root reachability). Replace per-request graph scans only with an index whose update and invalidation rules cannot widen object access; coordinate the invariant with Security.
+  - **canopyd object reachability index** — **NEEDS DESIGN; preserve Native 022’s implemented retained-root authorization** (retained-root reachability). Replace per-request graph scans only with an index whose update and invalidation rules cannot widen object access; coordinate the invariant with Security.
   - **Static response caching and render code splitting** — **REVERIFY.** Add ETag/cache policy for immutable built assets and measure a split that avoids eagerly loading KaTeX on routes that do not render it.
   - **Minimal changed-document reconciliation** — **CONDITIONAL.** Promote only if measured large external rewrites make whole-document `replaceBlocks` disruptive; preserve the first surviving block and cursor rather than optimizing speculatively.
   - **Representative cold/warm workspace benchmarks** — **REVERIFY.** Measure startup, discovery, indexing, navigation, and resynchronization against checked-in shape distributions before choosing another cache or index.

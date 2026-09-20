@@ -1,22 +1,22 @@
-# External agent access through the Arbor CLI
+# External agent access through the `arbor` CLI
 
 Historical identifier: **Smaller project 004**. The filename number is preserved; this plan now belongs to cli.
 
-**Status:** In progress. General `arbor status [<locator>] [--json]` and cloud-session discovery are implemented; the composable read, mutation, skill, and workflow surfaces below remain. This is an independent enabling plan, not the Canopy-hosted agent milestone. Compiled executable-document handle invocation follows the live-data document work.
+**Status:** In progress. General `arbor status [<locator>] [--json]` and cloud-session discovery are implemented; the composable read, mutation, skill, and workflow surfaces below remain. This is an independent enabling plan, not the canopyd-hosted agent milestone. Compiled executable-document handle invocation follows the live-data document work.
 
 ## Target result
 
-An installed general-purpose agent such as Codex or Claude Code can work with a person's Arbor workspace without Arbor hosting the model or implementing a model-provider client.
+An installed general-purpose agent such as Codex or Claude Code can work with a person's Overstory workspace without Overstory hosting the model or implementing a model-provider client.
 
-The agent learns Arbor through a small reusable skill and addresses Arbor through a structured CLI. It may use its own browser, shell, skills, plugins, or connected services to gather outside information, then use `arbor` to read or change local, mounted, and remote Arbor data. Arbor supplies the data interface; the external agent supplies reasoning and orchestration.
+The agent learns Overstory through a small reusable skill and addresses Overstory through a structured CLI. It may use its own browser, shell, skills, plugins, or connected services to gather outside information, then use `arbor` to read or change local, mounted, and remote Overstory data. Overstory supplies the data interface; the external agent supplies reasoning and orchestration.
 
-This plan is deliberately useful before authored Arbor agents exist. It does not implement `arbor run`, a Canopy chat surface, a model loop, an MCP server, or provider-specific data integrations.
+This plan is deliberately useful before authored Overstory agents exist. It does not implement `arbor run`, a host chat surface, a model loop, an MCP server, or provider-specific data integrations.
 
 ## Product boundary
 
-The external agent is a client of Arbor, like a human UI or another program. It does not become an Arbor-authored agent merely because it has read an agent Markdown file.
+The external agent is a client of Overstory, like a human UI or another program. It does not become an Overstory-authored agent merely because it has read an agent Markdown file.
 
-Arbor owns:
+Overstory owns:
 
 - locator resolution across local paths, placed trees, remote trees, and revisions;
 - exact source and structured node/children access;
@@ -27,15 +27,15 @@ Arbor owns:
 Codex, Claude Code, or another external agent owns:
 
 - model selection, conversation state, scheduling, and reasoning;
-- deciding which Arbor commands to invoke;
+- deciding which Overstory commands to invoke;
 - access to its separately installed web, browser, or service integrations; and
-- combining outside information with Arbor content.
+- combining outside information with Overstory content.
 
-An external service does not need an Arbor-specific adapter when the chosen agent can already reach it through a plugin, MCP server, browser, or vendor CLI. Continuous synchronization or transactional mirroring of an external service remains a separate store/workflow problem rather than an implicit property of this agent access.
+An external service does not need an Overstory-specific adapter when the chosen agent can already reach it through a plugin, MCP server, browser, or vendor CLI. Continuous synchronization or transactional mirroring of an external service remains a separate store/workflow problem rather than an implicit property of this agent access.
 
 ## Agent-oriented CLI surface
 
-Add thin CLI commands over the existing `ArborSyncRESTClient` operations. Commands resolve operands as Arbor locators and use arborsync or the relevant server rather than reading private Arbor state.
+Add thin CLI commands over the existing `ArborSyncRESTClient` operations. Commands resolve operands as Overstory locators and use arborsync or the relevant server rather than reading private Overstory state.
 
 The remaining initial read surface is:
 
@@ -84,7 +84,7 @@ Machine-readable mode is a product surface, not a rendering of human terminal pr
 
 Human-readable output may remain concise, but every command needed by the skill must support JSON without scraping text.
 
-## Reusable Arbor skill
+## Reusable Overstory skill
 
 Create one source skill with thin packaging for Codex and Claude Code rather than maintaining divergent instructions. The skill teaches the agent to:
 
@@ -96,10 +96,10 @@ Create one source skill with thin packaging for Codex and Claude Code rather tha
 5. read exact source before making an exact-source change;
 6. pass the observed base revision and a stable mutation ID for writes;
 7. retry an ambiguous mutation only with the same ID;
-8. use the external agent's own connected tools for non-Arbor systems; and
-9. report which Arbor locations changed and include their receipts.
+8. use the external agent's own connected tools for non-Overstory systems; and
+9. report which Overstory locations changed and include their receipts.
 
-Keep the skill procedural and small. Command help and JSON schemas remain authoritative; do not duplicate the entire Arbor specification into agent instructions.
+Keep the skill procedural and small. Command help and JSON schemas remain authoritative; do not duplicate the entire Overstory specification into agent instructions.
 
 ## Implementation order
 
@@ -120,11 +120,11 @@ Keep the skill procedural and small. Command help and JSON schemas remain author
 
 ### Phase 3 — skills and real workflows
 
-1. Package the shared Arbor operating instructions for Codex and Claude Code.
-2. Run both agents from a directory outside the Arbor repository so success does not depend on repository source knowledge.
+1. Package the shared Overstory operating instructions for Codex and Claude Code.
+2. Run both agents from a directory outside the Overstory repository so success does not depend on repository source knowledge.
 3. Test a research-only task spanning two mounted trees.
 4. Test an edit task that reads exact source, applies one focused change, and reports the receipt.
-5. Test a mixed integration task in which an agent reads from one of its existing connected services and writes a sourced result into Arbor without an Arbor-specific service client.
+5. Test a mixed integration task in which an agent reads from one of its existing connected services and writes a sourced result into Overstory without an Overstory-specific service client.
 6. Revise command descriptions and skill routing from observed failures before adding a richer protocol.
 
 ### Phase 4 — compiled handle invocation
@@ -133,14 +133,14 @@ After the live-data document compiler and handle runner exist, implement `arbor 
 
 ## Completion gate
 
-From outside the Arbor source checkout, both Codex and Claude Code can discover the Arbor skill, use only documented CLI commands to research two mounted trees, make a revision-safe update to one document, and report the exact changed locator and durable receipt. One agent also reads an already-connected external service and writes a sourced result into Arbor without any service-specific code in Arbor.
+From outside the Overstory source checkout, both Codex and Claude Code can discover the Overstory skill, use only documented CLI commands to research two mounted trees, make a revision-safe update to one document, and report the exact changed locator and durable receipt. One agent also reads an already-connected external service and writes a sourced result into Overstory without any service-specific code in Overstory.
 
 After compiled handles land, the same agents can invoke a checked-in Supplies query and mutation through `arbor call` with validated JSON input.
 
 ## Deliberate absences
 
-- no model-provider API client or Arbor-owned conversation loop;
-- no Canopy-hosted chat UI;
+- no model-provider API client or Overstory-owned conversation loop;
+- no canopyd-hosted chat UI;
 - no authored-agent execution semantics or transcript format;
 - no MCP requirement before the CLI proves insufficient;
 - no generic external-service connector registry;

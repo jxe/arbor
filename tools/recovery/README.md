@@ -2,7 +2,7 @@
 
 `tools/recover-arborsync-tree.ts` is a deliberately separate recovery path for
 a placed tree whose disk, pending ArborSync transition, retained editor
-admissions, and current Canopy snapshot may disagree.
+admissions, and current canopyd snapshot may disagree.
 
 Preparation reads all four sources, verifies their immutable object graphs,
 and writes a mode-`0700` evidence directory. It creates independently named
@@ -33,7 +33,7 @@ bun tools/recover-arborsync-tree.ts submit \
 The three expected values are deliberate typed confirmations from the reviewed
 manifest. Submission refuses candidates with structural conflicts or
 approximate Markdown placements, verifies that the bundle has not changed,
-rechecks the exact Canopy update and root captured at preparation time, and
+rechecks the exact canopyd update and root captured at preparation time, and
 uses `onConflict=reject`. It does not rewrite ArborSync's journal or the placed
 directory; normal reconciliation remains a separate step after the accepted
-Canopy root is verified.
+canopyd root is verified.

@@ -1,10 +1,10 @@
-# Arbor documentation
+# Overstory documentation
 
-Arbor separates portable contracts, current implementation status, usage, product design, active plans, and history so that one document does not silently become all of them.
+Overstory separates portable contracts, current implementation status, usage, product design, active plans, and history so that one document does not silently become all of them.
 
 ## Start here
 
-- [README](../README.md) — concise pitch and working local/Canopy quickstarts.
+- [README](../README.md) — concise pitch and working local/canopyd quickstarts.
 - [Current status](../status.md) — what is implemented, partial, or only specified.
 - [Introduction](intro.md) — the longer argument and intended end state.
 - [Specification](../spec.md) — normative portable behavior in numbered reading order.
@@ -12,19 +12,19 @@ Arbor separates portable contracts, current implementation status, usage, produc
 ## Usage and operation
 
 - [CLI](cli.md) — the implemented `arbor` command surface and safety rules.
-- [Canopy deployment](../deploy/README.md) — local/public hosting, persistent storage, backup, restoration, and coordinated upgrades.
+- [canopyd deployment](../deploy/README.md) — local/public hosting, persistent storage, backup, restoration, and coordinated upgrades.
 - [Development](../DEVELOPMENT.md) — repository layout, setup, testing, and local verification.
 
 ## Reference implementation and product design
 
-- [Consolidated update contract](update-wire-contract.md) — target specification, paired models and coordinated implementation boundary.
+- [Consolidated update contract](update-protocol.md) — target specification, paired models and coordinated implementation boundary.
 
 - [Merge executable](merge-tool.md) — shared immutable objects, staged rule evaluation, process failures and execution modes.
 - [Reference implementation](reference-implementation.md) — package boundaries, runtime ownership, durability, hosting, clients, and verification machinery.
 - [Local system](local-system.md) — local data home, private state, watchers, visits, credentials, and migration.
-- [Local Arbor REST API](arborsync-api.md) — the implemented loopback client/daemon boundary.
+- [Local Arbor Sync REST API](arborsync-api.md) — the implemented loopback client/daemon boundary.
 - [Client design](client.md) — non-normative web/native interaction design; use `status.md` for implementation truth.
-- [Client state machines](client-state-machines.md) — the document admission machine every Arbor Sync editor runs, and where it meets the direct Canopy machine in the specification.
+- [Client state machines](client-state-machines.md) — the document admission machine every Arbor Sync editor runs, and where it meets the direct canopyd machine in the specification.
 
 ## Planning and history
 

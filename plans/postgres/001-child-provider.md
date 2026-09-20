@@ -7,7 +7,7 @@
 - **State:** PLANNED — extracted from Data 002; not a prerequisite for closing
   the common node model.
 - **Depends on:** historical Data 002 common node model and Data 007 provider
-  runtime; reviewed observation and Wire query/mutation routes; Apps 003
+  runtime; reviewed observation and Overstory query/mutation routes; Apps 003
   activation manifests.
 - **Related:** Postgres 003 read-only SQLite projection and Postgres 004
   bidirectional projection.
@@ -21,7 +21,7 @@ contracts as expanded, collection-file, and SQLite providers. Postgres is a
 placement/provider choice, never a parallel public node ontology.
 
 The placement declares whether authority execution addresses Postgres directly,
-a read-only local SQLite projection, or an Arbor-managed bidirectional SQLite
+a read-only local SQLite projection, or an Overstory-managed bidirectional SQLite
 projection. Projection mode remains a placement property, not a property of the
 master tree.
 
@@ -63,7 +63,7 @@ replication with Postgres 004 rather than embedding either here:
 - `direct`: authority and permitted local tools query the same Postgres source;
 - `sqlite-read-only`: a local SQLite projection supports offline/local reads and
   live refresh but rejects local mutation; and
-- `sqlite-replicated`: Arbor owns a bidirectional accepted-intent protocol with
+- `sqlite-replicated`: Overstory owns a bidirectional accepted-intent protocol with
   constraints, conflicts, checkpoints, and convergence.
 
 The same compiled handle must either retain its semantics on every allowed
@@ -80,6 +80,6 @@ ordered membership, external commits, schema change, cursor expiry, retries,
 and concurrent mutations.
 
 Delete all Postgres virtual-node and virtual-table branches only when managed,
-untracked/reference, Canopy, query, mutation, observation, and remote browsing
+untracked/reference, canopyd, query, mutation, observation, and remote browsing
 all enter through `NodeProviderRouter` and the new fixture passes. Do not expose
 mutable Postgres rows before that gate.

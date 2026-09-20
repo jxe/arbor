@@ -1,4 +1,4 @@
-# Arbor web surfaces
+# Canopy for the web surfaces
 
 The surface-by-surface inventory behind [Web 025](025-arbor-web.md). Each native surface is listed with its Swift source, what the web version keeps, which host it applies to, and the project (B1, B2, B3) that builds it. **Keep** means the same labels, states and actions; **adapt** means the same information in browser-idiomatic form; **not ported** is a decision, not a gap. Native polish (menu bar, sheets, gestures, sounds, camera, audio) is listed at the end so nobody reads its absence as an omission.
 
@@ -16,7 +16,7 @@ Reference: `canopy-swift/ArborApp/*.swift` and `canopy-swift/Packages/CanopyEdit
 | 8 | Sync Status | `ArborDailyDriverViews.swift:992` | keep; no daemon actions | both | B2 |
 | 9 | Keyboard map | `ArborApp.swift:34–305` | adapt | both | B1 (shell), B3 (editor) |
 | 10 | Attention banner | `ArborDailyDriverViews.swift:895`, `ArborRootView.swift:2217` | keep | both | B1 |
-| 11 | Home: trees and accounts chooser | `ArborRootView.swift:3540, 3670`; `ArborDailyDriverViews.swift:1600` | adapt per host | both | B1 (local), B2 (canopy) |
+| 11 | Home: trees and accounts chooser | `ArborRootView.swift:3540, 3670`; `ArborDailyDriverViews.swift:1600` | adapt per-host | both | B1 (local), B2 (canopy) |
 | 12 | Network log | `ArborNetworkLogView.swift` | keep | both | B2 |
 | 13 | Conflict and choice review | `ArborConflictReview.swift`, `ArborDailyDriverViews.swift:1325–1540` | keep | both | B3 |
 | 14 | Source and Properties, History/Recover | `ArborDailyDriverViews.swift:1219, 1250` | keep | both | B1 |
@@ -26,7 +26,7 @@ Reference: `canopy-swift/ArborApp/*.swift` and `canopy-swift/Packages/CanopyEdit
 ## 1. Launch, empty and confirmation states
 
 - **Opening**: blank for 250 ms, then spinner and `Opening <name>…`.
-- **Empty** (local host): `No Tree Open` / `Couldn't Open Tree`, description `Open one of the trees placed on this Mac, or open a location.` (say *this computer* on the web), actions `Try Again` on failure, `Open Location…`, `Accounts…`, and the `Trees on this Mac` list (icon, title, path). Canopy host: `No Tree Open` with the account's trees instead, and `Pair this browser` when unpaired.
+- **Empty** (local host): `No Tree Open` / `Couldn't Open Tree`, description `Open one of the trees placed on this Mac, or open a location.` (say *this computer* on the web), actions `Try Again` on failure, `Open Location…`, `Accounts…`, and the `Trees on this Mac` list (icon, title, path). canopyd host: `No Tree Open` with the account's trees instead, and `Pair this browser` when unpaired.
 - **Confirmation bar** above the page: `confirming` shows spinner and `Connecting… Editing turns on once this tree is up to date.`; `unconfirmed` shows the warning `Read-only: <message>` with `Try Again`. The editor is non-interactive until `ready`, exactly as `.allowsHitTesting(node.isWritable)`.
 - **Read-only in another tab** (web only): same bar style, `Read-only: this tree is open for editing in another tab.`
 
@@ -50,7 +50,7 @@ One `PagePicker` component serves the sidebar, Search Contents, Move to and Move
 
 - **Breadcrumb heading** in the toolbar: parent prefix as a button (`Go to Parent`), leaf as text, head-truncated. Stops at the tree root.
 - **Back / Forward** are the browser's history; the app pushes one canonical URL per location. **Go to Parent** ⌘↑ and **Home** ⇧⌘H.
-- **Open Location** (⌘⇧L on the web; ⌘L is the browser's): field `Location path`; `http(s)://` and `arbor://` open a visit (read-only working tree following the tree's watch); `~`/absolute paths open the enclosing placed tree (local host only) or fail with `… is not inside a placed tree. Place the folder with arbor place first.`; otherwise a path in the current tree. Canopy host also accepts canonical paths on that Canopy.
+- **Open Location** (⌘⇧L on the web; ⌘L is the browser's): field `Location path`; `http(s)://` and `arbor://` open a visit (read-only working tree following the tree's watch); `~`/absolute paths open the enclosing placed tree (local host only) or fail with `… is not inside a placed tree. Place the folder with arbor place first.`; otherwise a path in the current tree. canopyd host also accepts canonical paths on that canopyd.
 - **Tabs**: the in-app tab strip is not ported; browser tabs are the tabs. `Open in New Tab` on rows and ⌘-click on links do the browser thing. See the plan's *Storage and tabs* for writability.
 - **Toolbar right side**: `Share` (when fully synced) or the sync indicator button (opens Sync Status), then the `Accounts` control with the sync badge (`Accounts — <status>`). Indicator states: `Fully synced`, `Syncing`, `Offline`, `Sync needs attention`.
 
@@ -81,7 +81,7 @@ Backed by BlockNote plus `@overstory/protocol`; each item names its project.
 - `:emoji` completion (`Search emoji`, `No matching emoji`, frequency ranking) and document icon set/clear.
 - Drag handles with midline drop, drop onto a closed toggle, template button or link row appends as a child; drop onto a sidebar row moves to that page (`Page moved`).
 - Markdown-aware copy/paste with HTML and plain-text flavours; link previews (favicon and title, cached, cancellable).
-- Template button insertion and host block actions if Arbor ever supplies any (it supplies none today).
+- Template button insertion and host block actions if Overstory ever supplies any (it supplies none today).
 
 ## 5. Search Contents
 
@@ -89,10 +89,10 @@ Backed by BlockNote plus `@overstory/protocol`; each item names its project.
 
 ## 6. Share and app permissions
 
-- **Tracked tree**: heading `Share` and the canonical address on one line (selectable, middle-truncated). Invite row `Add people or groups` with prompt `~handle or Arbor profile URL` and a `Share` button; several locators accepted; invites get read. Non-administrator footer `This browser needs administrator access to share. Open Accounts and make this device an administrator.`
-- `Who has access`: avatar, name (`Everyone`, display name or `Person or group`, `Private link`), detail (`Owner`, `Anyone who can find this tree`, `Existing access-link grant`, locator), `(You)`, and either `Full access` (help `Your access cannot be removed`), a menu `Can view` / `Can edit` / `Remove access`, or a static label. Synthetic `Everyone` row when absent. Read-only footer `Only an administrator for this Canopy account can change access.`
+- **Tracked tree**: heading `Share` and the canonical address on one line (selectable, middle-truncated). Invite row `Add people or groups` with prompt `~handle or Overstory profile URL` and a `Share` button; several locators accepted; invites get read. Non-administrator footer `This browser needs administrator access to share. Open Accounts and make this device an administrator.`
+- `Who has access`: avatar, name (`Everyone`, display name or `Person or group`, `Private link`), detail (`Owner`, `Anyone who can find this tree`, `Existing access-link grant`, locator), `(You)`, and either `Full access` (help `Your access cannot be removed`), a menu `Can view` / `Can edit` / `Remove access`, or a static label. Synthetic `Everyone` row when absent. Read-only footer `Only an administrator for this canopyd account can change access.`
 - `Scoped and app permissions`: existing rules plus `Manage app permissions…`.
-- **Promotable folder** (local host only): `Upgrade this folder`, explanation `The folder stays in place and gains its own Arbor identity, history, synchronization, and access controls.`, `Destination` account picker (`~handle · host`), `Canonical URL` with suggested slug, `Initial access` (`Private` / `Everyone can view` / `Everyone can edit`), `Make This an Arbor Tree`. Empty state `No connected Canopy account`.
+- **Promotable folder** (local host only): `Upgrade this folder`, explanation `The folder stays in place and gains its own Arbor identity, history, synchronization, and access controls.`, `Destination` account picker (`~handle · host`), `Canonical URL` with suggested slug, `Initial access` (`Private` / `Everyone can view` / `Everyone can edit`), `Make This an Arbor Tree`. Empty state `No connected canopyd account`.
 - **App permissions**: title `App permissions`; rules list; form `Caller: me, everyone, or profile TreeID`, `Executable TreeID (optional)`, `Within`, one toggle per operation, `Remove matching rule`, `Review change`; review shows `Account configuration:`, `Resource:`, `Before:`, `After:` and the caveat `This grants only authority this account currently holds. Other matching rules may also grant access.`; `Back`, `Grant permission` / `Remove permission`.
 - Dialog is content-sized with a bounded scroll region, closes on Escape unless a destructive confirmation or in-flight operation owns dismissal, restores focus to the Share control.
 
@@ -100,13 +100,13 @@ Backed by BlockNote plus `@overstory/protocol`; each item names its project.
 
 One dialog with a persistent `Accounts` / `Sync Status` selector; the Accounts control opens Accounts, the sync chip opens Sync Status; switching is immediate and never re-shows a first-load spinner.
 
-- Accounts, devices, share and app permissions are all edits to the account configuration tree through its own working-tree session, on both hosts, exactly as `ArborAppModel` edits `devices.yaml` and `trees.yaml`; only pairing offers and claims call Canopy directly.
+- Accounts, devices, share and app permissions are all edits to the account configuration tree through its own working-tree session, on both hosts, exactly as `ArborAppModel` edits `devices.yaml` and `trees.yaml`; only pairing offers and claims call canopyd directly.
 - Per account: `~handle`, host or `Account ABCD1234`, `Open profile`; `Devices` rows with label and tags `This browser` / `This Mac` / `Active` / `Administrator`; ellipsis menu `Make Administrator`, `Remove Administrator`, `Deauthorize Device` (destructive; disabled for the last administrator or a non-administrator caller); confirmation `Deauthorize <label>?`; results `<label> can now manage sharing.` / `<label> was deauthorized.`
 - `Pair another device…` shows the QR (generated client-side) and the `Confirm on both devices` code, for a phone or another browser.
-- **Pair this browser** (Canopy host, and the local host when the daemon has no credential): paste the code (`Paste Pairing Code`, `The clipboard has no pairing code.`), show `Pairing with your Mac…`, then the account appears. No camera.
-- Identity: `Profile TreeID` (monospaced, selectable), `Copy Profile TreeID`, `Send this public ID to the Canopy administrator before claiming your account.`, URL field and `Claim Account` — local host only, with an existing identity; identity creation stays canopy-swift/CLI.
-- `Disconnect` is quiet and destructive: `Disconnect this browser from Arbor?` with `Your server tree is not deleted.`; on the Canopy host it forgets the browser credential.
-- States: `No Canopy account` (`Claim or pair an account to manage its devices.`), `Loading account…`, `Could not refresh: …` with `Try Again`.
+- **Pair this browser** (canopyd host, and the local host when the daemon has no credential): paste the code (`Paste Pairing Code`, `The clipboard has no pairing code.`), show `Pairing with your Mac…`, then the account appears. No camera.
+- Identity: `Profile TreeID` (monospaced, selectable), `Copy Profile TreeID`, `Send this public ID to the canopyd administrator before claiming your account.`, URL field and `Claim Account` — local host only, with an existing identity; identity creation stays canopy-swift/CLI.
+- `Disconnect` is quiet and destructive: `Disconnect this browser from Arbor?` with `Your server tree is not deleted.`; on the canopyd host it forgets the browser credential.
+- States: `No canopyd account` (`Claim or pair an account to manage its devices.`), `Loading account…`, `Could not refresh: …` with `Try Again`.
 
 ## 8. Sync Status
 
@@ -139,7 +139,7 @@ One floating capsule at the top of the page, max 560 px, chosen in priority orde
 ## 11. Home: trees and accounts
 
 - **Local host**: placements from `/v1/trees` grouped per account (`~handle` and host; unmatched as `Other Trees`), current tree checked, recent visits with stale/offline state (there is no native visits view; the web adds one because Open Location is the only entry today), `Open Location…`, `Accounts`. `Place Another Tree` is not offered: placing stays `arbor place` and native.
-- **Canopy host**: the paired account's trees from `/.arbor/trees` with `Can edit` / `Can view`; opening one bootstraps it in the browser. No placement concept.
+- **canopyd host**: the paired account's trees from `/.arbor/trees` with `Can edit` / `Can view`; opening one bootstraps it in the browser. No placement concept.
 - Reached from the breadcrumb root and ⇧⌘H, not from an overscroll gesture.
 
 ## 12. Network log
@@ -185,4 +185,4 @@ One floating capsule at the top of the page, max 560 px, chosen in priority orde
 | Finder reveal, full-size image window | `ArborNetworkLogView.swift`, `ImageBlockView.swift:223` | `Copy`; lightbox |
 | In-app tab strip | `ArborDailyDriverViews.swift:1176` | browser tabs |
 | Reconnect / view arborsync logs | `ArborDailyDriverViews.swift:992` | not ported; `arbor daemon status` and the native app keep them |
-| Placing a tree from the app | `ArborRootView.swift:3670` | `arbor place`; the Canopy host has no placement |
+| Placing a tree from the app | `ArborRootView.swift:3670` | `arbor place`; the canopyd host has no placement |

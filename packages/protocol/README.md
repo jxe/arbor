@@ -1,6 +1,6 @@
 # @overstory/protocol
 
-Shared Arbor server protocol and replica support. This package defines immutable wire objects, update JSON/types/identity, and the TypeScript Wire client. It must not depend on the server implementation, SQLite, server history, access internals, or the merge engine.
+Shared Overstory host protocol and replica support. This package defines immutable Overstory objects, update JSON/types/identity, and the TypeScript Overstory client. It must not depend on the server implementation, SQLite, server history, access internals, or the merge engine.
 
 The `updates/` directory is the complete public update boundary:
 

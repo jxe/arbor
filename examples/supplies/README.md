@@ -13,7 +13,7 @@ Each root `.mdx` or `.tsx` document is an ordinary Arbor location. `Home.mdx` is
 
 The root `_index.md` is ordinary explanatory Arbor content. `Home.mdx` provides editorial layout; interaction-heavy documents remain TSX. A renderable document default-exports its component (the MDX body supplies that default automatically) and receives the request's ordinary `URLSearchParams` as `search`. It renders `<title>` and `<meta>` normally; React hoists them into the document head.
 
-The Phase 1–3 `arbor/data` query, live-result, and transactional mutation surfaces now exist and are tested directly against this source. `arbor/react`, schema-generated authoring declarations, and executable-document compilation do not exist yet, so the tree is not yet a runnable document site.
+The Phase 1–3 `overstory/data` query, live-result, and transactional mutation surfaces now exist and are tested directly against this source. `overstory/react`, schema-generated authoring declarations, and executable-document compilation do not exist yet, so the tree is not yet a runnable document site.
 
 ## Ported so far
 
@@ -50,7 +50,7 @@ The Phase 1–3 `arbor/data` query, live-result, and transactional mutation surf
 
 ## Known Arbor implementation gaps
 
-- executable MDX/TSX compilation, `arbor/react`, generated authoring declarations, and source-located compiler diagnostics;
+- executable MDX/TSX compilation, `overstory/react`, generated authoring declarations, and source-located compiler diagnostics;
 - SSR/hydration and active-query discovery from the addressed document component;
 - React Action adaptation, hoisted-head streaming, built-in Tailwind compilation, Markdown, and document boundaries;
 - authority browser sessions and tree execution-principal hosting.

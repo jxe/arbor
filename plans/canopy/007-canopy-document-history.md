@@ -1,4 +1,4 @@
-# Surface accepted document history from Canopy
+# Surface accepted document history from canopyd
 
 Historical identifier: **Smaller project 007**. The filename number is preserved; this plan now belongs to canopy.
 
@@ -36,18 +36,18 @@ Historical identifier: **Smaller project 007**. The filename number is preserved
 
 - **Priority:** P1
 - **Effort:** XL
-- **Risk:** HIGH — this adds an authenticated Canopy protocol and changes the
+- **Risk:** HIGH — this adds an authenticated canopyd protocol and changes the
   authority and meaning of a visible restore action
 - **State:** PLANNED
 - **Depends on:** no implementation milestone; execute before
-  [Canopy 006](006-line-provenance.md), and coordinate retained-root
-  policy with [Canopy 001](001-pack-object-storage.md)
+  [canopyd 006](006-line-provenance.md), and coordinate retained-root
+  policy with [canopyd 001](001-pack-object-storage.md)
 - **Category:** performance, product, protocol, migration
 - **Planned at:** `670a240`, 2026-09-07
 
 ## Target result
 
-**History → Recover** is an authenticated Canopy feature. It lists accepted
+**History → Recover** is an authenticated canopyd feature. It lists accepted
 versions of the current Markdown document and restores a selected exact source
 as an ordinary new edit. Replica history production was removed and legacy
 archives became automatically reclaimable in `b610d40`; that completed cleanup
@@ -60,7 +60,7 @@ filesystem events; they are not presented as accepted document history.
 
 Replica snapshot history grew linearly with every edit and mixed local
 generations with shared accepted history. Commit `b610d40` removed it. This
-plan supplies the correct product replacement: Canopy already owns accepted
+plan supplies the correct product replacement: canopyd already owns accepted
 roots and therefore must own document history and recovery.
 
 ## Current state
@@ -73,30 +73,30 @@ roots and therefore must own document history and recovery.
   `ReplicaMutationIntent` files from `journals/pages`; current state is
   `materialized/tree.json`, and accepted/pending heads remain in
   `control/heads.json`.
-- Replica-backed and Arbor-Sync-backed `history()` / `recover(revision:)`
-  currently fail with `Canopy history is not available yet`. They no longer
+- Replica-backed and Overstory-Sync-backed `history()` / `recover(revision:)`
+  currently fail with `canopyd history is not available yet`. They no longer
   map Arbor Sync `/v1/recovery` hashes into product History or submit
   `restoreRecovery` from that surface.
 - `packages/fs/src/journal.ts` and `packages/arborsync/src/workspace.ts` retain
   per-block lost/purged content and Trash recovery. This journal is required for
   crash and external-filesystem recovery and stays in place.
-- Canopy already stores the linear accepted chain in
+- canopyd already stores the linear accepted chain in
   `packages/canopyd/src/updates/store.ts` and retains accepted roots. In
   `packages/canopyd/src/canopy.ts`, `acceptedUpdates(treeID)` is explicitly
-  internal, and `snapshotForRoot` accepts a known retained root. No Wire route
+  internal, and `snapshotForRoot` accepts a known retained root. No Overstory route
   currently enumerates history.
 - `spec/05-access-control.md` defines historical snapshots as known-root and
   non-enumerable. Native 006 records the separate decision that a caller
   with current read access may fetch a known object reachable from any retained
   accepted root of that same tree. That does not authorize history enumeration:
   this plan adds only document-scoped listing under a write-capable credential.
-- `ArborHistoryView` already uses **History**, explains that Canopy history is
+- `ArborHistoryView` already uses **History**, explains that canopyd history is
   not available yet, and says **Restore as New Change**. This plan replaces the
   placeholder with loading, empty, offline, error, and accepted-version states.
 
 ## Contract to freeze first
 
-Add a document-scoped Canopy contract, not a generic accepted-update listing:
+Add a document-scoped canopyd contract, not a generic accepted-update listing:
 
 ```ts
 type DocumentHistoryEntry = {
@@ -140,14 +140,14 @@ Freeze these semantics in `spec/01-tree-operations.md` and
    access-link-only, and read-only callers cannot enumerate deleted source.
    Unknown, wrong-tree, unauthorized, and unretained entries are
    indistinguishable `404`s. Restore also passes through ordinary current write
-   authorization and Canopy admission.
+   authorization and canopyd admission.
 4. Pagination has a stable opaque cursor with a fixed maximum page size. The
    server bounds document bytes, history rows scanned, and total work and
    returns a typed error rather than a partial page that looks complete.
 5. `source` preserves the exact UTF-8 string, including line endings and final
    newline. Non-Markdown, invalid UTF-8, missing, duplicate-ID, and corrupt
    historical bodies fail explicitly.
-6. Restore does not rewind Canopy, mutate an old root, or bypass conflict
+6. Restore does not rewind canopyd, mutate an old root, or bypass conflict
    handling. The client fetches one historical version and submits that source
    through the existing document admission path as a new current change.
 
@@ -159,7 +159,7 @@ changing it.
 
 ## Storage and indexing design
 
-Add one private, rebuildable `document_versions` table owned by Canopy. Use the
+Add one private, rebuildable `document_versions` table owned by canopyd. Use the
 next available migration number at execution time; schema version is currently
 `6`, and both may drift. The logical columns are:
 
@@ -174,7 +174,7 @@ accepted_at, update_id)` pagination. Reference the accepted update so retention
 cannot leave orphan metadata.
 
 For each accepted root, derive Markdown identities and file-object hashes from
-the validated Wire graph before acknowledgement, then insert only changed
+the validated Overstory graph before acknowledgement, then insert only changed
 document versions inside the same SQLite transaction as the accepted update
 and observation. Reuse `AcceptedUpdateStore.commit(..., withinTransaction:)` or
 an equally small existing transaction seam; do not create a second commit log.
@@ -184,15 +184,15 @@ committed.
 The disposable migration backfills by walking each retained accepted chain in
 order and reading the retained roots. It must preserve all accepted IDs, order,
 roots, transition JSON, observations, accounts, ACLs, and object bytes. Report
-counts only. Rehearse on copies; never silently migrate a live Canopy at
+counts only. Rehearse on copies; never silently migrate a live canopyd at
 startup. If retained roots are incomplete, record an explicit earliest-history
 boundary rather than inventing continuity, or STOP if the contract has no such
 representation.
 
 Do not copy Markdown source into SQLite. The index stores the existing file
 object hash; the detail route resolves and verifies that immutable object when
-requested. Coordinate the retained-root/object requirement with Canopy storage
-001. Canopy 006 must reuse this accepted document-version index for
+requested. Coordinate the retained-root/object requirement with canopyd storage
+001. canopyd 006 must reuse this accepted document-version index for
 line provenance rather than add a competing historical scan or schema.
 
 ## Native and Arbor Sync ownership
@@ -200,18 +200,18 @@ line provenance rather than add a competing historical scan or schema.
 Keep `WorkspaceDocumentSession.history()` / `recover(revision:)` as the UI seam
 and replace the current unavailable result with these production semantics:
 
-- the replica implementation delegates to an injected Canopy document-history
+- the replica implementation delegates to an injected canopyd document-history
   service and stores no history itself;
-- the Arbor Sync provider obtains the same Canopy result either through the
+- the Arbor Sync provider obtains the same canopyd result either through the
   existing authenticated placement channel or a thin local REST proxy;
 - any Arbor Sync proxy owns no history database, cache, retention policy, or
-  restore semantics—it only uses the selected placement's Canopy origin and
+  restore semantics—it only uses the selected placement's canopyd origin and
   credential; and
 - `recover(revision:)` fetches exact historical source, verifies the returned
   tree/stable key/content hash, then calls the normal session admission/write
   flow. It does not call `restoreRecovery`.
 
-If direct native Canopy transport can reuse credentials without moving secret
+If direct native canopyd transport can reuse credentials without moving secret
 ownership or duplicating synchronization state, prefer it. Otherwise the thin
 Arbor Sync proxy is acceptable. Do not introduce a general provider framework
 until a second concrete history authority exists.
@@ -226,7 +226,7 @@ Update `ArborHistoryView` and its loading/error states:
 
 - title: **History** (the action sheet may remain **Recover**);
 - empty: **No accepted history yet**;
-- offline/unpaired: explain that Canopy history requires a connection and do
+- offline/unpaired: explain that canopyd history requires a connection and do
   not fall back to replica or filesystem history;
 - rows use acceptance timestamps and stable, literal labels such as
   “Accepted change”; and
@@ -237,7 +237,7 @@ Update `ArborHistoryView` and its loading/error states:
 
 Expected implementation scope:
 
-- `spec/01-tree-operations.md`, `spec/05-access-control.md`, Wire/reference API
+- `spec/01-tree-operations.md`, `spec/05-access-control.md`, Overstory/reference API
   docs, and language-neutral conformance fixtures;
 - `packages/canopyd/src/`, `packages/protocol/src/`, focused tests, and the next
   disposable `migrations/NNN-document-history/`;
@@ -250,21 +250,21 @@ Expected implementation scope:
 
 Out of scope:
 
-- changing Wire object hashes, root identity, accepted ordering, merge policy,
+- changing Overstory object hashes, root identity, accepted ordering, merge policy,
   or request replay;
 - exposing a generic tree history, rejected candidates, pending local edits,
   credentials, request digests, or document-history enumeration to current
   read-only callers; known-hash retained-object reads are owned by Reliability
   006;
 - deleting Arbor Sync filesystem journals, Trash recovery, or crash recovery;
-- snapshot deltas, replica compaction, Canopy pack-file implementation, diffs,
-  branching, history editing, or cross-Canopy federation; and
+- snapshot deltas, replica compaction, canopyd pack-file implementation, diffs,
+  branching, history editing, or cross-canopyd federation; and
 - recreating replica history or changing replica cleanup behavior.
 
 Use branch `codex/canopy-document-history` unless the operator supplies another
-name. Make focused commits for contract/schema, Canopy API, native
+name. Make focused commits for contract/schema, canopyd API, native
 integration/UI, and documentation. Match the repository's
-imperative commit style. Do not push, deploy, migrate live Canopy data,
+imperative commit style. Do not push, deploy, migrate live canopyd data,
 stop/restart Arbor Sync, or launch the app unless Joe separately authorizes it.
 
 ## Implementation order and verification
@@ -274,7 +274,7 @@ stop/restart Arbor Sync, or launch the app unless Joe separately authorizes it.
 1. Update the portable specs and reference documentation with the exact
    document-scoped routes, models, pagination, errors, authorization, source
    fidelity, and restore-as-new-change semantics.
-2. Add matching strict TypeScript and Swift Wire models/decoders plus
+2. Add matching strict TypeScript and Swift Overstory models/decoders plus
    language-neutral fixtures. Unknown required fields, malformed hashes/paths,
    invalid cursors, and mismatched tree/document identity must fail closed.
 
@@ -288,7 +288,7 @@ swift test --package-path canopy-swift/Packages/Overstory
 
 Expected: all commands exit zero and TS/Swift accept and reject the same cases.
 
-### Phase 2 — index and serve accepted document versions in Canopy
+### Phase 2 — index and serve accepted document versions in canopyd
 
 1. Implement the private `document_versions` store and atomic accepted-update
    indexing. Add the explicit disposable migration and copy-only rehearsal.
@@ -309,9 +309,9 @@ bun run typecheck
 Expected: focused tests and typecheck exit zero; the migration equivalence test
 shows unchanged accepted rows, observations, roots, and object hashes.
 
-### Phase 3 — switch native History to Canopy and uncouple Arbor Sync repair
+### Phase 3 — switch native History to canopyd and uncouple Arbor Sync repair
 
-1. Wire both replica-backed and Arbor-Sync-backed sessions to the same Canopy
+1. Overstory both replica-backed and Overstory-Sync-backed sessions to the same canopyd
    document-history contract without storing results durably.
 2. Change restore to fetch and verify exact source, then use normal admission.
    Cover stale/current races and prove a conflict preserves live editor text.
@@ -346,9 +346,9 @@ bun test
 swift test --package-path canopy-swift/Packages/Overstory
 swift test --package-path canopy-swift/Packages/ArborSyncClient
 tools/test-arbor-quagmire-local.sh
-xcodebuild -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -sdk macosx \
+xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -sdk macosx \
   -derivedDataPath /tmp/arbor-canopy-history-macos CODE_SIGNING_ALLOWED=NO build
-xcodebuild -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -sdk iphonesimulator \
+xcodebuild -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -sdk iphonesimulator \
   -derivedDataPath /tmp/arbor-canopy-history-ios CODE_SIGNING_ALLOWED=NO build
 git diff --check
 ```
@@ -361,24 +361,24 @@ Manual acceptance on iPhone and macOS:
 
 1. Open History while online, restore an older accepted source as a new change,
    and confirm the prior latest version remains listed after acceptance.
-2. Repeat offline and confirm History reports Canopy unavailability rather than
+2. Repeat offline and confirm History reports canopyd unavailability rather than
    showing replica or Arbor Sync recovery entries.
 
 ## Done criteria
 
-- [ ] Canopy provides bounded, document-scoped accepted history and exact source
+- [ ] canopyd provides bounded, document-scoped accepted history and exact source
   under current write-capable device authorization, with strict 404 privacy.
 - [ ] Restore submits historical exact source through ordinary current
   admission and retains every later accepted version.
 - [ ] Arbor Sync filesystem/Trash recovery remains functional but is not used
   or labelled as product History.
-- [ ] TypeScript/Swift Wire models, fixtures, specs, reference docs, and focused
+- [ ] TypeScript/Swift Overstory models, fixtures, specs, reference docs, and focused
   tests agree.
 - [ ] Native UI has correct online, empty, offline, error, and restore states on
   macOS and iOS.
 - [ ] All focused and maintained gates, platform builds, relative-link audit,
   and `git diff --check` pass.
-- [ ] `plans/README.md` and Canopy 006 reflect the final dependency and
+- [ ] `plans/README.md` and canopyd 006 reflect the final dependency and
   shared history-index ownership; completed evidence is moved to `_done`.
 
 ## STOP conditions
@@ -389,7 +389,7 @@ Stop and report rather than improvising if:
   intended result cannot be reconciled safely;
 - accepted roots or required objects are not retained enough to backfill and no
   explicit earliest-history boundary exists;
-- the next Canopy schema/migration number differs and a supported exact-source
+- the next canopyd schema/migration number differs and a supported exact-source
   migration cannot be identified;
 - document-history enumeration would be available to public, access-link,
   read-only, or unauthenticated callers without a new explicit product/security
@@ -398,7 +398,7 @@ Stop and report rather than improvising if:
 - direct native history access would require duplicating credential ownership,
   or the Arbor Sync proxy would begin storing a second history archive;
 - restore cannot use ordinary admission without losing exact Markdown,
-  bypassing Canopy conflict authority, or overwriting live text before durable
+  bypassing canopyd conflict authority, or overwriting live text before durable
   acceptance; or
 - a focused gate fails twice or the work expands into pack storage, generic
   history, diffs, revision DAGs, or federation.
@@ -413,6 +413,6 @@ Stop and report rather than improvising if:
   branching, or history rewriting.
 - No claim that DeviceFS block-accounting output is physical bytes; use logical
   byte totals and, where available, allocated-byte resource values.
-- Review future Canopy packing/pruning, account authorization, cross-Canopy
+- Review future canopyd packing/pruning, account authorization, cross-canopyd
   moves, stable-ID cleanup, and line provenance against this plan's retention,
   authorization, exact-source, and restore-as-new-change invariants.

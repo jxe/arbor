@@ -1,11 +1,11 @@
 # Client state machines: document admission and working-tree updates
 
-Two state machines sit between an editor and accepted Canopy history. The
+Two state machines sit between an editor and accepted canopyd history. The
 **document admission machine** runs between an editor's undo history and its
 working tree's document session; this document is its reference: its states,
 the data each retains, its transitions, and the rules a new editor host must
 follow. The
-**update machine** runs inside a working tree against Arbor Wire and is
+**update machine** runs inside a working tree against Overstory and is
 specified in [working-tree updates](../spec/09-client-synchronization.md);
 section 8 below describes its runner, the update coordinator, and what it
 adds around the reducer: the durable head, recovery, and watching.
@@ -25,7 +25,7 @@ bases and explicit dependencies. Swift sessions and publication consume those
 records behind an opt-in gate; TS integration and deployed server coverage remain
 before enabling stale-basis admission in installed clients.
 The `conflict` phase and `mergeLocally` effect below are legacy compatibility behavior,
-not the target policy for concurrent Canopy edits. Existing recovery remains readable.
+not the target policy for concurrent canopyd edits. Existing recovery remains readable.
 
 ## 1. Three layers, three clocks
 
@@ -36,18 +36,18 @@ not the target policy for concurrent Canopy edits. Existing recovery remains rea
   admission succeeds. The machine coalesces a burst of edits into one
   admission behind a trailing 250 ms debounce, and never has two admissions
   in flight for one document session.
-- **Accepted Canopy history** is produced later by the update machine, which
+- **Accepted canopyd history** is produced later by the update machine, which
   publishes the working tree's durable heads. Admission is complete when the
-  working tree holds the bytes; the editor does not wait for Canopy.
+  working tree holds the bytes; the editor does not wait for canopyd.
 
 A rapid sequence of 15 Option-arrow moves is therefore 15 undo entries, one
-admission, and normally one accepted Canopy update.
+admission, and normally one accepted canopyd update.
 
 Swift document sessions expose an admission policy. The source-enabled working-tree
 session uses `retainedBasis`: it durably queues exact intent before acknowledgement,
 and recovered drafts retain their original basis and patch without local review.
 The default `compareAndSwap` policy preserves legacy provider behavior during the
-transition. This is a local provider contract, not Canopy operation advertisement.
+transition. This is a local provider contract, not canopyd operation advertisement.
 See the [source admission integration](source-admission-queue.md#swift-session-and-publication-integration)
 for the current opt-in boundary and remaining release gates.
 
@@ -90,7 +90,7 @@ retaining its exact accepted basis, pending generation and successor. It never
 emits `mergeLocally` or treats equal peer bytes as proof of durable admission.
 The Native bridge captures this policy from the session at open, including draft
 recovery. The shared fixture covers both languages; the live protocol test drives
-Quagmire through the real session/coordinator and disposable Canopy.
+Quagmire through the real session/coordinator and disposable canopyd.
 
 ```text
 clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting ──admitted──▶ clean (acknowledge)
@@ -132,8 +132,8 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
    reconciles.
 7. **Legacy compatibility: a rejected admission emits `mergeLocally`.** The working tree rejected
    the write at its base revision; the host may run its explicit merge
-   helper or surface the retained conflict for review (native Arbor surfaces
-   it). Accepted Canopy conflicts are accepted-state data, not an admission failure
+   helper or surface the retained conflict for review (Canopy surfaces
+   it). Accepted canopyd conflicts are accepted-state data, not an admission failure
    or a publication hold. Native has retired the old rejected-update path; unexpected retained legacy records fail safely for recovery.
 8. **Failures keep the exact pending source.** `retry` or `flush` resubmits
    the newest retained source; the UI shows failure until then.
@@ -175,17 +175,17 @@ publishes durable heads behind a trailing delay and materializes only accepted
 state. Arbor Sync admits no editor generations; its folder is always a
 source (the reducers have no filesystem role), and every daemon request is
 one filesystem head. A native or future browser client starts from a sparse
-snapshot rooted at Canopy's accepted root and owns its own later heads and
+snapshot rooted at canopyd's accepted root and owns its own later heads and
 requests. The daemon's mutable folder head, pending request, conflict, and
 availability state neither seed nor block that client. Clients using the same
-credential still converge through ordinary Canopy request reconciliation and
+credential still converge through ordinary canopyd request reconciliation and
 watch evidence; they do not share a local state machine.
 
 The prefix rule applies to filesystem-authored work that moves during a
-request. If Canopy merged the transmitted candidate while newer local bytes
+request. If canopyd merged the transmitted candidate while newer local bytes
 were already durable, Arbor Sync must not turn those bytes into a fresh request
 against the original stale base. It persists a longer request containing the
-exact transmitted prefix plus the latest successor once. Canopy deduplicates
+exact transmitted prefix plus the latest successor once. canopyd deduplicates
 the prefix by request digest and reconciles only the successor transition. If
 that transition conflicts, Arbor Sync retains Base, Current, Mine, and Draft
 immediately because its base may be a submitted candidate rather than a
@@ -194,21 +194,21 @@ snapshot-addressable accepted root.
 Every editor runs both: admission into its working tree first, publication by
 the update machine second. Do not combine them or skip local durability.
 
-When a plural Wire update string stops at a conflict, the update machine does
+When a plural Overstory update string stops at a conflict, the update machine does
 not turn the complete final local root into one replacement request. The
 successful prefix is already authority history, the element at `failedIndex`
 is the only element under review, and the suffix has not yet been attempted.
 The thick client retains those boundaries across restart, submits the reviewed
 failed element first, and then replays the exact later local changes in order.
 Most conflicts therefore produce one content review; another review appears
-only if a later guarded replay or Canopy submission independently conflicts.
+only if a later guarded replay or canopyd submission independently conflicts.
 
 ## 7. Conflict review for Arbor Sync clients
 
 Treat tree status and review evidence as separate facts. `sync: "conflict"`
 means automatic synchronization stopped; it does not authorize a choice.
 Fetch `/v1/conflicts?tree=...` and offer resolution only after that request
-returns the durable, identity-fenced Base, Current, Mine, and Canopy Draft
+returns the durable, identity-fenced Base, Current, Mine, and canopyd Draft
 values. A missing or unavailable workspace is an error state, never an empty
 conflict and never permission to keep local or remote implicitly.
 
@@ -235,7 +235,7 @@ in Plan B). Both execute the `working-tree-updates` scenarios in
 [`conformance/client-state-machines.json`](../conformance/client-state-machines.json).
 Its transitions are the spec's; this section is about the runner around it.
 
-`UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and a Wire
+`UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and an Overstory
 transport and keeps `UpdateControl` (`sync/update-control.json` under the tree's
 state root, schema 3 for source admission and schema 2 for snapshot publication). The control retains:
 
@@ -266,7 +266,7 @@ back with the tree's own file metadata.
 **Recovery.** On entry, a retained attempt maps to `prepared`, and a head with no attempt becomes a one-element
 attempt (its objects make it self-contained) and also maps to `prepared`.
 When an accepted result arrives for a candidate the tree no longer holds and
-the tree has no pending work (it was re-seeded from Canopy while the durable
+the tree has no pending work (it was re-seeded from canopyd while the durable
 record carried the work), the coordinator applies the decision, clears the
 attempt and next base, and pulls the current snapshot; it never re-submits
 the seed.
@@ -289,14 +289,14 @@ an action against an immutable candidate, retains the snapshot before returning,
 and supplies pending candidate views for navigation and document sessions. These
 snapshot records preserve explicit predecessor identity alongside source-operation
 records. Local Trash nodes and locally held file objects are private recovery
-material in the same structural record, excluded from Wire candidates. Publication
-and watch still install only Canopy's accepted projection into the accepted tree.
+material in the same structural record, excluded from Overstory candidates. Publication
+and watch still install only canopyd's accepted projection into the accepted tree.
 Native always enables source admission. Its constructor refuses old pending
 snapshot work rather than selecting a legacy conflict workflow, and source journals
 cannot downgrade to snapshot mode. Clean older controls can activate source mode.
 The [installed cutover](native-source-cutover.md) verified both devices had no
 retained legacy work before retiring that path. Local filesystem document CAS and
-divergent editor-recovery drafts remain separate from accepted Canopy conflicts.
+divergent editor-recovery drafts remain separate from accepted canopyd conflicts.
 
 For source-enabled Native, structural admission is available only when pending
 records form one predecessor chain whose starting graph matches the installed
@@ -310,6 +310,6 @@ accepted projection. Individual document sessions keep their own retained source
 generations. Structural actions, imports and assets report
 `awaitingCanopyReconciliation` before preparing more work. Provider capabilities
 advertise that restriction; the coordinator enforces it independently of UI state.
-Publication continues and the restriction is recomputed as Canopy accepts work.
+Publication continues and the restriction is recomputed as canopyd accepts work.
 The queue and accepted-change receipts reconstruct this policy after restart;
 there is no separate view cache, local merge engine or client-owned conflict.

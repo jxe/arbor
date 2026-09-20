@@ -2,11 +2,11 @@
 
 ## Context
 
-Sharing a tree in Arbor Native today means typing `~handle` or a full profile URL into a bare text field ([ArborRootView.swift:2482](canopy-swift/ArborApp/ArborRootView.swift:2482)). Access rows show an SF symbol and a `~handle` scraped from the locator ([AccountConfigurationYAML.swift:331](canopy-swift/Packages/OverstoryClient/Sources/OverstoryClient/AccountConfigurationYAML.swift:331)). Profile trees carry only `type` and `members` in their root frontmatter ([spec/04 §1](spec/04-accounts-and-devices.md)); there is no name or avatar field, no Swift parser for profile facts, no image loading in the app, and no server route that lists people. `plans/catalog.md:117` marks this as NEEDS DESIGN.
+Sharing a tree in Canopy today means typing `~handle` or a full profile URL into a bare text field ([ArborRootView.swift:2482](canopy-swift/ArborApp/ArborRootView.swift:2482)). Access rows show an SF symbol and a `~handle` scraped from the locator ([AccountConfigurationYAML.swift:331](canopy-swift/Packages/OverstoryClient/Sources/OverstoryClient/AccountConfigurationYAML.swift:331)). Profile trees carry only `type` and `members` in their root frontmatter ([spec/04 §1](spec/04-accounts-and-devices.md)); there is no name or avatar field, no Swift parser for profile facts, no image loading in the app, and no server route that lists people. `plans/catalog.md:117` marks this as NEEDS DESIGN.
 
 Goal: in the share pane, type a name, see matching people with avatars, pick one. Plus a "People" directory view. Joe decided:
 
-- **Cache home:** new Canopy `GET /.arbor/directory` + a JSON cache on the native client.
+- **Cache home:** new canopyd `GET /.arbor/directory` + a JSON cache on the native client.
 - **Field names (atproto-style):** `displayName`, `avatar` (relative path to an image file inside the profile tree), `description`.
 - **Reachable people:** members of the community tree, members of any readable `type: group` tree, and profiles already appearing as subjects in the caller's own access rules.
 
@@ -18,7 +18,7 @@ Goal: in the share pane, type a name, see matching people with avatars, pick one
 4. **The native directory is a derived cache.** `Directory.json` and `Avatars/` may be deleted at any time. Sharing still submits a TreeID through the existing `setShareAccess`; the picker only chooses which one.
 5. **Raw input still works.** `~handle`, URL, or `tr_…` fall through to existing `resolveLocalProfile` / `resolveProfile`.
 
-## Phase 1 — Profile schema, Canopy directory endpoint, TS wire, CLI
+## Phase 1 — Profile schema, canopyd directory endpoint, TS wire, CLI
 
 Shippable alone; old clients ignore the new fields.
 
@@ -52,7 +52,7 @@ Steps: community members → each readable group tree (as its own `group` entry 
 
 **Pure model** new `canopy-swift/Packages/OverstoryClient/Sources/OverstoryClient/Directory.swift`: `DirectoryPerson { origin, entry, title, subtitle, initials }` and `DirectoryMatcher.matches(query, in:)` using case- and diacritic-insensitive folding over displayName, handle, locator, profile; `~` prefix stripped. Merge rule across origins: keep the richer card, union sources.
 
-**Store** new `canopy-swift/ArborApp/ArborDirectory.swift` following `VisitedTreeStore` ([ArborVisits.swift:33](canopy-swift/ArborApp/ArborVisits.swift:33)): `DirectoryStore` actor over `Directory.json` (`{version, origins: [origin: {fetchedAt, entries}]}`), plus `AvatarCache` actor over `Avatars/<hash>` (fetch via origin wire client, reject > 2 MB, downsample to 128 pt in memory). Add both paths to `ArborSupportDirectories`. `ArborWorkspaceState.directory: [DirectoryPerson]` and `refreshDirectory(force:)` per account origin (Mac: arborsync overview accounts via `wireClient(origin:overview:)`; iOS: native placements via `NativeAccountService`), errors per origin logged, debounced 60 s; hooked after the overview refresh so the foreground scenePhase hook covers it.
+**Store** new `canopy-swift/ArborApp/ArborDirectory.swift` following `VisitedTreeStore` ([ArborVisits.swift:33](canopy-swift/ArborApp/ArborVisits.swift:33)): `DirectoryStore` actor over `Directory.json` (`{version, origins: [origin: {fetchedAt, entries}]}`), plus `AvatarCache` actor over `Avatars/<hash>` (fetch via origin Overstory client, reject > 2 MB, downsample to 128 pt in memory). Add both paths to `ArborSupportDirectories`. `ArborWorkspaceState.directory: [DirectoryPerson]` and `refreshDirectory(force:)` per account origin (Mac: arborsync overview accounts via `wireClient(origin:overview:)`; iOS: native placements via `NativeAccountService`), errors per origin logged, debounced 60 s; hooked after the overview refresh so the foreground scenePhase hook covers it.
 
 **AvatarView**: circle, `Image(nsImage:)`/`Image(uiImage:)`, initials on a tint chosen from the TreeID hash, SF symbol fallback when no person (keeps Everyone/link rows as today).
 
@@ -71,5 +71,5 @@ Steps: community members → each readable group tree (as its own `group` entry 
 ## Verification
 
 - Phase 1: `bun run typecheck`; `bun test tests/unit/canopyd/profile-facts.test.ts tests/integration/canopyd/directory.test.ts`; `bun run test` (known parallel flakes, rerun singly); `git diff --check`.
-- Phase 2/3: `swift test --package-path canopy-swift/Packages/OverstoryClient`, `swift test --package-path canopy-swift/Packages/Overstory`, `xcodebuild test -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor -destination 'platform=macOS'` plus an iOS simulator destination. Never build CanopyEditor standalone.
-- End to end: two accounts on a disposable Canopy; `arbor me set --name --avatar`; open Share on Mac and iOS, type part of the name, confirm avatar row and pick; confirm the access row shows name + avatar; delete `Directory.json` and `Avatars/`, confirm cold rebuild; confirm a private profile shows handle only.
+- Phase 2/3: `swift test --package-path canopy-swift/Packages/OverstoryClient`, `swift test --package-path canopy-swift/Packages/Overstory`, `xcodebuild test -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy -destination 'platform=macOS'` plus an iOS simulator destination. Never build CanopyEditor standalone.
+- End to end: two accounts on a disposable canopyd; `arbor me set --name --avatar`; open Share on Mac and iOS, type part of the name, confirm avatar row and pick; confirm the access row shows name + avatar; delete `Directory.json` and `Avatars/`, confirm cold rebuild; confirm a private profile shows handle only.

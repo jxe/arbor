@@ -5,11 +5,11 @@ Historical identifier: **Reliability 008 / Sync 008**. Status: PARTIAL; prioriti
 ## What this means
 
 This plan covers command capture in the Native editor and its Quagmire bridge.
-Canopy and the merge tool already execute the supported operation kinds; their
-reconciliation policies remain in [Canopy 009](../canopy/009-canopy-provenance-merges.md).
+canopyd and the merge tool already execute the supported operation kinds; their
+reconciliation policies remain in [canopyd 009](../canopy/009-canopy-provenance-merges.md).
 
-When you move a paragraph, copy blocks to another page or undo an earlier command, Arbor can
-send Canopy both the resulting text and a record of what you did. That gives Canopy evidence
+When you move a paragraph, copy blocks to another page or undo an earlier command, Overstory can
+send canopyd both the resulting text and a record of what you did. That gives canopyd evidence
 for combining your action with edits from another device. Final text alone cannot reliably
 establish whether you moved something, copied it, or independently typed matching text.
 
@@ -57,8 +57,8 @@ undo stack after restart is separate from retaining already-authored undo reques
   edits and existing undo dependencies safe through offline use and restart.
 - Do not retarget an old action to a newer basis, infer identity from equal bytes or silently
   discard captured operations. Preserve local work and expose a problem if it cannot be encoded.
-- Canopy executes and reconciles the operations. Its existing support must cover every emitted
-  form before client release. Server policy belongs to [Canopy 009](../canopy/009-canopy-provenance-merges.md);
+- canopyd executes and reconciles the operations. Its existing support must cover every emitted
+  form before client release. Server policy belongs to [canopyd 009](../canopy/009-canopy-provenance-merges.md);
   conflict review belongs to [Native 010](010-client-conflict-review.md).
 - Keep publication running while accepted choices remain unresolved. Explicit guarded review
   resolves choices; ordinary editing and equal bytes do not.
@@ -69,7 +69,7 @@ Neither is unfinished Native command capture in this plan.
 
 ## Done for each selected command
 
-Use the real editor command with a disposable Canopy. Assert that it captures the intended
+Use the real editor command with a disposable canopyd. Assert that it captures the intended
 move/copy/undo and exact resulting bytes, including a concurrent peer edit. Test uncertain
 acceptance, offline work, restart, unavailable source material and continued editing. Two actions
 that produce the same text must still retain their different meanings when that distinction matters.

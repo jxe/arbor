@@ -6,7 +6,7 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 > the client is `WorkingTree` (package `CanopyWorkingTree`), placement is
 > `WorkingTreePlacementService.place`, and steady-state synchronization is
 > `UpdateCoordinator`. This plan applies to iOS placement and to visits, where
-> the complete accepted snapshot still comes from Canopy in one body. On the
+> the complete accepted snapshot still comes from canopyd in one body. On the
 > Mac the bootstrap is loopback from the daemon (`GET /v1/bootstrap`: a sparse
 > spine of directories and Markdown with every other file by hash) and is not
 > progressive; nothing here changes it. "Replica" below reads as "working
@@ -38,7 +38,7 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 > This plan was written against `9b7da49`, where
 > `ReplicaPlacementService.place` still waits for
 > `ArborWireClient.snapshot`, that client still buffers the complete response
-> with `URLSession.data(for:)`, and Canopy still encodes and returns a complete
+> with `URLSession.data(for:)`, and canopyd still encodes and returns a complete
 > snapshot body without byte-range handling. If any of those facts changed,
 > reconcile this plan with the current source before implementation.
 
@@ -49,7 +49,7 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 - **Risk**: HIGH
 - **Depends on**: the current retained accepted-snapshot route and immutable
   object store; Step 2 deliberately widens tree-scoped object reads to retained
-  accepted roots for preview and future Canopy-owned history
+  accepted roots for preview and future canopyd-owned history
 - **Coordinates with**: Reliability 005 and Native 022; this plan owns the
   bootstrap submachine for iOS placement and visits, and `UpdateCoordinator`
   owns the update machine after the `bootstrapInstalled` handoff. The Mac's
@@ -62,7 +62,7 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 On first placement, iOS quickly fetches the current descriptor, then reads the
 addressed root directory object and its `_index.md` object when present through
 the tree-scoped object route. After verifying their hashes and relationship,
-Arbor displays that root Markdown as a read-only preview while the complete
+Overstory displays that root Markdown as a read-only preview while the complete
 immutable snapshot downloads in the background. The UI shows distinct
 server-preparation, byte-transfer, validation, installation, and catch-up
 stages rather than one indefinite spinner.
@@ -75,10 +75,10 @@ bundle is present, Swift validates canonical CBOR, every object hash, graph
 reachability, and the pinned root before initializing a staging replica. A
 successful atomic promotion produces exactly one typed
 `bootstrapInstalled(root:update:cursor:)` result for Reliability 005. Only then
-does Arbor enable editing and claim the tree is locally/offline available.
+does Overstory enable editing and claim the tree is locally/offline available.
 
-If Canopy accepts a newer root during download, the pinned accepted snapshot
-remains valid. Arbor installs it and the ordinary direct synchronization
+If canopyd accepts a newer root during download, the pinned accepted snapshot
+remains valid. Overstory installs it and the ordinary direct synchronization
 machine catches up from the pinned update/cursor. Cancellation, timeout, app
 suspension, or relaunch retains a resumable partial download and never destroys
 an already usable replica.
@@ -101,12 +101,12 @@ before replacement succeeds. The launch UI can only say “Syncing” until the
 entire graph is ready. On a hotspot this makes a healthy slow transfer look
 stuck, and a timeout starts it again from byte zero.
 
-Canopy already exposes immutable retained accepted snapshots with ETags and
+canopyd already exposes immutable retained accepted snapshots with ETags and
 has a reachability-checked immutable object store. Step 2 deliberately permits
 the existing tree-scoped object route to read an object reachable from any
 retained accepted root, rather than only the current root, so the preview cannot
 race with the current root changing. The caller must still have current read
-access to the tree. This aligns object access with Canopy-owned retained history
+access to the tree. This aligns object access with canopyd-owned retained history
 and is enough to make the first page visible early without accepting partial
 graphs as replicas or putting history back into the replica layer.
 
@@ -152,7 +152,7 @@ Required invariants:
    state. Store no bearer credential or access-link secret. Write control
    atomically after response identity is known and after each bounded progress
    checkpoint.
-5. Canopy returns `Accept-Ranges: bytes`, a strong immutable ETag, and exact
+5. canopyd returns `Accept-Ranges: bytes`, a strong immutable ETag, and exact
    `Content-Length` for accepted snapshot bundles. A resume uses
    `Range: bytes=N-` with `If-Range: <stored-etag>`. Accept only a correct `206`
    and `Content-Range` starting at N. A `200` means replace the partial body
@@ -170,7 +170,7 @@ Required invariants:
    allocation; retain the existing `Data` API as a compatibility wrapper.
 8. Initialize a fresh staging `ArborReplica`, verify its materialized and
    accepted heads equal the pinned descriptor, fsync/atomically rename the
-   completed directory where supported, then write the wire-format marker.
+   completed directory where supported, then write the protocol-format marker.
    Never remove or overwrite a usable final replica until staging has passed.
 9. On success remove the partial bundle/control files asynchronously only after
    the promoted replica opens successfully. On retryable failure retain them;
@@ -195,7 +195,7 @@ Required invariants:
   canonical and graph validation
 - `ArborWorkspaceState.place`, iOS first-placement and add-tree UI, and focused
   native tests
-- Canopy accepted-snapshot response range semantics, retained-root object-read
+- canopyd accepted-snapshot response range semantics, retained-root object-read
   authorization, and focused host tests
 - language-neutral HTTP fixtures for full, partial, resumed, mismatched, and
   unsatisfiable immutable range responses
@@ -209,12 +209,12 @@ Required invariants:
 - treating the preview/object cache as a complete or offline-ready replica
 - retaining prior replica generations or adding History/Recover to Replica,
   Arbor Sync, or this bootstrap store
-- changing Canopy's accepted-history, merge, authorization, root identity, or
+- changing canopyd's accepted-history, merge, authorization, root identity, or
   object reachability rules
 - exposing retained objects after the caller loses current read access to the
   tree, or exposing objects which are not reachable from one of that tree's
   retained accepted roots
-- a generic download framework, CDN, bundle pack format, or Canopy storage
+- a generic download framework, CDN, bundle pack format, or canopyd storage
   packing implementation
 - Android, browser editor, deployment, release, or live production mutation
 
@@ -227,7 +227,7 @@ immutable snapshot range responses. Include first fetch, root preview with and
 without `_index.md`, continuous slow progress, timeout before headers,
 inactivity timeout, cancellation, suspension/relaunch, valid resume, ignored
 Range returning `200`, bad `Content-Range`, ETag change, `416`, corrupt final
-bytes, storage exhaustion, install crash, and Canopy advancing during download.
+bytes, storage exhaustion, install crash, and canopyd advancing during download.
 
 Specify exact reducer effects (`fetchDescriptor`, `fetchObject`,
 `startDownload`, `checkpoint`, `validate`, `stageReplica`, `promote`,
@@ -237,10 +237,10 @@ Specify exact reducer effects (`fetchDescriptor`, `fetchObject`,
 **Verify**: the new TypeScript fixture-schema test and Swift fixture decoder
 both pass and reject unknown states/effects.
 
-### Step 2: Add correct immutable byte ranges to Canopy
+### Step 2: Add correct immutable byte ranges to canopyd
 
 Widen the existing tree-scoped object route as described in invariant 2. Reuse
-Canopy's retained-root registry, graph reachability, exact object read, hash
+canopyd's retained-root registry, graph reachability, exact object read, hash
 verification, current tree authorization, and access-sensitive cache partition.
 Update the portable specification's current-only restriction explicitly; this
 is an intentional access-policy change, not an implementation accident. Tests
@@ -261,10 +261,10 @@ Measure snapshot preparation time separately from response transfer time. Add
 structured timing/size fields without tree content or credentials so a slow
 server encoding phase is distinguishable from a slow hotspot download. Do not
 claim that Range avoids the current encoding cost; cache or packed-storage work
-remains Canopy 001 unless measurement proves a small bounded cache is
+remains canopyd 001 unless measurement proves a small bounded cache is
 needed here.
 
-**Verify**: focused Canopy host tests cover all fixture cases, authorization,
+**Verify**: focused canopyd host tests cover all fixture cases, authorization,
 ETag stability, exact reconstructed bytes, and unchanged full-response bytes;
 `bun run test:protocol` passes.
 
@@ -311,7 +311,7 @@ Replace the single `.syncing` launch phase with payload states driven by the
 bootstrap API. As soon as verified root Markdown is available, show it in the
 normal visual language but clearly label it as a read-only preview. Show:
 
-- “Preparing snapshot on Canopy…” before response headers;
+- “Preparing snapshot on canopyd…” before response headers;
 - “Downloading X of Y MB…” with determinate progress when length is known;
 - “Downloading X MB…” when length is unknown, without fake percentages;
 - “Validating downloaded snapshot…” and “Preparing offline copy…”;
@@ -330,12 +330,12 @@ set only after the complete replica opens.
 
 ### Step 6: Hand off to Reliability 005 and document ownership
 
-Wire `bootstrapInstalled(root:update:cursor:)` to Reliability 005 state machine
+Overstory `bootstrapInstalled(root:update:cursor:)` to Reliability 005 state machine
 B's `current` entry transition. Test a server which advances from A to B while
 A downloads: the preview remains A, A installs, then ordinary transition/watch
 logic catches up to B without restarting bootstrap or losing the UI.
 
-Document the lifecycle and storage boundary: Canopy owns accepted history;
+Document the lifecycle and storage boundary: canopyd owns accepted history;
 bootstrap owns only an incomplete current-snapshot transfer; Replica owns one
 complete local current graph plus pending authored work; Reliability 005 owns
 steady-state synchronization. Update `status.md` only after the actual runtime
@@ -360,7 +360,7 @@ tools/test-arbor-quagmire-local.sh
 git diff --check
 ```
 
-For iOS, build the ignored `canopy-swift/Arbor.local.xcworkspace` so the sibling
+For iOS, build the ignored `canopy-swift/Canopy.local.xcworkspace` so the sibling
 Quagmire checkout overrides the exact published package pin. Test a fresh
 placement with Network Link Conditioner or a throttled local server, interrupt
 it after measurable progress, relaunch, and verify the second request resumes
@@ -386,7 +386,7 @@ regression.
   `bootstrapInstalled(root:update:cursor:)` handoff.
 - [ ] A remote update during hydration is caught up by Reliability 005 without
   restarting the pinned download.
-- [ ] Canopy range responses remain authorization-scoped and byte-identical to
+- [ ] canopyd range responses remain authorization-scoped and byte-identical to
   the existing complete immutable bundle.
 - [ ] Server preparation and client transfer timings are separately observable.
 - [ ] Focused, maintained, link, whitespace, and manual throttled-network gates
@@ -423,7 +423,7 @@ Stop and report rather than improvising if:
 - The partial bundle is a bounded current-transfer artifact, never user-visible
   history. Successful installation reclaims it; retryable interruptions retain
   only the one pinned current transfer.
-- Preserve the canonical bundle bytes and validation boundary. If Canopy
+- Preserve the canonical bundle bytes and validation boundary. If canopyd
   storage 001 later serves packed objects or prebuilt bundles, it may optimize
   preparation without changing this client's bootstrap states or ETag/Range
   semantics.

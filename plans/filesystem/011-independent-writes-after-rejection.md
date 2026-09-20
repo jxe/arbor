@@ -5,11 +5,11 @@ Split from **Reliability 011 / Sync 011**. Status: NEEDS DESIGN; priority select
 
 ## User-visible problem
 
-If Canopy definitively rejects one filesystem update, the daemon should retain that work for
+If canopyd definitively rejects one filesystem update, the daemon should retain that work for
 recovery while continuing to publish other work that it can prove does not depend on it.
 A rejected change must not unnecessarily stop the entire folder from syncing.
 
-This concerns changes Canopy has refused to accept. An accepted update with unresolved choices
+This concerns changes canopyd has refused to accept. An accepted update with unresolved choices
 is a different case and must already continue syncing normally.
 
 ## Remaining implementation

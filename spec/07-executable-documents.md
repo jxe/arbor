@@ -1,13 +1,13 @@
 # Executable documents
-*Part of the [Arbor spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Arbor user identity, hosting, confinement, consent, and transcripts. The `arbor/react` and `arbor/data` packages a document is written against are the [authoring API](08-authoring-api.md).*
+*Part of the [Overstory spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Overstory user identity, hosting, confinement, consent, and transcripts. The `overstory/react` and `overstory/data` packages a document is written against are the [authoring API](08-authoring-api.md).*
 
-*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [model and Wire encoding](01-tree-operations.md) for synchronized values and the [authoring API](08-authoring-api.md) for package surfaces.*
+*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [model and Overstory encoding](01-tree-operations.md) for synchronized values and the [authoring API](08-authoring-api.md) for package surfaces.*
 
-Arbor does not add an application object, application identifier, entry component, route table, or location language. A website is an Arbor tree containing ordinary related documents. A host that supports execution may render an authored `.mdx` or `.tsx` document at that document's ordinary canonical Arbor location.
+Overstory does not add an application object, application identifier, entry component, route table, or location language. A website is an Overstory tree containing ordinary related documents. A host that supports execution may render an authored `.mdx` or `.tsx` document at that document's ordinary canonical Overstory location.
 
 ## 1. Documents and navigation
 
-Executable documents use the same logical paths, tree boundaries, canonical server URLs, relative links, moves, and access rules as other Arbor content. For a tree containing:
+Executable documents use the same logical paths, tree boundaries, canonical server URLs, relative links, moves, and access rules as other Overstory content. For a tree containing:
 
 ```text
 Home.mdx
@@ -17,7 +17,7 @@ Profile.tsx
 MyLists.tsx
 ```
 
-the corresponding extensionless locations are `Home`, `List`, `Practice`, `Profile`, and `MyLists`. The source filename does not become a separate route declaration; it is already an Arbor node. A related set of documents needs no root React component to select among them.
+the corresponding extensionless locations are `Home`, `List`, `Practice`, `Profile`, and `MyLists`. The source filename does not become a separate route declaration; it is already an Overstory node. A related set of documents needs no root React component to select among them.
 
 Links are ordinary authored links:
 
@@ -51,7 +51,7 @@ fragment data unavailable to the server.
 An MDX body is its default component. Document head elements are ordinary
 component output hoisted during server rendering and client updates; there is
 no parallel metadata export or metadata read lifecycle, and the server supplies
-the canonical Arbor URL independently, so an authored document need not
+the canonical Overstory URL independently, so an authored document need not
 rediscover it merely to emit the canonical link. Styling and Markdown
 rendering facilities belong to the [authoring API](08-authoring-api.md#2-documents);
 the pinned compiler version is part of the coherent document version.
@@ -62,9 +62,9 @@ Executable code—components, query plan callbacks, schema evaluation, mutation 
 
 ## 3. Modules and named handles
 
-Executable-document source uses ordinary `.ts` and `.tsx` modules plus explicit `.mdx` documents. Modules may export components, queries, and mutations. `query` and `mutation` are explicit execution-boundary markers; Arbor does not infer a security boundary from an arbitrary export graph. Ordinary `.md` files never become executable merely because another document imports or links them.
+Executable-document source uses ordinary `.ts` and `.tsx` modules plus explicit `.mdx` documents. Modules may export components, queries, and mutations. `query` and `mutation` are explicit execution-boundary markers; Overstory does not infer a security boundary from an arbitrary export graph. Ordinary `.md` files never become executable merely because another document imports or links them.
 
-A source tree is identified by its existing `TreeID`; Arbor adds no application-ID or script-ID namespace. `(TreeID, logical module path, export name)` identifies a named handle and the compiled code hash identifies its version. Moving a path-identified module or changing an export name creates a different handle; changing handler code changes its version.
+A source tree is identified by its existing `TreeID`; Overstory adds no application-ID or script-ID namespace. `(TreeID, logical module path, export name)` identifies a named handle and the compiled code hash identifies its version. Moving a path-identified module or changing an export name creates a different handle; changing handler code changes its version.
 
 For each exported handle, compilation exposes stable function identity, input validation, code version, declared or inferred tree access, and public result metadata without disclosing privileged implementation code. Literal tree paths contribute precise prefixes; computed paths require explicit declarations. Compilation fails when code can address an undeclared path, closes over UI-only state, or imports ambient host authority.
 
@@ -182,7 +182,7 @@ whole-tree-write default for invocation.
 A single-domain mutation runs with a runner-owned transaction: reads, policy
 checks, writes, and its receipt commit together; throwing rolls that transaction
 back. Data-dependent ownership and workflow checks belong inside the transaction.
-A Canopy-backed operation may instead compute against a snapshot and submit an
+A host-backed operation may instead compute against a snapshot and submit an
 ordinary update guarded by all relevant same-domain dependencies. Stale guards
 rerun computation; they do not silently merge a stale policy decision.
 
@@ -202,9 +202,9 @@ keys are immutable. The first portable foreign-key subset supports `restrict`,
 deferred or cyclic inserts succeed. `ON UPDATE CASCADE`, `SET DEFAULT`, and
 backing-default collation or coercion are not portable. A foreign key may cross
 collections only inside one logical data tree and one transaction domain; a
-cross-tree Arbor reference is a typed authored property, not a transactional
+cross-tree Overstory reference is a typed authored property, not a transactional
 foreign key. An accepted mutation contains every direct and cascading effect.
-Arbor never invents cascade intent for an ambiguous concurrent file edit or
+Overstory never invents cascade intent for an ambiguous concurrent file edit or
 imprecise invalidation, and separate collection files do not imply a shared
 transaction domain.
 
@@ -231,7 +231,7 @@ External non-tree effects require a separately specified effect and consent cont
 
 Components run within a confined UI realm. Node data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#2-authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
 
-Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported libraries retain source-resolution context but acquire no independent grants. Privileged invocation of an imported tree is an explicit authorized execution boundary; importing code cannot silently widen authority.
+Cross-tree source imports use absolute Overstory locators and resolve to immutable code identities for one build or execution. Imported libraries retain source-resolution context but acquire no independent grants. Privileged invocation of an imported tree is an explicit authorized execution boundary; importing code cannot silently widen authority.
 
 Before first execution in a context, a human-readable consent statement lists the resolved trees, readable prefixes, writable prefixes, author and user resource requirements, hosted execution, any backing-coupled or external capability, and—for an agent run—its tools, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad. This is the single definition of the statement's contents, and enforcement must make it true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
 
@@ -248,17 +248,17 @@ Compilation begins from the addressed executable document and follows its explic
 - static query results when explicitly baked; and
 - live-host requirements.
 
-The document path is ordinary Arbor identity, not an application ID. Moving a path-identified executable document changes its readable URL just as moving another path-identified file does. Imported named handles are identified by tree, module path, and export name; code hashes identify their versions.
+The document path is ordinary Overstory identity, not an application ID. Moving a path-identified executable document changes its readable URL just as moving another path-identified file does. Imported named handles are identified by tree, module path, and export name; code hashes identify their versions.
 
-An Arbor server explicitly enables executable-document hosting for a tree and grants its tree execution principal the reviewed capabilities required by its compiled documents. Merely adding `.mdx` or `.tsx` source does not publish it, execute it, or grant it access. The host may compile eagerly or on demand, but a request uses one coherent version of the addressed document and all of its handles. An incompatible compilation fails without replacing the last usable version.
+An Overstory host explicitly enables executable-document hosting for a tree and grants its tree execution principal the reviewed capabilities required by its compiled documents. Merely adding `.mdx` or `.tsx` source does not publish it, execute it, or grant it access. The host may compile eagerly or on demand, but a request uses one coherent version of the addressed document and all of its handles. An incompatible compilation fails without replacing the last usable version.
 
-Framework filenames do not create mutation endpoints, action routes, loaders, or private-data boundaries. Generated transport endpoints are host protocol details and are never authored or navigable Arbor documents.
+Framework filenames do not create mutation endpoints, action routes, loaders, or private-data boundaries. Generated transport endpoints are host protocol details and are never authored or navigable Overstory documents.
 
 ## 8. Host and server boundaries
 
-A live Arbor server may run the executable-document runtime adjacent to its Wire API. The roles remain distinct:
+A live Overstory host may run the executable-document runtime adjacent to its Overstory API. The roles remain distinct:
 
-- the Arbor server owns tree identity, access, accepted updates, immutable objects, and current-tree watch;
+- the Overstory host owns tree identity, access, accepted updates, immutable objects, and current-tree watch;
 - node/backing providers own traversal, snapshots, committed-change observation,
   and the physical primitives used to realize a commit; and
 - the document runtime owns source compilation, query semantics and isolation,
@@ -268,29 +268,29 @@ A live Arbor server may run the executable-document runtime adjacent to its Wire
 The tree execution principal receives only reviewed tree prefixes, store connections, and operations. A public executable document may read a private backing tree, but only validated rendered output and query results are disclosed. Raw stores, credentials, server handle source, diagnostics containing private values, and unrelated rows never enter the browser bundle or public response.
 
 Executable-document subscriptions are not accepted-update history and do not
-independently grant accepted-snapshot access. A mutation of an Arbor-canonical
+independently grant accepted-snapshot access. A mutation of an Overstory-canonical
 data tree produces an ordinary accepted data-tree update regardless of its
 SQLite or Postgres materialization. A mutation of a shared external Postgres
 store may update live query results without changing the executable source-tree
 ref.
 
 Authored source locators resolve by the ordinary [resolution rules](03-locators.md#4-resolution-rules);
-a Canopy-backed source's accepted state comes from the ordinary
+a host-backed source's accepted state comes from the ordinary
 [current-tree read](01-tree-operations.md#111-reading-the-current-tree), and provider
 bindings are private host configuration ([sidecar boundary](../docs/execution-sidecar.md#provider-bindings)).
 A host-authenticated runtime receives an [execution token](05-access-control.md#21-execution-tokens)
 binding the caller, executable and bounded authority; authored JavaScript receives
 handles rather than this token. The runtime presents it when resolving sources,
-reading or watching Canopy data, or submitting ordinary guarded updates. Code and
+reading or watching host data, or submitting ordinary guarded updates. Code and
 provider identity asserted in public input never establish execution authority.
 HTTP forwarding and process details belong to the
-[reference sidecar boundary](../docs/execution-sidecar.md). The sidecar may use Canopy and direct
+[reference sidecar boundary](../docs/execution-sidecar.md). The sidecar may use the host and direct
 backing providers in the same invocation. Authority invalidation reaches provider
 operations and live output, not merely the initial HTTP request.
 
-## 9. Arbor user identity and authorization
+## 9. Overstory user identity and authorization
 
-Executable documents do not define their own password, login-code, or session model. The host resolves the existing Arbor account/device or server browser session and injects an unforgeable user context into queries and mutations:
+Executable documents do not define their own password, login-code, or session model. The host resolves the existing Overstory account/device or server browser session and injects an unforgeable user context into queries and mutations:
 
 ```ts
 type ArborUser = null | {
@@ -301,7 +301,7 @@ type ArborUser = null | {
 
 Server-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Handlers never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store that profile tree's `TreeID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
 
-A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Arbor platform UI. The server rechecks the session on render, each `queries` request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
+A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Overstory platform UI. The server rechecks the session on render, each `queries` request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
 
 A component may declare that it cannot execute anonymously; the host then
 presents its own session UI before user-dependent queries mount, and an
@@ -310,13 +310,13 @@ plan may dereference the nullable user profile, or declare that anonymous
 execution must fail before data access even when the handle is invoked outside
 a component ([authoring API](08-authoring-api.md#5-user)).
 
-Anonymous, Arbor-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
+Anonymous, Overstory-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
 
 ## 10. Rendering, actions, and live data
 
-The host resolves the requested Arbor path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values.
+The host resolves the requested Overstory path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values.
 
-Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](#121-evaluate-and-stream-named-queries) and its separate named-mutation operation.
+Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [protocol](#121-evaluate-and-stream-named-queries) and its separate named-mutation operation.
 
 Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](08-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. For a single-domain action, successful return commits its transaction and throwing rolls it back. Workflow actions expose pending, blocked, failed, or completed state; failure does not erase committed steps.
 
@@ -335,12 +335,12 @@ For a query spanning transaction domains, the opaque `observedThrough` value rep
 
 Static baking may replace explicitly static query reads with compiled results. A document depending on user identity, live data, mutations, or hosted-only capabilities remains an executable-host requirement and cannot silently become static.
 
-## 12. Wire operations
+## 12. Overstory operations
 
 Executable documents use two reviewed logical-model operations. Queries safely
 derive current permissioned values without exposing raw stores; mutations
 execute reviewed transactional intent. Neither operation is accepted-tree
-synchronization, even when a mutation also advances an Arbor-canonical data
+synchronization, even when a mutation also advances an Overstory-canonical data
 tree.
 
 ### 12.1 Evaluate and stream named queries
@@ -352,7 +352,7 @@ Accept: text/event-stream
 ```
 
 An execution host may serve a reviewed [executable document](07-executable-documents.md)
-while its permitted data lives on the same or another Arbor server. The request
+while its permitted data lives on the same or another Overstory host. The request
 completely describes the coherent document version and its currently mounted
 query graph. A server without an executable-document runtime, or without
 hosting activated for the source tree, returns `422 unsupported-operation`.
@@ -531,15 +531,15 @@ with a different request digest is a conflict; an exact ambiguous retry returns
 the original receipt and creates no second effect. This is the same committed-
 intent pattern as an accepted tree update: transport representation is excluded
 from the semantic digest, the subject scopes replay, and the receipt identifies
-the committed observation boundary. When the transaction advances an Arbor-
-canonical data tree, `affected` identifies its accepted update, Wire root, and
+the committed observation boundary. When the transaction advances an Overstory-
+canonical data tree, `affected` identifies its accepted update, Overstory root, and
 gap-free watch cursor. A shared external-store mutation may omit `affected`
 and uses `observedThrough` for the derived-query observation domain. The mutate
 payload remains distinct from `UpdateRequest`: it carries reviewed intent and
 authorization context, while updates carry tree intent/material and may be submitted by the sidecar under scoped authority.
 
 Document React Actions may use the document's ordinary canonical HTTP action
-surface, while a named Wire call uses the endpoint above. Both bind through the
+surface, while a named Overstory call uses the endpoint above. Both bind through the
 compiled manifest and preserve this exact request/receipt identity.
 The durable receipt and corresponding query result may arrive in either order;
 clients correlate them idempotently and treat the query result as authoritative.
@@ -555,10 +555,10 @@ requires coverage of its declared author/user capabilities. Consolidation
 is shared machinery, not one polymorphic endpoint.
 
 Query streaming is derived-result delivery, not tree history. A mutation of an
-Arbor-canonical data tree advances that data tree's ordinary accepted root and
+Overstory-canonical data tree advances that data tree's ordinary accepted root and
 therefore also causes a `tree.update` watch event; it does not change the
 executable document's source-tree root. A mutation of a shared external store can
-update query results without an Arbor data-tree update. Neither execution nor
+update query results without an Overstory data-tree update. Neither execution nor
 network reachability independently grants accepted-snapshot access, broadens
 the readable tree graph, or exposes raw stores, credentials, private handler
 source, unrelated rows, or private diagnostics. Cross-server query discovery,
@@ -567,7 +567,7 @@ unspecified ([deferred 2](../spec.md#deferred)).
 
 ### 12.4 Durable workflow execution
 
-The query/mutation Wire shapes above describe single-domain values and remain a
+The query/mutation Overstory shapes above describe single-domain values and remain a
 basis for the runtime bridge, not a compatibility requirement for unused APIs.
 Workflow calls additionally expose `pending`, `blocked`, `failed`, or `completed`
 status and domain-specific receipts. They must not invent one `observedThrough`
@@ -586,7 +586,7 @@ new code. Receipts/results remain subject to current disclosure authority.
 
 Query SSR/hydration may reuse validated initial values; subscription always
 reauthorizes and establishes snapshot-and-follow. SQLite changes use provider
-observation, tree changes use Canopy watch, and policy changes invalidate both.
+observation, tree changes use host watch, and policy changes invalidate both.
 Mutation completion and subscribed results may arrive in either order. A disconnected
 client does not cancel already committed steps; explicit cancellation stops only
 future steps and reports what committed. Durable records must retain pinned code,
@@ -609,7 +609,7 @@ caller.
 
 ### 13.2 Tools and context
 
-Every runtime may expose Arbor's built-in read, navigate, search, backlinks,
+Every runtime may expose Overstory's built-in read, navigate, search, backlinks,
 node-query, and mutation operations. The node-query surface includes schema-
 governed collection and relational capabilities when the addressed source
 provides them. An agent may additionally name compiled
@@ -636,7 +636,7 @@ This specification does not prescribe isolation technology, worker language, or 
 
 Before an effectful run, the client presents the [consent statement](#6-components-imports-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
 
-All tree effects pass through ordinary wire or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
+All tree effects pass through ordinary Overstory or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Overstory mutation. Ambiguous mutation retries reuse the original mutation identity.
 
 ### 13.5 Transcripts
 
@@ -644,4 +644,4 @@ An effectful run produces a readable transcript as ordinary tree content. It inc
 
 Transcripts are versioned and access-controlled by their destination tree. They never contain raw credentials or access-link secrets. A caller may choose not to persist a read-only exploratory transcript, but an effectful run cannot omit the durable record of its committed mutation receipts.
 
-The same agent can run from the CLI, a human client, or another conforming orchestration client. No Arbor-specific screen or control is required.
+The same agent can run from the CLI, a human client, or another conforming orchestration client. No Overstory-specific screen or control is required.

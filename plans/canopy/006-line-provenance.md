@@ -37,24 +37,24 @@ Historical identifier: **Smaller project 006**. The filename number is preserved
 
 - **Priority:** P2
 - **Effort:** XL
-- **Risk:** HIGH — this adds durable identity metadata, a Canopy schema
+- **Risk:** HIGH — this adds durable identity metadata, a host schema
   migration, bounded access to private history, and cross-language protocol
   surface
 - **State:** PLANNED
-- **Depends on:** [Canopy 007](007-canopy-document-history.md), whose
+- **Depends on:** [canopyd 007](007-canopy-document-history.md), whose
   accepted document-version index this plan reuses; coordinate retention with
-  [Canopy 001](001-pack-object-storage.md), which must
+  [canopyd 001](001-pack-object-storage.md), which must
   not prune history required by either feature without an equivalent checkpoint
 - **Planned at:** `0ea0f31`, 2026-09-05
 
 ## Target result
 
 For the exact current UTF-8 Markdown source of a synchronized document, an
-authorized reader can ask who introduced each current line. Arbor returns
+authorized reader can ask who introduced each current line. Overstory returns
 ordered, complete line spans naming the accepted update, acceptance time, and
 safe actor associated with that update. The first product presentation lives
 in the native **Source and Properties** inspector as an optional read-only
-line-provenance view; the Local Arbor REST API remains independently usable by
+line-provenance view; the Local Arbor Sync REST API remains independently usable by
 other clients.
 
 The feature is analogous to `git blame`, but its claims remain narrower and
@@ -62,7 +62,7 @@ literal:
 
 - it reports which accepted update first introduced the current exact line;
 - for an authenticated device write, it reports the permanent person Profile
-  TreeID bound to that device's account when Canopy accepted the update;
+  TreeID bound to that device's account when canopyd accepted the update;
 - it says **submitted by**, not **authored by** or **signed by**, because paired
   device credentials, not the profile private key, submit ordinary updates;
 - automatic merging does not reattribute unchanged accepted lines to the
@@ -77,12 +77,12 @@ This is current-line provenance, not a general revision browser.
 
 ## Current state
 
-Canopy already has the content lineage needed for a derived blame calculation:
+canopyd already has the content lineage needed for a derived blame calculation:
 
 - `packages/canopyd/src/updates/store.ts` records a private linear accepted
   history with `previous_root`, `root`, `accepted_at`, credential-scoped
   `subject`, merge provenance, request digest, and transition payload.
-- `packages/canopyd/src/objects.ts` stores immutable hash-verified Wire file and
+- `packages/canopyd/src/objects.ts` stores immutable hash-verified Overstory file and
   directory objects and can materialize complete retained snapshots.
 - `packages/canopyd/src/updates/transition.ts` builds one exact transition for
   each accepted root without folding history.
@@ -104,15 +104,15 @@ while those rows retain their original meaning, but the accepted row itself
 does not freeze the Profile TreeID used at acceptance.
 
 Accepted document history is owned by
-[Canopy 007](007-canopy-document-history.md). It remains
+[canopyd 007](007-canopy-document-history.md). It remains
 document-scoped and write-credential-authorized rather than a generic accepted
-history collection. This plan computes provenance inside Canopy and returns
+history collection. This plan computes provenance inside canopyd and returns
 only metadata for lines in the currently readable source; it reuses project
 007's document-version index instead of adding a second historical index.
 
 The native app already has `ArborSourceInspector` in
 `canopy-swift/CanopyApp/ArborDailyDriverViews.swift`. `CanopyAppKit` has local recovery
-history, but that is not Canopy accepted history and must not be relabeled as
+history, but that is not canopyd accepted history and must not be relabeled as
 shared line provenance.
 
 ## Contract to freeze first
@@ -151,7 +151,7 @@ type LineProvenance = {
 
 The portable `AcceptedUpdate` shape must replace its current raw `subject`
 field with this safe `actor`. Keep the credential-scoped subject only in
-private Canopy storage. This is a coordinated protocol change: update the
+private canopyd storage. This is a coordinated protocol change: update the
 TypeScript and Swift models, language-neutral fixtures, documentation, and
 focused tests together rather than letting line provenance become a second
 inconsistent interpretation of accepted-update identity.
@@ -160,7 +160,7 @@ inconsistent interpretation of accepted-update identity.
 metadata, and covers every exact current source line once. An empty source has
 an empty span list. Line tokenization retains each original line ending; the
 last unterminated line is still one line. `contentHash` identifies the exact
-Wire file object used for the result.
+Overstory file object used for the result.
 
 `continuity: "stable-key"` means every historical lookup used the document's
 unique stable Markdown `id`. `"path"` means the current path was the only
@@ -169,19 +169,19 @@ and the first state at the current path becomes the provenance boundary. Never
 claim rename continuity from title similarity or content similarity.
 
 The remote request must name the currently displayed accepted update. Use a
-read-only route shaped consistently with existing Wire tree routes:
+read-only route shaped consistently with existing Overstory tree routes:
 
 ```text
 GET /.arbor/trees/{TreeID}/blame?path={logical-path}&at={accepted-update-id}
 ```
 
-Canopy returns `409 stale-update` with the safe current update ID when `at` is
+canopyd returns `409 stale-update` with the safe current update ID when `at` is
 not current. It returns a typed unsupported/too-large error for non-Markdown,
 invalid UTF-8, or work exceeding explicit history/source limits; it never
 returns a partial result that looks complete. Authorization is the same
 current read check as the tree and current snapshot routes.
 
-Expose the same result through a Local Arbor REST endpoint using the existing
+Expose the same result through a Local Arbor Sync REST endpoint using the existing
 complete `NodeRef` query convention. Arbor Sync forwards only for a clean
 synchronized document whose displayed content matches the named accepted
 update. A document with pending local work reports provenance as temporarily
@@ -204,7 +204,7 @@ context that already passed `canWrite`, not from caller JSON:
 - authenticated account device: `profile` plus the account's Profile TreeID;
 - access-link write: `access-link`, with no secret or digest copied;
 - unauthenticated public write: `public`;
-- Canopy-owned bootstrap or maintenance transition: `system`;
+- canopyd-owned bootstrap or maintenance transition: `system`;
 - legacy state that cannot be proven: `unknown`.
 
 An initiating profile remains the actor for synchronous derived accepted
@@ -221,7 +221,7 @@ adding `actor`; otherwise an access-link writer's private digest or a device ID
 could be mistaken for safe attribution. Compatibility, TypeScript, Swift, and
 fixture changes must land atomically with the server change.
 
-Extend the schema established by Canopy 007 and create the next
+Extend the schema established by canopyd 007 and create the next
 available disposable migration directory under `migrations/` following
 `migrations/001-if-match-and-model-hash/` and `migrations/README.md`. Do not
 rebuild or duplicate its `document_versions` index. At execution time take the
@@ -244,11 +244,11 @@ must:
 8. be rehearsed on copies and require separate operator authorization before
    any live deployment or migration.
 
-Do not make Canopy startup silently migrate a stored database.
+Do not make canopyd startup silently migrate a stored database.
 
 ## Blame algorithm
 
-Implement the pure engine separately from HTTP in a new focused Canopy module,
+Implement the pure engine separately from HTTP in a new focused canopyd module,
 then wrap it with storage lookups.
 
 1. Resolve the current logical Markdown body and exact file-object hash at the
@@ -293,10 +293,10 @@ couple blame correctness to transition JSON after that window.
 Until a blame checkpoint format is implemented, every accepted root and object
 needed by supported provenance remains retained. Packing may change physical
 representation but not actor metadata, roots, update order, or reconstructable
-source. Canopy 001 must treat blame-required roots as retained roots;
+source. canopyd 001 must treat blame-required roots as retained roots;
 it may not silently shorten provenance to meet a storage target.
 
-Do not invent cross-Canopy federation in this plan. A future cross-Canopy tree
+Do not invent cross-canopyd federation in this plan. A future cross-canopyd tree
 move must either transfer the verified accepted history and actor metadata or
 record a verifiable predecessor boundary that a later authorized provenance
 request can follow. If the move instead restarts history, the UI must display
@@ -326,16 +326,16 @@ Out of scope even if it looks adjacent:
 - changing object hashes, canonical CBOR, root identity, update ordering,
   merge acceptance, or request-digest replay;
 - a generic tree history/snapshot API or historical editing; accepted
-  document restore is owned by Canopy 007;
+  document restore is owned by canopyd 007;
 - database-row, generated-result, binary, arbitrary-text, or copy provenance;
 - profile-key signing of every device update, profile succession/recovery, or
-  cross-Canopy history federation; and
-- implementing Canopy 001's pack format as part of this feature.
+  cross-canopyd history federation; and
+- implementing canopyd 001's pack format as part of this feature.
 
 Use branch `codex/line-provenance` unless the operator supplies another name.
 Make focused commits for the contract/schema, migration, blame engine, protocol
 clients, and visible native slice; match the repository's imperative commit
-style. Do not push, deploy, migrate live data, stop/restart Arbor, or launch an
+style. Do not push, deploy, migrate live data, stop/restart Overstory, or launch an
 app unless Joe separately authorizes that action.
 
 ## Implementation order
@@ -386,12 +386,12 @@ Expected: every fixture's spans cover its current exact lines once; ambiguous
 duplicates stay newer; existing merge lines retain their earlier actor; limits
 fail with typed errors rather than high memory growth or partial results.
 
-### Phase 3 — Wire and Local Arbor REST surfaces
+### Phase 3 — Overstory and Local Arbor Sync REST surfaces
 
 1. Add TypeScript request/response models and strict decoders in `@overstory/protocol`.
    Remove raw `subject` from portable `AcceptedUpdate` and add the safe `actor`
    in the same cross-language change; retain the database subject privately.
-2. Add the authenticated current-only Canopy route in
+2. Add the authenticated current-only canopyd route in
    `packages/canopyd/src/host.ts` and a focused daemon method in `canopy.ts`.
 3. Add `WireClient` support, then route the complete `NodeRef` through
    `packages/arborsync/src/service.ts`, `server.ts`, and `@overstory/arborsync-client`.
@@ -436,10 +436,10 @@ history or returns non-current source.
 swift test --package-path canopy-swift/Packages/Overstory
 swift test --package-path canopy-swift/Packages/OverstoryClient
 swift test --package-path canopy-swift/Packages/CanopyAppKit
-xcodebuild build -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor \
+xcodebuild build -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy \
   -destination 'platform=macOS' \
   -derivedDataPath /tmp/arbor-line-provenance-macos CODE_SIGNING_ALLOWED=NO
-xcodebuild build-for-testing -workspace canopy-swift/Arbor.local.xcworkspace -scheme Arbor \
+xcodebuild build-for-testing -workspace canopy-swift/Canopy.local.xcworkspace -scheme Canopy \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath /tmp/arbor-line-provenance-ios CODE_SIGNING_ALLOWED=NO
 ```
@@ -455,7 +455,7 @@ current. Leave final hands-on visual acceptance to Joe.
 2. Update `packages/canopyd/README.md`, `docs/arborsync-api.md`, and
    `docs/reference-implementation.md` with the implemented current-only
    boundary.
-3. Amend Canopy 001 so pruning either preserves blame-required roots or
+3. Amend canopyd 001 so pruning either preserves blame-required roots or
    first lands a separately reviewed checkpoint design.
 4. Prepare and rehearse the disposable migration, but stop before live backup,
    deployment, migration, app launch, or process control for Joe's explicit
@@ -514,7 +514,7 @@ the migration exists.
   roots, accepted IDs/order, observations, transition payloads, or object bytes.
 - [ ] Current exact Markdown lines receive deterministic, complete provenance
   across ordinary edits, merges, and stable-ID moves/renames.
-- [ ] The Wire and Local Arbor REST APIs are current-only, read-authorized,
+- [ ] The protocol and Local Arbor Sync REST APIs are current-only, read-authorized,
   stale-safe, bounded, and cross-language conformant.
 - [ ] No provenance or accepted-update response exposes device/account
   identity, credentials, link digests, request digests, deleted source,
@@ -522,7 +522,7 @@ the migration exists.
   safe actor.
 - [ ] Native Source and Properties presents the result accessibly and refuses
   stale provenance while local work is pending.
-- [ ] Canopy storage retention cannot prune required provenance without an
+- [ ] canopyd storage retention cannot prune required provenance without an
   explicitly equivalent checkpoint design.
 - [ ] The disposable migration is rehearsed and awaits separate authorization
   before touching live state.
@@ -545,7 +545,7 @@ Stop and report rather than improvising if:
   non-current source, device IDs, account IDs, credentials, or link digests;
 - bounded exact-line matching cannot distinguish duplicate-line ancestry and
   would claim an older actor without proof;
-- a cross-Canopy move has already begun restarting history without an explicit
+- a cross-canopyd move has already begun restarting history without an explicit
   predecessor/boundary design;
 - implementation requires accepted-update acknowledgement to wait for blame
   computation or cache construction; or
@@ -561,10 +561,10 @@ Stop and report rather than improvising if:
   the first version.
 - No copy detection across unrelated documents or deleted history.
 - No generic tree-wide accepted-history browser. Document-scoped accepted
-  history and restore-as-new-change are owned by Canopy 007.
+  history and restore-as-new-change are owned by canopyd 007.
 - No promise that a submitting profile was the human who typed a line; the
   record identifies the profile account whose device submitted the accepted
   change.
 - Review future packing, pruning, account recovery, profile succession,
-  cross-Canopy movement, mutation execution, and agent execution changes
+  cross-canopyd movement, mutation execution, and agent execution changes
   against the actor and continuity invariants in this plan.

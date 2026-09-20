@@ -182,7 +182,7 @@ Concurrent appends follow the captured cursor. Net frames may exceed the ordinar
 1 MiB frame target; Native's byte-level SSE parser scans only new bytes instead
 of copying and rescanning the entire accumulated frame on every byte. Net
 catch-up no longer requires a query parameter now that the apps are upgraded.
-See the [transport contract](update-wire-contract.md#net-watch-catch-up).
+See the [transport contract](update-protocol.md#net-watch-catch-up).
 On the fresh production copy, a 100-update Todos span produced four deltas,
 7,699 encoded bytes, in 6.1 ms; reconstruction matched every destination object.
 This measures local payload construction, not network or device apply latency.

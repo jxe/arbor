@@ -25,9 +25,9 @@ The same canonical key JSON (`[["id","x7f3q2"]]`) has five surfaces:
 
 | Surface | Spelling | Owner |
 |---|---|---|
-| `NodeRef.stableKey` | canonical key JSON text | model and Wire §6 |
+| `NodeRef.stableKey` | canonical key JSON text | model and Overstory §6 |
 | Final path segment | `;arbor-key=<base64url of the JSON>` | locators |
-| Markdown relative link | `#arbor-key=<base64url>` fragment alias, translated by Arbor renderers | directory format, locators |
+| Markdown relative link | `#arbor-key=<base64url>` fragment alias, translated by Overstory renderers | directory format, locators |
 | Row child segment | the raw single string key when it is a valid path component, otherwise `~row-<base64url>` | child backings |
 | Legacy input | bare `#<PageID>` and `#row=<key>` fragments, accepted but never emitted | locators, remove-later 001 |
 
@@ -37,11 +37,11 @@ and the `~row-` segment rule.
 
 ## Decisions to make before implementation
 
-1. **Does the Markdown `#arbor-key=` alias survive?** It exists so a non-Arbor Markdown
-   reader follows the plain relative path. Arbor renderers already rewrite it to the segment
+1. **Does the Markdown `#arbor-key=` alias survive?** It exists so a non-Overstory Markdown
+   reader follows the plain relative path. Overstory renderers already rewrite it to the segment
    form before emitting HTML, so the alias is authoring convenience only. Options: keep it as
    the one authored spelling (and say so), or retire it and let authored Markdown carry
-   `;arbor-key=` directly, accepting that non-Arbor readers see the parameter in the path.
+   `;arbor-key=` directly, accepting that non-Overstory readers see the parameter in the path.
    The second option removes a translation step from every renderer and the "no key plus
    fragment in one relative link" limitation (03 §Stable keys, 02 §Complete documents).
 2. **Should the row child segment always be the base64url key?** Today a single string key
@@ -60,7 +60,7 @@ and the `~row-` segment rule.
 - Parsers: `packages/protocol/src/model/logical-url.ts` and
   `canopy-swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift` change together;
   `conformance/url-resolution.json` is the shared contract and gains a case per surface.
-- Renderers: the Markdown alias translation in `arbor/react`'s `Markdown`, the HTTP
+- Renderers: the Markdown alias translation in `overstory/react`'s `Markdown`, the HTTP
   projection redirect rule (locators §6), and link healing in arborsync all read the table.
 - Row segments: `rowPathSegment` in `packages/protocol` and its Swift replica counterpart.
 - Spec: the table replaces the prose in 03 §Stable keys and the alias paragraphs in 02;

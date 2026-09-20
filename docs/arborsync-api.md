@@ -1,15 +1,15 @@
-# Local Arbor REST API
-*Reference API for the current local daemon and its TypeScript and Swift clients. It is not part of the portable Arbor specification.*
+# Local Arbor Sync REST API
+*Reference API for the current local daemon and its TypeScript and Swift clients. It is not part of the portable Overstory specification.*
 
 The current version is Arbor Sync REST v1.
 
-The [consolidated Canopy Wire contract](update-wire-contract.md) is specified ahead
-of implementation, with paired target models and fixtures. Active Wire submission
+The [consolidated canopyd Overstory contract](update-protocol.md) is specified ahead
+of implementation, with paired target models and fixtures. Active Overstory submission
 still uses the current encoding; these local REST routes and filesystem scheduling
 do not acquire new capabilities from that specification.
 
 Arbor Sync makes placed folders content-addressable and keeps each one equal
-to Canopy's accepted root in both directions. Everything below is either that
+to canopyd's accepted root in both directions. Everything below is either that
 store's read surface (objects, bootstrap, credential) or the control surface
 for placements, accounts, and conflicts.
 
@@ -45,14 +45,14 @@ ports or client discovery; see [local service ownership](reference-implementatio
 REST v1 reuses the portable model, read, locator, access, update, and
 observation values defined across the specification. In particular,
 `TreeID`, `LogicalPath`, `JSONValue`, and `NodeRef` come from the
-[Arbor data model](../spec/01-tree-operations.md#the-arbor-data-model), while
+[Overstory data model](../spec/01-tree-operations.md#the-arbor-data-model), while
 `EventCursor`, `Hash`, `AccessLevel`, `TreeKind`, `TreeDescriptor`, and
 `RemoteTreeDescriptor` come from the
 [current-tree read](../spec/01-tree-operations.md#111-reading-the-current-tree).
 REST v1 adds the following local values:
 
 ```ts
-// Only actual Arbor TreeIDs name a scope; the former `local` and `system`
+// Only actual Overstory TreeIDs name a scope; the former `local` and `system`
 // scopes went with the editor path.
 type TreeRef = TreeID;
 
@@ -66,8 +66,8 @@ type Diagnostic = {
 };
 
 type LocalTreeDescriptor = TreeDescriptor & {
-  // The accepted Canopy base this placement derives from: the same `root`
-  // and `update` a Wire RemoteTreeDescriptor carries, absent until one exists.
+  // The accepted canopyd base this placement derives from: the same `root`
+  // and `update` an Overstory RemoteTreeDescriptor carries, absent until one exists.
   root?: Hash;
   update?: string;
   name: string;
@@ -86,7 +86,7 @@ type LocatorResolution = {
 };
 ```
 
-- Arbor Sync speaks the Wire vocabulary wherever the two overlap. `TreeDescriptor`,
+- Arbor Sync speaks the protocol vocabulary wherever the two overlap. `TreeDescriptor`,
   `LocatorResolution`, `PairingOffer`, `LocalAccountSummary`, and
   `ProfileIdentity` are single definitions in `@overstory/protocol` (Swift:
   `Overstory` and `ArborSyncClient` share `WireCanonicalDescriptor`); a
@@ -95,7 +95,7 @@ type LocatorResolution = {
   non-null canonical data and the private account-configuration tree has
   `canonical: null`.
 - `LocatorResolution.enclosingTree` is present whenever the daemon knows the
-  tree locally; on the wire it is always present.
+  tree locally; on the protocol it is always present.
 
 Every `NodeRef`, event, effect, and relevant error names its tree explicitly.
 Omitted-tree defaults are invalid. Clients derive writability from effective
@@ -105,11 +105,11 @@ access and historical state; resolution does not duplicate a `writable` flag.
 
 Access subjects, levels, and the `none` removal rule are defined once in
 [configuration](../spec/04-accounts-and-devices.md#3-configuration-yaml). Configuration
-and mutation requests use the wire's `AccessRule`; safe administrative
+and mutation requests use the protocol's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
 digest ([access control §1](../spec/05-access-control.md#1-subjects-and-rules)).
 
-Every non-2xx JSON error uses the wire's `ArborError` envelope with
+Every non-2xx JSON error uses the protocol's `ArborError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
 `permission-denied`, `not-found`, `conflict`, `read-only`,
 `unsupported-operation`, `resync-required`, `rate-limited`, `quota-exceeded`,
@@ -141,7 +141,7 @@ must not assign meaning to its contents.
 synchronization pass, and lets attached CLI clients use the same process rather
 than creating a second writer. With no body it waits for every account. An
 account-qualified operation scopes this boundary so an unrelated offline
-Canopy remains visibly errored without blocking healthy accounts.
+canopyd remains visibly errored without blocking healthy accounts.
 Completion means that the pass ran, not that every tree is ready: clients that
 need a readiness boundary must inspect the exact `GET /v1/trees` descriptors
 and reject missing, offline, conflicting, errored, or still-syncing targets.
@@ -162,8 +162,8 @@ implicit authenticated account-configuration tree.
 
 `GET /v1/accounts` returns `{ accounts: LocalAccountSummary[], identity }`, a
 safe list keyed by configuration TreeID. Each
-entry reports its Canopy origin, profile TreeID, current DeviceID, credential
-availability, diagnostics, and an optional Canopy-specific presentation
+entry reports its canopyd origin, profile TreeID, current DeviceID, credential
+availability, diagnostics, and an optional canopyd-specific presentation
 handle. The handle and origin are never account identity or credential keys.
 The same response carries `identity`: the local self-certifying person
 identity (`profileTree`, `profilePath`, `keyAvailable`) or `null` before
@@ -177,7 +177,7 @@ POST /v1/bootstrap/pairings
 ```
 
 The first accepts `{ account, path, displayName? }`, where `account` is the
-complete Canopy-allocated account URL and `path` is the local person-profile
+complete canopyd-allocated account URL and `path` is the local person-profile
 root already bound by `arbor me create` to the current self-certifying identity.
 It creates no profile identity or tree placement. The pairing route accepts
 `{ configurationTree? }`; the field is mandatory when more than one account
@@ -186,7 +186,7 @@ exists. There is no handle-shaped account-claim route.
 Resolution returns `LocatorResolution`. A local path resolves only when it
 lies inside a placed or session root (else `404 not-found`); an `arbor://tree/`
 locator names a known tree directly; an `http(s)` or community `arbor://`
-locator is resolved by that Canopy through the matching account client, and
+locator is resolved by that canopyd through the matching account client, and
 `enclosingTree` is the local descriptor when the tree is placed here. Nothing
 is placed, visited, or cached by resolution.
 
@@ -196,7 +196,7 @@ is placed, visited, or cached by resolution.
 GET /v1/objects/{hash}?tree={TreeID}[&origin={url}]
 ```
 
-Serves one wire object (`application/octet-stream`) by its `sha256:<64 hex>`
+Serves one Overstory object (`application/octet-stream`) by its `sha256:<64 hex>`
 hash. The response carries `ETag: "<hash>"` and
 `Cache-Control: private, immutable, max-age=31536000`; clients may cache it
 forever because the body is content-addressed. A malformed hash or missing
@@ -206,11 +206,11 @@ forever because the body is content-addressed. A malformed hash or missing
 The daemon looks the object up in this order:
 
 1. The placed workspace's object index (`objects` table, see
-   `local-system.md`): a file row re-reads the file and re-encodes it as a wire
+   `local-system.md`): a file row re-reads the file and re-encodes it as an Overstory
    raw file bytes; a directory row re-encodes the directory from its children
    rows, walking the subtree only where a child row is missing or invalid.
 2. The tree's stored pending update body, including transmitted successors.
-3. Canopy, through the tree's account client, or through an anonymous client
+3. canopyd, through the tree's account client, or through an anonymous client
    for `origin` when the tree has no local placement (a visit). Fetched bytes
    are retained in a bounded in-memory LRU (64 MiB by default) keyed by hash.
 
@@ -247,19 +247,19 @@ with `details.kind: "unsynchronized"`). The response is:
 ```
 
 `accepted` is the daemon's recorded base: the last accepted root and update
-for the placement. `cursor` is the Wire watch cursor a client seeds its own
+for the placement. `cursor` is the protocol watch cursor a client seeds its own
 watch from, which is the update id. The spine is rooted at this accepted root.
-The `tree` value contains placement and Canopy-routing metadata, not the
+The `tree` value contains placement and canopyd-routing metadata, not the
 daemon's `sync`, `root`, `update`, `conflicted`, `reviewableConflict`, or
 `missing` fields. Arbor Sync's mutable folder head, pending request, conflict,
 availability, and tree-list sync state are intentionally absent: they belong
 to the folder client and cannot seed or block another working-tree client.
 
 **The sparse spine.** `spine` is a snapshot bundle in the exact CBOR shape of
-the immutable Canopy snapshot bundle (`{ version: 1, objects: [...] }`,
+the immutable canopyd snapshot bundle (`{ version: 1, objects: [...] }`,
 objects sorted by hash, no duplicates), but it deliberately does not satisfy
 the complete-graph check: it holds every directory object and every file
-object whose entry name ends in `.md`, walked from the accepted Canopy root.
+object whose entry name ends in `.md`, walked from the accepted canopyd root.
 Other file payloads may be left out and
 resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
 `directory`, or `tree`, so a missing directory is always an error. No file map,
@@ -274,16 +274,16 @@ placeholder can contribute its modification date without downloading its body.
 The date describes the local replica and may therefore be newer than the
 accepted snapshot when the placed file has an unaccepted edit. It is not
 cross-device edit history or a timestamp attached to an accepted object.
-Modification dates remain presentation metadata outside Wire objects, roots,
+Modification dates remain presentation metadata outside Overstory objects, roots,
 and update digests. Clients preserve them when seeding a working tree and
 distinguish missing dates from old dates. Older daemons may omit this field;
 clients treat omission as an empty map.
 
 Every successful response is a
 clean installation boundary. Concurrent folder work is reconciled later by
-Canopy and the ordinary watch/update protocol, like work from any other client.
+canopyd and the ordinary watch/update protocol, like work from any other client.
 
-**Credential.** `GET /v1/credential` returns `{ token }`, the Canopy account
+**Credential.** `GET /v1/credential` returns `{ token }`, the canopyd account
 credential stored for `configurationTree`, so that several local clients on one
 installation share the daemon's device identity and request-digest scope.
 Without the parameter it answers for the only connected account (or the
@@ -308,7 +308,7 @@ POST /v1/local/forget
 Account bootstrap requires an existing self-certifying profile identity. It
 generates the private configuration TreeID, DeviceID, and device credential
 locally, stores the raw credential in the operating-system credential store,
-constructs the initial configuration snapshots, signs the Canopy challenge
+constructs the initial configuration snapshots, signs the canopyd challenge
 with the profile key, and submits the account claim. It is restart-idempotent
 and never rewrites user-authored YAML to insert IDs or normalize it. Pairing
 creates or claims the server pairing while similarly keeping the raw
@@ -331,11 +331,11 @@ GET  /v1/conflicts?tree=<TreeID>
 POST /v1/conflicts/resolve
 ```
 
-The read returns an identity-fenced workspace containing Canopy's reported
+The read returns an identity-fenced workspace containing canopyd's reported
 paths and reasons plus hash-validated Base, Current, Mine, and Draft content.
-`Both` is advertised only when Canopy's draft has a distinct combined value;
+`Both` is advertised only when canopyd's draft has a distinct combined value;
 textual paths may also be edited. Resolution submits a choice for every path
-with the workspace identity. Arbor Sync rechecks the accepted Canopy update
+with the workspace identity. Arbor Sync rechecks the accepted canopyd update
 and the local candidate before recording the reviewed result as new durable
 intent. It never asks a REST client to merge object graphs. The daemon
 submits one filesystem head per request, so `unattemptedCount` is always `0`
@@ -373,7 +373,7 @@ blank line; multiple `data:` lines join with newline; comments and keepalives
 are ignored. Every semantic frame satisfies `id === data.cursor` and
 `event === data.kind`. The daemon emits placement events (a tree-wide
 `updated` at `/` with `origin: "sync"` whenever it materializes accepted
-Canopy state, carrying the accepted request digests when a watch batch
+canopyd state, carrying the accepted request digests when a watch batch
 supplied them), external filesystem changes it observes in placed folders,
 status changes, conflict diagnostics, and account/credential changes. Events
 invalidate or describe local changes but do not replace a confirming snapshot.
@@ -407,7 +407,7 @@ fixtures under [`tests/fixtures/arborsync`](../tests/fixtures/arborsync):
 shared tests cover explicit tree scope, snapshot/SSE gap freedom, multiline
 data, keepalives, conflicting-cursor rejection, and terminal
 resynchronization. Another local implementation may expose the same underlying
-Arbor behavior through a different client/daemon boundary.
+Overstory behavior through a different client/daemon boundary.
 The bootstrap and credential routes are fixed by `bootstrap.json` (a clean
 bootstrap with a sparse spine and one omitted binary), `bootstrap-pending.json`
 (the same tree with a verbatim pending string and its request digests), and
@@ -419,5 +419,5 @@ remain unknown until read; there is no bootstrap `files` classification map.
 
 The local tree descriptor may carry `conflicted` for its accepted base. This is
 independent of the daemon's rejected-edit `sync: "conflict"` status and does not hold
-ordinary synchronization. A null bootstrap accepted cursor requires a fresh Canopy
+ordinary synchronization. A null bootstrap accepted cursor requires a fresh canopyd
 observation boundary; it must not be replaced with the accepted update ID.

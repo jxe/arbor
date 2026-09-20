@@ -1,4 +1,4 @@
-# Remaining Canopy provenance and policy work
+# Remaining canopyd provenance and policy work
 
 Historical identifier: **Reliability 009**. The filename number is preserved; this plan now belongs to canopy.
 
@@ -13,7 +13,7 @@ milestone is 013 (completed plan, deleted; see git history).
 
 ## Remaining policy and storage work
 
-- Add Canopy-wide and per-tree rule selection with retained configuration evidence.
+- Add canopyd-wide and per-tree rule selection with retained configuration evidence.
   Keep format policy in the tool; clients must not reproduce merge policy.
 - Measure on-demand worker latency, history growth and memory before adding supervised
   persistent workers or caching. Preserve bounded jobs, durable retries and exact

@@ -1,5 +1,5 @@
 # Access control
-*Part of the [Arbor spec](../spec.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
+*Part of the [Overstory spec](../spec.md): resource policy, execution authority, authentication, and authorization of reads, updates, and observations.*
 
 *Owns: `who` / `via` / `allow` rules. References: [account configuration](04-accounts-and-devices.md), [executable documents](07-executable-documents.md), and [locator resolution](03-locators.md#4-resolution-rules). This is the target contract; [Apps 004](../plans/apps/004-mutation-permissions.md) owns implementation and coordinated migration.*
 
@@ -134,7 +134,7 @@ bindings, and the bounded author/user authority with its provenance. It can refe
 to authenticated claims or host-private records; its encoding and issuance transport
 are implementation details, not authored data or a durable query-session protocol.
 
-The runtime authenticates Canopy calls with:
+The runtime authenticates host calls with:
 
 ```http
 POST /.arbor/trees/tr_notebook/updates
@@ -148,7 +148,7 @@ authority. Ordinary clients continue using device credentials. Execution tokens
 also authenticate authorized resolution, object/read, receipt and watch requests;
 a runtime cannot substitute a source-binding ID for a token.
 
-Canopy verifies the token's issuer, validity and intended host, then checks current
+The host verifies the token's issuer, validity and intended host, then checks current
 policy and underlying authority within its bound requirements. Matching `who` /
 `via` rules authorize effects; a valid state guard checks concurrency independently.
 Recheck at atomic acceptance and stored-receipt disclosure. Token possession does

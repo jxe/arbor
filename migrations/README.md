@@ -86,7 +86,7 @@ fifteen minutes; the rehearsal is where the time should go.
    bun run migrations/tools/authored-manifest.ts write authored-before.json <placement paths…>
    cp -a ~/.arbor dot-arbor.before
    ```
-5. **Quiesce writers.** `bun run arbor daemon stop`; make sure Arbor is not
+5. **Quiesce writers.** `bun run arbor daemon stop`; make sure Overstory is not
    running on the iPhone.
 6. **Deploy once.** `railway up --detach -y`, then poll `railway deployment
    list` until the build succeeds (a few minutes). The new server finds the
@@ -118,7 +118,7 @@ fifteen minutes; the rehearsal is where the time should go.
    tree's `update` advance in `GET /.arbor/trees/{id}`, fetch its canonical
    page, delete the file, and see the page go away.
 10. **iPhone last.** Update the app whenever convenient; an old build cannot
-    sync against a server whose routes changed. A replica whose wire format
+    sync against a server whose routes changed. A replica whose Overstory format
     changed is deleted and re-placed on launch.
 11. **Close out.** Keep the backup directory under `.backups/railway/` (the
     archive, the rehearsal copies, and `dot-arbor.before`) for two weeks, then

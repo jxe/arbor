@@ -2,8 +2,8 @@
 
 Status: PLANNED (approved 2026-09-19, not started). Sole user; wire changes are clean
 breaks, but Phase 2 ships Mac, iPhone and server together. Related:
-[Canopy 001](001-pack-object-storage.md) (retained roots stay retained; nothing here prunes),
-[Canopy 006](006-line-provenance.md) / [007](007-canopy-document-history.md) (archival
+[canopyd 001](001-pack-object-storage.md) (retained roots stay retained; nothing here prunes),
+[canopyd 006](006-line-provenance.md) / [007](007-canopy-document-history.md) (archival
 states remain their retained roots), [Native 008](../canopy-swift/008-complete-native-move-copy-undo-capture.md)
 (client capture that Phase 3 replaces), and the measurements in
 [canopy-update-performance](../../docs/canopy-update-performance.md).
@@ -37,7 +37,7 @@ to 120 ms per edit), its cold win is already hidden by startup warm-up, and it
 cannot advance past a live decision, which is exactly the tree that runs the
 full evaluator on every edit.
 
-Wire changes are clean breaks (sole user), but Mac, iPhone and server must ship
+Overstory changes are clean breaks (sole user), but Mac, iPhone and server must ship
 together for Phase 2.
 
 ## Decisions
@@ -118,7 +118,7 @@ together for Phase 2.
   and key rules.
 - Gate: merge and canopy suites green with the deployed wire unchanged.
 
-### Phase 2 — Wire clean break: `trace` replaces `operations` (ship all three together)
+### Phase 2 — Overstory clean break: `trace` replaces `operations` (ship all three together)
 - `packages/protocol/src/updates/authored-contract.ts`: `AuthoredUpdateIntent
   {change, candidate, trace: Frame[] | null, resolves, ifCurrent}`; drop
   `undoOperation` (:18, :86); `decodeAuthoredCandidateIntent` validates chain,
@@ -128,7 +128,7 @@ together for Phase 2.
   follows.
 - Swift mirror: `canopy-swift/Packages/Overstory/.../WireAuthoredContract.swift`
   (:117, :137-150), `WireModels.swift:489-524` `WireCandidateUpdate.trace`.
-- Canopy: `canopy.ts:1186, 1198, 1233, 1304` `operations !== null` → `trace !== null`;
+- canopyd: `canopy.ts:1186, 1198, 1233, 1304` `operations !== null` → `trace !== null`;
   `merge-state-store.ts` request shape; `source-intent-store.ts` `operations_json`
   → `trace_json` with a migration that wraps existing rows in one frame
   (`tests/unit/canopyd/schema-migration.test.ts`); `merge-tool.ts` `"trace" in
@@ -136,8 +136,8 @@ together for Phase 2.
 - Clients: `packages/client/src/source-admission-queue.ts:144-160` and
   `canopy-swift/.../SourceAdmissionQueue.swift:132-174` emit one frame per record;
   journal schema 4 converts stored `update.operations`. `request(through:)` unchanged.
-- Conformance: regenerate `wire-authored-updates.json`, `wire-update-intent.json`,
-  `wire-authored-transport.json`, `source-admission-queue.json`,
+- Conformance: regenerate `protocol-authored-updates.json`, `protocol-update-intent.json`,
+  `protocol-authored-transport.json`, `source-admission-queue.json`,
   `client-state-machines.json`; `tests/unit/protocol-updates/*` digest tests must show any
   frame's `before`, `after` or ops changes the digest.
 - Gate: TS and Swift conformance green; a live Mac → server → iPhone round trip
@@ -166,7 +166,7 @@ together for Phase 2.
 ### Phase 3b — Migration 013: compact merge evidence and old states (server-only, before Phase 4)
 Measured on the live database after 012: 150 MB of SQLite, of which
 `evidence.inputs` is ~100 MB (every object the evaluator happened to read;
-nothing reads it back and it is not sent over the wire) and the legacy
+nothing reads it back and it is not sent over the protocol) and the legacy
 `dependencies` closure is ~44 MB (the oldest ~130 of ~640 merge rows; newer rows
 use the two-root `retention` form, and the only reader is an audit that
 recomputes the closure from those roots). Objects hold 319 MB of old merge
@@ -188,7 +188,7 @@ current states still reference through their change envelopes.
   `state` values. Tree roots and file objects are untouched. Verify with the
   full retention audit before and after; keep the old objects until the audit
   passes, then VACUUM.
-- Cleanup: remove leftover `merge-jobs` directories; Canopy clears stale ones
+- Cleanup: remove leftover `merge-jobs` directories; canopyd clears stale ones
   at startup.
 - Gate: audit passes on the migrated copy; sizes recorded in
   `docs/canopy-update-performance.md` (target: SQLite under 10 MB, objects
@@ -230,7 +230,7 @@ current states still reference through their change envelopes.
   11.5 MB load to fall to the touched pages.
 - Gate: differential suite green; bench shows load proportional to the edit.
 
-### Phase 5 — Canopy adoption and measurement
+### Phase 5 — canopyd adoption and measurement
 - `packages/canopyd/src/merge-tool.ts` and `updates/semantic-merge.ts`: request
   lazy loads for authority validation and worker inputs; keep `verifyRetention`
   as is.
@@ -247,7 +247,7 @@ current states still reference through their change envelopes.
   new Trace section. spec/01: :744 digest covers `trace`. spec/09:
   per-generation capture and coalescing.
 - docs/merge-operation-evaluation.md frames, lazy loading and the deletion
-  watermark; docs/update-wire-contract.md; docs/canopy-update-performance.md
+  watermark; docs/update-protocol.md; docs/canopy-update-performance.md
   numbers. No retention or spec promise is relaxed by this plan.
 
 ## Risks and stop conditions
@@ -265,7 +265,7 @@ current states still reference through their change envelopes.
 - Per phase: `bun run typecheck`, `bun run test`, `bun run test:protocol`,
   `swift test --package-path canopy-swift/Packages/CanopyWorkingTree`,
   `tools/test-arbor-quagmire-local.sh`, both app builds.
-- Live: the Canopy update log line (`trace-frames`, `body-bytes`, `w-path`,
+- Live: the canopyd update log line (`trace-frames`, `body-bytes`, `w-path`,
   `history-mb`, `retention`) and Native's network log (`out=` bytes, `note`
   rows) before and after each deployed phase; `docs/canopy-update-performance.md`
   records them.

@@ -1,4 +1,4 @@
-# Apps 003: Compile and typecheck executable Arbor documents
+# Apps 003: Compile and typecheck executable Overstory documents
 
 > **Execution-model revision (2026-09-18):** Resource policy is now owned by
 > [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
@@ -18,14 +18,14 @@
   Data 002 (completed plan, deleted; see git history)'s
   provider-neutral node/query contracts and Apps 001's checked-in
   Supplies corpus.
-- **Blocks:** Apps 001 local/Canopy execution, Apps 002 hosted agents, and
+- **Blocks:** Apps 001 local/canopyd execution, Apps 002 hosted agents, and
   Apps 006 authority-manifest and durable-step integration.
 
 ## Target result
 
-An authored `.ts`, `.tsx`, or `.mdx` module inside any tracked Arbor tree gets
+An authored `.ts`, `.tsx`, or `.mdx` module inside any tracked Overstory tree gets
 the same source-located typechecking, completion, activation manifest, and
-runtime meaning in `arbor check`, VS Code, Zed, local Arbor, and Canopy. Editor
+runtime meaning in `arbor check`, VS Code, Zed, local Overstory, and canopyd. Editor
 integration is an adapter over an editor-independent compiler and language
 service; no normative type information exists only inside a VS Code plugin.
 
@@ -44,13 +44,13 @@ activation manifest.
 2. Build a deterministic `.ts`/`.tsx`/`.mdx` import graph. Keep `.ts` and
    non-default-exporting `.tsx` import-only; expose `.mdx` and default-exporting
    `.tsx` as extensionless executable nodes.
-3. Resolve literal Arbor locators against declared node, child, property,
+3. Resolve literal Overstory locators against declared node, child, property,
    content, edge, and capability schemas. Empty child sets receive their
    declared type rather than a sample-derived `never` or unchecked JSON type.
 4. Emit ordinary TypeScript declarations for source handles, symbolic fields,
    queries, mutations, `NodeOf`, `RowOf`, `ResultOf`, `useQuery`, and
    `useMutationAction`. A normal TypeScript language server must be able to
-   consume the declarations without Arbor-specific checker patches.
+   consume the declarations without Overstory-specific checker patches.
 5. Split public React code from server-only query/mutation implementations and
    reject ambient filesystem, process, network, clock, randomness, credentials,
    dynamic code loading, and undeclared-tree access.
@@ -73,18 +73,18 @@ mount, imported profile-shape, or compiler-version changes invalidate exactly
 the affected graph.
 
 Generated artifacts are deterministic projections, not canonical tree data.
-Keep full generated output in private Arbor state. If ordinary TypeScript tools
+Keep full generated output in private Overstory state. If ordinary TypeScript tools
 need a small tree-local entrypoint or `tsconfig` helper, specify its lifecycle,
 sync exclusion, portability, and behavior in an existing user-owned TypeScript
 project before creating it.
 
 ## Editor-neutral language service
 
-Build one Arbor language server over the same compiler core:
+Build one Overstory language server over the same compiler core:
 
 - resolve an absolute opened file to its enclosing TreeID and logical path;
 - refresh and cache generated schemas and declarations;
-- complete Arbor locators, properties, capabilities, query operators, and
+- complete Overstory locators, properties, capabilities, query operators, and
   mutation handles;
 - publish source-located diagnostics and stale/offline state;
 - navigate between uses, schemas, backing nodes, and generated manifests; and
@@ -92,7 +92,7 @@ Build one Arbor language server over the same compiler core:
 
 VS Code and Zed receive thin extensions that start or connect to this service.
 VS Code may additionally use a TypeScript language-service plugin; Zed may run
-the Arbor service beside `vtsls`. Neither adapter may define types or query
+the Overstory service beside `vtsls`. Neither adapter may define types or query
 semantics unavailable to `arbor check` and ordinary generated declarations.
 Cache the last known good declarations for offline editing and clearly mark
 them stale rather than silently discarding type information.
@@ -128,7 +128,7 @@ Completion gate:
 - `arbor check examples/supplies` typechecks the corpus adapted under Apps 006;
 - inferred result and mutation types reach TSX and MDX call sites;
 - VS Code and Zed show the same representative completions and diagnostics;
-- local Arbor and Canopy activate the identical reviewed manifest; and
+- local Overstory and canopyd activate the identical reviewed manifest; and
 - inspection proves public bundles contain no private data, credentials,
   physical store paths, or server implementations.
 
@@ -140,5 +140,5 @@ Completion gate:
   [Apps 004](004-mutation-permissions.md); Apps 006 owns the final authoring surface.
 - Do not make a global TreeID/path registry part of authored application code.
 - Do not infer property types from currently sampled rows.
-- Do not require one editor, one workspace layout, or a running Canopy.
+- Do not require one editor, one workspace layout, or a running canopyd.
 - Do not absorb Apps 001 rendering/hosting or Postgres 004 replication.
