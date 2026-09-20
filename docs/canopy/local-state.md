@@ -2,7 +2,7 @@
 
 What the Canopy app keeps on disk on macOS and iOS: working trees, the editor
 recovery store, the admission journals, and diagnostic streams. The daemon's
-data home is in [the Arbor data home](../arbor/data-home.md).
+data home is in [the Arbor data home](../arborsync/data-home.md).
 
 ## Native working trees
 

@@ -223,7 +223,7 @@ Commit this phase independently after the live-copy verification below.
 
 ### 4. Close the migration and documentation
 
-- Update `docs/arbor/data-home.md` from a pending account-layout cutover to the
+- Update `docs/arborsync/data-home.md` from a pending account-layout cutover to the
   completed v2-only layout.
 - Keep the plural-account bootstrap documented as the sole account-claim
   endpoint and remove any remaining singleton claim examples.

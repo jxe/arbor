@@ -10,7 +10,7 @@ export class LocalAccountService {
    * The account credential for a configuration tree. Serving it over loopback
    * is deliberate: any local process with the user's filesystem access can
    * already read the credential store and write the placed folders, so this
-   * exposes no new authority (documented in `docs/arbor/data-home.md`).
+   * exposes no new authority (documented in `docs/arborsync/data-home.md`).
    */
   async credentialToken(configurationTree?: string): Promise<string> {
     let token: string | undefined;

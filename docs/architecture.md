@@ -205,7 +205,7 @@ The Canopy app's network log is its client-side counterpart
 The daemon uses a private intent journal, recovery bookkeeping, filesystem
 observation, and a 1,024-event in-memory SSE replay buffer; a restart changes
 the event epoch and clients resynchronize. Private paths are documented for
-maintainers and migration tooling only, in [the local system](arbor/data-home.md);
+maintainers and migration tooling only, in [the local system](arborsync/data-home.md);
 other implementations may choose a different layout. The synchronized
 [`trees.yaml`](../spec/04-accounts-and-devices.md#3-configuration-yaml)
 contract is normative.
@@ -229,7 +229,7 @@ already processed, `failedIndex` identifies the element under review, and
 the suffix remains unattempted. Resolution submits the reviewed element
 against the verified current descriptor, then guardedly replays the retained
 suffix in order. The machines, their invariants, and trace compaction are in
-[client state machines](client/state-machines.md).
+[client state machines](state-machines.md).
 
 ## Verification machinery
 

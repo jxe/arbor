@@ -12,6 +12,7 @@ replaceable implementation choices, and **plans** own remaining work.
 - [Specification](../spec/README.md): normative portable behavior, in reading order.
 - [Status](../status.md): what is implemented, installed, deployed, or only specified.
 - [Architecture](architecture.md): every package in both languages, runtime ownership, protocol identity, durability, and verification.
+- [State machines](state-machines.md): the document admission and working-tree update machines every editor and the daemon run, admission invariants, trace compaction.
 - [Development](../DEVELOPMENT.md): setup, ownership, change discipline, gates.
 
 ## By component
@@ -28,17 +29,17 @@ replaceable implementation choices, and **plans** own remaining work.
 
 **Client stack**
 
-- [State machines](client/state-machines.md): the document admission and working-tree update machines, admission invariants, trace compaction.
+- [State machines](state-machines.md): the document admission and working-tree update machines, admission invariants, trace compaction.
 
-**Arbor local tools**
+**Arbor Sync and the `arbor` command**
 
-- [CLI reference](arbor/cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, safety rules.
-- [Arbor Sync REST API](arbor/arborsync-api.md): the loopback client/daemon boundary.
-- [The Arbor data home](arbor/data-home.md): the data home, daemon supervision, watching, credentials, migration, diagnostics.
+- [CLI reference](arborsync/cli.md): the `arbor` command, daemon setup, placement, moves, identity, cloud sessions, safety rules.
+- [Arbor Sync REST API](arborsync/arborsync-api.md): the loopback client/daemon boundary.
+- [The Arbor data home](arborsync/data-home.md): the data home, daemon supervision, watching, credentials, migration, diagnostics.
 
 **Canopy browsers**
 
-- [Client design](canopy/design.md): non-normative interaction design for the browsers; use status for implementation truth.
+- [Design](canopy/design.md): non-normative interaction design for the browsers; use status for implementation truth.
 - [Canopy local state](canopy/local-state.md): working trees on iOS and the Mac, the editor recovery store, admission journals, diagnostic streams.
 
 Remaining work for every component is in [plans](../plans/README.md).

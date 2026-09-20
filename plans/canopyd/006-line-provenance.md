@@ -452,7 +452,7 @@ current. Leave final hands-on visual acceptance to Joe.
 ### Phase 5 — documentation, retention coordination, and migration handoff
 
 1. Update `status.md` only after the feature is implemented and tested.
-2. Update `packages/canopyd/README.md`, `docs/arbor/arborsync-api.md`, and
+2. Update `packages/canopyd/README.md`, `docs/arborsync/arborsync-api.md`, and
    `docs/architecture.md` with the implemented current-only
    boundary.
 3. Amend canopyd 001 so pruning either preserves blame-required roots or

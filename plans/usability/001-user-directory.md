@@ -40,7 +40,7 @@ Steps: community members → each readable group tree (as its own `group` entry 
 
 **TS wire**: `RemoteDirectoryEntry` in `packages/protocol` protocol types beside `AccessEntry`; `WireClient.directory()` in [client.ts](../../packages/protocol/src/transport.ts) beside `access()`. Add a fixture under `tests/fixtures/canopy/` and reference it from the protocol conformance test.
 
-**CLI** [index.ts](../../packages/cli/src/index.ts) + [profile-identity.ts](../../packages/arborsync/src/state/profile-identity.ts): `arbor me create --name`, and new `arbor me set [--name] [--avatar <relative path>] [--description]` rewriting `_index.md` frontmatter while preserving body and unknown keys; `--avatar` checks the file exists. Document in `docs/arbor/cli.md`.
+**CLI** [index.ts](../../packages/cli/src/index.ts) + [profile-identity.ts](../../packages/arborsync/src/state/profile-identity.ts): `arbor me create --name`, and new `arbor me set [--name] [--avatar <relative path>] [--description]` rewriting `_index.md` frontmatter while preserving body and unknown keys; `--avatar` checks the file exists. Document in `docs/arborsync/cli.md`.
 
 **Tests**: unit `tests/unit/canopyd/profile-facts.test.ts` (accepted fields, oversize dropped, `../x.png` dropped, missing file dropped, nested path resolved, URL dropped). Integration `tests/integration/canopyd/directory.test.ts` modeled on `community-hosting.test.ts`: unhosted member is `kind: unknown` with handle; hosted public profile yields card + fetchable avatar hash; private profile yields identity only; readable group contributes `group:` source and its own entry; unreadable group absent; access-only profile has `sources: ["access"]`; self excluded; unauthenticated and execution token → 401.
 

@@ -6,21 +6,21 @@ working tree's document session; this document is its reference: its states,
 the data each retains, its transitions, and the rules a new editor host must
 follow. The
 **update machine** runs inside a working tree against Overstory and is
-specified in [working-tree updates](../../spec/09-client-synchronization.md);
+specified in [working-tree updates](../spec/09-client-synchronization.md);
 section 8 below describes its runner, the update coordinator, and what it
 adds around the reducer: the durable head, recovery, and watching.
 
 The reference implementations are `DocumentAdmissionMachine` in `CanopyAppKit`
 (Swift) and `reduceAdmission` in `@overstory/protocol` (TypeScript). Both are pure
 reducers that execute every `document-admission` scenario in
-[`spec/conformance/client-state-machines.json`](../../spec/conformance/client-state-machines.json);
+[`spec/conformance/client-state-machines.json`](../spec/conformance/client-state-machines.json);
 the editor host (`ArborDocumentBinding` today; the Plan B web editor later)
 runs the effects.
 
-The target admission policy is [exact authored basis](../../spec/09-client-synchronization.md#exact-authored-basis).
+The target admission policy is [exact authored basis](../spec/09-client-synchronization.md#exact-authored-basis).
 Both reducers capture base source and revision in each admission effect. The
 durable source admission queue (`SourceAdmissionQueue` in `CanopyWorkingTree`
-and `@overstory/client`; journals described in [the local system](../canopy/local-state.md#source-admission-journals))
+and `@overstory/client`; journals described in [the local system](canopy/local-state.md#source-admission-journals))
 retains tree bases and explicit dependencies. Installed Canopy clients use it;
 the TypeScript session and publisher are library APIs not yet connected to an
 editor host. The `conflict` phase and `mergeLocally` effect below are legacy
@@ -167,7 +167,7 @@ clean ──edit──▶ dirty ──debounceElapsed/flush──▶ submitting 
 
 An editor runs the admission machine against its own working tree: admission
 is working-tree durability, and the working tree's update machine (spec
-[working-tree updates §2](../../spec/09-client-synchronization.md#2-the-update-machine))
+[working-tree updates §2](../spec/09-client-synchronization.md#2-the-update-machine))
 publishes durable heads behind a trailing delay and materializes only accepted
 state. Arbor Sync admits no editor generations; its folder is always a
 source (the reducers have no filesystem role), and every daemon request is
@@ -228,7 +228,7 @@ history boundaries.
 
 The update machine is the pure reducer `UpdateMachine` (`CanopyWorkingTree`)
 and `reduceUpdate` (`@overstory/client`). Both execute the `working-tree-updates` scenarios in
-[`spec/conformance/client-state-machines.json`](../../spec/conformance/client-state-machines.json).
+[`spec/conformance/client-state-machines.json`](../spec/conformance/client-state-machines.json).
 Its transitions are the spec's; this section is about the runner around it.
 
 `UpdateCoordinator` (Swift) runs the reducer over a `WorkingTree` and an Overstory

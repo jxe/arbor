@@ -4,7 +4,7 @@
 >
 > **Companion**: [surfaces.md](surfaces.md) is the surface-by-surface inventory this plan builds from; every surface there names its phase here.
 >
-> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy swift/ArborApp swift/Packages/CanopyEditor conformance docs/canopy/design.md docs/arbor/arborsync-api.md` against the commit this plan is written at.
+> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy swift/ArborApp swift/Packages/CanopyEditor conformance docs/canopy/design.md docs/arborsync/arborsync-api.md` against the commit this plan is written at.
 
 ## Status
 
@@ -117,7 +117,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 **Phase 4 — editor pane, minimum.** Surface [4](surfaces.md#4-editor-pane) items marked B1: BlockNote document bound to the admission machine through `EditorHost.persistCommit`, document footer (backlinks, sync chip), block menu with Turn Into tiles, @mention, autotransforms, inline marks, images to `Assets`, undo, find in page, New Document/Folder, Trash/Restore with confirmations, title-rename proposal, orphan-trash prompt, Source and Properties, History/Recover. Source admission uses the existing TypeScript source-admission session: real transactions capture original source and basis; do not infer move/copy from final text; support only operation forms the browser captures and the server executes.
 *Verify*: `bun run build`, `bun run test:e2e` restored with disposable canopyd: edit in the browser and see the folder update within a second; edit on disk and see the page update; close the tab mid-edit and reopen to see the browser's own head replay once; leave a daemon request pending or conflicted and the browser still publishes; a second tab opens read-only.
 
-**Phase 5 — docs and release.** `docs/canopy/design.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/arbor/arborsync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/architecture.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [release and soak](../verification/release-and-soak.md).
+**Phase 5 — docs and release.** `docs/canopy/design.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/arborsync/arborsync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/architecture.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [release and soak](../verification/release-and-soak.md).
 
 ### B2 — the canopyd host and the account surfaces
 

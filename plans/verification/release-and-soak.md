@@ -19,7 +19,7 @@ Owners: Native [008](../swift/008-complete-native-move-copy-undo-capture.md) for
 - [ ] Complete 010's macOS/iPhone hands-on gate: layout, typing, focus, selection, scrolling,
   keyboard routing, VoiceOver, large text and installed review-draft recovery.
 
-Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/arbor/data-home.md), [client state machines](../../docs/client/state-machines.md), and [Native 010](../swift/010-client-conflict-review.md).
+Evidence: the source cutover, capture, and review checkpoints are in git history (`docs/native-source-cutover.md`, `docs/source-admission-queue.md`, `docs/native-conflict-review.md`); their surviving facts are in [the local system](../../docs/arborsync/data-home.md), [client state machines](../../docs/state-machines.md), and [Native 010](../swift/010-client-conflict-review.md).
 Passing builds and automated tests do not establish interactive acceptance.
 
 ## Server refinements
