@@ -210,3 +210,25 @@ with repeated continuation and state validation. All 251 focused merger tests,
 typecheck, CLI build, link checks, and whitespace checks passed. Live cleanup is
 still pending; recovery material is preserved outside version control. The full
 product suite passed 1,141 tests with only the known CLI placement failure.
+
+### Deployed continuation repair and live cleanup — 2026-09-21
+
+Railway deployed `9d99135c` (scoped continuation/enclosure), `92d4b021`
+(bounded host evaluation), and `f74673db` (immutable directory alternatives).
+Deployment `8f78591e-7257-42e7-9b66-afa548319ac2` succeeded. The running Mac
+client then published all 14 retained generations as updates 3675–3688 without
+restarting or rewriting its recovery journals.
+
+An explicit resolution guarded by update 3688 and all five decisions was
+accepted as update 3689 with no remaining conflicts. Its composition preserved
+the latest editor candidate and recovered the intended hidden source changes;
+the other 61 root entries retained their exact objects. Server reads verified
+the composed document bytes and empty conflict inventory. The native accepted
+and local roots both matched the server, with no pending request, and the UI
+showed Fully synced without a review badge. Exact requests, receipts, original
+alternatives, and native recovery copies remain in an ignored local backup.
+
+Follow-up verification passed the 50,000-file performance gate, 16 Swift
+ArborSyncClient tests, and the live protocol gate with only the previously
+baseline-reproduced AppKit rename fixture excluded. The product suite's sole
+failure remains the previously baseline-reproduced CLI placement test.
