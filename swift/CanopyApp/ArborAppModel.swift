@@ -1989,6 +1989,7 @@ final class ArborAppModel {
     }
 
     func navigate(to location: WorkspaceLocation) async {
+        await binding?.flush()
         if case let .reference(reference) = location,
            reference.tree != workspace.home.tree {
             do { try await workspace.openNestedTree(reference.tree) }
@@ -2067,9 +2068,9 @@ final class ArborAppModel {
         }
     }
 
-    func goBack() async { retainCurrentPagePresentation(); tabs.goBack(); tabVersion += 1; await loadOrRestoreCurrentPage() }
-    func goForward() async { retainCurrentPagePresentation(); tabs.goForward(); tabVersion += 1; await loadOrRestoreCurrentPage() }
-    func goParent() async { retainCurrentPagePresentation(); tabs.goParent(); tabVersion += 1; await loadOrRestoreCurrentPage() }
+    func goBack() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goBack(); tabVersion += 1; await loadOrRestoreCurrentPage() }
+    func goForward() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goForward(); tabVersion += 1; await loadOrRestoreCurrentPage() }
+    func goParent() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goParent(); tabVersion += 1; await loadOrRestoreCurrentPage() }
     func goHome() async {
         guard let home = treeHomeLocation else { return }
         await returnTo(home)
@@ -2077,6 +2078,7 @@ final class ArborAppModel {
 
     /// Pops back to `location` when it is already on the tab's trail, else pushes it.
     func returnTo(_ location: WorkspaceLocation) async {
+        await binding?.flush()
         retainCurrentPagePresentation()
         tabs.returnTo(location)
         tabVersion += 1
@@ -2103,6 +2105,7 @@ final class ArborAppModel {
     }
 
     func newTab() async {
+        await binding?.flush()
         retainCurrentPagePresentation()
         tabs.newTab()
         tabVersion += 1
@@ -2110,6 +2113,7 @@ final class ArborAppModel {
     }
 
     func openInNewTab(_ location: WorkspaceLocation) async {
+        await binding?.flush()
         retainCurrentPagePresentation()
         tabs.newTab(at: location)
         tabVersion += 1
@@ -2117,6 +2121,7 @@ final class ArborAppModel {
     }
 
     func closeSelectedTab() async {
+        await binding?.flush()
         let closedTabID = selectedTabID
         retainCurrentPagePresentation()
         tabs.closeTab(selectedTabID)
@@ -2127,6 +2132,7 @@ final class ArborAppModel {
 
     func selectTab(_ id: UUID) async {
         guard id != selectedTabID else { return }
+        await binding?.flush()
         retainCurrentPagePresentation()
         tabs.selectTab(id)
         tabVersion += 1
@@ -2478,7 +2484,7 @@ final class ArborAppModel {
         }
         do {
             children = try await workspace.provider.children(of: sidebarLocation)
-            Task { await self.search(self.lastSearchQuery) }
+            await search(lastSearchQuery)
         } catch {
             errorMessage = error.localizedDescription
         }

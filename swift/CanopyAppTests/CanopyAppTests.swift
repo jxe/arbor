@@ -680,13 +680,13 @@ struct CanopyAppTests {
         #expect(model.navigationRoot == .reference(home))
         #expect(model.navigationPath == [.reference(welcome)])
         #expect(!model.isLoading)
-        #expect(model.pagePresentation(for: .reference(home))?.editorLease != nil)
+        #expect(model.pagePresentation(for: .reference(home))?.editorLease == nil)
         #expect(model.pagePresentation(for: .reference(welcome))?.editorLease != nil)
 
         model.setNavigationPath([])
         #expect(model.currentReference == home)
         #expect(model.navigationPath.isEmpty)
-        #expect(model.pagePresentation(for: .reference(home))?.editorLease != nil)
+        #expect(model.pagePresentation(for: .reference(home))?.editorLease == nil)
         #expect(model.pagePresentation(for: .reference(welcome))?.editorLease != nil)
     }
 
@@ -771,7 +771,7 @@ struct CanopyAppTests {
 
         _ = try #require(await host.createDocument(
             title: "Receipt Page",
-            requestedReference: nil,
+            requestedReference: DocumentReference("Receipt-Page"),
             initialContent: nil
         ))
         let receipt = try #require(workspace.latestStructuralReceipt)
