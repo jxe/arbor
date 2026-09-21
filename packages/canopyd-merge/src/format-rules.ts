@@ -1,4 +1,4 @@
-import { markdownLayout, markdownProseInsertion, markdownTransferShape } from "./markdown-format.ts";
+import { markdownLayout, markdownProseInsertion, markdownTransferShape, markdownListEdit } from "./markdown-format.ts";
 import { xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
@@ -394,7 +394,7 @@ function proseTransferShape(base: Uint8Array, changed: Uint8Array, edits: PieceE
       // blockquotes can change the scope of later edits and remain protected.
       const insertion = start === end && !/^ {0,3}(?:#{1,6}(?:\s|$)|>)/m.test(text) &&
         markdownProseInsertion(source, start, [text]);
-      parts.push(inline || insertion ? previous : text);
+      parts.push(inline || insertion || markdownListEdit(source, start, end, text) ? previous : text);
       old = end; next += size;
     }
     if (!Buffer.from(base.subarray(old)).equals(changed.subarray(next))) return null;

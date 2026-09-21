@@ -1960,3 +1960,59 @@ test("a change's identity is its frame chain, however the caller stated it", asy
   ]);
   expect(stableJSONString(changeIdentity(parseIntentRequest(two)))).not.toBe(flat);
 });
+
+test("a scoped hidden branch advances without widening or another decision", async () => {
+  const f = new Fixture(), source = "prefix old suffix\n", base = f.tree({"a.txt": source});
+  const first = await f.run(f.request(base, f.tree({"a.txt":"prefix one suffix\n"}), [
+    {key:"edit",kind:"editSource",source:f.ref("/a.txt",source,[7,10]),text:"one"}
+  ], "first"));
+  const second = await f.run({...f.request(base, f.tree({"a.txt":"prefix two suffix\n"}), [
+    {key:"edit",kind:"editSource",source:f.ref("/a.txt",source,[7,10]),text:"two"}
+  ], "second",first.result),rules:{id:"tree-default",revision:1,config:{conflictProjection:"current"}}});
+  expect(second.decisions).toHaveLength(1);
+  const continued = await f.run(f.request(second.authored!,f.tree({"a.txt":"prefix TWO suffix\n"}),[
+    {key:"edit",kind:"editSource",source:f.ref("/a.txt","prefix two suffix\n",[7,10]),text:"TWO"}
+  ],"third",second.result));
+  expect(continued.result.object).toBe(first.result.object);
+  expect(continued.decisions).toHaveLength(1);
+  expect(continued.decisions[0]!.key).toBe(second.decisions[0]!.key);
+  expect(continued.decisions[0]!.alternatives.map(a=>a.object)).toContain(f.put("TWO"));
+  const again = await f.run(f.request(continued.authored!, f.tree({"a.txt":"prefix TW suffix\n"}), [
+    {key:"delete",kind:"editSource",source:f.ref("/a.txt","prefix TWO suffix\n",[9,10]),text:""}
+  ], "fourth", continued.result));
+  expect(again.decisions).toHaveLength(1);
+  expect(again.decisions[0]!.key).toBe(second.decisions[0]!.key);
+  expect(again.decisions[0]!.alternatives.map(a=>a.object)).toContain(f.put("TW"));
+  expect(again.result.object).toBe(first.result.object);
+});
+
+test("an independent second content conflict stays scoped", async () => {
+  const f = new Fixture(), text = "old gap red\n", base = f.tree({"a.txt":text});
+  const a = await f.run(f.request(base,f.tree({"a.txt":"one gap red\n"}),[{key:"e",kind:"editSource",source:f.ref("/a.txt",text,[0,3]),text:"one"}],"a"));
+  const b = await f.run(f.request(base,f.tree({"a.txt":"two gap red\n"}),[{key:"e",kind:"editSource",source:f.ref("/a.txt",text,[0,3]),text:"two"}],"b",a.result));
+  const c = await f.run(f.request(b.result,f.tree({"a.txt":"two gap tan\n"}),[{key:"e",kind:"editSource",source:f.ref("/a.txt","two gap red\n",[8,11]),text:"tan"}],"c"));
+  const d = await f.run(f.request(b.result,f.tree({"a.txt":"two gap sky\n"}),[{key:"e",kind:"editSource",source:f.ref("/a.txt","two gap red\n",[8,11]),text:"sky"}],"d",c.result));
+  expect(d.decisions).toHaveLength(2);
+  expect(d.decisions[1]!.subject?.range).toEqual([8,11]);
+  expect(d.decisions[1]!.dependencies).toEqual([]);
+  expect(d.decisions[1]!.alternatives.map(a=>a.object).sort()).toEqual([f.put("tan"),f.put("sky")].sort());
+});
+
+test("splitting a source choice stays within its file and does not conflict with an unrelated file", async () => {
+  const f = new Fixture(), text = "red blue tail\n", base = f.tree({"a.txt":text,"other.txt":"X"});
+  const a = await f.run(f.request(base,f.tree({"a.txt":"RED BLUE tail\n","other.txt":"X"}),[{key:"e",kind:"editSource",source:f.ref("/a.txt",text,[0,8]),text:"RED BLUE"}],"a"));
+  const source = "tan cyan tail\n";
+  const b = await f.run(f.request(base,f.tree({"a.txt":source,"other.txt":"X"}),[{key:"e",kind:"editSource",source:f.ref("/a.txt",text,[0,8]),text:"tan cyan"}],"b",a.result));
+  const peer = await f.run(f.request(b.result,f.tree({"a.txt":source,"other.txt":"Y"}),[{key:"e",kind:"editSource",source:f.ref("/other.txt","X"),text:"Y"}],"peer"));
+  const result = await f.run(f.request(b.result,f.tree({"a.txt":"cyan tail tan\n","other.txt":"X"}),[{
+    key:"reorder",kind:"editSource",source:f.ref("/a.txt",source),text:"cyan tail tan\n",lineage:[
+      {range:[0,9],source:f.ref("/a.txt",source,[4,13])},
+      {range:[10,13],source:f.ref("/a.txt",source,[0,3])},
+      {range:[13,14],source:f.ref("/a.txt",source,[13,14])},
+    ]
+  }],"reorder",peer.result));
+  expect(result.decisions).toHaveLength(2);
+  expect(result.decisions.every(d=>d.kind==="content")).toBe(true);
+  expect(f.content(result.result.object,"other.txt")).toBe("Y");
+  expect(f.content(result.result.object,"a.txt")).toBe("cyan tail tan\n");
+});

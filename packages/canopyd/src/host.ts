@@ -1,3 +1,4 @@
+import { IntentError } from "../../canopyd-merge/src/intent-model.ts";
 import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
@@ -834,6 +835,9 @@ export async function serveCanopy(options: {
         }
         return wireError("not-found", "Route not found", 404);
       } catch (error) {
+        if (error instanceof IntentError && error.code === "limit" && error.message === "Evaluation time budget exceeded") {
+          return wireError("internal-error", error.message, 503, true);
+        }
         if (error instanceof RefConflictError) {
           return wireError("conflict", "The tree ref changed before the mutation committed", 409, false, {
             kind: "server-update",

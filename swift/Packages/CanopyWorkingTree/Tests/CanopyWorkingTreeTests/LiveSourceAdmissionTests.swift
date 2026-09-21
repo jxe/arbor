@@ -93,9 +93,10 @@ struct LiveSourceAdmissionTests {
         guard case let .array(decisions) = inspection.fields["decisions"], !decisions.isEmpty else {
             Issue.record("Expected accepted choices"); return
         }
-        let expectedHashes = Set(["Peer at R2\n", "My continued alternative\n"].map { WireObjectCodec.hash(Data($0.utf8)) })
-        // A whole-source continuation can enclose an earlier, narrower choice.
-        // Both remain inspectable and are resolved with their complete guards.
+        let expectedHashes = Set(["Peer at R2", "My continued alternative"].map { WireObjectCodec.hash(Data($0.utf8)) })
+        // The successor advances the same scoped choice. The unchanged final
+        // newline stays outside it; no whole-file enclosure is introduced.
+        #expect(decisions.count == 1)
         let complete = decisions.compactMap { value -> [String: WireReadValue]? in
             guard case let .object(fields) = value, case let .array(choices) = fields["alternatives"] else { return nil }
             let hashes = choices.compactMap { value -> String? in
@@ -122,7 +123,7 @@ struct LiveSourceAdmissionTests {
                   case let .string(hash) = content["file"] else { return nil }
             return hash
         }
-        #expect(Set(hashes) == Set(["Peer at R2\n", "My continued alternative\n"].map { WireObjectCodec.hash(Data($0.utf8)) }))
+        #expect(Set(hashes) == expectedHashes)
         #expect(try await peer.conflicts(tree: treeID, state: firstConflict.tree.update, root: firstConflict.tree.root) == firstInspection)
         let identities = try alternatives.map { value -> String in
             guard case let .object(fields) = value, case let .string(id) = fields["id"] else {

@@ -164,3 +164,31 @@ excluded: ArborSyncClient 16, CanopyAppKit 22, Overstory 44, OverstoryClient 20,
 CanopyWorkingTree 98, and live editor admission 5 tests. The structural lost-ack
 regression now verifies that all ten queued changes reach the server in the first
 batch and recover correctly after restart. Link and whitespace checks passed.
+
+
+### Scoped conflict continuation and enclosure — 2026-09-21
+
+Implemented locally, not deployed: hidden content successors match their retained
+whole-branch context and advance a scoped alternative by provenance. Existing
+choices no longer widen independent new content conflicts or automatically add
+dependencies. Single-file source transformations that scatter a choice retain a
+file enclosure; a newly authored enclosure no longer causes another root-level
+conflict merely because it is new. Ordinary plain list editing may merge with
+disjoint prose; protected Markdown scopes retain their checks. Evaluation time
+exhaustion now maps to retryable HTTP 503 instead of invalid-request 400.
+
+Evidence: the todos decisions at updates 3611–3613 were a Markdown policy refusal
+followed by two hidden-branch successors; update 3670 added an enclosure and a
+second reconciliation decision. The live tree was only read. These changes do
+not retroactively resolve its retained decisions or establish that its pending
+request now finishes within the production execution budget.
+
+Verification with Bun 1.3.14: 1,139 product tests passed with the previously
+baseline-reproduced CLI placement failure; all 249 focused merger tests passed.
+Host tests passed, including HTTP timeout classification without acceptance.
+Typecheck, build, performance, links, and whitespace checks passed. The standard
+protocol gate encountered the known AppKit rename failure; the remaining gate
+passed with only that test excluded (16 ArborSyncClient, 22 CanopyAppKit,
+44 Overstory, 20 OverstoryClient, 98 CanopyWorkingTree, and 5 live-editor tests).
+The Swift hidden-continuation regression now requires one scoped decision and
+verifies that the unchanged newline remains outside its alternatives.

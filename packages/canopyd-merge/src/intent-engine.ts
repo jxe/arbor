@@ -1670,7 +1670,34 @@ class Engine {
         )
           decision.context = decision.context ?? old.state;
       const candidate = await this.record(authored);
-      authored.decisions.push({
+      const placements = [...wrapped].map(key => base.decisions.find(d => d.key === key)?.placement?.node);
+      const fileID = placements.length && placements.every(id => id === placements[0]) ? placements[0] : undefined;
+      const fileBefore = fileID ? base.nodes[fileID] : undefined;
+      const fileAfter = fileID ? authored.nodes[fileID] : undefined;
+      const filePath = fileID ? this.path(base, fileID) : undefined;
+      const fileOnly = fileBefore?.pieces && fileAfter?.active && fileAfter.pieces &&
+        operationsOf(request.incoming).every(op => op.kind === "editSource" &&
+          op.source.material.kind === "basis" && op.source.material.path === filePath);
+      if (fileOnly) {
+        const alternatives = [fileBefore!, fileAfter!].map((source, index) => {
+          const node = clone(source);
+          node.id = `enclosure-file:${request.incoming.change}:${index}`;
+          node.parent = null;
+          authored.nodes[node.id] = node;
+          return node;
+        });
+        authored.decisions.push({
+          key: `enclosure:${request.incoming.change}`, kind: "content", affected: [fileID!], selected: 1,
+          alternatives: await Promise.all(alternatives.map(async (node, index) => ({
+            state: index === 0 ? old.state : candidate.state, node: node.id,
+            object: await this.project(authored, node.id),
+            contributions: index === 0 ? [] : operationsOf(request.incoming).map(op => ({change: request.incoming.change, operation: op.key})),
+          }))),
+          dependencies: [...wrapped], reason: "Source transformation encloses existing file decisions",
+          subject: {material: {kind: "basis", path: filePath!, object: await this.project(base, fileID!)}},
+          placement: {node: fileID!, pieces: clone(fileAfter!.pieces!), anchor: 0},
+        });
+      } else authored.decisions.push({
         key: `enclosure:${request.incoming.change}`,
         kind: "directory",
         affected: [base.root],
@@ -1844,7 +1871,8 @@ class Engine {
         const before = base.decisions.find((d) => d.key === decision.key),
           index = merged.decisions.findIndex((d) => d.key === decision.key);
         if (!same(before, decision)) {
-          if (index < 0 || !same(merged.decisions[index], before))
+          if (index < 0 && !before) merged.decisions.push(clone(decision));
+          else if (index < 0 || !same(merged.decisions[index], before))
             affected.push(...decision.affected);
           else merged.decisions[index] = clone(decision);
         }
@@ -1907,11 +1935,42 @@ class Engine {
               })
             : []
         );
+        // A source choice contains a fragment, while its retained context
+        // identifies the complete authored branch. Match that provenance first;
+        // equal source bytes alone never authorize branch continuation.
+        if (!matches.length) {
+          const edits = await this.edits(before.pieces, after.pieces, authored);
+          for (const decision of merged.decisions) {
+            if (decision.kind !== "content") continue;
+            for (const [index, alternative] of decision.alternatives.entries()) {
+              if (index === decision.selected && !decision.context) continue;
+              const node = alternative.node ? merged.nodes[alternative.node] : undefined;
+              if (!node?.pieces?.length) continue;
+              const context = await this.context(alternative.state);
+              if (!same(context.nodes[id]?.pieces, before.pieces)) continue;
+              let at: [number, number];
+              try { at = this.locate(before.pieces, node.pieces, [0, length(node.pieces)]); }
+              catch (error) {
+                if (error instanceof IntentError && error.code === "limit") throw error;
+                continue;
+              }
+              if (!edits.length || edits.some(e => e.range[0] < at[0] || e.range[1] > at[1])) continue;
+              matches.push({ decision, alternative, index, node });
+            }
+          }
+        }
         if (matches.length !== 1) continue;
         const { decision, alternative, index, node } = matches[0]!;
         // Visible edits already use the ordinary three-way path.
         if (index === decision.selected && !decision.context) continue;
-        node.pieces = clone(after.pieces);
+        if (same(node.pieces, before.pieces)) node.pieces = clone(after.pieces);
+        else {
+          const at = this.locate(before.pieces, node.pieces!, [0, length(node.pieces!)]);
+          const edits = await this.edits(before.pieces, after.pieces, authored);
+          node.pieces = normalize(applyPieceEdits(node.pieces!, edits.map(e => ({
+            ...e, range: [e.range[0] - at[0], e.range[1] - at[0]] as [number, number],
+          }))));
+        }
         alternative.object = await this.project(merged, node.id);
         alternative.state = this.authoredResult!.state;
         alternative.contributions.push(
@@ -2086,18 +2145,10 @@ class Engine {
                   coupledByFormat = false;
               }
               if (coupledByFormat) groups.splice(0, groups.length, edits);
-              const existingChoice = current.decisions.some(
-                (d) => d.placement?.node === id && !d.context
-              );
-              if (existingChoice) groups.splice(0, groups.length, edits);
               const selected = [];
               for (const group of groups) {
-                const start = existingChoice
-                    ? 0
-                    : Math.min(...group.map((e) => e.range[0])),
-                  end = existingChoice
-                    ? length(b.pieces)
-                    : Math.max(...group.map((e) => e.range[1]));
+                const start = Math.min(...group.map((e) => e.range[0])),
+                  end = Math.max(...group.map((e) => e.range[1]));
                 const versions = [0, 1].map((side) =>
                   applyPieceEdits(
                     slice(b.pieces!, start, end),
@@ -2227,7 +2278,19 @@ class Engine {
                       })
                     ),
                     dependencies: current.decisions
-                      .filter((d) => d.affected.includes(id))
+                      .filter(d => {
+                        if (!d.affected.includes(id)) return false;
+                        if (!d.placement || d.context) return true;
+                        try {
+                          const at = d.placement.pieces.length
+                            ? this.locate(b.pieces!, d.placement.pieces, [0, length(d.placement.pieces)])
+                            : [d.placement.anchor, d.placement.anchor];
+                          return overlap({range: [start, end], pieces: []}, {range: [at[0]!, at[1]!], pieces: []});
+                        } catch (error) {
+                          if (error instanceof IntentError && error.code === "limit") throw error;
+                          return true;
+                        }
+                      })
                       .map((d) => d.key),
                     reason: coupledByFormat
                       ? "Format policy requires a coupled source choice"

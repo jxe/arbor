@@ -93,7 +93,7 @@ test("an overlapping prose edit remains a local choice beside an independent reo
   expect(result.decisions[0]!.reason).toBe("Overlapping source contributions");
 });
 
-for (const protectedText of ["# Heading\n\n", "- list item\n\n", "[Link](relative)\n\n", "```js\nrun()\n```\n\n", "<div>text</div>\n\n", "a | b\n--|--\n1 | 2\n\n"]) {
+for (const protectedText of ["# Heading\n\n", "[Link](relative)\n\n", "```js\nrun()\n```\n\n", "<div>text</div>\n\n", "a | b\n--|--\n1 | 2\n\n"]) {
   test(`structural removal still requires review: ${protectedText.split("\n")[0]}`, async () => {
     const f = new Fixture(), prefix = "Intro 1\n\n", source = prefix + protectedText + "Tail\n";
     const base = f.tree({ "note.md": source });
@@ -132,3 +132,24 @@ for (const syntax of ["**bold**", "[link](relative)", "`code`", "<b>HTML</b>"]) 
     expect(result.decisions.length).toBeGreaterThan(0);
   });
 }
+
+
+test("ordinary list removal merges with an independent paragraph edit", async () => {
+  const f = new Fixture(), source = "Intro 1\n\n- list item\n\nTail\n", base = f.tree({"note.md":source});
+  const current = await f.run(f.request(base, f.tree({"note.md":"Intro 1\n\nTail\n"}), [{key:"remove",kind:"editSource",source:f.ref("/note.md",source,[9,22]),text:""}],"mac"));
+  const result = await f.run(f.request(base,f.tree({"note.md":source.replace("1","2")}),[{key:"edit",kind:"editSource",source:f.ref("/note.md",source,[6,7]),text:"2"}],"phone",current.result));
+  expect(result.decisions).toEqual([]);
+  expect(f.content(result.result.object,"note.md")).toBe("Intro 2\n\nTail\n");
+});
+
+test.each(["\n", "\r\n"])("splitting and editing a nested list merges with distant prose (%s)", async newline => {
+  const f = new Fixture();
+  const head = ["# Todos", "", "- Ask Person", "", "  - First topic", "", "    - Nested topic", "", ""].join(newline);
+  const tail = ["# Later", "", "Unrelated paragraph", ""].join(newline);
+  const source = head + tail, base = f.tree({"note.md":source});
+  const changedHead = head.replace("Ask Person", "Ask Per").replace("    - Nested topic" + newline, "    - Nested topic" + newline + newline + "- " + newline + newline + "- son" + newline);
+  const current = await f.run(f.request(base,f.tree({"note.md":source.replace("Unrelated", "Updated Unrelated")}), [{key:"peer",kind:"editSource",source:f.ref("/note.md",source,[Buffer.byteLength(head + "# Later" + newline + newline),Buffer.byteLength(head + "# Later" + newline + newline)]),text:"Updated "}],"peer"));
+  const result = await f.run(f.request(base,f.tree({"note.md":changedHead+tail}),[{key:"split",kind:"editSource",source:f.ref("/note.md",source,[Buffer.byteLength("# Todos"+newline+newline),Buffer.byteLength(head)]),text:changedHead.slice(("# Todos"+newline+newline).length)}],"split",current.result));
+  expect(result.decisions).toEqual([]);
+  expect(f.content(result.result.object,"note.md")).toBe(changedHead+tail.replace("Unrelated","Updated Unrelated"));
+});

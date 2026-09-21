@@ -182,6 +182,18 @@ source choices with current material selected; `mergeTool.contentChoices:
 "file"` restores whole-file presentation, and format rules can still couple
 choices.
 
+A pre-existing source choice does not widen a later independent overlap or make
+it dependent on that choice. Hidden source successors match the retained whole
+branch context, then advance the affected fragment using source provenance.
+When a transformation scatters a choice so it cannot remain a contiguous range,
+an edit confined to one file retains a file-scoped enclosure and its child
+choices; it does not escalate to the root directory. A newly authored enclosure
+is not itself evidence of a concurrent conflict.
+
+Evaluation time-budget exhaustion is an execution failure: canopyd returns a
+retryable HTTP 503, not a malformed-request HTTP 400. Deterministic invalid-input
+and operation-limit checks retain their existing classification.
+
 ### Format support contract
 
 Rules preserve bytes by applying verified source spans; they never print or
@@ -321,3 +333,10 @@ and integrity with a missing worker. A process test runs a collection merge
 with an empty environment from a working directory outside the checkout.
 `tests/unit/canopyd-merge/lazy-history.test.ts` compares every lazily loaded
 result against an eager reference that reads all history.
+
+
+Ordinary plain list edits, including splitting, removing, and rearranging list
+items, may merge with disjoint prose changes. This allowance checks the affected
+lines and leaves protected Markdown scopes (headings, links, code, HTML, tables,
+and reference syntax) under their existing format checks. It does not infer
+source identity from matching rendered text.

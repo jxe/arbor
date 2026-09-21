@@ -288,3 +288,31 @@ export function markdownTransferShape(source: string, formattedProse = true): st
   protectProse(source.slice(cursor));
   return JSON.stringify(protectedBlocks);
 }
+
+/** Ordinary list editing is local source work, not an opaque host rewrite.
+ * Only normalize complete affected lines of plain prose/list items; fences,
+ * headings, links, HTML, indented code and reference syntax stay protected. */
+export function markdownListEdit(source: string, start: number, end: number, text: string): boolean {
+  const bytes = Buffer.from(source);
+  const prefix = bytes.subarray(0, start).toString("utf8");
+  const suffix = bytes.subarray(end).toString("utf8");
+  const first = prefix.lastIndexOf("\n") + 1;
+  const last = suffix.indexOf("\n");
+  const tail = end > 0 && bytes[end - 1] === 10 && (!text || text.endsWith("\n"))
+    ? "" : last < 0 ? suffix : suffix.slice(0, last);
+  const head = prefix.slice(first);
+  if (opaqueRegions(source).some(([a,b]) => first < b && source.length - suffix.length + tail.length >= a)) return false;
+  const before = head + bytes.subarray(start, end).toString("utf8") + tail;
+  const after = head + text + tail;
+  const marker = /^ *(?:[-+*]|\d+[.)])(?:[ \t]+|$)/;
+  const safe = (line: string) => {
+    if (!line.trim()) return true;
+    if (/^\s*(?:[-=*_]\s*){3,}$/.test(line)) return false;
+    const match = marker.exec(line);
+    if (!match && /^(?:\s|#{1,6}(?:\s|$)|>|[-=]+\s*$)/.test(line)) return false;
+    const prose = match ? line.slice(match[0].length) : line;
+    return !/[`*_~<>|\[\]\\]/.test(prose) && inlineProse(prose);
+  };
+  return (before.split(/\r?\n/).some(line => marker.test(line)) || after.split(/\r?\n/).some(line => marker.test(line))) &&
+    [before, after].every(value => value.split(/\r?\n/).every(safe));
+}
