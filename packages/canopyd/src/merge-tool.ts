@@ -24,7 +24,7 @@ import {
 import { changeIdentity, parseIntentRequest } from "../../canopyd-merge/src/intent-model.ts";
 import { CheckpointBatchLimitError, type MergeResult } from "@overstory/canopyd-merge";
 import { PersistentMergeWorker } from "./merge-worker.ts";
-import { StateMapValidationCache } from "../../canopyd-merge/src/state-map.ts";
+import { StateMapValidationCache, type MapProof } from "../../canopyd-merge/src/state-map.ts";
 
 type EvaluatedResponse =
   | CheckpointResponse
@@ -57,7 +57,7 @@ export interface MergeToolOptions {
   contentChoices?: "source" | "file";
 }
 
-type StateProof = {hash: string; object: string; state: IntentState; bytes: number; dependencies: Set<string>; material: ValidatedMaterial; references: ReadonlySet<string>};
+type StateProof = {hash: string; object: string; state: IntentState; bytes: number; dependencies: Set<string>; material: ValidatedMaterial; references: ReadonlySet<string>; history: readonly MapProof[]};
 
 export class MergeTool {
   private worker?: PersistentMergeWorker;
@@ -67,25 +67,38 @@ export class MergeTool {
   private readonly historyValidation: StateMapValidationCache;
   private readonly validatedStates = new Map<string, StateProof>();
   private validatedBytes = 0;
+  private readonly proofLeases = new Map<string, () => void>();
   private readonly resultProofs = new WeakMap<object, StateProof>();
   validationProof(tree: string, ref: {object: string; state: string}): StateProof | undefined {
     const proof = this.resultProofs.get(ref) ?? this.validatedStates.get(JSON.stringify([tree, ref.object, ref.state]));
     return proof?.state.tree === tree && proof.hash === ref.state && proof.object === ref.object ? proof : undefined;
   }
   private proofStats = { remembered: 0, rejected: 0, evicted: 0, hits: 0, validated: 0 };
+  private forgetProof(key: string) {
+    this.validatedBytes -= this.validatedStates.get(key)!.bytes;
+    this.validatedStates.delete(key);
+    this.proofLeases.get(key)?.();
+    this.proofLeases.delete(key);
+  }
   private rememberProof(key: string, proof: StateProof) {
     const limit = this.options.stateProofBytes ?? 64 * 1024 * 1024;
     if (proof.bytes > limit) { this.proofStats.rejected++; return; }
-    this.proofStats.remembered++;
-    this.validatedBytes -= this.validatedStates.get(key)?.bytes ?? 0;
-    this.validatedStates.delete(key);
-    this.validatedStates.set(key, proof); this.validatedBytes += proof.bytes;
-    while (this.validatedStates.size > 8 || this.validatedBytes > limit) {
+    if (this.validatedStates.has(key)) this.forgetProof(key);
+    while (this.validatedStates.size >= 8 || this.validatedBytes + proof.bytes > limit) {
       this.proofStats.evicted++;
-      const oldest = this.validatedStates.keys().next().value!;
-      this.validatedBytes -= this.validatedStates.get(oldest)!.bytes;
-      this.validatedStates.delete(oldest);
+      this.forgetProof(this.validatedStates.keys().next().value!);
     }
+    let release = this.historyValidation.pin(proof.history);
+    while (!release && this.validatedStates.size) {
+      this.proofStats.evicted++;
+      this.forgetProof(this.validatedStates.keys().next().value!);
+      release = this.historyValidation.pin(proof.history);
+    }
+    if (!release) { this.proofStats.rejected++; return; }
+    this.proofStats.remembered++;
+    this.proofLeases.set(key, release);
+    this.validatedStates.set(key, proof);
+    this.validatedBytes += proof.bytes;
   }
   /** Immutable semantic proof only; callers must still verify retention before
    * committing. This is not proof that a discarded job's objects are present. */
@@ -95,6 +108,7 @@ export class MergeTool {
   verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, proofs: ReadonlyMap<string, StateProof> = this.validatedStates, trusted: ReadonlySet<string> = new Set()) {
     return verifyIntentRetention(roots, (hash) => this.shared.load(hash, available), {
       cache: this.retentionCache, durable: (hash) => !available.has(hash),
+      staged: available, frontierOnly: true, onCount: this.options.onCount,
       trusted: (ref) => ref.kind === "change" || trusted.has(ref.hash),
       state: (hash) => {
         for (const proof of proofs.values())
@@ -125,13 +139,14 @@ export class MergeTool {
       const { validateIntentState } = await import("../../canopyd-merge/src/intent-engine.ts");
       const dependencies = new Set<string>();
       let stateBytes = 0, references: ReadonlySet<string> = new Set();
+      let history: readonly MapProof[] = [];
       const material: ValidatedMaterial = new Map();
       const state = await validateIntentState(ref, tree, {
-        read: async (hash) => { dependencies.add(hash); return this.shared.read(hash); },
+        read: (hash) => this.shared.read(hash),
         store: async () => {},
-      }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}}, maxMillis: this.validationMillis});
+      }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}, history: proofs => {history = proofs;}}, maxMillis: this.validationMillis});
       const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
-      this.rememberProof(key, {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references});
+      this.rememberProof(key, {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references, history});
     }
     await this.verifyRetention([ref.state], new Map(), this.validatedStates, new Set());
     return { reads: this.shared.readCounters.reads - before, milliseconds: performance.now() - started };
@@ -213,6 +228,7 @@ export class MergeTool {
   async [Symbol.asyncDispose](): Promise<void> {
     this.closing = true;
     await Promise.allSettled([...this.jobs]);
+    for (const key of this.validatedStates.keys()) this.forgetProof(key);
     const worker = this.worker;
     if (worker) {
       await worker.close();
@@ -373,16 +389,17 @@ export class MergeTool {
           this.proofStats.validated++;
           const dependencies = new Set<string>();
           let stateBytes = 0, references: ReadonlySet<string> = new Set();
+          let history: readonly MapProof[] = [];
           const priorRef = "current" in request ? request.current : undefined;
           const prior = priorRef && "state" in priorRef
             ? jobProofs.get(JSON.stringify([tree, priorRef.object, priorRef.state])) : undefined;
           const material: ValidatedMaterial = new Map();
           const state = await validateIntentState(ref, tree, {
-            read: (hash) => { dependencies.add(hash); return access.read(hash); },
+            read: access.read,
             store: access.store,
-          }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {previous: prior?.material, next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}}, maxMillis: this.validationMillis});
+          }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {previous: prior?.material, next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}, history: proofs => {history = proofs;}}, maxMillis: this.validationMillis});
           const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
-          const proof = {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references};
+          const proof = {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references, history};
           jobProofs.set(key, proof);
           this.rememberProof(key, proof);
           return state;

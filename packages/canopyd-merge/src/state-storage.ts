@@ -14,6 +14,7 @@ import {
   updateStateMap,
   loadValidatedStateMap,
   type StateMapValidationCache,
+  type MapProof,
 } from "./state-map.ts";
 import { lazyHistory, storeHistory } from "./history-view.ts";
 
@@ -42,6 +43,8 @@ export async function loadIntentState(
   summary?: {
     bytes: (count: number) => void;
     references: (refs: ReadonlySet<string>) => void;
+    /** Opt into shared history ownership instead of flattening its dependencies. */
+    history?: (proofs: readonly MapProof[]) => void;
   },
 ): Promise<IntentState> {
   let expandedBytes = 0;
@@ -74,6 +77,8 @@ export async function loadIntentState(
     const value = await loadIntentState(indexed.active, rawRead);
     if (historyFields.some((field) => Object.keys(value[field]).length))
       throw Error("History embedded in active state");
+    const activeBytes = expandedBytes;
+    const proofs: MapProof[] = [];
     const references = intentReferences(value);
     for (const field of historyFields) {
       if (historyCache) {
@@ -85,8 +90,11 @@ export async function loadIntentState(
           maxBytes: 128 * 1024 * 1024 - expandedBytes,
         });
         expandedBytes += proof.bytes;
-        for (const ref of proof.references) references.add(ref);
-        for (const hash of proof.objects) retained?.(hash);
+        proofs.push(proof);
+        if (!summary?.history) {
+          for (const ref of proof.references) references.add(ref);
+          for (const hash of proof.objects) retained?.(hash);
+        }
         value[field] = proof.values as never;
       } else
         value[field] = (await loadStateMap(
@@ -96,7 +104,8 @@ export async function loadIntentState(
     }
     // Active state and each history record have already passed the same schema.
     // Cached history is immutable; this mode is only for authority validation.
-    summary?.bytes(expandedBytes);
+    summary?.history?.(proofs);
+    summary?.bytes(summary?.history && historyCache ? activeBytes : expandedBytes);
     summary?.references(historyCache ? references : intentReferences(value));
     return historyCache ? value : parseIntentState(value);
   }

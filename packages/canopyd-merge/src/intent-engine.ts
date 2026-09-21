@@ -1,6 +1,6 @@
 import { isEditableState, loadEditableIntentState, loadIntentState, loadLazyIntentState, storeLazyIntentState } from "./state-storage.ts";
 import { cloneHistory, need, since, union } from "./history-view.ts";
-import type { StateMapValidationCache } from "./state-map.ts";
+import type { MapProof, StateMapValidationCache } from "./state-map.ts";
 import { stableJSONString } from "@overstory/protocol";
 import {
   decodeWireDirectory,
@@ -124,7 +124,7 @@ type StateValidation = {
   maxMillis?: number;
   historyCache: StateMapValidationCache;
   retained: (hash: string) => void;
-  summary?: {bytes: (count: number) => void; references: (refs: ReadonlySet<string>) => void};
+  summary?: {bytes: (count: number) => void; references: (refs: ReadonlySet<string>) => void; history?: (proofs: readonly MapProof[]) => void};
   material?: {previous?: ValidatedMaterial; next: ValidatedMaterial};
 };
 class Engine {

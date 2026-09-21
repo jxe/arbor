@@ -29,8 +29,8 @@ export class RetentionCache {
    * storage is append-only, so a later walk may stop at them, as it stops at a
    * trusted accepted state. */
   private verifiedMaps = new Set<string>();
-  mapVerified(hash: string): boolean {
-    return this.verifiedMaps.has(hash);
+  mapVerified(key: string): boolean {
+    return this.verifiedMaps.has(key);
   }
   retainVerifiedMaps(hashes: Iterable<string>) {
     for (const hash of hashes) {
@@ -105,6 +105,11 @@ export async function verifyIntentRetention(
     historyCache?: StateMapValidationCache;
     /** Audit a union without constructing a separate closure for every root. */
     union?: boolean;
+    /** Host acceptance needs a verified frontier, not an enumerated full closure.
+     * All staged overrides are hash-checked before any durable subtree is skipped. */
+    staged?: ReadonlyMap<string, Uint8Array>;
+    frontierOnly?: boolean;
+    onCount?: (name: string, value: number) => void;
     /** References whose history the caller has already verified: accepted
      * input states, and durable change records (each was walked by the job
      * that published it into append-only storage). The walk stops at them
@@ -123,6 +128,11 @@ export async function verifyIntentRetention(
   },
 ): Promise<Set<string>> {
   const bytesByHash = new Map<string, Uint8Array>();
+  for (const [hash, bytes] of options?.staged ?? []) {
+    if (hashObject(bytes) !== hash) throw new Error("Invalid retained object hash");
+    bytesByHash.set(hash, bytes);
+  }
+  let visits = 0, mapHits = 0;
   const all = new Set<string>();
   const unionVerified = new Set<string>(), unionVisited = new Set<string>();
   const requested = new Set(roots);
@@ -131,7 +141,18 @@ export async function verifyIntentRetention(
       visited = options?.union ? unionVisited : new Set<string>();
     const pending: Reference[] = [{ hash: root, kind: "state" }];
     const hot: Reference[] = [];
+    const parents = new Map<string, Set<string>>();
+    const blocked = new Set<string>();
+    const mapCandidates = new Set<string>();
+    let parent: string | undefined;
+    let reusedRootClosure = false;
     const schedule = (edge: Reference) => {
+      if (parent) {
+        const key = edge.kind + ":" + edge.hash;
+        const owners = parents.get(key) ?? new Set<string>();
+        owners.add(parent);
+        parents.set(key, owners);
+      }
       const known =
         options &&
         (options.cache.closure(edge.hash) ||
@@ -149,6 +170,10 @@ export async function verifyIntentRetention(
         key = ref.kind + ":" + ref.hash;
       if (visited.has(key)) continue;
       visited.add(key);
+      visits++;
+      parent = key;
+      if (ref.kind.startsWith("map-")) mapCandidates.add(key);
+      if (options && !options.durable(ref.hash)) blocked.add(key);
       verified.add(ref.hash);
       if (verified.size > 1_000_000)
         throw new Error("Retained graph exceeds verification budget");
@@ -156,15 +181,33 @@ export async function verifyIntentRetention(
         (ref.kind === "state" || ref.kind === "change") && !requested.has(ref.hash) &&
         options?.trusted?.(ref) && options.durable(ref.hash)
       ) continue;
-      if (ref.kind.startsWith("map-") && options?.cache.mapVerified(ref.hash) && options.durable(ref.hash))
+      if (ref.kind.startsWith("map-") && options?.staged && options.cache.mapVerified(key) && options.durable(ref.hash)) {
+        mapHits++;
         continue;
+      }
       const closure =
         ref.kind === "state" ? options?.cache.closure(ref.hash) : undefined;
+      if (closure && options?.frontierOnly && options.staged) {
+        if (ref.hash === root) reusedRootClosure = true;
+        // A compact certificate already proves the durable part. Only bytes
+        // pending publication need another read; overrides were checked above.
+        for (const hash of closure.pending) {
+          const bytes = bytesByHash.get(hash) ?? await load(hash);
+          if (hashObject(bytes) !== hash) throw new Error("Invalid retained object hash");
+          bytesByHash.set(hash, bytes);
+          if (!options.durable(hash)) blocked.add(key);
+          verified.add(hash);
+        }
+        // Preserve pending obligations until publication is observed. This
+        // certificate must not be replaced by the smaller frontier below.
+        continue;
+      }
       if (closure) {
         // A proposal may include an already durable hash, but cannot override its
         // bytes merely because the stored graph has a certificate.
         for (const type of closure.types) visited.add(type);
         for (const hash of closure.hashes) {
+          if (!options!.durable(hash)) blocked.add(key);
           if (closure.pending.has(hash) || !options!.durable(hash)) {
             const bytes = bytesByHash.get(hash) ?? (await load(hash));
             if (hashObject(bytes) !== hash)
@@ -230,8 +273,8 @@ export async function verifyIntentRetention(
             add(reference.slice(colon + 1), reference.slice(0, colon) as Kind);
           }
         }
-      } else if (ref.kind === "state" && !options?.state?.(ref.hash) && indexedStateParts(bytes)) {
-        // An unvalidated indexed state: its active material whole, its history
+      } else if (ref.kind === "state" && indexedStateParts(bytes)) {
+        // Every indexed state: its active material whole, its history
         // as typed map nodes, so shared history is walked once per node.
         const parts = indexedStateParts(bytes)!;
         const active = await loadIntentState(parts.active, async (hash) => {
@@ -271,10 +314,6 @@ export async function verifyIntentRetention(
         if (proof)
           for (const hash of proof.dependencies)
             if (hash !== ref.hash) add(hash);
-        // Also walk its history as typed map nodes (the same objects), so they
-        // are remembered as verified and a later state sharing them stops there.
-        const parts = proof ? indexedStateParts(bytes) : undefined;
-        if (parts) for (const field of historyFields) add(parts.maps[field], `map-${field}`);
         for (const ref of proof?.references ?? intentReferences(value)) {
           const colon = ref.indexOf(":");
           add(ref.slice(colon + 1), ref.slice(0, colon) as Kind);
@@ -287,21 +326,33 @@ export async function verifyIntentRetention(
     // The walk already established this exact typed closure. Rebuilding it
     // from intermediate frontiers revisits the same history several times.
     // Input roots are primed separately; retain only the requested root here.
-    if (!options?.union) options?.cache.retainClosure(root, {
+    if (!options?.union && !reusedRootClosure) options?.cache.retainClosure(root, {
       hashes: verified,
       types: visited,
       pending: new Set([...verified].filter((hash) => !options.durable(hash))),
     });
     if (!options?.union) for (const hash of verified) all.add(hash);
-    // Every map node visited here had its whole closure walked in this root;
-    // when all of that is durable, later walks may stop at those nodes.
-    if (options && ![...verified].some((hash) => !options.durable(hash)))
+    // Promote each typed map independently. A staged sibling or state root
+    // must not prevent a wholly durable history branch from becoming reusable.
+    // Propagate non-durability up observed edges; semantic proofs alone never
+    // establish availability. Already certified branches are terminal edges.
+    if (options && !options.union) {
+      const queue = [...blocked];
+      for (let i = 0; i < queue.length; i++)
+        for (const owner of parents.get(queue[i]!) ?? []) if (!blocked.has(owner)) {
+          blocked.add(owner); queue.push(owner);
+        }
       options.cache.retainVerifiedMaps(
-        [...visited].filter((key) => key.startsWith("map-")).map((key) => key.slice(key.indexOf(":") + 1)),
+        [...mapCandidates].filter(key => !blocked.has(key)),
       );
+    }
     if (all.size > 1_000_000)
       throw new Error("Retained graph exceeds verification budget");
   }
+  try {
+    options?.onCount?.("retention-visits", visits);
+    options?.onCount?.("retention-map-hits", mapHits);
+  } catch { /* Diagnostics cannot affect acceptance. */ }
   return options?.union ? unionVerified : all;
 }
 

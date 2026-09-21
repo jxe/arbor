@@ -395,3 +395,47 @@ change should make proof/retention reuse proportional to changed history and
 measure on a disposable production copy; simply enlarging the cache would leave
 the full-dependency traversal. No performance change was deployed during this
 investigation.
+
+
+## Incremental authority validation and retention (2026-09-21)
+
+History validation now retains a shared proof tree with immutable synchronous
+lookup views. Changed radix branches reuse child proofs without flattening all
+history values, dependency hashes, or references. A reference-counted memory
+ledger includes both cache entries and accepted-state leases, counts shared
+allocations once, and enforces the existing history budget. Accepted-state
+proofs charge their own active/material data instead of the complete expanded
+history; expanded-input validation limits remain enforced independently.
+
+Retention uses typed history-map traversal even when semantic proofs are
+available. It promotes wholly durable branches independently, preserves staged
+publication obligations, and hash-checks staged overrides before reusing a
+certificate. Host acceptance rechecks the pending frontier; fresh audits keep
+the complete graph walk. Cache certificates include the history-field type.
+Regression cases cover 100 versus 10,000 history entries, cache eviction and
+pinned ownership, abandoned proposals, repeated staged checks, corrupt staged
+overrides, role changes, and a large history under a small per-state budget.
+New `retention-visits` and `retention-map-hits` diagnostics make reuse observable.
+
+A local before/after replay used separate disposable copies of the September 19
+schema-15 production backup and baseline commit `15586d75`. Across the same 14
+synthetic fast, divergent, conflict-creating, and live-conflict edit scenarios,
+median merge-tool time fell from 217.5 to 150.5 ms; validation from 30.5 to
+19.5 ms; retention from 73 to 23.5 ms. Cold warmup was 3.53 versus 3.71 seconds,
+so this is a warm-update improvement, not a cold-start improvement. The replay
+snapshot has less history than the September 21 production state; these local
+numbers are not a production latency forecast. Raw replay logs are local at
+`/tmp/arbor-validation-replay-{old,new}.jsonl`.
+
+Production follow-up after Joe pushes and uses Canopy for one or two days should
+compare warm single-update timings, separately from cold starts and batches:
+`worker-validate-state`, `worker-retention`, total host time, proof hits/rejections,
+and the two retention counters. Compare similar edit/conflict workloads. No live
+data, installed app, or deployment was changed by this implementation.
+
+Verification on Bun 1.3.14: all 1,155 product tests, the complete protocol gate,
+270 focused merger/retention tests, 16 standalone ArborSyncClient tests,
+typecheck, build, links, and whitespace checks passed. The 50,000-file gate
+passed (217 ms startup, 17.06 s cold walk, 2.81 s warm, 2.61 s incremental).
+The disposable five-tree schema-15 copy passed a full integrity audit with its
+account, device, access, boundary, reservation, policy, and tree rows unchanged.

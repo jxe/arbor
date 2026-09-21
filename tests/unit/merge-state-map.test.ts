@@ -197,3 +197,30 @@ test("successive edits remain correct when a small proof budget evicts history",
   expect(Object.keys(loaded.values)).toHaveLength(1050);
   expect(loaded.values["added-49"]).toBe(1049);
 });
+
+test("shared proof ownership stays bounded while state caches pin history", async () => {
+  const f = fixture(), cache = new StateMapValidationCache(120_000);
+  const options = { cache, role: "number", maxBytes: 1_000_000, validate: (v: unknown) => v };
+  const root = storeStateMap(Object.fromEntries(Array.from({length: 100}, (_, i) => [`k-${i}`, i])), f.put);
+  const proof = await loadValidatedStateMap(root, f.read, options);
+  const before = cache.size.bytes;
+  const release = cache.pin([proof])!;
+  const releaseAgain = cache.pin([proof])!;
+  expect(release).toBeFunction();
+  expect(cache.size.bytes).toBe(before); // No repeated charge for another owner.
+  for (let i = 0; i < 8; i++) {
+    const other = storeStateMap({[`other-${i}`]: "x".repeat(20_000)}, f.put);
+    await loadValidatedStateMap(other, f.read, options);
+    expect(cache.size.bytes).toBeLessThanOrEqual(120_000);
+  }
+  expect(proof.values["k-99"]).toBe(99); // Survives eviction of its cache entry.
+  const pinned = cache.size.bytes;
+  release();
+  expect(cache.size.bytes).toBe(pinned); // The second owner still holds it.
+  releaseAgain();
+  expect(cache.size.bytes).toBeLessThan(pinned);
+  releaseAgain(); // Release is idempotent.
+  const huge = await loadValidatedStateMap(storeStateMap({huge: "x".repeat(100_000)}, f.put), f.read, options);
+  expect(cache.pin([huge])).toBeUndefined();
+  expect(cache.size.bytes).toBeLessThanOrEqual(120_000);
+});

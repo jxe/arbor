@@ -193,3 +193,26 @@ test("authority rejects missing inverse material and a forged result projection"
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("accepted-state proofs share bounded history rather than charging it to every head", async () => {
+  const { loadIntentState, storeIntentState } = await import("../../../packages/canopyd-merge/src/state-storage.ts");
+  const f = new Fixture(), base = f.tree({"a.txt": "one"});
+  const first = await f.run(f.request(base, base, [{kind: "editSource", key: "same", source: f.ref("/a.txt", "one"), text: "one"}], "initial"));
+  const state = await loadIntentState(first.result.state, async hash => f.objects.get(hash)!);
+  const change = f.put(JSON.stringify({base: {object: base}, incoming: {object: base}}));
+  for (let i = 0; i < 2000; i++) state.changes[`history-${i}`] = change;
+  const ref = {object: base, state: storeIntentState(state, bytes => f.put(bytes))};
+  const directory = await mkdtemp(join(tmpdir(), "arbor-proof-ownership-"));
+  try {
+    const objects = new ObjectStore(join(directory, "objects"));
+    await objects.store([...f.objects].map(([hash, bytes]) => ({hash, bytes})));
+    // Large history has a separate, shared budget. The per-head budget only
+    // owns active state, material validation, and references into that history.
+    await using tool = new MergeTool(directory, {objects, stateProofBytes: 16_384, historyCacheBytes: 2_000_000});
+    await tool.warm("tree", ref);
+    expect(tool.validatedState("tree", ref)?.changes["history-1999"]).toBe(change);
+    const reads = objects.readCounters.reads;
+    await tool.warm("tree", ref);
+    expect(objects.readCounters.reads).toBe(reads);
+  } finally { await rm(directory, {recursive: true, force: true}); }
+});

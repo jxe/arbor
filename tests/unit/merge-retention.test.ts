@@ -414,3 +414,61 @@ test("verified durable map nodes stop later walks; staged ones never seed that t
   f.objects.delete(change);
   await expect(verifyIntentRetention([sibling], load, { cache: staged, durable: () => true })).rejects.toThrow("Missing object");
 });
+
+test("validated indexed retention visits changed branches, not flattened history", async () => {
+  for (const count of [100, 10_000]) {
+    const f = fixture(), cache = new RetentionCache();
+    const put = (bytes: Uint8Array) => { const h = hashObject(bytes); f.objects.set(h, bytes); return h; };
+    const state = await loadIntentState(f.state, f.load);
+    const envelope = put(new TextEncoder().encode(JSON.stringify({base: {object: f.directoryOf()}, incoming: {object: f.directoryOf()}})));
+    state.changes = Object.fromEntries(Array.from({length: count}, (_, i) => [`edit-${i}`, envelope]));
+    const root = storeIntentState(state, put);
+    const staged = new Map<string, Uint8Array>();
+    let visits = 0;
+    const options = { cache, durable: (h: string) => !staged.has(h), staged, frontierOnly: true,
+      onCount: (name: string, n: number) => { if (name === "retention-visits") visits = n; },
+      state: () => ({ value: state, dependencies: { *[Symbol.iterator](): Generator<string> { throw Error("Flattened history"); } } }),
+    };
+    await verifyIntentRetention([root], f.load, options);
+    const old = new Set(f.objects.keys());
+    state.changes.next = envelope;
+    const next = storeIntentState(state, put);
+    for (const [h, bytes] of f.objects) if (!old.has(h)) staged.set(h, bytes);
+    await verifyIntentRetention([next], f.load, options);
+    expect(visits).toBeLessThan(80);
+    // A cached closure still requires staged bytes after an abandoned proposal.
+    const missing = [...staged.keys()].find(h => h !== next)!;
+    f.objects.delete(missing);
+    staged.clear();
+    await expect(verifyIntentRetention([next], f.load, options)).rejects.toThrow("Missing object");
+  }
+});
+
+test("typed map certificates reject role changes and corrupt staged overrides", async () => {
+  const { f, head, load, put } = await indexedHistory();
+  const cache = new RetentionCache();
+  const options = { cache, durable: () => true, staged: new Map<string, Uint8Array>(), frontierOnly: true };
+  await verifyIntentRetention([head.state], load, options);
+  const state = await loadIntentState(head.state, load);
+  const manifest = JSON.parse(new TextDecoder().decode(f.objects.get(head.state)!));
+  manifest.maps.effects = manifest.maps.changes;
+  const wrongRole = put(new TextEncoder().encode(JSON.stringify(manifest)));
+  await expect(verifyIntentRetention([wrongRole], load, options)).rejects.toThrow();
+  options.staged.set(Object.values(state.changes)[0]!, new TextEncoder().encode("corrupt override"));
+  await expect(verifyIntentRetention([head.state], load, options)).rejects.toThrow("Invalid retained object hash");
+});
+
+test("repeated staged closure reuse cannot certify unpublished history", async () => {
+  const { f, head, load, put } = await indexedHistory();
+  const state = await loadIntentState(head.state, load);
+  const change = Object.values(state.changes)[0]!;
+  const cache = new RetentionCache();
+  const staged = new Map([[change, f.objects.get(change)!]]);
+  const options = {cache, staged, durable: (h: string) => !staged.has(h)};
+  await verifyIntentRetention([head.state], load, options);
+  await verifyIntentRetention([head.state], load, options);
+  f.objects.delete(change);
+  staged.clear();
+  const sibling = storeIntentState(state, put, false);
+  await expect(verifyIntentRetention([sibling], load, options)).rejects.toThrow("Missing object");
+});

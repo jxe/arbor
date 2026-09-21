@@ -112,6 +112,36 @@ against the preceding validated state; graph validation inherits unchanged
 structure only from an accepted root. Retention independently checks availability
 of staged dependencies before acceptance.
 
+History validation proofs mirror the immutable radix tree. A parent references
+child proofs instead of copying every descendant record, object hash, and
+reference into flat collections. Synchronous lookup follows that tree; complete
+enumeration remains available for audits and legacy consumers. The input's
+expanded-byte and visit limits still apply, including on cache hits.
+
+The history cache accounts for each reachable proof allocation once. Accepted
+state-cache entries hold leases on their history roots, so evicting a lookup
+entry cannot hide memory still retained by an accepted state. Shared history
+uses the existing 256 MiB history budget; active state and material proofs use
+the existing 64 MiB state budget. A lease that cannot fit is declined. Neither
+budget was enlarged.
+
+Retention always traverses indexed history as typed map nodes, including when a
+semantic state proof is available. Durable subtrees are reusable by both hash
+and history-field type. A staged sibling does not prevent an independent durable
+branch from being certified. Pending publication obligations propagate to their
+parents; repeated proposal checks cannot promote unpublished dependencies.
+The host hash-checks all staged overrides before skipping certified subtrees.
+Its cached checks need only the verified frontier and pending bytes, while a
+fresh integrity audit still enumerates and checks the full closure.
+
+Update diagnostics include `retention-visits` and `retention-map-hits` alongside
+validation/retention timings and proof-cache hits/rejections. `history-mb` now
+includes shared allocations held by state-proof leases. `proof-mb` and
+`proof-bytes-last` account for the state-owned portion only, so their magnitudes
+are not directly comparable with the earlier expanded-history charges. As with
+the other diagnostic counters, multiple evaluations within one HTTP request
+are summed.
+
 ## Operation evaluation
 
 A tree request may carry authored operations. There is one evaluator; snapshot
