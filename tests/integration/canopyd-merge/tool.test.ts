@@ -314,5 +314,6 @@ test("host evaluation budgets are bounded by the worker timeout", () => {
   expect(new MergeTool(directory, {timeoutMs: 100}).evaluationMillis).toBe(100);
   expect(new MergeTool(directory, {evaluationMillis: 12_000}).evaluationMillis).toBe(12_000);
   expect(() => new MergeTool(directory, {evaluationMillis: 30_001})).toThrow("Invalid merge worker limits");
+  expect(() => new MergeTool(directory, {timeoutMs: 60_000, evaluationMillis: 40_000})).toThrow("Invalid merge worker limits");
   expect(() => new MergeTool(directory, {evaluationMillis: NaN})).toThrow("Invalid merge worker limits");
 });

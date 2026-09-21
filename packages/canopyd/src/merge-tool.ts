@@ -147,7 +147,7 @@ export class MergeTool {
       !Number.isInteger(options.timeoutMs ?? 30_000) ||
       (options.timeoutMs ?? 30_000) < 1 ||
       !Number.isInteger(this.evaluationMillis) || this.evaluationMillis < 1 ||
-      this.evaluationMillis > (options.timeoutMs ?? 30_000)
+      this.evaluationMillis > Math.min(30_000, options.timeoutMs ?? 30_000)
     )
       throw new Error("Invalid merge worker limits");
     this.shared = options.objects ?? new ObjectStore(join(dataRoot, "objects"));

@@ -192,3 +192,21 @@ passed with only that test excluded (16 ArborSyncClient, 22 CanopyAppKit,
 44 Overstory, 20 OverstoryClient, 98 CanopyWorkingTree, and 5 live-editor tests).
 The Swift hidden-continuation regression now requires one scoped decision and
 verifies that the unchanged newline remains outside its alternatives.
+
+### Live todos continuation repair — 2026-09-21
+
+Deployed scoped conflict handling and a bounded 20-second host evaluation budget
+(the standalone merger default remains five seconds). The retained todos request
+then exposed stale local directory aliases in newly recorded continuation
+contexts. Those aliases now fall back to their immutable state references, both
+when capturing an advanced directory and when propagating a nested decision.
+Alternatives and decision identities remain retained until guarded resolution.
+The host also rejects evaluation budgets beyond the worker schema's 30-second
+maximum even when a longer process timeout is configured.
+
+Verification: the exact retained request evaluates locally to its original
+candidate; a minimal two-enclosure regression fails before the fix and passes
+with repeated continuation and state validation. All 251 focused merger tests,
+typecheck, CLI build, link checks, and whitespace checks passed. Live cleanup is
+still pending; recovery material is preserved outside version control. The full
+product suite passed 1,141 tests with only the known CLI placement failure.

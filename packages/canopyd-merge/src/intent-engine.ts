@@ -1243,6 +1243,18 @@ class Engine {
       }
     }
   }
+  // A structural alternative can alias a root whose children have just changed.
+  // Preserve its immutable value through the state reference; a stale local
+  // alias would make the recorded context unreadable on the next continuation.
+  private async retainDirectoryAlternatives(state: IntentState): Promise<void> {
+    for (const decision of state.decisions) {
+      if (decision.kind !== "directory") continue;
+      for (const alternative of decision.alternatives)
+        if (alternative.node && (!state.nodes[alternative.node] ||
+            await this.project(state, alternative.node) !== alternative.object))
+          delete alternative.node;
+    }
+  }
   async propagateDecisions(
     authored: IntentState,
     base: IntentState
@@ -1372,6 +1384,7 @@ class Engine {
               child.context = oldState;
             }
           }
+          await this.retainDirectoryAlternatives(context);
           const result = await this.record(context);
           branch.state = result.state;
           if (
@@ -1406,7 +1419,12 @@ class Engine {
               if (error instanceof IntentError && error.code === "limit")
                 throw error;
             }
-          } else if (parent.kind !== "content") branch.object = result.object;
+          } else if (parent.kind !== "content") {
+            branch.object = result.object;
+            if (branch.node && (!authored.nodes[branch.node] ||
+                await this.project(authored, branch.node) !== branch.object))
+              delete branch.node;
+          }
           // A structural child can change retained decisions without changing the
           // containing text. Its context root is never a text-fragment object.
           for (const child of authored.decisions)
@@ -1580,6 +1598,7 @@ class Engine {
             alternative.object = object;
             const context = cloneState(authored);
             context.root = node.id;
+            await this.retainDirectoryAlternatives(context);
             alternative.state = (await this.record(context)).state;
             alternative.contributions.push(
               ...operationsOf(request.incoming).map((op) => ({

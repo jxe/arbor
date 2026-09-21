@@ -1,3 +1,4 @@
+import { validateIntentState } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
 import { expect, test } from "bun:test";
 import type { MaterialRef, SourceOperation } from "@overstory/protocol";
@@ -2015,4 +2016,38 @@ test("splitting a source choice stays within its file and does not conflict with
   expect(result.decisions.every(d=>d.kind==="content")).toBe(true);
   expect(f.content(result.result.object,"other.txt")).toBe("Y");
   expect(f.content(result.result.object,"a.txt")).toBe("cyan tail tan\n");
+});
+
+
+test("nested enclosures retain readable alternatives as a source branch advances", async () => {
+  const f = new Fixture();
+  const tree = (a: string, b = "end", c = "end") =>
+    f.tree({ "a.txt": a, "b.txt": b, "c.txt": c });
+  const edit = (before: string, after: string): SourceOperation[] => [{
+    key: "edit", kind: "editSource", source: f.ref("/a.txt", before), text: after,
+  }];
+  const base = tree("old");
+  const a = await f.run(f.request(base, tree("one"), edit("old", "one"), "a"));
+  const b = await f.run(f.request(base, tree("two"), edit("old", "two"), "b", a.result));
+  const copied = await f.run(f.request(b.result, tree("two", "endwo"), [{
+    key: "copy", kind: "copySource", source: f.ref("/a.txt", "two", [1, 3]),
+    at: f.ref("/b.txt", "end", [3, 3]), side: "after",
+  }], "copy"));
+  const twice = await f.run(f.request(copied.result, tree("two", "endwo", "endwo"), [{
+    key: "copy", kind: "copySource", source: f.ref("/a.txt", "two", [1, 3]),
+    at: f.ref("/c.txt", "end", [3, 3]), side: "after",
+  }], "copy2"));
+  const objects = { read: async (hash: string) => f.objects.get(hash)!, store: async () => {} };
+  await validateIntentState(twice.result, "tree", objects);
+  // Both enclosing decisions can alias the same root. Updating the nested
+  // choice must not leave either newly recorded context with a stale alias.
+  const edited = await f.run(f.request(twice.result, tree("THREE", "endwo", "endwo"),
+    edit("two", "THREE"), "later"));
+  expect(f.content(edited.result.object, "a.txt")).toBe("THREE");
+  expect(edited.decisions.map(d => d.key)).toEqual(twice.decisions.map(d => d.key));
+  await validateIntentState(edited.result, "tree", objects);
+  const next = await f.run(f.request(edited.result, tree("FOUR", "endwo", "endwo"),
+    edit("THREE", "FOUR"), "again"));
+  expect(f.content(next.result.object, "a.txt")).toBe("FOUR");
+  expect(next.decisions.map(d => d.key)).toEqual(edited.decisions.map(d => d.key));
 });
