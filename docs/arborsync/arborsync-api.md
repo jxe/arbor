@@ -303,6 +303,38 @@ POST /v1/bootstrap/pairings
 POST /v1/local/forget
 ```
 
+Mac onboarding reads `GET /v1/accounts`, whose envelope contains `accounts`,
+`identity`, `pendingClaim`, and `pendingPairing` (each nullable). A pending claim exposes
+its `account` URL, local `path`, and `canCancel` flag, never its credential or
+signature. A pending pairing exposes only its community `origin`. Corrupt
+identity metadata and credential-store failures are errors, not absent identities.
+
+`POST /v1/me` accepts `{ path }` to create an identity idempotently.
+`POST /v1/me/restore` accepts `{ path, backup }`, using the version-1 identity
+backup object; it validates the complete key/TreeID relationship and refuses to
+replace a different identity. `POST /v1/me/backup` accepts `{ destination }` and
+writes a new owner-readable file, refusing to overwrite an existing file. These
+are same-user loopback operations with the same credential boundary described
+above. Backup bodies must never be logged.
+
+Account bootstrap accepts either a community origin or an exact account URL in
+`account`. It stores the resolved URL from the signed challenge in its durable
+pending claim and resumes the same claim after interruption.
+Preparations do not install account checkout files until the host accepts the
+claim. `POST /v1/bootstrap/accounts/cancel` abandons only a preparation that has
+never been submitted. Once submission could have reached the host, the exact
+request and credential are retained for retry; cancellation is rejected.
+
+`POST /v1/bootstrap/pairings/claim` accepts `{ payload }`, where `payload` is the
+version-1 QR pairing object `{ version, origin, pairing: { id, secret } }`. An
+empty object resumes the persisted pairing. Mac pairing requires an existing
+matching profile identity, stores its exact device request and credential before
+contacting the host, and installs the account into ArborSync's account store.
+It verifies the returned device, profile and community and refuses to overwrite
+an existing checkout with different contents. It does not generate a profile key.
+Pairing codes and device credentials must never be logged.
+
+
 Account bootstrap requires an existing self-certifying profile identity. It
 generates the private configuration TreeID, DeviceID, and device credential
 locally, stores the raw credential in the operating-system credential store,

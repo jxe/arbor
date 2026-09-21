@@ -4,12 +4,13 @@ import { join, resolve } from "node:path";
 import type { MutationReceipt, PairingOffer } from "@overstory/protocol";
 import { SYSTEM_TREE, generateArborID, isPersonProfileTreeID, sha256, type AccountChallenge, CanopyAccountStore, arborDataRoot, arborPrivateRoot, loadCanopyAccountConfigurations, saveCurrentAccountDeviceID, WireClient, decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON, ProtocolError } from "@overstory/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
-import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
+import { withLocalStateLock, ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import { accountWireClient } from "./account-wire.ts";
 import type { AccountBootstrapDeps } from "./ports.ts";
 
 interface PendingAccountClaimBootstrap {
   version: 2;
+  stage?: "prepared" | "submitting";
   account: string;
   origin: string;
   path: string;
@@ -110,7 +111,7 @@ async function claimAccountProfileBootstrap(
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   let credential: string | null = null;
   if (pending) {
-    if (pending.version !== 2 || pending.account !== account || pending.origin !== origin || pending.path !== path || pending.profileTree !== profileTree) {
+    if (pending.version !== 2 || (pending.account !== account && account !== origin) || pending.origin !== origin || pending.path !== path || pending.profileTree !== profileTree) {
       throw new ProtocolError("conflict", "A different account bootstrap is already pending in this data home", 409);
     }
     credential = await new CanopyAccountStore(pending.configurationTree).provisionalCredential();
@@ -173,6 +174,7 @@ async function claimAccountProfileBootstrap(
       await writeFile(join(staging, "devices.yaml"), files.devices, { mode: 0o600 });
       pending = {
         version: 2,
+        stage: "prepared",
         account,
         origin,
         path,
@@ -194,6 +196,66 @@ async function claimAccountProfileBootstrap(
     }
   }
 
+  if (!credential) throw new ProtocolError("conflict", "The bootstrap credential is unavailable", 409);
+  const client = new WireClient(origin);
+  if (!pending.challenge || !pending.publicKey || !pending.signature) {
+    pending.challenge = await client.createAccountChallenge({
+      account: pending.account === origin ? undefined : pending.account,
+      profileTree: pending.profileTree,
+      configurationTree: pending.configurationTree,
+    });
+    if (pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
+      throw new ProtocolError("conflict", "Account challenge target disagrees with the requested community", 409);
+    }
+    pending.account = pending.challenge.account;
+    const signed = await identity.signChallenge(pending.challenge);
+    pending.publicKey = signed.publicKey;
+    pending.signature = signed.signature;
+    const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
+    await rename(temporary, pendingPath);
+  }
+  const submitClaim = async () => {
+    pending.stage = "submitting";
+    const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
+    await rename(temporary, pendingPath);
+    return client.joinAccount({
+      account: pending.account,
+      profileTree: pending.profileTree,
+      configurationTree: pending.configurationTree,
+      challenge: pending.challenge!,
+      publicKey: pending.publicKey!,
+      signature: pending.signature!,
+      device: { id: pending.deviceID, label: pending.label, credentialDigest: pending.credentialDigest },
+      configuration: bootstrapSnapshot(pending.configuration),
+    });
+  };
+  let result;
+  try {
+    result = await submitClaim();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("Account challenge is expired")) throw error;
+    pending.challenge = await client.createAccountChallenge({
+      account: pending.account === origin ? undefined : pending.account,
+      profileTree: pending.profileTree,
+      configurationTree: pending.configurationTree,
+    });
+    if (pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
+      throw new ProtocolError("conflict", "Account challenge target disagrees with the requested community", 409);
+    }
+    pending.account = pending.challenge.account;
+    const signed = await identity.signChallenge(pending.challenge);
+    pending.publicKey = signed.publicKey;
+    pending.signature = signed.signature;
+    const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
+    await rename(temporary, pendingPath);
+    result = await submitClaim();
+  }
+  if (result.account.configuration.id !== pending.configurationTree || result.account.profileTree !== pending.profileTree) {
+    throw new ProtocolError("conflict", "Claimed account identity disagrees with the prepared bootstrap", 409);
+  }
   const install = async (destination: string, source: string) => {
     const existing = await readFile(destination, "utf8").catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : Promise.reject(error));
     if (existing !== null && existing !== source) throw new ProtocolError("conflict", `Bootstrap will not overwrite ${destination}`, 409);
@@ -210,52 +272,6 @@ async function claimAccountProfileBootstrap(
   }
   await saveCurrentAccountDeviceID(pending.configurationTree, pending.deviceID);
 
-  if (!credential) throw new ProtocolError("conflict", "The bootstrap credential is unavailable", 409);
-  const client = new WireClient(origin);
-  if (!pending.challenge || !pending.publicKey || !pending.signature) {
-    pending.challenge = await client.createAccountChallenge({
-      account: pending.account,
-      profileTree: pending.profileTree,
-      configurationTree: pending.configurationTree,
-    });
-    const signed = await identity.signChallenge(pending.challenge);
-    pending.publicKey = signed.publicKey;
-    pending.signature = signed.signature;
-    const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
-    await rename(temporary, pendingPath);
-  }
-  const submitClaim = () => client.joinAccount({
-    account: pending.account,
-    profileTree: pending.profileTree,
-    configurationTree: pending.configurationTree,
-    challenge: pending.challenge!,
-    publicKey: pending.publicKey!,
-    signature: pending.signature!,
-    device: { id: pending.deviceID, label: pending.label, credentialDigest: pending.credentialDigest },
-    configuration: bootstrapSnapshot(pending.configuration),
-  });
-  let result;
-  try {
-    result = await submitClaim();
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("Account challenge is expired")) throw error;
-    pending.challenge = await client.createAccountChallenge({
-      account: pending.account,
-      profileTree: pending.profileTree,
-      configurationTree: pending.configurationTree,
-    });
-    const signed = await identity.signChallenge(pending.challenge);
-    pending.publicKey = signed.publicKey;
-    pending.signature = signed.signature;
-    const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
-    await rename(temporary, pendingPath);
-    result = await submitClaim();
-  }
-  if (result.account.configuration.id !== pending.configurationTree || result.account.profileTree !== pending.profileTree) {
-    throw new ProtocolError("conflict", "Claimed account identity disagrees with the prepared bootstrap", 409);
-  }
   await new CanopyAccountStore(pending.configurationTree).set(credential, {
     origin,
     account: pending.account,
@@ -284,7 +300,8 @@ export async function claimCanopyAccountBootstrap(
   inputPath: string,
   displayName?: string,
 ): Promise<MutationReceipt["effects"]> {
-  return claimAccountProfileBootstrap(deps, accountLocator, inputPath, displayName);
+  return withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"),
+    () => claimAccountProfileBootstrap(deps, accountLocator, inputPath, displayName));
 }
 
 /** Disconnect this data home from every claimed account without revoking server devices or deleting user files. */
@@ -306,4 +323,27 @@ export async function createPairingBootstrap(deps: AccountBootstrapDeps, configu
   }
   const selected = await accountWireClient({ configurationTree }, { communityConfig: deps.communityConfig, required: true });
   return selected.client.createPairing();
+}
+
+/** Only preparations which have never been submitted can be abandoned. */
+export async function cancelPendingAccountClaim(): Promise<void> {
+  await withLocalStateLock(join(arborPrivateRoot(), "account-bootstrap-lock.sqlite"), async () => {
+    const path = join(arborPrivateRoot(), "bootstrap-account-claim.json");
+    let pending: PendingAccountClaimBootstrap;
+    try { pending = JSON.parse(await readFile(path, "utf8")); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+    if (pending.version !== 2 || pending.stage !== "prepared") {
+      throw new ProtocolError("conflict", "This connection may already have reached the community. Resume it to preserve its device credential.", 409);
+    }
+    // Prepared claims never install checkouts. Refuse unexpected state rather
+    // than remove anything another operation might have adopted.
+    const checkout = join(arborDataRoot(), "accounts", pending.configurationTree);
+    if (await stat(checkout).then(() => true).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false; throw error;
+    }) || await new CanopyAccountStore(pending.configurationTree).safe()) {
+      throw new ProtocolError("conflict", "This preparation already has local account state; resume it instead", 409);
+    }
+    await new CanopyAccountStore(pending.configurationTree).remove();
+    await rm(path);
+  });
 }

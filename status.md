@@ -16,6 +16,8 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 | Area | State | Where to read |
 |---|---|---|
+| Canopy first launch: shared Mac/CLI identity, create/recover/backup, guarded legacy reconciliation, community-address claim and durable retry; iOS pairing-only setup | implemented, not installed | [browser design](docs/canopy-browser/design.md#first-launch-and-identity), [account bootstrap](docs/arborsync/arborsync-api.md#4-account-bootstrap-forget-and-conflict-review) |
+| Bun CLI distribution: publishable package, external-checkout cloud sessions, explicit daemon requirements, durable installed watcher/runtime assets | implemented, not published | [bunx usage](docs/cli.md#running-with-bunx) |
 | Tree identity and synchronization: stable TreeIDs, immutable objects, content-addressed snapshot bundles, accepted updates, append-only update strings, watch streams with unconditional net catch-up, sparse object transfer, canonical boundaries, public HTML and Markdown projection; TypeScript and Swift with shared fixtures | deployed | [tree operations](spec/01-tree-operations.md), [conformance](spec/conformance/README.md) |
 | Protocol format 5: raw file objects, typed file/directory/tree entries, sparse bootstrap without a file map, optional accepted-conflict metadata | deployed, installed | [tree operations](spec/01-tree-operations.md) |
 | Authored change identity: every candidate carries `change`, `trace` (up to 64 frames and 1024 operations) or `trace: null`, `resolves`, and optional `ifCurrent`; digests over domain `arbor-update/2`; whole-batch rejection of unsupported semantics before any prefix is accepted | deployed, installed | [tree operations §2.1](spec/01-tree-operations.md#21-the-update-request), [source intent](spec/10-source-intent.md) |
@@ -76,3 +78,62 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Detailed catalog](plans/catalog.md), every retained plan and design candidate.
 - [Release and verification](plans/verification/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
+
+## 2026-09-21 onboarding and package verification
+
+Bun 1.3.14: typecheck, build, protocol, performance (50,000 files), and the
+244-test merge suite passed. The focused identity/challenge suite passed all
+20 tests, including corrupt metadata, unavailable/mismatched keys, recovery,
+community-only lookup, ambiguous reservations, and a lost successful claim
+response resumed by a fresh client. Shared challenge fixtures are consumed by
+both TypeScript and Swift. Swift ArborSyncClient, Overstory, and OverstoryClient
+suites passed; the latter includes legacy-identity reconciliation decisions.
+Mac and iOS Simulator builds passed with the local Quagmire workspace.
+
+The full product suite recorded 1,121 passes and one existing failure:
+`places an existing private tree through its matching account` times out waiting
+for adoption of the destination placement. The same failure reproduced in a
+separate committed-source checkout, with only file-backed test identity storage
+and the already-used csv-parse dependency supplied for isolated execution.
+
+A packed CLI installed outside the checkout completed cloud start/edit/status/
+finish/retry/revocation on macOS arm64. Its full CLI suite had 11 passes and the
+same placement failure. The durable installed helper started after the package
+cache was removed. The app-bundled helper started with only system tools on PATH
+and created an identity in disposable file-backed state. This is helper/runtime
+evidence, not a manual clean-machine app or Login Items approval walkthrough.
+No installed app, live data, public host, or npm publication was changed.
+
+Manual onboarding/QR/Keychain UX and package execution on macOS x64 and Linux
+glibc arm64/x64 remain release checks. `bun run test:cli:package` reproduces the
+packed-artifact and cache-removal checks; it reports the existing placement
+failure rather than suppressing it.
+
+### Onboarding recovery fixes
+
+Identity installation now serializes across processes and saves a verified secure
+recovery record before binding the profile folder. Keychain write denial is
+retryable; missing public metadata and interrupted installation resume the same
+identity. Moved data homes retain stored credential references. Legacy keys remain
+intact, and explicit matching-backup repair preserves damaged metadata bytes.
+
+Community preparations can be cancelled before submission and no longer create
+account checkouts on failed address lookup. Possibly submitted claims retain their
+exact request for retry. Mac onboarding accepts pairing codes for already-claimed
+accounts; ArborSync persists the pairing before contact and verifies the returned
+profile/device before installing the account. The UI exposes pending pairing
+resume and no longer silently ignores edits to an address behind a pending claim.
+
+Verification on macOS arm64 with Bun 1.3.14: 26 focused identity/community tests
+passed, including separate-process creation, denied Keychain writes, lost claim
+and pairing responses, and damaged metadata recovery. A separate process-death
+lock regression and the protocol dependency-boundary test also passed. Typecheck,
+build, ArborSyncClient tests, the protocol gate (on rerun), and Mac/iOS Simulator
+builds passed. The protocol gate's first run hit an intermittent CanopyAppKit rename
+assertion; that unchanged suite passed standalone and in the rerun. The full product
+suite has 1,128 passes and the previously reproduced CLI placement failure above.
+The packed CLI has 11 passes and that same failure; its cloud lifecycle and
+cache-removal helper check pass. The newly built app helper also starts with only
+system tools on PATH and creates a disposable identity. Real Keychain prompts and
+manual app/QR interaction remain unverified; all credential failure tests used
+mocks or isolated file storage. Older-daemon compatibility was deliberately excluded.

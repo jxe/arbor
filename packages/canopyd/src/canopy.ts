@@ -567,17 +567,24 @@ export class CanopyDaemon implements AsyncDisposable {
 
   createAccountChallenge(input: {
     origin: string;
-    account: string;
+    account?: string;
     profileTree: string;
     configurationTree: string;
   }): AccountChallenge {
-    const reservation = this.accountReservation(input.account);
+    const matches = input.account === undefined
+      ? [...this.communityAccountReservations()].filter(([, value]) => value.profileTree === input.profileTree)
+      : [];
+    if (input.account === undefined && matches.length !== 1) {
+      throw new Error(matches.length ? "Several reservations match this identity; enter an exact account URL" : "This community has not reserved an account for this identity");
+    }
+    const account = input.account ?? `${input.origin}/~${matches[0]![0]}`;
+    const reservation = this.accountReservation(account);
     if (!reservation?.profileTree || reservation.profileTree !== input.profileTree) {
       throw new Error("Account challenge requires an exact profile reservation");
     }
     if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
     if (!isGeneratedArborID(input.configurationTree, "tr")) throw new Error("Account challenge requires a generated configuration TreeID");
-    if (new URL(input.origin).origin !== input.origin || new URL(input.account).origin !== input.origin) {
+    if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
       throw new Error("Account challenge target must use canonical Canopy URLs");
     }
     if (this.accountByHandle(reservation.handle) || this.boundary(`/~${reservation.handle}`)) throw new AlreadyClaimedError(reservation.handle);
@@ -586,7 +593,7 @@ export class CanopyDaemon implements AsyncDisposable {
       version: 1,
       id: generateArborID("ax"),
       origin: input.origin,
-      account: input.account,
+      account,
       profileTree: input.profileTree,
       configurationTree: input.configurationTree,
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),

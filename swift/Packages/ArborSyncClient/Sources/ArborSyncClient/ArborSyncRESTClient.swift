@@ -26,8 +26,28 @@ public struct LocalCanopyAccountDescriptor: Codable, Sendable, Equatable, Identi
     public var id: String { configurationTree }
 }
 
-private struct LocalCanopyAccountsEnvelope: Codable {
-    var accounts: [LocalCanopyAccountDescriptor]
+public struct LocalProfileIdentity: Codable, Sendable, Equatable {
+    public var profileTree: String
+    public var publicKey: String
+    public var profilePath: String
+    public var keyAvailable: Bool
+}
+
+public struct LocalPendingClaim: Codable, Sendable, Equatable {
+    public var canCancel: Bool?
+    public var account: String
+    public var path: String
+}
+
+public struct LocalPendingPairing: Codable, Sendable, Equatable {
+    public var origin: String
+}
+
+public struct LocalCanopyAccountsEnvelope: Codable, Sendable {
+    public var accounts: [LocalCanopyAccountDescriptor]
+    public var identity: LocalProfileIdentity?
+    public var pendingClaim: LocalPendingClaim?
+    public var pendingPairing: LocalPendingPairing?
 }
 
 /// The daemon's control surface as a same-installation client sees it: status,
@@ -90,6 +110,47 @@ public actor ArborSyncRESTClient {
     public func accounts() async throws -> [LocalCanopyAccountDescriptor] {
         let value: LocalCanopyAccountsEnvelope = try await get(path: "/v1/accounts", items: [])
         return value.accounts
+    }
+
+    public func onboardingState() async throws -> LocalCanopyAccountsEnvelope {
+        try await get(path: "/v1/accounts", items: [])
+    }
+
+    public func createIdentity(path: String) async throws {
+        try await onboardingPost("/v1/me", body: ["path": path])
+    }
+
+    public func restoreIdentity(backup: Data, path: String) async throws {
+        let value = try JSONSerialization.jsonObject(with: backup)
+        try await onboardingPost("/v1/me/restore", body: ["path": path, "backup": value])
+    }
+
+    public func backupIdentity(destination: String) async throws {
+        try await onboardingPost("/v1/me/backup", body: ["destination": destination])
+    }
+
+    public func claimPairing(payload: Data? = nil) async throws {
+        var body: [String: Any] = [:]
+        if let payload { body["payload"] = try JSONSerialization.jsonObject(with: payload) }
+        try await onboardingPost("/v1/bootstrap/pairings/claim", body: body)
+    }
+
+    public func cancelPendingClaim() async throws {
+        try await onboardingPost("/v1/bootstrap/accounts/cancel", body: [:])
+    }
+
+    public func claimAccount(account: String, path: String) async throws {
+        try await onboardingPost("/v1/bootstrap/accounts", body: ["account": account, "path": path])
+    }
+
+    private func onboardingPost(_ path: String, body: [String: Any]) async throws {
+        var request = URLRequest(url: url(path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // Account bootstrap returns an effects array; identity routes return envelopes.
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, status: statusCode(response))
     }
 
     public func resolve(_ locator: String) async throws -> LocatorResolution {

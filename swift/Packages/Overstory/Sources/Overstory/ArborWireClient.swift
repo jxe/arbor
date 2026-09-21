@@ -241,7 +241,7 @@ public actor ArborWireClient {
         return try value.validated()
     }
 
-    public func createAccountChallenge(account: String, profileTree: String, configurationTree: String) async throws -> WireAccountChallenge {
+    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String) async throws -> WireAccountChallenge {
         let value: WireAccountChallenge = try await post(
             path: "/.arbor/account-challenges",
             body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree),
@@ -595,7 +595,7 @@ func canonicalCBORHash(_ encoded: Data) -> String {
 
 private struct EmptyBody: Encodable {}
 private struct AccountChallengeRequest: Encodable {
-    var account: String
+    var account: String?
     var profileTree: String
     var configurationTree: String
 }

@@ -11,6 +11,8 @@ import { ArborSyncRESTClient } from "@overstory/arborsync-client";
 import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
 import { parseDocument } from "yaml";
 
+const bunExecutable = process.execPath;
+const cliEntry = process.env.ARBOR_TEST_CLI_ENTRY ?? join(import.meta.dir, "../../packages/cli/src/index.ts");
 let sandbox: string;
 let state: string;
 let profile: string;
@@ -20,8 +22,8 @@ let previousCloudHome: string | undefined;
 
 async function arborOutput(args: string[]): Promise<{ stdout: string; stderr: string }> {
   const daemon = await serveArborSyncControl({ port: 0 });
-  const process = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
-    cwd: join(import.meta.dir, "../.."),
+  const process = Bun.spawn([bunExecutable, cliEntry, ...args], {
+    cwd: Bun.env.ARBOR_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
     env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",
@@ -45,7 +47,7 @@ async function cloudStatus(path: string): Promise<Record<string, unknown>> {
   const environment: Record<string, string | undefined> = { ...Bun.env };
   delete environment.ARBOR_DATA_HOME;
   delete environment.ARBOR_SYNC_URL;
-  const process = Bun.spawn(["bun", join(import.meta.dir, "../../packages/cli/src/index.ts"), "status", "--json"], {
+  const process = Bun.spawn([bunExecutable, cliEntry, "status", "--json"], {
     cwd: path,
     env: environment,
     stdout: "pipe",
@@ -62,8 +64,8 @@ async function cloudStatus(path: string): Promise<Record<string, unknown>> {
 
 async function arborFailure(args: string[]): Promise<string> {
   const daemon = await serveArborSyncControl({ port: 0 });
-  const process = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
-    cwd: join(import.meta.dir, "../.."),
+  const process = Bun.spawn([bunExecutable, cliEntry, ...args], {
+    cwd: Bun.env.ARBOR_TEST_CLI_ENTRY ? sandbox : join(import.meta.dir, "../.."),
     env: { ...Bun.env, ARBOR_DATA_HOME: state, ARBOR_SYNC_URL: daemon.url },
     stdout: "pipe",
     stderr: "pipe",

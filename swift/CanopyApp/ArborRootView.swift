@@ -2951,6 +2951,7 @@ private struct MacArborSyncAccountPanel: View {
     @State private var pairingConfigurationTree: String?
     @State private var changingDeviceID: String?
     @State private var deauthorizationTarget: DeviceDeauthorizationTarget?
+    @State private var setupPresented = false
     @State private var message: String?
 
     private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
@@ -2959,6 +2960,7 @@ private struct MacArborSyncAccountPanel: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section { Button("Identity and Community Setup…") { setupPresented = true } }
                 if let account {
                     if !account.accounts.isEmpty {
                         ForEach(account.accounts) { canopyAccount in
@@ -3052,6 +3054,9 @@ private struct MacArborSyncAccountPanel: View {
                 if let message { Section { Text(message).foregroundStyle(.secondary) } }
             }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .sheet(isPresented: $setupPresented) {
+            CanopyMacOnboarding(workspace: workspace) { setupPresented = false }
         }
         .frame(minWidth: 520, minHeight: 360)
         .formStyle(.grouped)
@@ -3288,8 +3293,6 @@ struct ArborIOSLaunchView: View {
     @State private var origin: URL?
     @State private var service: NativeAccountService?
     @State private var accounts: [NativeCanopyAccount] = []
-    @State private var identity: NativeProfileIdentity?
-    @State private var accountURL = ""
     @State private var selectedConfigurationTree: String?
     @State private var trees: [WireTreeDescriptor] = []
     @State private var syncingTree: WireTreeDescriptor?
@@ -3353,32 +3356,6 @@ struct ArborIOSLaunchView: View {
                             .font(.headline.monospacedDigit())
                     }
                 }
-                Section("Your identity") {
-                    if let identity {
-                        LabeledContent("Profile TreeID") {
-                            Text(identity.profileTree)
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
-                        }
-                        Button("Copy Profile TreeID", systemImage: "doc.on.doc") {
-                            UIPasteboard.general.string = identity.profileTree
-                        }
-                        Text("Send this public ID to the Canopy administrator before claiming your account.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("https://canopy.example/~you", text: $accountURL)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.URL)
-                            .autocorrectionDisabled()
-                        Button("Claim Account", systemImage: "person.badge.key") {
-                            Task { await claimAccount() }
-                        }
-                        .disabled(accountURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    } else {
-                        Text("Pair this iPhone from Arbor on a Mac to add an account.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
                 Section("Accounts") {
                     ForEach(accounts) { account in
                         Button {
@@ -3402,7 +3379,7 @@ struct ArborIOSLaunchView: View {
                     }
                 }
                 Section {
-                    Button("Add Account", systemImage: "qrcode.viewfinder") {
+                    Button("Scan Pairing QR Code", systemImage: "qrcode.viewfinder") {
                         confirmationCode = nil
                         scanError = nil
                         phase = .scanning
@@ -3427,7 +3404,7 @@ struct ArborIOSLaunchView: View {
                 VStack(spacing: 5) {
                     Text("Scan Arbor on your Mac")
                         .font(.headline)
-                    Text("On the Mac, choose Pair iPhone.")
+                    Text("On the Mac, open Accounts and choose Pair another device.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -3536,43 +3513,10 @@ struct ArborIOSLaunchView: View {
 
     private func loadAccounts() async {
         do {
-            identity = try await KeychainProfileIdentityStore().identity()
             accounts = try await KeychainDeviceCredentialStore().accounts()
             scanError = nil
         } catch {
             scanError = String(describing: error)
-        }
-    }
-
-    private func claimAccount() async {
-        let value = accountURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let account = URL(string: value),
-              var components = URLComponents(url: account, resolvingAgainstBaseURL: false) else {
-            scanError = "Enter a complete Canopy account URL."
-            return
-        }
-        components.path = ""
-        components.query = nil
-        components.fragment = nil
-        guard let origin = components.url else {
-            scanError = "Enter a complete Canopy account URL."
-            return
-        }
-        phase = .claiming
-        do {
-            let service = NativeAccountService(origin: origin)
-            let label = UIDevice.current.name.isEmpty ? "iPhone" : UIDevice.current.name
-            _ = try await service.claimAccount(account: account, label: label)
-            self.service = service
-            self.origin = origin
-            selectedConfigurationTree = await service.configurationID()
-            accountURL = ""
-            scanError = nil
-            await loadAccounts()
-            phase = .accounts
-        } catch {
-            scanError = String(describing: error)
-            phase = .accounts
         }
     }
 

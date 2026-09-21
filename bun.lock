@@ -46,6 +46,7 @@
         "@overstory/client": "workspace:*",
         "@overstory/fs": "workspace:*",
         "@overstory/protocol": "workspace:*",
+        "csv-parse": "6.1.0",
         "zod": "4.3.6",
       },
     },
@@ -104,9 +105,13 @@
     "packages/cli": {
       "name": "@overstory/cli",
       "version": "0.1.0",
+      "bin": {
+        "arbor": "./src/index.ts",
+      },
       "dependencies": {
         "@overstory/arborsync": "workspace:*",
         "@overstory/arborsync-client": "workspace:*",
+        "@overstory/canopyd": "workspace:*",
         "@overstory/fs": "workspace:*",
         "@overstory/protocol": "workspace:*",
         "yaml": "2.8.2",

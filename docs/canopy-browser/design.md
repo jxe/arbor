@@ -127,3 +127,39 @@ File menus provide ordinary rename, move, copy, Trash, restore, and asset import
 ## Agents
 
 Overstory clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../../spec/07-executable-documents.md#13-agents); Overstory's panels, streaming presentation, and approval controls are reference design.
+
+## First launch and identity
+
+On macOS, Canopy starts its bundled ArborSync and inspects the local identity,
+accounts, and pending claim. New users create an identity or recover its backup.
+The app and CLI use ArborSync's same identity store. A sole legacy native identity
+is adopted without deleting its original Keychain record; conflicting identities
+are retained and require explicit selection of the Arbor identity before proceeding.
+Credential errors never cause replacement identity creation. Identity setup uses
+an OS-released cross-process lock. The verified credential-store recovery record
+is saved before the profile folder is bound or public metadata is published, so
+interrupted setup resumes with the same key. The default installation has a
+path-independent Keychain record; explicit custom data homes remain isolated.
+Existing credential references survive a data-home move. Legacy records are
+retained during migration. An explicit matching backup can repair damaged public
+metadata when the secure record proves the same identity; the damaged bytes are
+preserved separately.
+
+Users can share their public identity, enter a community address (or exact account
+URL), resume an interrupted claim, choose an accessible tree, or continue with local
+files after identity setup. Unsubmitted connections can be cancelled and their
+address corrected; possibly submitted claims must be resumed. A recovered identity
+can authorize this Mac on an already-claimed account by pasting a pairing code from
+an authorized device. Pairing also resumes after a lost response using the same
+device credential. Accounts includes Identity and Community Setup for
+later connections and backups. Existing configured users resume their workspace
+without requiring the remote community to be reachable.
+
+On iOS, setup is pairing-only: scan a pairing QR code from an existing administrator
+device, or paste that same pairing payload when scanning is unavailable. Identity
+creation and recovery are not offered. Existing paired accounts and replicas retain
+their independent device authorization and offline restoration.
+
+The Mac app already bundles Bun, ArborSync, and its native watcher. Shell tools
+are build dependencies, not user installation prerequisites. Background service
+registration remains subject to macOS Login Items approval.

@@ -13,6 +13,7 @@
     "@overstory/client": "workspace:*",
     "@overstory/fs": "workspace:*",
     "@overstory/apps-runtime": "workspace:*",
-    "zod": "4.3.6"
+    "zod": "4.3.6",
+    "csv-parse": "6.1.0"
   }
 }

@@ -101,3 +101,5 @@ authority for the implemented subset; the request grammar itself is in
 | `protocol-endpoints.json` | Route shapes |
 | `protocol-graphs.json`, `protocol-objects.json`, `protocol-object-deltas.json`, `protocol-snapshot-bundles.json`, `protocol-values.json` | Objects, directory graphs, deltas, snapshot bundles, and canonical values |
 | `protocol-operations.json`, `protocol-update-intent.json` | Source operations and the update digest |
+
+`protocol-account-challenges.json` covers community-address and exact-account challenge requests. Both return the same complete account-bound challenge; TypeScript and Swift clients consume these cases.

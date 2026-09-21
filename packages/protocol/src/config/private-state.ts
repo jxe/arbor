@@ -170,7 +170,7 @@ async function normalizeRegistry(stored: StoredWorkspaceRegistry): Promise<{
   return { registry, changed };
 }
 
-async function loadWorkspaceRegistry(): Promise<{
+export async function loadWorkspaceRegistry(): Promise<{
   path: string;
   registry: Record<string, WorkspaceRegistryRecord>;
   changed: boolean;

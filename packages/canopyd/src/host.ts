@@ -313,8 +313,8 @@ export async function serveCanopy(options: {
         }
         if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
           const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown };
-          if (typeof body.account !== "string" || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
-            throw new Error("Account challenge requires account, profile TreeID, and configuration TreeID");
+          if ((body.account !== undefined && typeof body.account !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
+            throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
           }
           return json(canopy.createAccountChallenge({
             origin: publicOrigin,

@@ -1,7 +1,7 @@
 import { CommunityConfigStore, generateArborID, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveCanopy } from "@overstory/canopyd";
@@ -75,6 +75,17 @@ describe("client-generated profile and account-configuration bootstrap", () => {
   test("does not expose the legacy snapshot-upload claim route", async () => {
     const response = await fetch(`${running.url}/.arbor/claims/alice`, { method: "PUT" });
     expect(response.status).toBe(404);
+  });
+
+  test("community-only challenges resolve the reservation without reading a profile", async () => {
+    const client = new WireClient(running.url);
+    const configurationTree = generateArborID("tr");
+    const challenge = await client.createAccountChallenge({ profileTree: bobProfileTree, configurationTree });
+    expect(challenge.account).toBe(`${new URL(running.url).origin}/~bob`);
+    expect(challenge.profileTree).toBe(bobProfileTree);
+    expect(challenge.configurationTree).toBe(configurationTree);
+    await expect(client.createAccountChallenge({ profileTree: testProfileIdentity().profileTree, configurationTree }))
+      .rejects.toThrow("has not reserved");
   });
 
   test("v2 account claim does not host the local profile; ordinary activation does", async () => {
@@ -204,7 +215,28 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       await owner.submitUpdate(community.tree.id, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested)));
       expect(running.canopy.isReservedHandle("orphan")).toBe(false);
 
-      await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).claimCanopyAccount(`${new URL(running.url).origin}/~charlie`, profilePath, "Charlie");
+      const bootstrap = new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() });
+      await expect(bootstrap.claimCanopyAccount(`${new URL(running.url).origin}/~unassigned`, profilePath))
+        .rejects.toThrow();
+      expect(await bootstrap.pendingClaim()).toMatchObject({ canCancel: true });
+      expect(await bootstrap.accountList()).toHaveLength(0);
+      await bootstrap.cancelPendingClaim();
+      expect(await bootstrap.pendingClaim()).toBeNull();
+      const originalJoin = WireClient.prototype.joinAccount;
+      const interrupted = spyOn(WireClient.prototype, "joinAccount").mockImplementationOnce(async function (this: WireClient, input) {
+        await originalJoin.call(this, input);
+        throw new Error("Lost claim response");
+      });
+      try {
+        await expect(bootstrap.claimCanopyAccount(new URL(running.url).origin, profilePath, "Charlie"))
+          .rejects.toThrow("Lost claim response");
+      } finally { interrupted.mockRestore(); }
+      expect(await bootstrap.pendingClaim()).toEqual({ account: `${new URL(running.url).origin}/~charlie`, path: await realpath(profilePath), canCancel: false });
+      await expect(bootstrap.cancelPendingClaim()).rejects.toThrow("may already have reached");
+      // A fresh service resumes the exact claim even though the reservation is now claimed.
+      await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() })
+        .claimCanopyAccount(new URL(running.url).origin, profilePath, "Charlie");
+      expect(await bootstrap.pendingClaim()).toBeNull();
       const accounts = await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).accountList();
       expect(accounts).toHaveLength(1);
       const configurationTree = accounts[0]!.configurationTree;
@@ -220,6 +252,42 @@ describe("client-generated profile and account-configuration bootstrap", () => {
         .toBe("{}\n");
       await expect(readFile(join(home, "account.yaml"), "utf8")).rejects.toThrow();
 
+      // A recovered profile still needs a new authorized device on a claimed account.
+      const originalCredential = await bootstrap.credentialToken(configurationTree);
+      const offer = await new WireClient(running.url, originalCredential).createPairing();
+      const backupPath = join(sandbox, "charlie-identity-backup.json");
+      await new ProfileIdentityStore().backup(backupPath);
+      const pairedHome = join(sandbox, "charlie-paired-home");
+      process.env.ARBOR_DATA_HOME = pairedHome;
+      const pairedProfile = join(sandbox, "charlie-recovered-profile");
+      await new ProfileIdentityStore().restore(backupPath, pairedProfile);
+      const pairedDaemon = await ArborSyncDaemon.open(pairedProfile, {}, { autoSync: false });
+      try {
+        const paired = new LocalAccountService({ trees: pairedDaemon.trees, events: pairedDaemon.events, communityConfig: new CommunityConfigStore() });
+        const originalPair = WireClient.prototype.claimPairing;
+        const lostPair = spyOn(WireClient.prototype, "claimPairing").mockImplementationOnce(async function (this: WireClient, ...args) {
+          await originalPair.apply(this, args);
+          throw new Error("Lost pairing response");
+        });
+        try {
+          await expect(paired.claimPairing({ version: 1, origin: new URL(running.url).origin, pairing: { id: offer.id, secret: offer.secret } }))
+            .rejects.toThrow("Lost pairing response");
+        } finally { lostPair.mockRestore(); }
+        expect(await paired.pendingPairing()).toEqual({ origin: new URL(running.url).origin });
+        await paired.claimPairing();
+        expect(await paired.pendingPairing()).toBeNull();
+        expect(await paired.accountList()).toMatchObject([{ configurationTree, profileTree: localProfileTree, credentialAvailable: true }]);
+        const token = await paired.credentialToken(configurationTree);
+        expect(token).not.toBe(originalCredential);
+        const pairedAccount = await new WireClient(running.url, token).account();
+        expect(pairedAccount.account.configuration.id).toBe(configurationTree);
+        expect(pairedAccount.account.profileTree).toBe(localProfileTree);
+        await new CanopyAccountStore(configurationTree).remove();
+      } finally {
+        await pairedDaemon[Symbol.asyncDispose]();
+        process.env.ARBOR_DATA_HOME = home;
+      }
+
       const communityAfterClaim = await owner.descriptor(running.canopy.community().id);
       const secondSource = await profileFolder("community-with-charlie-twice", "group", [
         { profile: `arbor://${ownerAccount.profileTree!}/`, handle: "owner" },
@@ -232,6 +300,9 @@ describe("client-generated profile and account-configuration bootstrap", () => {
         .filter((tree) => tree.parentTree === communityAfterClaim.tree.id && tree.canonicalPath)
         .map((tree) => [join(secondSource, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
       await owner.submitUpdate(communityAfterClaim.tree.id, communityAfterClaim.tree.update, await resolveSnapshot(await snapshotDirectory(secondSource, secondNested)));
+      await expect(new WireClient(running.url).createAccountChallenge({
+        profileTree: localProfileTree, configurationTree: generateArborID("tr"),
+      })).rejects.toThrow("Several reservations");
       const retainedPlacements = `${configurationTree}: {}\n`;
       await writeFile(join(home, "placements.yaml"), retainedPlacements);
 

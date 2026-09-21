@@ -13,3 +13,5 @@ export { prepareEntryTransfer, prepareEntryActions, type EntryTransfer, type Ent
 
 export { prepareEntryAdmission } from "./source-admission-queue.ts";
 export * from "./document-admission.ts";
+
+export * from "./account-pairing.ts";

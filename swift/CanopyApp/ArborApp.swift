@@ -21,7 +21,7 @@ struct ArborApplication: App {
 #if os(iOS)
             ArborIOSLaunchView(workspace: workspace)
 #else
-            ArborRootView(workspace: workspace)
+            CanopyMacLaunchView(workspace: workspace)
                 .task { appDelegate.workspace = workspace }
 #endif
         }

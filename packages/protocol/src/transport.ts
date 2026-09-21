@@ -227,7 +227,7 @@ export class WireClient {
   }
 
   async createAccountChallenge(input: {
-    account: string;
+    account?: string;
     profileTree: TreeID;
     configurationTree: TreeID;
   }): Promise<AccountChallenge> {

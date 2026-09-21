@@ -36,7 +36,9 @@
     "test:performance": "bun tests/performance/object-index.bench.ts",
     "seed:supplies": "bun examples/supplies/scripts/seed-fixture.ts",
     "check:links": "bun tests/check-links.ts",
-    "lab:hcloud": "bun packages/canopyd/deploy/hcloud-sync-lab/run.ts"
+    "lab:hcloud": "bun packages/canopyd/deploy/hcloud-sync-lab/run.ts",
+    "build:cli:package": "bun tools/build-cli-package.ts",
+    "test:cli:package": "bun tools/test-cli-package.ts"
   },
   "dependencies": {
     "@overstory/protocol": "workspace:*",

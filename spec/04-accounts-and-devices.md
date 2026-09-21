@@ -123,6 +123,16 @@ send that public TreeID by any ordinary channel; no claim secret is needed. A
 host founder supplies the same public TreeID as bootstrap configuration, so
 founding removes only that out-of-band handoff and does not waive proof.
 
+The challenge request contains `profileTree`, `configurationTree`, and an
+optional `account` URL. If `account` is omitted, the host resolves the unique
+community reservation for that profile identity. No match is an unassigned
+membership; several matches require an explicit account URL. An already-claimed
+reservation retains the existing already-claimed response. Resolution does not
+require the community profile to be publicly readable and grants no authority.
+The returned challenge always contains the exact account URL, including when
+the request supplied only the community origin. Clients verify the returned
+origin and any explicitly requested account before signing.
+
 Before account creation, the host returns a random, single-use, short-lived
 challenge bound to its normalized origin, the complete allocated account URL,
 the reserved profile TreeID, and the proposed configuration TreeID. The client

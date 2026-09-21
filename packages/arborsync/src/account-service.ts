@@ -1,7 +1,10 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { arborPrivateRoot } from "@overstory/protocol";
 import type { MutationReceipt } from "@overstory/protocol";
-import { ProtocolError, CanopyAccountStore } from "@overstory/protocol";
+import { ProtocolError, CanopyAccountStore, WireHTTPError, WireTransportError } from "@overstory/protocol";
 import { ProfileIdentityStore, listLocalAccounts, type LocalAccountSummary } from "./state/index.ts";
-import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
+import { claimLocalPairing, pendingLocalPairing, cancelPendingAccountClaim, claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath, type AccountBootstrapDeps } from "@overstory/client";
 
 /** Account administration depends on bootstrap ports, never the sync daemon. */
 export class LocalAccountService {
@@ -33,18 +36,57 @@ export class LocalAccountService {
   }
 
   async claimCanopyAccount(account: string, inputPath: string, displayName?: string): Promise<MutationReceipt["effects"]> {
-    return claimCanopyAccountBootstrap(this.deps, account, inputPath, displayName);
+    try { return await claimCanopyAccountBootstrap(this.deps, account, inputPath, displayName); }
+    catch (error) {
+      if (error instanceof WireHTTPError) {
+        throw new ProtocolError(error.status === 409 ? "conflict" : "invalid-request", error.message, error.status);
+      }
+      if (error instanceof WireTransportError) {
+        throw new ProtocolError("internal-error", "The community could not be reached. Your pending connection is retained; try again when online.", 503, { retryable: true });
+      }
+      throw error;
+    }
   }
 
   async profileIdentity() {
-    return new ProfileIdentityStore().status();
+    try { return await new ProfileIdentityStore().status(); }
+    catch { throw new ProtocolError("credential-unavailable", "The existing identity could not be read or verified. Unlock the credential store or inspect the identity backup; no new identity was created.", 409); }
   }
 
   async createProfileIdentity(inputPath: string) {
-    const result = await new ProfileIdentityStore().create(resolveUserPath(inputPath));
+    const result = await identityOperation(() => new ProfileIdentityStore().create(resolveUserPath(inputPath)));
     this.deps.trees.invalidateDescriptors();
     return result;
   }
+
+  async restoreProfileIdentity(backup: unknown, inputPath: string) {
+    const result = await identityOperation(() => new ProfileIdentityStore().restoreValue(backup, resolveUserPath(inputPath)));
+    this.deps.trees.invalidateDescriptors();
+    return result;
+  }
+
+  async backupProfileIdentity(destination: string) {
+    await identityOperation(() => new ProfileIdentityStore().backup(resolveUserPath(destination)));
+  }
+
+  async pendingClaim(): Promise<{ account: string; path: string; canCancel: boolean } | null> {
+    try {
+      const value = JSON.parse(await readFile(join(arborPrivateRoot(), "bootstrap-account-claim.json"), "utf8"));
+      if (value.version !== 2 || typeof value.account !== "string" || typeof value.path !== "string") throw new Error("Malformed pending account claim");
+      return { account: value.account, path: value.path, canCancel: value.stage === "prepared" };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  async pendingPairing() { return pendingLocalPairing(); }
+
+  async claimPairing(payload?: unknown) {
+    return identityOperation(() => claimLocalPairing(this.deps, payload));
+  }
+
+  async cancelPendingClaim(): Promise<void> { await cancelPendingAccountClaim(); }
 
   async forgetLocalAccount(): Promise<void> {
     return forgetLocalAccount(this.deps);
@@ -58,4 +100,13 @@ export class LocalAccountService {
     return createPairingBootstrap(this.deps, configurationTree);
   }
 
+}
+
+async function identityOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch (error) {
+    throw new ProtocolError("conflict", error instanceof SyntaxError
+      ? "The identity backup or metadata is malformed; the existing identity was not replaced"
+      : error instanceof Error ? error.message : "The identity operation could not be completed", 409);
+  }
 }

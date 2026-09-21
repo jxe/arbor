@@ -31,6 +31,41 @@ struct LoopbackServicesTests {
         )
     }
 
+    @Test("Onboarding retains identity and pending claim when no account is connected")
+    func onboardingState() async throws {
+        let body = Data(#"{"accounts":[],"identity":{"profileTree":"tr_person","publicKey":"public","profilePath":"/profile","keyAvailable":false},"pendingClaim":{"account":"https://community.test/~alice","path":"/profile","canCancel":true},"pendingPairing":{"origin":"https://community.test"}}"#.utf8)
+        await LoopbackStub.state.install { _, _ in (200, body, "application/json") }
+        let state = try await stubbedClient().onboardingState()
+        #expect(state.accounts.isEmpty)
+        #expect(state.identity?.keyAvailable == false)
+        #expect(state.pendingClaim?.account == "https://community.test/~alice")
+        #expect(state.pendingClaim?.canCancel == true)
+        #expect(state.pendingPairing?.origin == "https://community.test")
+    }
+
+    @Test("Onboarding cancellation and pairing resume use explicit loopback routes")
+    func connectionRecoveryRoutes() async throws {
+        await LoopbackStub.state.install { _, _ in (200, Data("{}".utf8), "application/json") }
+        let client = stubbedClient()
+        try await client.cancelPendingClaim()
+        try await client.claimPairing()
+        let requests = await LoopbackStub.state.requests()
+        #expect(requests.map { $0.path } == ["/v1/bootstrap/accounts/cancel", "/v1/bootstrap/pairings/claim"])
+
+    }
+
+    @Test("Identity recovery preserves the daemon's actionable error")
+    func recoveryError() async throws {
+        let body = Data(#"{"error":"conflict","message":"Existing identity differs","retryable":false}"#.utf8)
+        await LoopbackStub.state.install { _, _ in (409, body, "application/json") }
+        do {
+            try await stubbedClient().restoreIdentity(backup: Data("{}".utf8), path: "/profile")
+            Issue.record("Expected identity conflict")
+        } catch let error as ArborSyncServerError {
+            #expect(error.value.message == "Existing identity differs")
+        }
+    }
+
     // MARK: Bootstrap
 
     @Test("A clean bootstrap decodes its sparse spine and lists the lazy file")

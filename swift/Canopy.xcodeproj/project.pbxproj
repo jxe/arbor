@@ -28,6 +28,7 @@
 		D2933F943634F0E9ABA20CD7 /* ArborRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D86631369060ED5B812AC5 /* ArborRootView.swift */; };
 		D9F15BCF282E14AFF67DC6D0 /* ArborNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B197CF4BF9FFD2DDBFFB1 /* ArborNetworkLogView.swift */; };
 		DE59926E0AD522EFC915FBA4 /* ArborSyncClient in Frameworks */ = {isa = PBXBuildFile; productRef = 0D1EDE70FCBE2FF15D989042 /* ArborSyncClient */; };
+		DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */; };
 		E5D6C0A84A97D0677205A1A1 /* ArborDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EE529EFC6F562AFAF2BFEA /* ArborDirectory.swift */; };
 		E6D54BC465AC7BE111DD3D8A /* ArborSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48039FE93406AB42D265FBD9 /* ArborSupportDirectories.swift */; };
 /* End PBXBuildFile section */
@@ -46,6 +47,7 @@
 		0FB6B346C13D17D474A125B8 /* CanopyAppKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CanopyAppKit; path = Packages/CanopyAppKit; sourceTree = SOURCE_ROOT; };
 		3600BDEB02C0A0FF8C51027E /* CanopyAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CanopyAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		48039FE93406AB42D265FBD9 /* ArborSupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSupportDirectories.swift; sourceTree = "<group>"; };
+		5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanopyOnboarding.swift; sourceTree = "<group>"; };
 		5DF9A72F8CB82A8A3F5EC1B6 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
 		63ADE18E12FC8CF3509598EC /* ArborDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborDailyDriverViews.swift; sourceTree = "<group>"; };
 		735CCC72D03126B470BA6A7E /* OverstoryClient */ = {isa = PBXFileReference; lastKnownFileType = folder; name = OverstoryClient; path = Packages/OverstoryClient; sourceTree = SOURCE_ROOT; };
@@ -126,6 +128,7 @@
 				CFF4B4A512DB429ABAB9F439 /* ArborVisits.swift */,
 				D7178057AF35C3F14D9ADB06 /* Assets.xcassets */,
 				CD6D072E434F11F7B408005D /* Canopy.entitlements */,
+				5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */,
 				79D8023DB37FB8EA588574AC /* Info.plist */,
 				E56F4F7F7D3FCCF228A6EE62 /* VoiceRecordingIntents.swift */,
 			);
@@ -308,6 +311,7 @@
 				30566E514B280F135A088116 /* ArborStyle.swift in Sources */,
 				E6D54BC465AC7BE111DD3D8A /* ArborSupportDirectories.swift in Sources */,
 				84C2E25C29E59E77B48491D7 /* ArborVisits.swift in Sources */,
+				DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */,
 				29C389EC083886D1D48BB28D /* VoiceRecordingIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

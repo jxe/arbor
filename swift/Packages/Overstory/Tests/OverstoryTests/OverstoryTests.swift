@@ -518,6 +518,25 @@ struct UpdateProtocolTests {
         #expect(throws: ArborWireValidationError.self) { _ = try invalid.append(Data([0x64, 0x61, 0x74, 0x61, 0x3a, 0x20, 0xff, 0x0a, 0x0a])) }
     }
 
+    @Test("Community-address and exact-account requests share the account-bound challenge")
+    func accountChallengeFixtures() async throws {
+        struct Case: Decodable { var request: Request; var response: WireAccountChallenge }
+        struct Request: Codable { var account: String?; var profileTree: String; var configurationTree: String }
+        struct Fixture: Decodable { var cases: [Case] }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtures.appending(path: "protocol-account-challenges.json")))
+        for item in fixture.cases {
+            let response = try JSONEncoder().encode(item.response)
+            await WireURLProtocolStub.state.install { _, _ in (201, response) }
+            let client = ArborWireClient(origin: URL(string: item.response.origin)!, session: wireStubSession())
+            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree, configurationTree: item.request.configurationTree)
+            #expect(challenge == item.response)
+            let captured = await WireURLProtocolStub.state.snapshot()
+            let sent = try JSONDecoder().decode(Request.self, from: #require(captured.bodies.first))
+            #expect(sent.account == item.request.account)
+            #expect(sent.profileTree == item.request.profileTree)
+        }
+    }
+
     @Test("Ambiguous transport retries the exact prepared request without a caller key")
     func exactRetry() async throws {
         let file = try WireObjectCodec.object(.file(Data("retry".utf8)))

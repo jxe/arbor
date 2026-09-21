@@ -248,21 +248,13 @@ async function withArborSync<T>(
   // loopback port) and fails clearly when none answers.
   const cloud = !process.env.ARBOR_SYNC_URL ? await cloudSessionForPath(path) : null;
   const baseURL = process.env.ARBOR_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
-  let client = new ArborSyncRESTClient({ baseURL });
-  let compatible = await client.status().then(
+  const client = new ArborSyncRESTClient({ baseURL });
+  const compatible = await client.status().then(
     (status) => status.service === "arborsync" && status.protocolVersion === "v1",
     () => false,
   );
-  if (!compatible && !process.env.ARBOR_SYNC_URL && !cloud && !process.env.ARBOR_DATA_HOME && process.platform === "darwin") {
-    const supervisor = arborDaemonSupervisor();
-    const status = await supervisor.status();
-    if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
-    await supervisor.start();
-    client = new ArborSyncRESTClient({ baseURL });
-    compatible = true;
-  }
   if (!compatible) {
-    throw new Error(`A compatible Arbor Sync is not reachable at ${baseURL}; start one with \`arbor daemon start\` or \`arborsync --control\`, or point ARBOR_SYNC_URL at it`);
+    throw new Error(`A compatible Arbor Sync is not reachable at ${baseURL}; run \`arbor daemon install\` (first use) or \`arbor daemon start\` on macOS, or \`arborsync --control\`, or point ARBOR_SYNC_URL at it`);
   }
   return run(client, {
     async synchronizeNow(configurationTree?: string) { await client.synchronizeNow(configurationTree); },

@@ -10,13 +10,28 @@ export function accountHandler(service: LocalAccountService) {
       return json({ token: await service.credentialToken(configurationTree) });
     }
     if (request.method === "GET" && url.pathname === "/v1/accounts") {
-      const [accounts, identity] = await Promise.all([service.accountList(), service.profileIdentity()]);
-      return json({ accounts, identity });
+      const [accounts, identity, pendingClaim, pendingPairing] = await Promise.all([service.accountList(), service.profileIdentity(), service.pendingClaim(), service.pendingPairing()]);
+      return json({ accounts, identity, pendingClaim, pendingPairing });
     }
     if (request.method === "POST" && url.pathname === "/v1/me") {
       const body = await request.json() as { path?: unknown };
       if (typeof body.path !== "string") throw new ProtocolError("invalid-request", "Identity creation requires a profile path", 400);
       return json({ identity: await service.createProfileIdentity(body.path) }, 201);
+    }
+    if (request.method === "POST" && url.pathname === "/v1/me/restore") {
+      const body = await request.json() as { path?: unknown; backup?: unknown };
+      if (typeof body.path !== "string") throw new ProtocolError("invalid-request", "Identity recovery requires a profile path", 400);
+      return json({ identity: await service.restoreProfileIdentity(body.backup, body.path) }, 201);
+    }
+    if (request.method === "POST" && url.pathname === "/v1/me/backup") {
+      const body = await request.json() as { destination?: unknown };
+      if (typeof body.destination !== "string") throw new ProtocolError("invalid-request", "Identity backup requires a destination", 400);
+      await service.backupProfileIdentity(body.destination);
+      return json({ saved: true });
+    }
+    if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts/cancel") {
+      await service.cancelPendingClaim();
+      return json({ cancelled: true });
     }
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts") {
       const body = await request.json() as { account?: unknown; path?: unknown; displayName?: unknown };
@@ -25,6 +40,11 @@ export function accountHandler(service: LocalAccountService) {
         || (body.displayName !== undefined && typeof body.displayName !== "string")
       ) throw new ProtocolError("invalid-request", "Account bootstrap requires an account locator and local profile path", 400);
       return json(await service.claimCanopyAccount(body.account, body.path, body.displayName as string | undefined), 201);
+    }
+    if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings/claim") {
+      const body = await request.json() as { payload?: unknown };
+      await service.claimPairing(body.payload);
+      return json({ paired: true });
     }
     if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings") {
       const body = request.headers.get("content-length") === "0"

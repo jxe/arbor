@@ -10,5 +10,11 @@
     "@overstory/protocol": "workspace:*",
     "@overstory/fs": "workspace:*",
     "yaml": "2.8.2"
+  },
+  "bin": {
+    "arbor": "./src/index.ts"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
   }
 }

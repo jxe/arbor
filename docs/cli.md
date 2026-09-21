@@ -303,3 +303,40 @@ arbor mv https://old.example/~joe/todos https://arb.example/~joe/todos
 `canopyd` and `arborsync` are separate executables with their own process-level
 options. Railway/VPS deployment procedures belong in
 [`packages/canopyd/deploy/README.md`](../packages/canopyd/deploy/README.md), not in this command reference.
+
+## Running with bunx
+
+Install Bun first (the release is tested with Bun 1.3.14). The CLI package keeps
+Bun as a runtime prerequisite; it does not include another runtime or require Node.
+Version-pinned examples, once that package version is published:
+
+```sh
+bunx --bun --package @overstory/cli@0.1.0 arbor status --json
+bunx --bun --package @overstory/cli@0.1.0 arbor daemon install
+bunx --bun --package @overstory/cli@0.1.0 arbor cloud bundle create --name agent --place https://community.example/~you/notes notes
+# Set ARBOR_CLOUD_BUNDLE to the returned secret using your agent secret store.
+bunx --bun --package @overstory/cli@0.1.0 arbor cloud start --root ./agent-work --json
+bunx --bun --package @overstory/cli@0.1.0 arbor status ./agent-work --json
+bunx --bun --package @overstory/cli@0.1.0 arbor cloud finish --root ./agent-work --json
+```
+
+Ordinary synchronization commands attach to an existing service and report
+install/start instructions when unavailable. macOS daemon installation preserves
+packaged JavaScript and watcher dependencies under `~/Library/Application Support/Arbor/CLI/`,
+independently of the bunx cache. Bun itself remains an installed prerequisite.
+Linux users run `bunx --bun --package @overstory/cli@0.1.0 arborsync --control`
+under their service manager. Cloud sessions start their own isolated runtime
+without installing a persistent daemon. Headless identity operations can opt into
+`ARBOR_CREDENTIAL_STORE=file`; this stores the private key in the private data
+home with mode 0600, rather than using a desktop credential service.
+
+`bun run build:cli:package` creates `dist/npm-cli`, a publishable package with
+bundled workspace code and its native watcher dependency. Pack and test that
+directory before publication; the repository workspace manifest is not the release
+artifact. Publication and installed-service updates are separate actions.
+
+Run `bun run test:cli:package` to build and install a tarball in a disposable
+folder, exercise the real-host CLI/cloud tests against it, and (on macOS) verify
+the durable helper after removing the installed package cache. Run this gate on
+macOS arm64/x64 and Linux glibc arm64/x64 before release. It requires npm for the
+pack/install verification, not for the shipped CLI runtime.

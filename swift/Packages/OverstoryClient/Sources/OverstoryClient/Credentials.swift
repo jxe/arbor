@@ -250,6 +250,13 @@ public actor KeychainProfileIdentityStore {
         return NativeProfileIdentity(version: 1, profileTree: verified.profileTree, publicKey: verified.publicKey)
     }
 
+    /// Explicit migration only. Never log or persist this unencrypted payload.
+    public func backupData() throws -> Data {
+        guard let stored = try load() else { throw ArborWireValidationError.invalidValue("No native profile identity exists") }
+        _ = try verify(stored)
+        return try JSONEncoder().encode(stored)
+    }
+
     public func create() throws -> NativeProfileIdentity {
         if let identity = try identity() { return identity }
         let key = Curve25519.Signing.PrivateKey()

@@ -767,7 +767,7 @@ final class ArborWorkspaceState {
     /// Connect to the installation's control-mode daemon, launching one when
     /// none is listening, and keep its loopback client.
     @discardableResult
-    private func ensureArborSync() async throws -> ArborSyncControlRuntime {
+    func ensureArborSync() async throws -> ArborSyncControlRuntime {
         let usesTestHelper = ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1"
         // A signed test helper has an isolated data home and must never impersonate the
         // user's arborsync on its well-known port if the test host exits unexpectedly.
