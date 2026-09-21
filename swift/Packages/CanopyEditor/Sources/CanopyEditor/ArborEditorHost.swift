@@ -300,6 +300,16 @@ public final class ArborEditorHost: EditorHost {
     public func lookupDocument(_ reference: DocumentReference) -> DocumentLookup {
         if let value = lookups[reference] { return value }
         guard let decoded = workspaceReference(for: reference) else { return .missing }
+        // This provider owns the currently open tree. A reference into another
+        // tree is resolved by Arbor's nested-tree opener, which can find an
+        // already placed tree (or fetch one) before installing its provider.
+        // Asking the current provider would incorrectly turn every cross-tree
+        // reference into a missing, non-navigable row.
+        if decoded.tree != binding.reference.tree {
+            let lookup = DocumentLookup.present(.init(title: nil, capabilities: [.navigate]))
+            lookups[reference] = lookup
+            return lookup
+        }
         lookups[reference] = .pending
         if lookupTasks[reference] == nil {
             lookupTasks[reference] = Task { @MainActor [weak self] in

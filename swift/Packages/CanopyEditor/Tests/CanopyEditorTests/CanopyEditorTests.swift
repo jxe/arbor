@@ -463,6 +463,26 @@ struct CanopyEditorTests {
     }
 
     @MainActor
+    @Test("Host-authored frontmatter replacements use the ordinary durable admission path")
+    func hostSourceReplacement() async throws {
+        let reference = WorkspaceReference(tree: "tr_profile", path: "/")
+        let original = "---\ntype: person\n---\n\n# Profile\n"
+        let replacement = "---\ntype: person\ndisplayName: \"Joe\"\n---\n\n# Profile\n"
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: original,
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+
+        try await binding.replaceSource(replacement)
+
+        #expect(await session.snapshot().source == replacement)
+        #expect(await session.admissionCount() == 1)
+        #expect(binding.lastError == nil)
+    }
+
+    @MainActor
     @Test("A pending commit is admitted after the debounce without an explicit flush")
     func debouncedPersistence() async throws {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
@@ -1160,6 +1180,62 @@ struct CanopyEditorTests {
         let linkRange = try #require(admitted.range(of: "[Child]("))
         let markerRange = try #require(admitted.range(of: "<!-- arbor:children -->"))
         #expect(linkRange.lowerBound < markerRange.lowerBound)
+    }
+
+    @MainActor
+    @Test("A projected nested tree keeps its TreeID in the clickable reference")
+    func nestedTreeChildProjection() async throws {
+        let parentTree: TreeID = "tr_parent"
+        let childReference = WorkspaceReference(tree: "tr_profile", path: "/")
+        let directory = WorkspaceReference(tree: parentTree, path: "/")
+        let child = WorkspaceNode(
+            reference: childReference,
+            title: "~joe",
+            surface: .directory(summary: "Nested Arbor tree"),
+            provenance: .init(authority: .local, sourceDescription: "Test"),
+            isWritable: false
+        )
+        let opened = ArborMarkdownCodec.open(
+            source: "# Community\n\n<!-- arbor:children -->\n",
+            revision: "r1",
+            identitySeed: "nested-profile"
+        )
+        let projected = ArborMarkdownCodec.placeDirectoryChildren(
+            [child],
+            in: opened.blocks,
+            directory: directory
+        )
+        let heading = try #require(projected.first)
+        let generated = try #require(heading.children.first(where: ArborMarkdownCodec.isProjectedChild))
+        guard case let .documentLink(label, reference) = generated.kind else {
+            Issue.record("Expected a projected document link")
+            return
+        }
+        #expect(String(label.characters) == "~joe")
+        #expect(ArborDocumentReferenceCodec.decode(reference) == childReference)
+        #expect(reference.rawValue == "arbor://tr_profile/")
+
+        let provider = InMemoryWorkspaceProvider.sample()
+        let currentReference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let session = try await provider.openDocument(currentReference)
+        let binding = try await ArborDocumentBinding.open(reference: currentReference, session: session)
+        var openedReference: WorkspaceReference?
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService(),
+            open: { openedReference = $0 }
+        )
+
+        let lookup = host.lookupDocument(reference)
+        #expect(lookup.title == nil)
+        #expect(lookup.capabilities == [.navigate])
+        host.openDocument(reference)
+        #expect(openedReference == childReference)
     }
 
     @MainActor

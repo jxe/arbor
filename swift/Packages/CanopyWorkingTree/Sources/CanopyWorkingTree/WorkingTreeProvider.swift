@@ -154,7 +154,15 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     private func workspaceNode(_ record: WorkingTreeNode) async throws -> WorkspaceNode {
-        let reference = await workingTree.workspaceReference(record)
+        let reference: WorkspaceReference
+        if record.kind == .boundary, let boundaryTree = record.boundaryTree {
+            // A boundary is a link to another tree, not an offline node in the
+            // parent tree. Giving it the child's root identity lets the host
+            // replace providers when the row is opened.
+            reference = WorkspaceReference(tree: TreeID(rawValue: boundaryTree), path: "/")
+        } else {
+            reference = await workingTree.workspaceReference(record)
+        }
         let revision = await workingTree.revision(for: record)
         let surface: WorkspaceSurface
         switch record.kind {
@@ -177,7 +185,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
                 mediaType: record.mediaType ?? record.ref?.mediaType
             )
         case .boundary:
-            surface = .placeholder(message: "Nested Arbor tree \(record.boundaryTree ?? "")")
+            surface = .directory(summary: "Nested Arbor tree")
         }
         // A file held by hash is available until a read finds no store that can
         // serve it; only that miss presents the node as a placeholder.
@@ -192,7 +200,7 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
                 contentRevision: revision
             ),
             materialization: knownMissing ? .placeholder : .available,
-            isWritable: !readOnly
+            isWritable: !readOnly && record.kind != .boundary
         )
     }
 

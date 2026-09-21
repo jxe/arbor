@@ -2,6 +2,7 @@ import CanopyAppKit
 import CanopyEditor
 import ArborSyncClient
 import Overstory
+import OverstoryClient
 import Foundation
 import Quagmire
 import QuagmireExtras
@@ -10,6 +11,91 @@ import Testing
 
 @MainActor
 struct CanopyAppTests {
+    @Test("Profile frontmatter edits preserve the Markdown body")
+    func profileFrontmatterEdits() throws {
+        let personSource = "---\r\nid: pg_me\r\ntype: person\r\navatar: images/me.png\r\n---\r\n\r\n# Hello\r\n"
+        let updated = try ArborProfileDocument.updatingPerson(
+            personSource,
+            displayName: "Joe Arbor",
+            description: "Building gardens."
+        )
+        #expect(updated.contains("displayName: \"Joe Arbor\"\r\n"))
+        #expect(updated.contains("description: \"Building gardens.\"\r\n"))
+        #expect(updated.hasSuffix("---\r\n\r\n# Hello\r\n"))
+        #expect(ArborProfileDocument.parse(updated)?.displayName == "Joe Arbor")
+
+        let withoutDescription = try ArborProfileDocument.updatingPerson(
+            updated,
+            displayName: "Joe Arbor",
+            description: "",
+            avatarPath: "a1b2-profile-photo.jpg"
+        )
+        #expect(!withoutDescription.contains("description:"))
+        #expect(withoutDescription.contains("avatar: \"a1b2-profile-photo.jpg\"\r\n"))
+        #expect(ArborProfileDocument.parse(withoutDescription)?.avatarPath == "a1b2-profile-photo.jpg")
+
+        let groupSource = "---\ntype: group\nmembers:\n  - profile: \"arbor://tr_existing/\"\n---\n\n# Garden\n"
+        let withMember = try ArborProfileDocument.addingMember(
+            profileTree: "tr_new",
+            handle: nil,
+            to: groupSource
+        )
+        #expect(withMember.contains("  - profile: \"arbor://tr_new/\"\n"))
+        #expect(!withMember.contains("handle:"))
+        #expect(withMember.hasSuffix("---\n\n# Garden\n"))
+        #expect(throws: (any Error).self) {
+            try ArborProfileDocument.addingMember(profileTree: "tr_new", handle: nil, to: withMember)
+        }
+        let personTree = "tr_" + String(repeating: "a", count: 52)
+        let direct = try ArborProfileDocument.addingMember(
+            profileTree: " \(personTree) ",
+            handle: "~direct-person",
+            reservesCanopyHandle: true,
+            to: groupSource
+        )
+        #expect(direct.contains("  - profile: \"arbor://\(personTree)/\"\n    handle: \"direct-person\"\n"))
+        #expect(ArborProfileDocument.parse(direct)?.memberHandlesByProfile["arbor://\(personTree)/"] == "direct-person")
+        #expect(throws: (any Error).self) {
+            try ArborProfileDocument.addingMember(
+                profileTree: "tr_" + String(repeating: "b", count: 52),
+                handle: "direct-person",
+                reservesCanopyHandle: true,
+                to: direct
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try ArborProfileDocument.addingMember(profileTree: "not-a-tree", handle: nil, to: groupSource)
+        }
+        #expect(throws: (any Error).self) {
+            try ArborProfileDocument.addingMember(
+                profileTree: personTree,
+                handle: "Not Valid",
+                reservesCanopyHandle: true,
+                to: groupSource
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try ArborProfileDocument.addingMember(
+                profileTree: "tr_valid2",
+                handle: "valid",
+                reservesCanopyHandle: true,
+                to: groupSource
+            )
+        }
+    }
+
+    @Test("Profile photos are normalized to a directory-compatible asset")
+    func profilePhotoNormalization() throws {
+        let png = try #require(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        let asset = try ArborProfilePhotoImport.normalized(png)
+        #expect(asset.name == "profile-photo.jpg")
+        #expect(asset.mediaType == "image/jpeg")
+        #expect(!asset.bytes.isEmpty)
+        #expect(asset.bytes.count <= AvatarCache.maximumBytes)
+    }
+
     @Test("Source comparison highlights exact changed lines in either direction")
     func sourceComparisonLines() {
         let proposed = ArborSourceLineComparison(displayed: "same\nnew\n", baseline: "same\nold\n")
@@ -375,6 +461,11 @@ struct CanopyAppTests {
         try await store.save(placed)
         #expect(try NativePlacementStore.selected(at: root.appending(path: "placement.json"))?.osPath == "/Users/example/todos")
         #expect(placed.displayName == "todos")
+        var sameTreeFromAnotherCanopy = placed
+        sameTreeFromAnotherCanopy.origin = try #require(URL(string: "https://another.example"))
+        try await store.save(sameTreeFromAnotherCanopy)
+        #expect(try await store.loadAll().count == 1)
+        #expect(try await store.loadAll().first?.origin == sameTreeFromAnotherCanopy.origin)
         let second = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
             configurationTree: "tr_accountconfiguration",

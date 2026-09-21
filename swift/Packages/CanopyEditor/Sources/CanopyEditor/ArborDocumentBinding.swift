@@ -351,6 +351,22 @@ public final class ArborDocumentBinding {
         return try await session.snapshot()
     }
 
+    /// Admit an exact host-authored source replacement, such as a structured
+    /// frontmatter form. It follows the same recovery, conflict, and durable
+    /// admission path as an edit produced by Quagmire.
+    public func replaceSource(_ source: String) async throws {
+        await flush()
+        if let error = lastError { throw error }
+        let current = try await session.snapshot()
+        guard !source.utf8.elementsEqual(current.source.utf8) else { return }
+        checkpoint(source: source)
+        dispatch(.edit(source: source))
+        dispatch(.flush)
+        await settle()
+        do { try await session.flush() } catch { saveError = error }
+        if let error = lastError { throw error }
+    }
+
     /// Project the directory's immediate children into the live editor without
     /// adding them to authored Markdown. Moving a projected row materializes
     /// it through Quagmire's ordinary block move transaction.

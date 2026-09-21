@@ -7,6 +7,8 @@ import Overstory
 import Quagmire
 import QuagmireExtras
 import SwiftUI
+import ImageIO
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 import CoreImage
@@ -760,7 +762,7 @@ struct ArborRootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var managementPresented = false
     @State private var managementTab = MacManagementTab.status
-    @State private var profileAfterManagementDismiss: WorkspaceReference?
+    @State private var profileAfterManagementDismiss: String?
     @State private var sheetAfterManagementDismiss: ArborPresentedSheet?
 #endif
 #if os(iOS)
@@ -1787,16 +1789,13 @@ struct ArborRootView: View {
                 MacArborSyncAccountPanel(
                     workspace: workspace,
                     openProfile: { tree in
-                        profileAfterManagementDismiss = WorkspaceReference(
-                            tree: TreeID(rawValue: tree),
-                            path: "/"
-                        )
+                        profileAfterManagementDismiss = tree
                         managementPresented = false
                     }
                 )
             case .people:
-                ArborDirectoryView(workspace: workspace) { tree in
-                    profileAfterManagementDismiss = WorkspaceReference(tree: TreeID(rawValue: tree), path: "/")
+                ArborDirectoryView(workspace: workspace) { person in
+                    profileAfterManagementDismiss = person.entry.profile
                     managementPresented = false
                 }
             case .status:
@@ -1807,9 +1806,18 @@ struct ArborRootView: View {
     }
 
     private func finishManagementDismissal() {
-        if let profile = profileAfterManagementDismiss {
+        if let profileTree = profileAfterManagementDismiss {
             profileAfterManagementDismiss = nil
-            Task { await model.navigate(to: profile) }
+            Task {
+                do {
+                    if let person = workspace.directory.first(where: { $0.entry.profile == profileTree }) {
+                        try await workspace.openDirectoryProfile(person)
+                    } else {
+                        try await workspace.openPlacedTree(profileTree)
+                    }
+                }
+                catch { workspace.errorMessage = error.localizedDescription }
+            }
         } else if let sheet = sheetAfterManagementDismiss {
             sheetAfterManagementDismiss = nil
             presentedSheet = sheet
@@ -2176,6 +2184,18 @@ struct ArborRootView: View {
                 if let lease = presentation.editorLease, let host = presentation.editorHost {
                     VStack(spacing: 0) {
                         if location == model.currentLocation,
+                           node.reference.path == "/",
+                           let profile = profileDocument(for: node) {
+                            ArborProfileWidget(
+                                profile: profile,
+                                pageTitle: node.title,
+                                isWritable: node.isWritable,
+                                workspace: workspace,
+                                model: model
+                            )
+                            Divider()
+                        }
+                        if location == model.currentLocation,
                            documentConflictExpanded,
                            let conflict = lease.binding.conflict {
                             ArborDocumentConflictView(
@@ -2195,7 +2215,8 @@ struct ArborRootView: View {
                             pinchDictation: pinchDictation,
                             topOverscrollAction: editorTopOverscrollAction,
                             accessories: reviewAccessories(for: location),
-                            accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil
+                            accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil,
+                            readOnly: !node.isWritable
                         ) {
                             ArborDocumentFooter(
                                 status: syncStatus(for: lease.binding),
@@ -2204,8 +2225,6 @@ struct ArborRootView: View {
                                 showStatus: showStatusPanel
                             )
                         }
-                        // A launch preview is read-only until the tree is confirmed.
-                        .allowsHitTesting(node.isWritable)
                     }
                 } else {
                     ProgressView()
@@ -2217,6 +2236,15 @@ struct ArborRootView: View {
             ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else {
             ProgressView()
+        }
+    }
+
+    private func profileDocument(for node: WorkspaceNode) -> ArborProfileDocument? {
+        switch node.surface {
+        case let .markdown(source, _), let .directoryDocument(source, _, _):
+            ArborProfileDocument.parse(source)
+        default:
+            nil
         }
     }
 
@@ -3928,7 +3956,9 @@ private struct IOSAccountPanel: View {
                         LabeledContent("Folder", value: placement.tree.canonicalPath ?? placement.tree.id)
                         LabeledContent("Access", value: placement.tree.access.capitalized)
                         NavigationLink {
-                            ArborDirectoryView(workspace: workspace, openProfile: openProfile)
+                            ArborDirectoryView(workspace: workspace) { person in
+                                openProfile(person.entry.profile)
+                            }
                             .navigationTitle("People")
                         } label: {
                             Label("People", systemImage: "person.2")
@@ -4104,6 +4134,372 @@ private struct WorkspaceSurfaceView: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+}
+
+private struct ArborProfileWidget: View {
+    let profile: ArborProfileDocument
+    let pageTitle: String
+    let isWritable: Bool
+    let workspace: ArborWorkspaceState
+    let model: ArborAppModel
+    @State private var presented = false
+    @State private var reloadAfterDismiss = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ArborProfileBannerAvatar(
+                profile: profile,
+                reference: model.currentReference,
+                workspace: workspace
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(bannerTitle)
+                    .font(.headline)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            if isWritable {
+                Button(actionTitle) { presented = true }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Label("Read only", systemImage: "lock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.quaternary.opacity(0.35))
+        .sheet(isPresented: $presented, onDismiss: {
+            guard reloadAfterDismiss else { return }
+            reloadAfterDismiss = false
+            Task { await model.load() }
+        }) {
+            if profile.kind == .group {
+                ArborAddProfileMemberSheet(
+                    profile: profile,
+                    workspace: workspace,
+                    reservesCanopyHandle: workspace.isCommunityMembershipTree,
+                    add: {
+                        try await model.addProfileMember(treeID: $0, handle: $1)
+                        reloadAfterDismiss = true
+                    }
+                )
+            } else {
+                ArborPersonalProfileSheet(
+                    profile: profile,
+                    save: {
+                        try await model.updatePersonalProfile(displayName: $0, description: $1, photo: $2)
+                        reloadAfterDismiss = true
+                    }
+                )
+            }
+        }
+    }
+
+    private var detail: String {
+        if !isWritable { return "You can view this profile, but only an editor can change it." }
+        if profile.kind == .person {
+            if let description = profile.description, !description.isEmpty { return description }
+            return hasPersonalDetails
+                ? "Personal profile"
+                : "Add a display name, photo, and short description."
+        }
+        return workspace.isCommunityMembershipTree
+            ? "Add a person by Profile TreeID and reserve their handle on this Canopy."
+            : "Add a member by Profile TreeID."
+    }
+
+    private var actionTitle: String {
+        guard profile.kind == .group else { return hasPersonalDetails ? "Edit Profile…" : "Fill Out Profile…" }
+        return workspace.isCommunityMembershipTree ? "Add Person…" : "Add Member…"
+    }
+
+    private var bannerTitle: String {
+        if profile.kind == .person, let name = profile.displayName, !name.isEmpty { return name }
+        if profile.kind == .group, !pageTitle.isEmpty { return pageTitle }
+        return profile.kind == .group ? "Group profile" : "Personal profile"
+    }
+
+    private var hasPersonalDetails: Bool {
+        profile.displayName?.isEmpty == false
+            || profile.description?.isEmpty == false
+            || profile.avatarPath != nil
+    }
+}
+
+private struct ArborProfileBannerAvatar: View {
+    let profile: ArborProfileDocument
+    let reference: WorkspaceReference
+    let workspace: ArborWorkspaceState
+    @State private var image: Image?
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color.accentColor.opacity(0.14))
+            if let image {
+                image.resizable().scaledToFill()
+            } else {
+                Image(systemName: profile.kind == .group ? "person.2.fill" : "person.crop.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+            }
+        }
+        .frame(width: 46, height: 46)
+        .clipShape(Circle())
+        .task(id: profile.avatarPath) {
+            guard let avatarPath = profile.avatarPath else { image = nil; return }
+            let path = "/" + avatarPath
+            guard let data = try? await workspace.provider.readFile(.init(tree: reference.tree, path: path)),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 184,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                  ] as CFDictionary) else {
+                image = nil
+                return
+            }
+            image = Image(decorative: thumbnail, scale: 2)
+        }
+    }
+}
+
+private struct ArborPersonalProfileSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let profile: ArborProfileDocument
+    let save: (String, String, WorkspaceAsset?) async throws -> Void
+    @State private var displayName = ""
+    @State private var profileDescription = ""
+    @State private var busy = false
+    @State private var message: String?
+    @State private var selectedPhoto: WorkspaceAsset?
+    @State private var selectingPhoto = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Your profile") {
+                    TextField("Display name", text: $displayName)
+                    TextField("Short description", text: $profileDescription, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+                Section("Photo") {
+                    HStack(spacing: 12) {
+                        ArborSelectedProfilePhoto(asset: selectedPhoto)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(selectedPhoto == nil ? (profile.avatarPath == nil ? "No photo selected" : "Current profile photo") : "New photo selected")
+                            Text("The image is resized and stored in this profile tree.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Choose Photo…") { selectingPhoto = true }
+                            .disabled(busy)
+                    }
+                }
+                if let message { Section { Text(message).foregroundStyle(.red) } }
+            }
+            .navigationTitle(hasExistingDetails ? "Edit Profile" : "Fill Out Profile")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await submit() } }.disabled(busy)
+                }
+            }
+        }
+        .frame(minWidth: 420, minHeight: 260)
+        .fileImporter(isPresented: $selectingPhoto, allowedContentTypes: [.image]) { result in
+            do {
+                selectedPhoto = try ArborProfilePhotoImport.load(from: result.get())
+                message = nil
+            } catch {
+                message = error.localizedDescription
+            }
+        }
+        .onAppear {
+            displayName = profile.displayName ?? ""
+            profileDescription = profile.description ?? ""
+        }
+    }
+
+    private func submit() async {
+        busy = true
+        do {
+            try await save(displayName, profileDescription, selectedPhoto)
+            busy = false
+            dismiss()
+        } catch {
+            busy = false
+            message = error.localizedDescription
+        }
+    }
+
+    private var hasExistingDetails: Bool {
+        profile.displayName?.isEmpty == false
+            || profile.description?.isEmpty == false
+            || profile.avatarPath != nil
+    }
+}
+
+enum ArborProfilePhotoImport {
+    static func load(from url: URL) throws -> WorkspaceAsset {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        return try normalized(data)
+    }
+
+    static func normalized(_ data: Data) throws -> WorkspaceAsset {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1024,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+              ] as CFDictionary) else {
+            throw ArborWireValidationError.invalidValue("The selected file is not a readable image")
+        }
+        for quality in [0.86, 0.72, 0.58] {
+            let encoded = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                encoded,
+                UTType.jpeg.identifier as CFString,
+                1,
+                nil
+            ) else { continue }
+            CGImageDestinationAddImage(destination, image, [
+                kCGImageDestinationLossyCompressionQuality: quality,
+            ] as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else { continue }
+            let bytes = encoded as Data
+            if bytes.count <= AvatarCache.maximumBytes {
+                return WorkspaceAsset(name: "profile-photo.jpg", mediaType: "image/jpeg", bytes: bytes)
+            }
+        }
+        throw ArborWireValidationError.invalidValue("The selected photo could not be reduced below 2 MB")
+    }
+}
+
+private struct ArborSelectedProfilePhoto: View {
+    let asset: WorkspaceAsset?
+
+    var body: some View {
+        Group {
+            if let asset, let image = platformImage(asset.bytes) {
+                image.resizable().scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .clipShape(Circle())
+    }
+
+    private func platformImage(_ data: Data) -> Image? {
+#if os(macOS)
+        NSImage(data: data).map { Image(nsImage: $0) }
+#else
+        UIImage(data: data).map { Image(uiImage: $0) }
+#endif
+    }
+}
+
+private struct ArborAddProfileMemberSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let profile: ArborProfileDocument
+    let workspace: ArborWorkspaceState
+    let reservesCanopyHandle: Bool
+    let add: (String, String) async throws -> Void
+    @State private var treeID = ""
+    @State private var handle = ""
+    @State private var query = ""
+    @State private var busy = false
+    @State private var message: String?
+
+    private var people: [DirectoryPerson] {
+        DirectoryMatcher.matches(query: query, in: workspace.directory).filter {
+            $0.entry.kind != "group"
+                && !profile.memberProfiles.contains("arbor://\($0.entry.profile)/")
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Person") {
+                    TextField("TreeID (tr_…)", text: $treeID)
+                    if reservesCanopyHandle {
+                        HStack(spacing: 4) {
+                            Text("~").foregroundStyle(.secondary)
+                            TextField("Canopy handle", text: $handle)
+                        }
+                    }
+                    Text(reservesCanopyHandle
+                        ? "This reserves the handle on this Canopy for the person’s Profile TreeID; it does not copy or relocate their profile."
+                        : "The TreeID is the member’s stable profile identity.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section("People on this Canopy") {
+                    ForEach(people) { person in
+                        Button {
+                            treeID = person.entry.profile
+                            if reservesCanopyHandle { handle = person.entry.handle ?? "" }
+                            message = nil
+                        } label: {
+                            HStack(spacing: 12) {
+                                ArborAvatarView(person: person, workspace: workspace)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(person.title)
+                                    Text(person.subtitle).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                    }
+                    if people.isEmpty {
+                        Text(reservesCanopyHandle
+                            ? "No matching directory suggestions. You can still add the TreeID and handle above."
+                            : "No matching directory suggestions. You can still add the TreeID above.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let message { Section { Text(message).foregroundStyle(.red) } }
+            }
+            .searchable(text: $query, prompt: "Search people")
+            .navigationTitle("Add Person")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") { Task { await submit() } }
+                        .disabled(busy || treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || (reservesCanopyHandle
+                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                }
+            }
+        }
+        .frame(minWidth: 440, minHeight: 360)
+    }
+
+    private func submit() async {
+        busy = true
+        do {
+            try await add(treeID, handle)
+            busy = false
+            dismiss()
+        } catch {
+            busy = false
+            message = error.localizedDescription
+        }
     }
 }
 

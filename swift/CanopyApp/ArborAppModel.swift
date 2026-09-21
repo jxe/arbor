@@ -116,6 +116,10 @@ final class ArborWorkspaceState {
     private(set) var launchPhase: ArborLaunchPhase = .ready
     private(set) var capabilities: WorkspaceProviderCapabilities = .readOnly
     private(set) var providerDetail = "No tree open"
+    /// canopyd's canonical `/` tree is its membership profile. Handles in
+    /// that profile reserve account locators; ordinary group handles do not.
+    private(set) var currentTreeCanonicalPath: String?
+    var isCommunityMembershipTree: Bool { currentTreeCanonicalPath == "/" }
     private(set) var syncPresentation = WorkspaceSyncPresentation(
         state: .offline,
         detail: "Open a local tree to start Native synchronization"
@@ -265,7 +269,11 @@ final class ArborWorkspaceState {
             sourceOperationEmission: true,
             sourceObjectStore: workingTree
         )
-        let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
+        let nextProvider = WorkingTreeProvider(
+            workingTree: workingTree,
+            readOnly: tree.access != "write",
+            sourceCoordinator: coordinator
+        ) { [weak self] admission in
             try await coordinator.syncImmediately(admission)
             await self?.refreshSyncPresentation(from: coordinator)
         }
@@ -276,7 +284,8 @@ final class ArborWorkspaceState {
         await switchProvider(
             nextProvider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
-            detail: "Offline replica · \(tree.canonicalPath ?? tree.id)"
+            detail: "Offline replica · \(tree.canonicalPath ?? tree.id)",
+            canonicalPath: tree.canonicalPath
         )
         syncCoordinator = coordinator
         conflictReview = ArborConflictReviewModel(coordinator: coordinator)
@@ -869,6 +878,7 @@ final class ArborWorkspaceState {
             nextProvider,
             home: nextHome,
             detail: "Working tree · \(placeName) · \(placed.osPath ?? "")",
+            canonicalPath: descriptor.canonicalPath,
             // The confirmed tree replaces its own preview at the same
             // locations: keep every window's navigation and reload in place.
             preservingNavigation: launchPhase.isPreviewing && home == nextHome
@@ -889,10 +899,8 @@ final class ArborWorkspaceState {
 
     // MARK: Visits
 
-    /// Open a remote tree by locator without placing it: a read-only in-memory
-    /// working tree with the daemon's object route as its platform store, the
-    /// same-origin account credential when the daemon holds one, anonymous
-    /// otherwise, following the tree's watch and re-pulling on a gap.
+    /// Open a remote tree by locator without a filesystem placement. Writable
+    /// trees use an app-owned durable replica; readable trees remain visits.
     func openRemoteLocator(_ locator: String) async throws {
         guard let remote = ArborRemoteLocator(locator) else {
             throw ArborWireValidationError.invalidValue("Enter an http(s):// or arbor:// locator")
@@ -917,12 +925,25 @@ final class ArborWorkspaceState {
         let resolution = try await client.resolve(path: remote.path)
         let tree = resolution.enclosingTree
         let treeID = TreeID(rawValue: tree.id)
-        let snapshot = try await client.snapshot(tree: tree.id, root: tree.root)
         let platform: any ObjectStore = if let daemon = arborsyncClient {
             DaemonObjectStore(client: daemon, tree: tree.id, origin: remote.origin)
         } else {
             CanopyObjectStore(client: client, tree: tree.id)
         }
+        let rootLocator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
+        try? await visitedTreeStore.record(VisitedTreeRecord(origin: remote.origin, tree: tree, locator: rootLocator))
+#if os(macOS)
+        if tree.access == "write" {
+            try await openWritableRemoteTree(
+                tree: tree,
+                locator: rootLocator,
+                client: client,
+                platform: platform
+            )
+            return
+        }
+#endif
+        let snapshot = try await client.snapshot(tree: tree.id, root: tree.root)
         let workingTree = try await WorkingTree.inMemory(tree: treeID, platform: platform)
         try await workingTree.initializeFromSystem(try ArborVisitSnapshot.replacement(
             snapshot,
@@ -931,8 +952,6 @@ final class ArborWorkspaceState {
             cursor: resolution.observedThrough
         ))
         let provider = WorkingTreeProvider(workingTree: workingTree, readOnly: true)
-        let rootLocator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
-        try? await visitedTreeStore.record(VisitedTreeRecord(origin: remote.origin, tree: tree, locator: rootLocator))
         await switchProvider(
             provider,
             home: WorkspaceReference(tree: treeID, path: "/"),
@@ -941,7 +960,8 @@ final class ArborWorkspaceState {
                 path: resolution.ref.path,
                 stableKey: resolution.ref.stableKey
             )),
-            detail: "Visiting \(rootLocator) · read-only"
+            detail: "Visiting \(rootLocator) · read-only",
+            canonicalPath: tree.canonicalPath
         )
         openVisitLocator = rootLocator
         syncPresentation = WorkspaceSyncPresentation(
@@ -955,6 +975,82 @@ final class ArborWorkspaceState {
         }.start(after: resolution.observedThrough)
         prefetchLocalArborSyncOverview()
     }
+
+#if os(macOS)
+    private func openWritableRemoteTree(
+        tree: WireTreeDescriptor,
+        locator: String,
+        client: ArborWireClient,
+        platform: any ObjectStore
+    ) async throws {
+        let transport = ArborWireReplicaTransport(client: client)
+        let key = ArborSupportDirectories.workingTreeKey(tree.id)
+        let replicaRoot = ArborSupportDirectories.remoteWorkingTrees
+            .appending(path: key, directoryHint: .isDirectory)
+        let syncStateRoot = ArborSupportDirectories.remoteSync
+            .appending(path: key, directoryHint: .isDirectory)
+        let formatMarker = replicaRoot.appending(path: "wire-format")
+        let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingTree: WorkingTree
+        if placedFormat == Self.workingTreeFormat,
+           FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
+            workingTree = try await WorkingTree.open(
+                at: replicaRoot,
+                tree: TreeID(rawValue: tree.id),
+                platform: platform
+            )
+        } else {
+            let archive = ArborSupportDirectories.root
+                .appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
+            for (source, name) in [(replicaRoot, "RemoteWorkingTree"), (syncStateRoot, "RemoteSync")] {
+                if FileManager.default.fileExists(atPath: source.path) {
+                    try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+                    try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
+                }
+            }
+            workingTree = try await WorkingTreePlacementService.place(
+                tree: tree,
+                at: replicaRoot,
+                transport: transport,
+                platform: platform
+            )
+            try Self.workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
+        }
+        let coordinator = try UpdateCoordinator(
+            workingTree: workingTree,
+            transport: transport,
+            stateRoot: syncStateRoot,
+            transportAvailable: nativeTransportAvailable,
+            sourceOperationEmission: true,
+            sourceObjectStore: workingTree
+        )
+        let provider = WorkingTreeProvider(
+            workingTree: workingTree,
+            sourceCoordinator: coordinator
+        ) { [weak self] admission in
+            try await coordinator.syncImmediately(admission)
+            await self?.refreshSyncPresentation(from: coordinator)
+        }
+        await switchProvider(
+            provider,
+            home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
+            detail: "Working tree · \(locator)",
+            canonicalPath: tree.canonicalPath
+        )
+        syncCoordinator = coordinator
+        conflictReview = ArborConflictReviewModel(coordinator: coordinator)
+        Task { [weak self] in await self?.conflictReview?.refresh() }
+        openVisitLocator = locator
+        syncPresentation = try await coordinator.presentation()
+        startServerWatch(client: client, tree: tree, coordinator: coordinator)
+        Task { [weak self] in
+            _ = try? await coordinator.syncOnce()
+            await self?.refreshSyncPresentation(from: coordinator)
+        }
+        prefetchLocalArborSyncOverview()
+    }
+#endif
 
     private func noteVisitChanged(_ workingTree: WorkingTree) async {
         guard openVisitLocator != nil, let heads = try? await workingTree.heads() else { return }
@@ -1003,6 +1099,7 @@ final class ArborWorkspaceState {
                     WorkingTreeProvider(workingTree: preview, readOnly: true),
                     home: WorkspaceReference(tree: tree, path: "/"),
                     detail: "Connecting · \(record.displayName) · \(osPath)",
+                    canonicalPath: record.tree.canonicalPath,
                     recoversEdits: false
                 )
                 launchPhase = .confirming(record.displayName)
@@ -1433,8 +1530,13 @@ final class ArborWorkspaceState {
 #endif
     }
 
-#if os(iOS)
     func openDirectoryProfile(_ person: DirectoryPerson) async throws {
+#if os(macOS)
+        guard let locator = person.entry.locator else {
+            throw ArborWireValidationError.invalidValue("Profile is not hosted on this Canopy")
+        }
+        try await openRemoteLocator(locator)
+#else
         let account = try await KeychainDeviceCredentialStore().accounts().first {
             $0.origin.scheme?.lowercased() == person.origin.scheme?.lowercased()
                 && $0.origin.host()?.lowercased() == person.origin.host()?.lowercased()
@@ -1446,8 +1548,30 @@ final class ArborWorkspaceState {
             throw ArborWireValidationError.invalidValue("Profile is not hosted on this Canopy")
         }
         try await place(tree: tree, from: person.origin, configurationTree: account.configurationTree)
-    }
 #endif
+    }
+
+    /// Follow a nested-tree boundary through the same account-aware paths used
+    /// by People. Prefer an existing Mac placement, then the hosted profile
+    /// locator carried by the directory.
+    func openNestedTree(_ tree: TreeID) async throws {
+#if os(macOS)
+        if localArborSyncOverview?.trees.contains(where: {
+            $0.id == tree.rawValue && $0.path != nil && $0.missing != true
+        }) == true {
+            try await openPlacedTree(tree.rawValue)
+            return
+        }
+#endif
+        guard let person = directory.first(where: {
+            $0.entry.profile == tree.rawValue && $0.entry.locator != nil
+        }) else {
+            throw ArborWireValidationError.invalidValue(
+                "The nested tree \(tree.rawValue) is not hosted by a connected Canopy."
+            )
+        }
+        try await openDirectoryProfile(person)
+    }
 
     func syncNow(reportTransientNetworkErrors: Bool = true) async {
         guard let syncCoordinator else { return }
@@ -1587,6 +1711,7 @@ final class ArborWorkspaceState {
         home nextHome: WorkspaceReference,
         launchLocation nextLaunchLocation: WorkspaceLocation? = nil,
         detail: String,
+        canonicalPath: String? = nil,
         preservingNavigation: Bool = false,
         recoversEdits: Bool = true
     ) async {
@@ -1598,6 +1723,7 @@ final class ArborWorkspaceState {
         home = nextHome
         launchLocation = nextLaunchLocation ?? .reference(nextHome)
         providerDetail = detail
+        currentTreeCanonicalPath = canonicalPath
         capabilities = await nextProvider.capabilities()
         latestStructuralReceipt = nil
         if preservingNavigation { providerRevision += 1 } else { generation += 1 }
@@ -1793,7 +1919,10 @@ final class ArborAppModel {
             default:
                 resolved.location.parent ?? workspace.launchLocation
             }
-            let loadedChildren = try await workspace.provider.children(of: sidebarBase)
+            let loadedChildren = nestedProfileTitles(
+                in: try await workspace.provider.children(of: sidebarBase),
+                parent: resolved
+            )
             guard requestID == loadRequestID, observedWorkspaceGeneration == workspace.generation else { return }
             tabs.replaceCurrent(with: resolved.location)
             tabVersion += 1
@@ -1807,7 +1936,7 @@ final class ArborAppModel {
             sidebarLocation = sidebarBase
             // A launch preview shows pages in the editor too, so confirming the
             // tree changes nothing on screen; the view blocks input meanwhile.
-            if resolved.surface.supportsDocumentSession, resolved.isWritable || workspace.launchPhase.isPreviewing {
+            if resolved.surface.supportsDocumentSession {
                 let lease = try await workspace.editorWorkspace.lease(resolved.reference)
                 guard requestID == loadRequestID else {
                     await workspace.editorWorkspace.release(lease)
@@ -1860,6 +1989,12 @@ final class ArborAppModel {
     }
 
     func navigate(to location: WorkspaceLocation) async {
+        if case let .reference(reference) = location,
+           reference.tree != workspace.home.tree {
+            do { try await workspace.openNestedTree(reference.tree) }
+            catch { errorMessage = error.localizedDescription }
+            return
+        }
         retainCurrentPagePresentation()
         tabs.navigate(to: location)
         tabVersion += 1
@@ -1868,6 +2003,68 @@ final class ArborAppModel {
 
     func navigate(to reference: WorkspaceReference) async {
         await navigate(to: location(for: reference))
+    }
+
+    func updatePersonalProfile(
+        displayName: String,
+        description: String,
+        photo: WorkspaceAsset? = nil
+    ) async throws {
+        guard currentReference.path == "/", let binding else {
+            throw ArborWireValidationError.invalidValue("Open the profile home page before editing its details")
+        }
+        let avatarPath: String?
+        if let photo {
+            let stored = try await workspace.provider.store(asset: photo, in: currentReference)
+            avatarPath = stored.reference.path.drop(while: { $0 == "/" }).description
+        } else {
+            avatarPath = nil
+        }
+        let snapshot = try await binding.snapshot()
+        let source = try ArborProfileDocument.updatingPerson(
+            snapshot.source,
+            displayName: displayName,
+            description: description,
+            avatarPath: avatarPath
+        )
+        try await binding.replaceSource(source)
+    }
+
+    func addProfileMember(treeID: String, handle: String) async throws {
+        guard currentReference.path == "/", let binding else {
+            throw ArborWireValidationError.invalidValue("Open the group home page before adding a person")
+        }
+        let snapshot = try await binding.snapshot()
+        try await binding.replaceSource(try ArborProfileDocument.addingMember(
+            profileTree: treeID,
+            handle: workspace.isCommunityMembershipTree ? handle : nil,
+            reservesCanopyHandle: workspace.isCommunityMembershipTree,
+            to: snapshot.source
+        ))
+        await workspace.refreshDirectory(force: true)
+    }
+
+    /// A mounted profile is authored under a filesystem name, but its stable
+    /// person-facing identity is the handle advertised by the directory.
+    private func nestedProfileTitles(in nodes: [WorkspaceNode], parent: WorkspaceNode) -> [WorkspaceNode] {
+        let source: String? = switch parent.surface {
+        case let .markdown(source, _), let .directoryDocument(source, _, _): source
+        default: nil
+        }
+        let group = source.flatMap(ArborProfileDocument.parse)
+        return nodes.map { node in
+            guard node.reference.path == "/",
+                  node.reference.tree != workspace.home.tree else { return node }
+            let locator = "arbor://\(node.reference.tree.rawValue)/"
+            let authoredHandle = group?.memberHandlesByProfile[locator]
+            let person = workspace.directory.first { $0.entry.profile == node.reference.tree.rawValue }
+            guard authoredHandle != nil || person != nil else { return node }
+            var presented = node
+            presented.title = authoredHandle.map { "~\($0)" }
+                ?? person?.entry.handle.map { "~\($0)" }
+                ?? person!.title
+            return presented
+        }
     }
 
     func goBack() async { retainCurrentPagePresentation(); tabs.goBack(); tabVersion += 1; await loadOrRestoreCurrentPage() }

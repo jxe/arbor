@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry } from "@overstory/protocol";
 import { rootProfileFacts } from "@overstory/canopyd";
 
-function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}) {
+function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}, title = "Profile") {
   const objects = new Map<ObjectHash, Uint8Array>();
-  const index = new TextEncoder().encode(`---\n${frontmatter}\n---\n\n# Profile\n`);
+  const index = new TextEncoder().encode(`---\n${frontmatter}\n---\n\n# ${title}\n`);
   const indexHash = hashObject(index);
   objects.set(indexHash, index);
   const rootEntries: WireDirectoryEntry[] = [{ name: "_index.md", file: indexHash }];
@@ -38,13 +38,27 @@ describe("profile presentation facts", () => {
       "images/me.webp": new Uint8Array([1, 2, 3]),
     });
     const facts = await rootProfileFacts(source.root, source.load);
-    expect(facts).toMatchObject({ version: 2, type: "person", displayName: "José Arbor", description: "Builder", avatar: { path: "images/me.webp" } });
+    expect(facts).toMatchObject({ version: 3, type: "person", displayName: "José Arbor", description: "Builder", avatar: { path: "images/me.webp" } });
   });
 
   test("drops malformed and unavailable card fields without rejecting identity", async () => {
     for (const avatar of ["../x.png", "/x.png", "https://example/x.png", "missing.png"]) {
       const source = fixture(`type: group\ndisplayName: "${"x".repeat(81)}"\ndescription: "${"y".repeat(501)}"\navatar: ${avatar}`);
-      expect(await rootProfileFacts(source.root, source.load)).toEqual({ version: 2, type: "group", members: [] });
+      expect(await rootProfileFacts(source.root, source.load)).toEqual({
+        version: 3,
+        type: "group",
+        members: [],
+        headingTitle: "Profile",
+      });
     }
+  });
+
+  test("keeps the first H1 as a group directory title without inventing a displayName", async () => {
+    const source = fixture("type: group\nmembers: []", {}, "**Garden Club**");
+    expect(await rootProfileFacts(source.root, source.load)).toMatchObject({
+      type: "group",
+      headingTitle: "Garden Club",
+    });
+    expect((await rootProfileFacts(source.root, source.load)).displayName).toBeUndefined();
   });
 });

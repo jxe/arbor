@@ -38,6 +38,10 @@ enum ArborSupportDirectories {
     /// Per-tree working-tree state: the durable iOS tree, or on the Mac only the
     /// coordinator's `sync/update-control.json` beneath `WorkingTrees/<key>`.
     static let workingTrees = root.appending(path: "WorkingTrees", directoryHint: .isDirectory)
+    /// Durable app-owned replicas for writable remote trees opened without a
+    /// filesystem placement on macOS.
+    static let remoteWorkingTrees = root.appending(path: "RemoteWorkingTrees", directoryHint: .isDirectory)
+    static let remoteSync = root.appending(path: "RemoteSync", directoryHint: .isDirectory)
     /// Client network log: one JSON Lines file per day, readable in Sync Status.
     static let networkLogs = root.appending(path: "Logs", directoryHint: .isDirectory)
 

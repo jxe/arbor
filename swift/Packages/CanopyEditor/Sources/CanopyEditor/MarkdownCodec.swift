@@ -97,11 +97,15 @@ public enum ArborMarkdownCodec {
         guard !missing.isEmpty else { return authored }
 
         let generated = missing.map { child -> Block in
-            let rawReference = buildCanonicalLink(
-                from: directory.path,
-                toPath: child.reference.path,
-                stableKey: child.reference.stableKey
-            ) ?? child.reference.path
+            let rawReference = if child.reference.tree != directory.tree {
+                ArborDocumentReferenceCodec.encode(child.reference).rawValue
+            } else {
+                buildCanonicalLink(
+                    from: directory.path,
+                    toPath: child.reference.path,
+                    stableKey: child.reference.stableKey
+                ) ?? child.reference.path
+            }
             return Block(
                 id: projectedChildID(child.reference),
                 kind: .documentLink(

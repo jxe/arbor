@@ -63,6 +63,13 @@ struct WorkingTreeFixtureTests {
 
 @Suite("Offline provider")
 struct WorkingTreeProviderTests {
+    @Test("Working-tree failures have useful descriptions")
+    func localizedErrors() {
+        let reference = WorkspaceReference(tree: TreeID(rawValue: "tr_example"), path: "/group")
+        #expect(WorkingTreeError.notFound(reference).localizedDescription == "Nothing was found at /group in tr_example.")
+        #expect(WorkingTreeError.pendingLocalChanges.localizedDescription == "Local changes must finish before this operation can continue.")
+    }
+
     @Test("Browsing, exact editing, structure, assets, collections, and indexes remain offline", arguments: StoreKind.allCases)
     func completeProvider(kind: StoreKind) async throws {
         try await withTemporaryReplica { root in
@@ -283,7 +290,10 @@ struct WorkingTreeProviderTests {
             #expect(replacedHeads.pendingRoot == nil)
 
             let provider = WorkingTreeProvider(workingTree: workingTree)
-            #expect(try await provider.resolve(.init(tree: tree, path: "/nested")).surface.isReadOnly)
+            let boundary = try await provider.resolve(.init(tree: tree, path: "/nested"))
+            #expect(boundary.reference == WorkspaceReference(tree: "tr_nested", path: "/"))
+            #expect(boundary.surface == .directory(summary: "Nested Arbor tree"))
+            #expect(!boundary.isWritable)
             _ = try await provider.perform(.createDirectory(parent: .init(tree: tree, path: "/"), name: "local"))
             await #expect(throws: WorkingTreeError.pendingLocalChanges) {
                 try await workingTree.replaceFromSystem(WorkingTreeSystemReplacement(

@@ -30,12 +30,18 @@ afterAll(async () => {
 });
 
 describe("authenticated user directory", () => {
-  test("lists another readable community member with card and identity fields while excluding self", async () => {
+  test("lists the signed-in profile and another readable community member with card and identity fields", async () => {
     const client = new WireClient(running.url, "alice-directory-token");
     const own = (await client.account()).account.profileTree;
     const directory = await client.directory();
     expect(directory.observedThrough).toBeTruthy();
-    expect(directory.snapshot.some((entry) => entry.profile === own)).toBe(false);
+    const alice = directory.snapshot.find((entry) => entry.profile === own);
+    expect(alice).toMatchObject({
+      kind: "person",
+      handle: "alice",
+      displayName: "Alice Arbor",
+    });
+    expect(alice?.sources).toContain("community");
     const bob = directory.snapshot.find((entry) => entry.handle === "bob");
     expect(bob).toMatchObject({ kind: "person", displayName: "Bob Builder" });
     expect(bob?.sources).toContain("community");

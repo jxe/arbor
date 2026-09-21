@@ -104,7 +104,7 @@ struct ArborPeoplePicker: View {
 
 struct ArborDirectoryView: View {
     let workspace: ArborWorkspaceState
-    let openProfile: (String) -> Void
+    let openProfile: (DirectoryPerson) -> Void
     @State private var query = ""
 
     private var people: [DirectoryPerson] { DirectoryMatcher.matches(query: query, in: workspace.directory) }
@@ -135,7 +135,7 @@ struct ArborDirectoryView: View {
                             HStack { ForEach(person.entry.sources, id: \.self) { Text(sourceLabel($0)).font(.caption2).padding(.horizontal, 5).background(.quaternary, in: Capsule()) } }
                         }
                         Spacer()
-                        Button("Open profile") { openProfile(person.entry.profile) }
+                        Button("Open profile") { openProfile(person) }
                             .disabled(person.entry.locator == nil)
                             .help(person.entry.locator == nil ? "Not hosted" : "Open profile")
                     }

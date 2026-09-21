@@ -9,6 +9,7 @@ public struct ArborEditorSurface<Footer: View>: View {
     public let topOverscrollAction: EditorTopOverscrollAction?
     public let accessories: [EditorAccessory]
     public let accessoryReveal: EditorAccessoryReveal?
+    public let readOnly: Bool
     private let footer: Footer
 
     public init(
@@ -19,6 +20,7 @@ public struct ArborEditorSurface<Footer: View>: View {
         topOverscrollAction: EditorTopOverscrollAction? = nil,
         accessories: [EditorAccessory] = [],
         accessoryReveal: EditorAccessoryReveal? = nil,
+        readOnly: Bool = false,
         @ViewBuilder footer: () -> Footer
     ) {
         self.binding = binding
@@ -28,6 +30,7 @@ public struct ArborEditorSurface<Footer: View>: View {
         self.topOverscrollAction = topOverscrollAction
         self.accessories = accessories
         self.accessoryReveal = accessoryReveal
+        self.readOnly = readOnly
         self.footer = footer()
     }
 
@@ -47,7 +50,8 @@ public struct ArborEditorSurface<Footer: View>: View {
             host: host,
             configuration: configuration,
             pinchDictation: pinchDictation,
-            topOverscrollAction: topOverscrollAction
+            topOverscrollAction: topOverscrollAction,
+            readOnly: readOnly
         ) {
             footer
         }
@@ -69,7 +73,8 @@ public extension ArborEditorSurface where Footer == EmptyView {
         pinchDictation: EditorPinchDictation? = nil,
         topOverscrollAction: EditorTopOverscrollAction? = nil,
         accessories: [EditorAccessory] = [],
-        accessoryReveal: EditorAccessoryReveal? = nil
+        accessoryReveal: EditorAccessoryReveal? = nil,
+        readOnly: Bool = false
     ) {
         self.init(
             binding: binding,
@@ -78,7 +83,8 @@ public extension ArborEditorSurface where Footer == EmptyView {
             pinchDictation: pinchDictation,
             topOverscrollAction: topOverscrollAction,
             accessories: accessories,
-            accessoryReveal: accessoryReveal
+            accessoryReveal: accessoryReveal,
+            readOnly: readOnly
         ) { EmptyView() }
     }
 }

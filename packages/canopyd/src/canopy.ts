@@ -989,7 +989,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
     if (row) {
       const cached = JSON.parse(row.value) as Partial<RootProfileFacts>;
-      if (cached.version === 2) return cached as RootProfileFacts;
+      if (cached.version === 3) return cached as RootProfileFacts;
     }
     const facts = await rootProfileFacts(root, (hash) => this.objects.read(hash));
     this.db.run(

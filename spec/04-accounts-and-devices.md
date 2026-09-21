@@ -40,6 +40,9 @@ scalars. An avatar is a relative path inside the same profile tree, has no
 empty, `.` or `..` component, and ends in `png`, `jpg`, `jpeg`, `gif`, or
 `webp`. Malformed or missing presentation fields are ignored rather than
 invalidating the profile. They never participate in identity or authorization.
+When a group omits `displayName`, directory presentation uses the plain text of
+its first authored H1 as the group name. This fallback remains presentation
+only and does not add or imply a `displayName` field.
 
 A **host account** is a relationship between one host and one profile
 `TreeID`. Its private configuration `TreeID` is the stable identity of that

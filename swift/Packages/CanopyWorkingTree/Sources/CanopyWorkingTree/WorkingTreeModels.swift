@@ -17,6 +17,26 @@ public enum WorkingTreeError: Error, Equatable, Sendable {
     case closed
 }
 
+extension WorkingTreeError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case let .invalidName(name): "Invalid name: \(name)"
+        case let .invalidPath(path): "Invalid path: \(path)"
+        case let .notFound(reference): "Nothing was found at \(reference.path) in \(reference.tree.rawValue)."
+        case let .notDirectory(reference): "\(reference.path) is not a folder."
+        case let .notDocument(reference): "\(reference.path) is not a document."
+        case let .collision(value): "An item already exists at \(value)."
+        case let .readOnly(reference): "\(reference.path) is read-only."
+        case .staleRevision: "The document changed before this edit could be applied."
+        case .pageIDChanged: "The document identity changed before this edit could be applied."
+        case .pendingLocalChanges: "Local changes must finish before this operation can continue."
+        case let .corruptState(message): "The working tree state is invalid: \(message)"
+        case let .simulatedCrash(point): "Simulated working tree failure at \(point.rawValue)."
+        case .closed: "The working tree is closed."
+        }
+    }
+}
+
 public enum WorkingTreeFailurePoint: String, Codable, CaseIterable, Sendable {
     case afterJournal
     case afterObjects

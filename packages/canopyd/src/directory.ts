@@ -23,7 +23,6 @@ function treeLocator(origin: string, tree: CanopyTree): string | undefined {
 export async function buildDirectory(canopy: CanopyDaemon, account: CanopyAccount, origin: string): Promise<DirectoryEntry[]> {
   const entries = new Map<string, DirectoryEntry>();
   const include = (profile: string, source: DirectorySource, handle?: string) => {
-    if (profile === account.profileTree) return;
     const existing = entries.get(profile);
     if (existing) {
       if (!existing.sources.includes(source)) existing.sources.push(source);
@@ -57,6 +56,7 @@ export async function buildDirectory(canopy: CanopyDaemon, account: CanopyAccoun
     const locator = treeLocator(origin, tree);
     if (locator) entry.locator = locator;
     if (card.displayName) entry.displayName = card.displayName;
+    else if (card.type === "group" && card.headingTitle) entry.displayName = card.headingTitle;
     if (card.description !== undefined) entry.description = card.description;
     if (card.avatar) entry.avatar = { tree: tree.id, ...card.avatar };
   }));

@@ -1,13 +1,14 @@
-import { parseMarkdown, decodeWireDirectory, type ObjectHash } from "@overstory/protocol";
+import { parseMarkdown, plainMarkdownTitle, decodeWireDirectory, type ObjectHash } from "@overstory/protocol";
 
 const PROFILE_LOCATOR = /^arbor:\/\/tr_[a-z2-7]+\/?$/;
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 
 export interface RootProfileFacts {
-  version: 2;
+  version: 3;
   type: "person" | "group" | null;
   members: Array<{ profile: string; handle?: string; legacy?: true }>;
   displayName?: string;
+  headingTitle?: string;
   description?: string;
   avatar?: { path: string; hash: ObjectHash };
 }
@@ -40,13 +41,14 @@ export function validateProfileAvatarPath(value: unknown): string | undefined {
  * mutable state; the offline migration rebuilds the same cache.
  */
 export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileFacts> {
-  const none: RootProfileFacts = { version: 2, type: null, members: [] };
+  const none: RootProfileFacts = { version: 3, type: null, members: [] };
   const directory = decodeWireDirectory(await load(root));
   if (directory.type !== "directory") return none;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
   if (!index?.file) return none;
   const file = await load(index.file);
-  const { frontmatter } = parseMarkdown(new TextDecoder().decode(file));
+  const document = parseMarkdown(new TextDecoder().decode(file));
+  const { frontmatter } = document;
   const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
   const declared = Array.isArray(frontmatter.members) ? frontmatter.members : [];
   const members = declared.flatMap((value): RootProfileFacts["members"] => {
@@ -60,6 +62,11 @@ export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash
     return [{ profile, ...(handle ? { handle } : {}) }];
   });
   const displayName = validateProfileDisplayName(frontmatter.displayName);
+  const headingTitle = type === "group"
+    ? plainMarkdownTitle(document.blocks.find(
+        (block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1,
+      )?.content ?? "") || undefined
+    : undefined;
   const description = validateProfileDescription(frontmatter.description);
   const avatarPath = validateProfileAvatarPath(frontmatter.avatar);
   let avatar: RootProfileFacts["avatar"];
@@ -79,10 +86,11 @@ export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash
     } catch {}
   }
   return {
-    version: 2,
+    version: 3,
     type,
     members,
     ...(displayName ? { displayName } : {}),
+    ...(headingTitle ? { headingTitle } : {}),
     ...(description !== undefined ? { description } : {}),
     ...(avatar ? { avatar } : {}),
   };
