@@ -103,12 +103,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
 - [Cleanup 006 — Rename code identifiers and UI copy to the Overstory vocabulary](cleanups/006-overstory-identifiers.md) — **READY.** `Wire*` and `Canopy*` type names in both languages, the app's "Arbor" UI strings, and the `-v2` file suffixes once Cleanup 002 lands.
 
-## Usability
-
-`usability/` — Name-based sharing and the user directory.
-
-- [Usability 001 — Name-based sharing, directory, and avatars](usability/001-user-directory.md) — **NEEDS DESIGN.** Share by handle or profile instead of pasted TreeIDs, a per-host directory, and avatars; product design precedes an executor plan.
-
 ## Product Completion
 
 The numbered product work is grouped by owner above. These additional outcomes need design

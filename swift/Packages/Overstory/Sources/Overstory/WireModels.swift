@@ -1063,6 +1063,49 @@ public struct WireAccessEntry: Codable, Sendable, Equatable {
     public var access: String
 }
 
+public struct WireDirectoryAvatar: Codable, Sendable, Equatable, Hashable {
+    public var tree: String
+    public var path: String
+    public var hash: String
+
+    public init(tree: String, path: String, hash: String) {
+        self.tree = tree
+        self.path = path
+        self.hash = hash
+    }
+}
+
+public struct WireProfileDirectoryEntry: Codable, Sendable, Equatable, Hashable, Identifiable {
+    public var profile: String
+    public var kind: String
+    public var handle: String?
+    public var locator: String?
+    public var displayName: String?
+    public var summary: String?
+    public var avatar: WireDirectoryAvatar?
+    public var sources: [String]
+
+    public var id: String { profile }
+
+    private enum CodingKeys: String, CodingKey {
+        case profile, kind, handle, locator, displayName, avatar, sources
+        case summary = "description"
+    }
+
+    public init(profile: String, kind: String, handle: String? = nil, locator: String? = nil,
+                displayName: String? = nil, summary: String? = nil,
+                avatar: WireDirectoryAvatar? = nil, sources: [String]) {
+        self.profile = profile
+        self.kind = kind
+        self.handle = handle
+        self.locator = locator
+        self.displayName = displayName
+        self.summary = summary
+        self.avatar = avatar
+        self.sources = sources
+    }
+}
+
 public struct WireUpdateConflictError: Error, Sendable, Equatable {
     public var conflict: WireUpdateConflict
 

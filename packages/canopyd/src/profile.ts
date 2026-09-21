@@ -4,8 +4,31 @@ const PROFILE_LOCATOR = /^arbor:\/\/tr_[a-z2-7]+\/?$/;
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 
 export interface RootProfileFacts {
+  version: 2;
   type: "person" | "group" | null;
   members: Array<{ profile: string; handle?: string; legacy?: true }>;
+  displayName?: string;
+  description?: string;
+  avatar?: { path: string; hash: ObjectHash };
+}
+
+function scalarCount(value: string): number { return [...value].length; }
+
+export function validateProfileDisplayName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed && scalarCount(trimmed) <= 80 && !/[\r\n]/.test(trimmed) ? trimmed : undefined;
+}
+
+export function validateProfileDescription(value: unknown): string | undefined {
+  return typeof value === "string" && scalarCount(value) <= 500 ? value : undefined;
+}
+
+export function validateProfileAvatarPath(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\")) return undefined;
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) return undefined;
+  return /\.(?:png|jpe?g|gif|webp)$/i.test(parts.at(-1)!) ? value : undefined;
 }
 
 /**
@@ -17,7 +40,7 @@ export interface RootProfileFacts {
  * mutable state; the offline migration rebuilds the same cache.
  */
 export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<RootProfileFacts> {
-  const none: RootProfileFacts = { type: null, members: [] };
+  const none: RootProfileFacts = { version: 2, type: null, members: [] };
   const directory = decodeWireDirectory(await load(root));
   if (directory.type !== "directory") return none;
   const index = directory.entries.find((entry) => entry.name === "_index.md");
@@ -36,5 +59,31 @@ export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash
     if (Object.keys(candidate).some((key) => key !== "profile" && key !== "handle")) return [];
     return [{ profile, ...(handle ? { handle } : {}) }];
   });
-  return { type, members };
+  const displayName = validateProfileDisplayName(frontmatter.displayName);
+  const description = validateProfileDescription(frontmatter.description);
+  const avatarPath = validateProfileAvatarPath(frontmatter.avatar);
+  let avatar: RootProfileFacts["avatar"];
+  if (avatarPath) {
+    try {
+      const parts = avatarPath.split("/");
+      let current = directory;
+      for (const part of parts.slice(0, -1)) {
+        const entry = current.entries.find((candidate) => candidate.name === part);
+        if (!entry?.directory) throw new Error("Avatar directory is missing");
+        current = decodeWireDirectory(await load(entry.directory));
+      }
+      const file = current.entries.find((entry) => entry.name === parts.at(-1))?.file;
+      if (!file) throw new Error("Avatar file is missing");
+      await load(file);
+      avatar = { path: avatarPath, hash: file };
+    } catch {}
+  }
+  return {
+    version: 2,
+    type,
+    members,
+    ...(displayName ? { displayName } : {}),
+    ...(description !== undefined ? { description } : {}),
+    ...(avatar ? { avatar } : {}),
+  };
 }

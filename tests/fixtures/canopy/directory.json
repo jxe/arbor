@@ -1,0 +1,17 @@
+{
+  "snapshot": [{
+    "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "kind": "person",
+    "handle": "alice",
+    "locator": "arbor://community.example/~alice",
+    "displayName": "Alice Arbor",
+    "description": "Builds shared gardens.",
+    "avatar": {
+      "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "images/avatar.webp",
+      "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "sources": ["community", "access"]
+  }],
+  "observedThrough": "42"
+}

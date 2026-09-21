@@ -159,6 +159,15 @@ authored code receives no raw token or general author/user credentials.
 
 ## 3. Tree-scoped authorization
 
+### Directory disclosure
+
+A host may derive an authenticated account's people and group directory from
+readable community membership, readable group membership, and profile subjects
+already named by that account's access rules. Profile TreeIDs remain the only
+identity. A directory must not widen read access: profile card fields are
+disclosed only while the caller can read that profile tree, and avatar bytes
+use the ordinary tree-scoped object authorization route.
+
 Possession of a hash, source binding, watch cursor, or accepted receipt is not
 authorization. Every operation checks current authority through a named TreeID.
 Nested tree entries stop both reachability and permission scope.

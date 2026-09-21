@@ -611,6 +611,8 @@ public actor NativeAccountService {
 
     public func account() async throws -> WireAccountSnapshot { try await client().account() }
     public func trees() async throws -> WireSnapshotEnvelope<[WireTreeDescriptor]> { try await client().trees() }
+    public func directory() async throws -> WireSnapshotEnvelope<[WireProfileDirectoryEntry]> { try await client().directory() }
+    public func object(tree: String, hash: String) async throws -> Data { try await client().object(tree: tree, hash: hash) }
     public func access(tree: String) async throws -> NativeTreeAccessPresentation {
         let wire = try await client()
         let account = try await wire.account().account

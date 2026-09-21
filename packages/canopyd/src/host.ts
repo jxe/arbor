@@ -24,6 +24,7 @@ import {
 } from "@overstory/protocol";
 import { escapeHTML, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 import { WireProjection, wireCollectionFileRowMarkdown, wireCollectionFileRowTitle } from "./projection.ts";
+import { buildDirectory } from "./directory.ts";
 
 
 /** Comment frames keep watch streams alive across proxy idle timeouts. */
@@ -366,6 +367,14 @@ export async function serveCanopy(options: {
             });
           }
           return new Response("Method not allowed", { status: 405 });
+        }
+        if (url.pathname === "/.arbor/directory") {
+          if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+          const authenticated = requireAccount(request, canopy);
+          return json({
+            snapshot: await buildDirectory(canopy, authenticated, publicOrigin),
+            observedThrough: canopy.observedThrough(),
+          });
         }
         if (url.pathname === "/.arbor/accounts" && request.method === "PUT") {
           const body = await request.json() as {

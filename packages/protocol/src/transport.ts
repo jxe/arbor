@@ -97,6 +97,17 @@ export interface PairingClaimResult {
 
 export type RemoteAccessEntry = AccessEntry;
 
+export interface RemoteDirectoryEntry {
+  profile: TreeID;
+  kind: "person" | "group" | "unknown";
+  handle?: string;
+  locator?: string;
+  displayName?: string;
+  description?: string;
+  avatar?: { tree: TreeID; path: string; hash: ObjectHash };
+  sources: Array<"community" | `group:${TreeID}` | "access">;
+}
+
 /** One decoded frame of a tree watch. `tree.update` carries a verified, contiguous transition batch. */
 export type WatchEvent =
   | {
@@ -248,6 +259,11 @@ export class WireClient {
 
   async list(): Promise<SnapshotEnvelope<RemoteTreeDescriptor[]>> {
     const response = await this.checked(await this.request("/.arbor/trees", { headers: this.headers() }));
+    return response.json();
+  }
+
+  async directory(): Promise<SnapshotEnvelope<RemoteDirectoryEntry[]>> {
+    const response = await this.checked(await this.request("/.arbor/directory", { headers: this.headers() }));
     return response.json();
   }
 

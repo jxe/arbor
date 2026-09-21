@@ -9,6 +9,8 @@ import {
   sha256,
   validateAccountChallenge,
   type AccountChallenge,
+  parseMarkdown,
+  patchFrontmatter,
 } from "@overstory/protocol";
 import { arborPrivateRoot, bindWorkspaceIdentity, prepareArborDataRoot } from "@overstory/protocol";
 
@@ -138,6 +140,20 @@ export class ProfileIdentityStore {
       return existing;
     }
     return this.install(generatedMaterial(), profilePath);
+  }
+
+  async updateProfile(patch: { displayName?: string; avatar?: string; description?: string }): Promise<ProfileIdentityStatus> {
+    const status = await this.status();
+    if (!status) throw new Error("No person identity exists; run `arbor me create`");
+    const path = join(status.profilePath, "_index.md");
+    const source = await readFile(path, "utf8");
+    const document = parseMarkdown(source);
+    const frontmatter = patchFrontmatter(document.frontmatterSource, patch);
+    if (!frontmatter) throw new Error("Profile frontmatter is unavailable");
+    const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+    await writeFile(temporary, `${frontmatter}${document.bodySource}`, { mode: 0o600 });
+    await rename(temporary, path);
+    return status;
   }
 
   private async keyMaterial(): Promise<{ metadata: ProfileIdentityMetadata; seed: Buffer; publicKey: Buffer }> {

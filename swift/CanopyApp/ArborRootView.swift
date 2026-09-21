@@ -81,6 +81,7 @@ private struct ArborVoiceRecordingToolbarButton: View {
 #if os(macOS)
 private enum MacManagementTab: Hashable {
     case accounts
+    case people
     case status
 }
 #endif
@@ -856,6 +857,7 @@ struct ArborRootView: View {
 #endif
             voiceLaunchReady = true
             forwardPendingVoiceRecording()
+            await workspace.refreshDirectory()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -867,6 +869,7 @@ struct ArborRootView: View {
                 // backgrounded. Foregrounding is therefore also a deterministic
                 // snapshot-then-follow catch-up boundary.
                 Task { await workspace.syncNow(reportTransientNetworkErrors: false) }
+                Task { await workspace.refreshDirectory() }
 #endif
             } else {
                 Task { await workspace.flush() }
@@ -1668,6 +1671,7 @@ struct ArborRootView: View {
             reviewChoices: showChoiceReview,
             reviewChoiceCount: workspace.conflictReview.map(\.decisions.count),
             showAccounts: showAccountsPanel,
+            showPeople: showPeoplePanel,
             movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
             renamePage: beginPageRename,
             movePageToTrash: { trashConfirmationPresented = true },
@@ -1768,6 +1772,7 @@ struct ArborRootView: View {
         VStack(spacing: 0) {
             Picker("View", selection: $managementTab) {
                 Text("Accounts").tag(MacManagementTab.accounts)
+                Text("People").tag(MacManagementTab.people)
                 Text("Sync Status").tag(MacManagementTab.status)
             }
             .labelsHidden()
@@ -1789,6 +1794,11 @@ struct ArborRootView: View {
                         managementPresented = false
                     }
                 )
+            case .people:
+                ArborDirectoryView(workspace: workspace) { tree in
+                    profileAfterManagementDismiss = WorkspaceReference(tree: TreeID(rawValue: tree), path: "/")
+                    managementPresented = false
+                }
             case .status:
                 syncStatusPanel
             }
@@ -1824,6 +1834,16 @@ struct ArborRootView: View {
             await workspace.refreshLocalArborSyncOverview()
             await workspace.preloadLocalCanopyDevices()
         }
+#else
+        accountPresented = true
+#endif
+    }
+
+    private func showPeoplePanel() {
+#if os(macOS)
+        managementTab = .people
+        managementPresented = true
+        Task { await workspace.refreshDirectory() }
 #else
         accountPresented = true
 #endif
@@ -2563,23 +2583,15 @@ private struct ArborSharePanel: View {
     @ViewBuilder
     private func trackedTree(_ access: NativeTreeAccessPresentation) -> some View {
         Section {
-            HStack(spacing: 10) {
-                TextField(
-                    "Add people or groups",
-                    text: $profileLocator,
-                    prompt: Text("~handle or Arbor profile URL")
-                )
-                .textFieldStyle(.roundedBorder)
-#if os(iOS)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-#endif
-                .onSubmit { shareInvites(access) }
-                .disabled(busy || !access.canEdit)
-                Button("Share") { shareInvites(access) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(busy || !access.canEdit || inviteLocators.isEmpty)
-            }
+            ArborPeoplePicker(
+                query: $profileLocator,
+                people: workspace.directory,
+                workspace: workspace,
+                excluding: Set(access.entries.compactMap { entry in if case .profile(let tree) = entry.subject { tree } else { nil } }),
+                disabled: busy || !access.canEdit,
+                onPick: { person in Task { await addProfiles([person.entry.profile], to: access) } },
+                onRawSubmit: { shareInvites(access) }
+            )
         } footer: {
             if !access.canEdit {
 #if os(iOS)
@@ -2681,12 +2693,16 @@ private struct ArborSharePanel: View {
         .padding(.vertical, 2)
     }
 
-    private func accessIcon(for entry: NativeTreeAccessEntry) -> some View {
+    @ViewBuilder private func accessIcon(for entry: NativeTreeAccessEntry) -> some View {
         switch entry.subject {
         case .everyone:
             accessIcon(systemName: "globe", tint: .blue)
         case .profile:
-            accessIcon(systemName: entry.isCurrentUser ? "person.crop.circle.fill" : "person.2.fill", tint: .indigo)
+            if case let .profile(tree) = entry.subject, let person = workspace.directory.first(where: { $0.id == tree }) {
+                ArborAvatarView(person: person, workspace: workspace)
+            } else {
+                accessIcon(systemName: entry.isCurrentUser ? "person.crop.circle.fill" : "person.2.fill", tint: .indigo)
+            }
         case .link:
             accessIcon(systemName: "link", tint: .orange)
         }
@@ -2770,7 +2786,7 @@ private struct ArborSharePanel: View {
     private func label(for entry: NativeTreeAccessEntry) -> String {
         switch entry.subject {
         case .everyone: "Everyone"
-        case .profile: entry.displayName ?? "Person or group"
+        case .profile(let tree): workspace.directory.first(where: { $0.id == tree })?.title ?? entry.displayName ?? "Person or group"
         case .link: "Private link"
         }
     }
@@ -2780,7 +2796,7 @@ private struct ArborSharePanel: View {
         switch entry.subject {
         case .everyone: return "Anyone who can find this tree"
         case .link: return "Existing access-link grant"
-        case .profile(let tree): return entry.locator ?? (entry.displayName == nil ? tree : "Person or group")
+        case .profile(let tree): return workspace.directory.first(where: { $0.id == tree })?.subtitle ?? entry.locator ?? (entry.displayName == nil ? tree : "Person or group")
         }
     }
 
@@ -3047,6 +3063,9 @@ private struct MacArborSyncAccountPanel: View {
                 Spacer()
                 if let profileTree = account.profileTree {
                     Button("Open profile") { openProfile(profileTree) }
+                        .buttonStyle(.link)
+                        .textCase(nil)
+                    Button("Edit name & photo…") { openProfile(profileTree) }
                         .buttonStyle(.link)
                         .textCase(nil)
                 }
@@ -3908,6 +3927,12 @@ private struct IOSAccountPanel: View {
                         LabeledContent("Server", value: placement.origin.host() ?? placement.origin.absoluteString)
                         LabeledContent("Folder", value: placement.tree.canonicalPath ?? placement.tree.id)
                         LabeledContent("Access", value: placement.tree.access.capitalized)
+                        NavigationLink {
+                            ArborDirectoryView(workspace: workspace, openProfile: openProfile)
+                            .navigationTitle("People")
+                        } label: {
+                            Label("People", systemImage: "person.2")
+                        }
                     }
                     Section {
                         Button("Disconnect and Pair Again…", role: .destructive) {
@@ -3951,6 +3976,16 @@ private struct IOSAccountPanel: View {
             account = try await service.account().account
             message = nil
         } catch { message = String(describing: error) }
+    }
+
+    private func openProfile(_ tree: String) {
+        guard let person = workspace.directory.first(where: { $0.id == tree }) else { return }
+        Task {
+            do {
+                try await workspace.openDirectoryProfile(person)
+                dismiss()
+            } catch { message = error.localizedDescription }
+        }
     }
 
     private func disconnect() async {

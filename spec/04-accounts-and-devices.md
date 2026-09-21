@@ -9,6 +9,9 @@ Person and group profiles are complete Overstory trees with ordinary root Markdo
 
 ```yaml
 type: person
+displayName: Alice Arbor
+avatar: images/alice.webp
+description: Builds shared gardens.
 ```
 
 ```yaml
@@ -29,6 +32,14 @@ person's permanent secret. The root document's `type: person` or `type: group`
 is the sole declaration of profile kind; Overstory tree descriptors carry no profile
 kind. Group membership is authored profile content and does not itself grant
 write access to the group tree.
+
+Person and group profiles may carry the presentation-only fields `displayName`,
+`avatar`, and `description`. A display name is trimmed, contains 1–80 Unicode
+scalars, and has no line break. A description contains at most 500 Unicode
+scalars. An avatar is a relative path inside the same profile tree, has no
+empty, `.` or `..` component, and ends in `png`, `jpg`, `jpeg`, `gif`, or
+`webp`. Malformed or missing presentation fields are ignored rather than
+invalidating the profile. They never participate in identity or authorization.
 
 A **host account** is a relationship between one host and one profile
 `TreeID`. Its private configuration `TreeID` is the stable identity of that

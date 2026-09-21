@@ -9,6 +9,7 @@ import { materializeTree, snapshotDirectory } from "@overstory/fs";
 import { addLocalPlacement, clearRehomeTransaction, listLocalAccounts, loadLocalPlacements, ProfileIdentityStore, replaceLocalPlacement, saveRehomeTransaction } from "@overstory/arborsync/state";
 import type { Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
+import { validateProfileAvatarPath, validateProfileDescription, validateProfileDisplayName } from "@overstory/canopyd";
 import {
   cloudPlacementPath,
   cloudSessionDirectory,
@@ -47,7 +48,8 @@ function usage(): never {
   console.error(`Usage:
   arbor open [<locator>]
   arbor me
-  arbor me create [<profile-folder>]
+  arbor me create [<profile-folder>] [--name <display-name>]
+  arbor me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
   arbor me backup <file>
   arbor me restore <file> [<profile-folder>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
@@ -1456,10 +1458,53 @@ async function main(): Promise<void> {
       return;
     }
     if (action === "create") {
-      if (operands.length > 1) usage();
-      const status = await store.create(resolveUserPath(operands[0] ?? `${arborDataRoot()}/profile`));
+      let profileFolder: string | undefined;
+      let name: string | undefined;
+      for (let index = 0; index < operands.length; index += 1) {
+        const operand = operands[index]!;
+        if (operand === "--name") name = operands[++index];
+        else if (!operand.startsWith("-") && !profileFolder) profileFolder = operand;
+        else usage();
+      }
+      if (operands.includes("--name") && name === undefined) usage();
+      const displayName = name === undefined ? undefined : validateProfileDisplayName(name);
+      if (name !== undefined && !displayName) usageError("--name must be 1-80 characters without line breaks");
+      const status = await store.create(resolveUserPath(profileFolder ?? `${arborDataRoot()}/profile`));
+      if (displayName) await store.updateProfile({ displayName });
       console.log(`Profile TreeID: ${status.profileTree}`);
       console.log(`Profile folder: ${status.profilePath}`);
+      return;
+    }
+    if (action === "set") {
+      const patch: { displayName?: string; avatar?: string; description?: string } = {};
+      for (let index = 0; index < operands.length; index += 2) {
+        const flag = operands[index];
+        const value = operands[index + 1];
+        if (!value) usage();
+        if (flag === "--name") {
+          const name = validateProfileDisplayName(value);
+          if (!name) usageError("--name must be 1-80 characters without line breaks");
+          patch.displayName = name;
+        } else if (flag === "--description") {
+          const description = validateProfileDescription(value);
+          if (description === undefined) usageError("--description must be no more than 500 characters");
+          patch.description = description;
+        } else if (flag === "--avatar") {
+          const avatar = validateProfileAvatarPath(value);
+          if (!avatar) usageError("--avatar must be a relative png, jpg, jpeg, gif, or webp path inside the profile tree");
+          const status = await store.status();
+          if (!status) throw new Error("No person identity exists; run `arbor me create`");
+          const avatarPath = resolve(status.profilePath, avatar);
+          const isFile = await stat(avatarPath).then((value) => value.isFile()).catch(() => false);
+          if (!avatarPath.startsWith(`${resolve(status.profilePath)}/`) || !isFile) {
+            throw new Error(`Avatar file does not exist inside the profile folder: ${avatar}`);
+          }
+          patch.avatar = avatar;
+        } else usage();
+      }
+      if (!Object.keys(patch).length) usage();
+      const status = await store.updateProfile(patch);
+      console.log(`Updated profile ${status.profileTree}`);
       return;
     }
     if (action === "backup") {

@@ -316,6 +316,23 @@ struct CanopyAppTests {
         #expect(!ArborSupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
     }
 
+    @Test("Directory cache round-trips and avatar hashes cannot escape the cache")
+    func directoryCache() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = DirectoryStore(url: root.appending(path: "Directory.json"))
+        let entry = WireProfileDirectoryEntry(
+            profile: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            kind: "person",
+            displayName: "Alice Arbor",
+            sources: ["community"]
+        )
+        try await store.save(origin: URL(string: "https://community.example")!, entries: [entry])
+        #expect(try await store.load().map(\.title) == ["Alice Arbor"])
+        #expect(try AvatarCache.fileName(for: "sha256:" + String(repeating: "a", count: 64)) == String(repeating: "a", count: 64))
+        #expect(throws: (any Error).self) { try AvatarCache.fileName(for: "../avatar") }
+    }
+
     @Test("Production startup does not expose the in-memory sample tree")
     func productionStartupIsEmpty() async {
         let workspace = ArborWorkspaceState()

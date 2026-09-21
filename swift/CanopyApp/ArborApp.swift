@@ -45,6 +45,8 @@ private struct ArborNavigationCommands: Commands {
         CommandGroup(after: .appSettings) {
             Button("Accounts…") { commands?.showAccounts() }
                 .disabled(commands == nil)
+            Button("People…") { commands?.showPeople() }
+                .disabled(commands == nil)
         }
         CommandGroup(replacing: .newItem) {
             Menu("Jump to Local Tree") {

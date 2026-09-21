@@ -65,7 +65,7 @@ import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
-import { rootProfileFacts } from "./profile.ts";
+import { rootProfileFacts, type RootProfileFacts } from "./profile.ts";
 import type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { openCanopyDatabase, resourcePolicyFormatKey } from "./schema.ts";
@@ -138,10 +138,12 @@ function profileSource(
   kind: "person" | "group",
   name: string,
   members: Array<string | { profile?: string; handle?: string }> = [],
+  displayName: string | undefined = name,
 ): string {
   return [
     "---",
     `type: ${kind}`,
+    ...(displayName ? [`displayName: ${JSON.stringify(displayName)}`] : []),
     ...(kind === "group"
       ? ["members:", ...members.flatMap((member) => typeof member === "string"
           ? [`  - ${JSON.stringify(member)}`]
@@ -964,6 +966,37 @@ export class CanopyDaemon implements AsyncDisposable {
 
   accessEntries(tree: string): CanopyAccessEntry[] {
     return this.access.entries(tree);
+  }
+
+  communityMembers(): RootProfileFacts["members"] {
+    return this.rootProfile(this.community().ref).members;
+  }
+
+  handleForProfile(profileTree: string): string | undefined {
+    const row = this.db.query("SELECT handle FROM accounts WHERE profile_tree = ? AND enabled = 1").get(profileTree) as { handle: string } | null;
+    return row?.handle;
+  }
+
+  readableGroupTrees(account: CanopyAccount): CanopyTree[] {
+    return this.list().filter((tree) => tree.status === "active" && this.rootProfileType(tree.ref) === "group" && this.canRead(account, tree.id));
+  }
+
+  administeredTrees(account: CanopyAccount): CanopyTree[] {
+    return this.list().filter((tree) => tree.status === "active" && tree.accountID === account.id);
+  }
+
+  async profileCard(root: ObjectHash): Promise<RootProfileFacts> {
+    const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
+    if (row) {
+      const cached = JSON.parse(row.value) as Partial<RootProfileFacts>;
+      if (cached.version === 2) return cached as RootProfileFacts;
+    }
+    const facts = await rootProfileFacts(root, (hash) => this.objects.read(hash));
+    this.db.run(
+      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      [`profile:${root}`, JSON.stringify(facts)],
+    );
+    return facts;
   }
 
   canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {

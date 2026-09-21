@@ -191,7 +191,8 @@ way to change placements.
 
 ```text
 arbor me
-arbor me create [<profile-folder>]
+arbor me create [<profile-folder>] [--name <display-name>]
+arbor me set [--name <display-name>] [--avatar <relative-path>] [--description <text>]
 arbor me backup <file>
 arbor me restore <file> [<profile-folder>]
 ```
@@ -210,6 +211,11 @@ public TreeID to a host administrator; after they add that exact identity and
 handle to the community profile, `arbor open <account-url>` presents the signed
 account-claim flow. A host founder supplies the same public TreeID during
 bootstrap.
+
+`arbor me set` updates the profile root's presentation frontmatter while
+preserving its body and unknown keys. The avatar path must name an existing
+PNG, JPEG, GIF, or WebP file inside the profile folder. These fields are
+presentation only; the Profile TreeID remains the identity.
 
 `arbor me backup` writes a versioned backup containing the same private key to
 a newly created owner-readable file. It never prints the key and refuses to

@@ -45,6 +45,7 @@ struct ArborWindowCommands {
     /// Nil while the open tree has no review model (nothing to review).
     var reviewChoiceCount: Int?
     var showAccounts: () -> Void
+    var showPeople: () -> Void
     var movePage: () -> Void
     var renamePage: () -> Void
     var movePageToTrash: () -> Void

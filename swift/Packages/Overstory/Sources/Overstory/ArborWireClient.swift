@@ -262,6 +262,10 @@ public actor ArborWireClient {
         try await get(path: "/.arbor/trees/\(component(tree))/access")
     }
 
+    public func directory() async throws -> WireSnapshotEnvelope<[WireProfileDirectoryEntry]> {
+        try await get(path: "/.arbor/directory")
+    }
+
     public func watch(tree: String, lastEventID: String? = nil) async throws -> AsyncThrowingStream<WireWatchEvent, Error> {
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/watch")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")

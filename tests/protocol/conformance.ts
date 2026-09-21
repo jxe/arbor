@@ -1,5 +1,5 @@
 import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
@@ -31,6 +31,12 @@ const authorityState = join(sandbox, "canopy");
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 
 try {
+  const directoryFixture = JSON.parse(await readFile(join(fixtures.ARBOR_REFERENCE_FIXTURES, "canopy/directory.json"), "utf8")) as {
+    snapshot?: Array<{ profile?: string; sources?: string[] }>; observedThrough?: string;
+  };
+  if (!directoryFixture.observedThrough || !directoryFixture.snapshot?.every(entry => entry.profile?.startsWith("tr_") && entry.sources?.length)) {
+    throw new Error("Malformed shared profile-directory fixture");
+  }
   await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/resource-policy.test.ts", "tests/unit/wire/update-intent.test.ts", "tests/unit/wire/operations.test.ts", "tests/unit/wire/authored-contract.test.ts", "tests/unit/wire/accepted-contract.test.ts", "tests/unit/wire/accepted-transport.test.ts", "tests/unit/wire/authored-transport.test.ts"]);
 
   // One local Canopy with an owner account; the control-mode daemon below

@@ -69,6 +69,14 @@ An unresolved URL for a reserved canopyd account renders with a **Claim** action
 
 Community and group profiles remain authored trees rather than a separate account/group database. Each structured `members` entry requires `profile: arbor://<TreeID>/`; an optional bare `handle` is current-canopyd policy that also reserves `/~handle` for that identity. Overstory clients show one person per row and provide **Add person** or **Add member** without flattening the YAML array. Removing a community member disables any account allocated by that entry.
 
+The **People** view is the account-scoped directory for name-based sharing. It
+combines community members, members of readable groups, and profiles already
+named by the account's access rules; shows people and groups separately; and
+opens hosted profiles. Refresh is explicit as well as foreground-driven. The
+native cache is derived state in `Directory.json`, with avatar bytes under
+`Avatars/`; either may be deleted and rebuilt. Share autocomplete uses this
+cache but still accepts a raw handle, profile URL, or Profile TreeID.
+
 ## Overstory-tree promotion and Share
 
 The promotion surface turns an ordinary directory into an Overstory tree. It:

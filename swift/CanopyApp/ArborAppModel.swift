@@ -145,6 +145,11 @@ final class ArborWorkspaceState {
     private(set) var localArborSyncOverviewError: String?
     private(set) var localCanopyDevicesByConfigurationTree: [String: [LocalArborSyncDevicePresentation]] = [:]
 #endif
+    private let directoryStore = DirectoryStore()
+    private(set) var directory: [DirectoryPerson] = []
+    private(set) var directoryIsRefreshing = false
+    private(set) var directoryError: String?
+    private var directoryRefreshTask: Task<Void, Never>?
     private let editorRecoveryRoot: URL?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
@@ -188,6 +193,7 @@ final class ArborWorkspaceState {
         self.home = initialHome
         self.launchLocation = .reference(initialHome)
         self.launchPhase = initialPhase
+        self.directory = (try? DirectoryStore.load()) ?? []
         if case let .restoring(name) = initialPhase { self.providerDetail = "Opening \(name)…" }
         if suppliedProvider != nil {
             self.capabilities = .full
@@ -733,7 +739,7 @@ final class ArborWorkspaceState {
             try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
         } catch {
-            try? ArborAccountConfigurationYAML.editFile(
+            _ = try? ArborAccountConfigurationYAML.editFile(
                 named: "trees.yaml",
                 in: accountCheckout(account.configurationTree)
             ) { latest in
@@ -1095,6 +1101,7 @@ final class ArborWorkspaceState {
                 self.localArborSyncOverview = overview
                 self.localArborSyncOverviewError = nil
                 self.startLocalOverviewWatch(after: overview.observedThrough)
+                await self.refreshDirectory()
             } catch is CancellationError {
                 return
             } catch {
@@ -1338,6 +1345,107 @@ final class ArborWorkspaceState {
             devices: try loadLocalAccountConfiguration().devices,
             observedThrough: overview.observedThrough
         )
+    }
+#endif
+
+#if os(iOS)
+    static func bootstrapFailureMessage(_ error: Error, processKind: ArborSyncProcessKind?) -> String {
+        guard let diagnostic = ArborSaveDiagnostic.describe(error, processKind: processKind, context: .bootstrap) else {
+            return error.localizedDescription
+        }
+        return "\(diagnostic.bannerMessage) \(diagnostic.recovery)"
+    }
+
+    static func localOverviewEventRequiresRefresh(
+        tree: String,
+        origin: String,
+        configurationTree: String?
+    ) -> Bool {
+        tree == "system" || tree == configurationTree || origin == "sync"
+    }
+#endif
+
+    func refreshDirectory(force: Bool = false) async {
+        if let directoryRefreshTask {
+            await directoryRefreshTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.directoryIsRefreshing = true
+            defer {
+                self.directoryIsRefreshing = false
+                self.directoryRefreshTask = nil
+            }
+            var failures: [String] = []
+#if os(macOS)
+            let accounts = self.localArborSyncOverview?.accounts ?? []
+            var seen = Set<String>()
+            for account in accounts where account.credentialAvailable {
+                guard let rawOrigin = account.canopy, seen.insert(rawOrigin).inserted,
+                      let origin = URL(string: rawOrigin) else { continue }
+                do {
+                    if !force, let fetched = try await self.directoryStore.fetchedAt(origin: origin),
+                       Date().timeIntervalSince(fetched) < 60 { continue }
+                    let snapshot = try await self.wireClient(origin: origin, overview: self.localArborSyncOverview).directory()
+                    try await self.directoryStore.save(origin: origin, entries: snapshot.snapshot)
+                } catch { failures.append("\(origin.host() ?? rawOrigin): \(error.localizedDescription)") }
+            }
+#else
+            var seen = Set<String>()
+            for placement in self.nativePlacements {
+                let key = "\(placement.origin.absoluteString)|\(placement.configurationTree ?? "")"
+                guard seen.insert(key).inserted else { continue }
+                do {
+                    if !force, let fetched = try await self.directoryStore.fetchedAt(origin: placement.origin),
+                       Date().timeIntervalSince(fetched) < 60 { continue }
+                    let snapshot = try await NativeAccountService(
+                        origin: placement.origin,
+                        configurationTree: placement.configurationTree
+                    ).directory()
+                    try await self.directoryStore.save(origin: placement.origin, entries: snapshot.snapshot)
+                } catch { failures.append("\(placement.origin.host() ?? placement.origin.absoluteString): \(error.localizedDescription)") }
+            }
+#endif
+            self.directory = (try? await self.directoryStore.load()) ?? self.directory
+            self.directoryError = failures.isEmpty ? nil : failures.joined(separator: "\n")
+        }
+        directoryRefreshTask = task
+        await task.value
+    }
+
+    func avatarData(for person: DirectoryPerson) async throws -> Data {
+        guard let avatar = person.entry.avatar else {
+            throw ArborWireValidationError.invalidValue("Directory entry has no avatar")
+        }
+#if os(macOS)
+        return try await wireClient(origin: person.origin, overview: localArborSyncOverview)
+            .object(tree: avatar.tree, hash: avatar.hash)
+#else
+        let account = try await KeychainDeviceCredentialStore().accounts().first {
+            $0.origin.scheme?.lowercased() == person.origin.scheme?.lowercased()
+                && $0.origin.host()?.lowercased() == person.origin.host()?.lowercased()
+                && $0.origin.port == person.origin.port
+        }
+        guard let account else { throw ArborWireValidationError.invalidValue("No account is connected to this Canopy") }
+        return try await NativeAccountService(origin: person.origin, configurationTree: account.configurationTree)
+            .object(tree: avatar.tree, hash: avatar.hash)
+#endif
+    }
+
+#if os(iOS)
+    func openDirectoryProfile(_ person: DirectoryPerson) async throws {
+        let account = try await KeychainDeviceCredentialStore().accounts().first {
+            $0.origin.scheme?.lowercased() == person.origin.scheme?.lowercased()
+                && $0.origin.host()?.lowercased() == person.origin.host()?.lowercased()
+                && $0.origin.port == person.origin.port
+        }
+        guard let account else { throw ArborWireValidationError.invalidValue("No account is connected to this Canopy") }
+        let service = NativeAccountService(origin: person.origin, configurationTree: account.configurationTree)
+        guard let tree = try await service.trees().snapshot.first(where: { $0.id == person.entry.profile }) else {
+            throw ArborWireValidationError.invalidValue("Profile is not hosted on this Canopy")
+        }
+        try await place(tree: tree, from: person.origin, configurationTree: account.configurationTree)
     }
 #endif
 
