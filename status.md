@@ -270,3 +270,16 @@ relative-link checks, and whitespace checks passed. A signed Mac build is ready
 in a temporary derived-data directory; the user's running app was not replaced.
 
 Joe subsequently tested the Mac navigation fix and confirmed that it works.
+
+### Home returns through resolved history — 2026-09-21
+
+Home now reuses the current tree root's resolved entry from the selected tab's
+trail, including its stable page key. Previously an address-only root did not
+compare equal to that entry, so Home pushed a new visit and discarded Forward
+history. The root also correctly disables Home when already current.
+
+The regression failed before the fix for a root with a stable ID. Both keyed
+and unkeyed roots now pop two pages, restore the original editor, and retain
+those pages in Forward order. All three focused app tests passed (parameterized
+Home plus mounted link and cross-tree history); the Mac test build and iOS
+Simulator build passed. This follow-up is source-only, not installed.

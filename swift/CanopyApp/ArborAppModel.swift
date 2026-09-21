@@ -2615,6 +2615,13 @@ final class ArborAppModel {
             return node.provenance.treeRootURL.map { .local($0.path) }
         case .reference:
             guard node.reference.tree.rawValue != "local", node.reference.tree.rawValue != "system" else { return nil }
+            // A resolved directory document carries a stable key. Reuse its
+            // exact history entry so Home pops the trail rather than pushing
+            // an unresolved address for the same root as a new visit.
+            if let home = (tabs.selectedTab.back + [currentLocation]).last(where: { location in
+                guard case let .reference(reference) = location else { return false }
+                return reference.tree == node.reference.tree && reference.path == "/"
+            }) { return home }
             return .reference(WorkspaceReference(tree: node.reference.tree, path: "/"))
         case let .remote(_, rootLocator):
             return .remote(locator: rootLocator, rootLocator: rootLocator)

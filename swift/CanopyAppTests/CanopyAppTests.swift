@@ -833,21 +833,39 @@ struct CanopyAppTests {
         #expect(model.errorMessage != nil)
     }
 
-    @Test("Home pops back to the tree root instead of pushing it again")
-    func homePopsTrail() async {
-        let model = ArborAppModel()
+    @Test("Home pops back to the tree root instead of pushing it again", arguments: [false, true])
+    func homePopsTrail(stableHome: Bool) async {
+        let root = WorkspaceReference(tree: "tr_sample", path: "/",
+                                      stableKey: stableHome ? markdownStableKey("pg_home") : nil)
+        let first = WorkspaceReference(tree: "tr_sample", path: "/first", stableKey: markdownStableKey("pg_first"))
+        let second = WorkspaceReference(tree: "tr_sample", path: "/second", stableKey: markdownStableKey("pg_second"))
+        let provider = InMemoryWorkspaceProvider(nodes: [root, first, second].map { reference in
+            WorkspaceNode(reference: reference, title: reference.path,
+                          surface: .directoryDocument(source: "# Page\n", contentRevision: "1", stored: true),
+                          provenance: .init(authority: .local, sourceDescription: "Test"))
+        })
+        let model = ArborAppModel(workspace: ArborWorkspaceState(provider: provider))
         await model.load()
         let home = model.currentLocation
-        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
-        await model.navigate(to: welcome)
-        #expect(model.navigationPath.count == 1)
+        let homeHost = model.editorHost
+        #expect(!model.canGoHome)
+        await model.navigate(to: first)
+        await model.navigate(to: second)
+        #expect(model.navigationPath.count == 2)
+        #expect(model.canGoHome)
 
         await model.goHome()
 
         #expect(model.currentLocation == home)
         #expect(model.navigationPath.isEmpty)
         #expect(!model.canGoBack)
+        #expect(!model.canGoHome)
         #expect(model.canGoForward)
+        #expect(model.editorHost === homeHost)
+        await model.goForward()
+        #expect(model.currentReference == first)
+        await model.goForward()
+        #expect(model.currentReference == second)
     }
 
     @Test("A directory becomes the sidebar browsing context")
