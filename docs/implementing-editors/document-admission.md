@@ -225,3 +225,32 @@ never merged. A trace that would exceed the protocol's 64 frames or 1024
 operations is dropped to `trace: null`; exact bytes stay authoritative. The
 same rule runs in the host's `composeFrames`, which proves a composition by
 executing it.
+
+
+## 8. Publication batching and preparation costs
+
+The TypeScript and Swift update machines select the furthest contiguous pending
+successor of the oldest pending admission. A sibling or independent accepted
+basis starts another request. The shared reference cases are in
+`tests/fixtures/source-publication.json`. The publishers persist the exact
+request before sending it; new admissions cannot extend an uncertain in-flight
+attempt. Retrying repeats its original body and change identities.
+
+Accepted ancestry remains in a batch to preserve attribution, but its objects
+and deltas are omitted. canopyd uses the credential-bound receipt to avoid
+reconstructing deltas for that already-accepted prefix. New suffix elements
+still undergo normal validation and reconciliation.
+
+For plain source generations, both admission queues compose the edits before
+building intermediate trees. They validate each original generation, including
+UTF-8 boundaries, and preserve the original capture digest. Copies and lineage
+retain their generation frames. This coalesces generations within an admission;
+it does not rewrite separate durable admission identities into one wire change.
+
+The merger reuses an already-validated matching base/current state and avoids
+copying the authored graph when no resolution removes decisions. Local synthetic
+measurements on 2026-09-21 showed 60 plain generations over a 30 KB document
+preparing in 20 ms instead of 918 ms, with the same candidate, digest, and trace.
+A conflicted tree with 40 history steps and 500 sibling files evaluated in
+87 ms instead of 110 ms, with identical result, authored state, decisions, and
+evidence. These measurements do not predict production latency.

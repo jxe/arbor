@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { ObjectStore } from "@overstory/object-store";
+import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -94,6 +95,28 @@ async function snapshotWithCollectionFiles(path: string) {
 }
 
 describe("governed account-configuration Canopy server", () => {
+  test("accepted prefix transport deltas are not reconstructed again", async () => {
+    const baseline = await currentConfig();
+    const administrator = baseline.graph.account.admins[0]!;
+    const candidate = (label: string) => snapshotAccountConfig({ ...baseline.graph,
+      devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label } },
+    });
+    const element = (snapshot: ReturnType<typeof candidate>) => ({
+      change: crypto.randomUUID(), candidate: snapshot.root, trace: null, resolves: [], deltas: [],
+      objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+    });
+    const first = element(candidate("Batch prefix " + crypto.randomUUID()));
+    const second = element(candidate("Batch suffix " + crypto.randomUUID()));
+    const accepted = await client.submitUpdates(baseline.current.tree.id, { base: baseline.current.tree.update, updates: [first] });
+    const reconstruction = spyOn(ObjectStore.prototype, "reconstructDeltas");
+    try {
+      const result = await client.submitUpdates(baseline.current.tree.id, { base: baseline.current.tree.update, updates: [first, second] });
+      expect(result.results[0]!.update.id).toBe(accepted.results[0]!.update.id);
+      expect(result.results[1]!.update.root).toBe(second.candidate);
+      expect(reconstruction).toHaveBeenCalledTimes(1);
+    } finally { reconstruction.mockRestore(); }
+  });
+
   test("accepts an append-only update string and trims an older prefix replay", async () => {
     const baseline = await currentConfig();
     const administrator = baseline.graph.account.admins[0]!;

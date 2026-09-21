@@ -398,6 +398,25 @@ test("shared trace vectors: one frame per generation, compaction, and Canopy's c
   });
 });
 
+test("a long plain generation burst coalesces to the same candidate and capture", () => {
+  const graph = initial();
+  let source = fixture.source as string;
+  const generations = Array.from({ length: 60 }, (_, index) => {
+    const edits = [{ offset: Buffer.byteLength(source), length: 0, replacement: ` ${index}` }];
+    source = applySourceEdits(source, edits);
+    return { edits, source };
+  });
+  const input = { change: "burst", tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
+    basis: { kind: "accepted" as const, root: graph.root, update: "up_r1" },
+    intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: "r1", source: fixture.source },
+      edits: [{ offset: 0, length: Buffer.byteLength(fixture.source), replacement: source }], source, generations } };
+  const plain = prepareSourceAdmission({ ...input, compact: false }), compact = prepareSourceAdmission(input);
+  expect(plain.update.trace).toHaveLength(60);
+  expect(compact.update.trace).toHaveLength(1);
+  expect(compact.candidate).toEqual(plain.candidate);
+  expect(compact.document).toEqual(plain.document);
+});
+
 test("a generation list validates as a chain and drops generations that changed nothing", () => {
   const graph = initial(), source = fixture.source as string;
   const basis = { tree: fixture.tree, path: "/nested/note", revision: "r1", source };
@@ -408,4 +427,9 @@ test("a generation list validates as a chain and drops generations that changed 
   expect(() => build([{ edits: [{ offset: 0, length: 6, replacement: "Other" }], source: first }])).toThrow();
   expect(() => build([{ edits: [{ offset: 0, length: 6, replacement: "After" }], source: first }, { edits: [{ offset: 0, length: 0, replacement: "!" }], source: "!" + first }])).toThrow();
   expect(() => build([{ edits: [], source }])).toThrow();
+  // A no-op inside the emoji must not disappear into a valid composed edit.
+  expect(() => build([
+    { edits: [{ offset: 8, length: 0, replacement: "" }], source },
+    { edits: [{ offset: 0, length: 6, replacement: "After" }], source: first },
+  ])).toThrow();
 });

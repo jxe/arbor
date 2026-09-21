@@ -1457,8 +1457,12 @@ class Engine {
     const request = this.request,
       base = await this.load(request.base),
       sameBasis = request.base.object === request.current.object && request.base.state === request.current.state,
-      current = sameBasis && !base.decisions.length && !request.alternatives?.length
-        ? base : await this.load(request.current);
+      // A matching state/root pair was just fully validated. Alternatives may
+      // mutate the authored basis, so copy that view rather than loading and
+      // validating the identical retained graph a second time.
+      current = sameBasis
+        ? (!base.decisions.length && !request.alternatives?.length ? base : cloneState(base))
+        : await this.load(request.current);
     await this.prefetch(base, current);
     engineDiagnostics["load-ms"] = performance.now() - startedLoad;
     if (this.lazy) this.appliedDeletions = base.effects;
@@ -1693,14 +1697,14 @@ class Engine {
       const result = await this.record(authored, true);
       return this.response(result, authored);
     }
-    const authoredSnapshot = cloneState(authored);
-    authoredSnapshot.decisions = authoredSnapshot.decisions.filter(
-      (d) => !resolved.has(d.key)
-    );
-    for (const decision of authoredSnapshot.decisions)
-      decision.dependencies = decision.dependencies.filter(
-        (d) => !resolved.has(d)
-      );
+    // Recording is immutable. Without resolution removals, copying the entire
+    // authored graph/history before serializing it adds no isolation.
+    const authoredSnapshot = resolved.size ? cloneState(authored) : authored;
+    if (resolved.size) {
+      authoredSnapshot.decisions = authoredSnapshot.decisions.filter(d => !resolved.has(d.key));
+      for (const decision of authoredSnapshot.decisions)
+        decision.dependencies = decision.dependencies.filter(d => !resolved.has(d));
+    }
     this.authoredResult = await this.record(authoredSnapshot, true);
     let resultState = authored;
     // Whether every deletion in the result's effects is reflected in its nodes.

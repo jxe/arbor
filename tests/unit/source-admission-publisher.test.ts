@@ -71,7 +71,9 @@ test("hidden successor repeats immutable predecessor after peer projection is in
   await publisher.publishNext();
   expect(wire.requests[1]!.base).toBe("r1");
   expect(wire.requests[1]!.updates.map(update => update.change)).toEqual(["a", "b"]);
-  expect(wire.requests[1]!.updates[0]).toEqual(wire.requests[0]!.updates[0]);
+  expect(wire.requests[1]!.updates[0]!.objects).toEqual([]);
+  expect(wire.requests[1]!.updates[0]!.deltas).toEqual([]);
+  expect(updateRequestDigests("tree", wire.requests[1]!)[0]).toBe(updateRequestDigests("tree", wire.requests[0]!)[0]);
   expect(await publisher.pending()).toEqual([]);
 }));
 
@@ -107,4 +109,37 @@ test("captured source admits offline after a watch-equivalent advance without re
   expect((await queue.retained())[0]!.basis).toEqual({ kind: "accepted", root: initial.root, update: "r1" });
   expect(await session.admit(intent)).toEqual(acknowledged);
   expect(await queue.retained()).toHaveLength(1);
+}));
+
+test("publication selection agrees with the shared client-machine vectors", async () => {
+  const { publicationTip } = await import("../../packages/client/src/update-machine.ts");
+  const fixture = await Bun.file(new URL("../fixtures/source-publication.json", import.meta.url)).json();
+  for (const scenario of fixture.scenarios)
+    expect(publicationTip(scenario.records, new Set<string>(scenario.accepted)) ?? null).toBe(scenario.tip);
+});
+
+function successor(parent: ReturnType<typeof first>, change: string, source: string, next: string) {
+  return prepareSourceAdmission({ tree: "tree", change, basis: { kind: "authored", change: parent.change },
+    graph: decodeTreeSnapshotJSON(parent.candidate), sourcePath: "/note.md",
+    intent: { basis: { tree: "tree", path: "/note", revision: parent.change, source },
+      edits: [{ offset: source.length, length: 0, replacement: next.slice(source.length) }], source: next } });
+}
+
+test("a queued chain publishes together; work admitted after an uncertain attempt waits for its exact retry", async () => scenario(async root => {
+  const queue = new SourceAdmissionQueue("tree", root), a = first(), wire = transport();
+  const b = successor(a, "b", "mine", "mine b");
+  const c = successor(b, "c", "mine b", "mine b c");
+  await queue.retain([a, b, c]);
+  const publisher = new SourceAdmissionPublisher(queue, wire, async () => { throw Error("lost installation"); });
+  await expect(publisher.publishNext()).rejects.toThrow("lost installation");
+  expect(wire.requests[0]!.updates.map(u => u.change)).toEqual(["a", "b", "c"]);
+  const d = successor(c, "d", "mine b c", "mine b c d");
+  await queue.retain(d);
+  const reopened = new SourceAdmissionPublisher(new SourceAdmissionQueue("tree", root), wire, async () => {});
+  await reopened.publishNext();
+  expect(wire.requests[1]).toEqual(wire.requests[0]);
+  expect(await reopened.pending()).toEqual(["d"]);
+  await reopened.publishNext();
+  expect(wire.requests[2]!.updates.map(u => u.change)).toEqual(["a", "b", "c", "d"]);
+  expect(await reopened.pending()).toEqual([]);
 }));

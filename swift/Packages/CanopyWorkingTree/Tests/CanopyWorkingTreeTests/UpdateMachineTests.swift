@@ -17,6 +17,24 @@ struct UpdateMachineTests {
             .standardizedFileURL
     }
 
+    @Test("Publication selection agrees with the shared client-machine vectors")
+    func publicationSelection() throws {
+        struct Fixture: Decodable {
+            struct Scenario: Decodable {
+                struct Record: Decodable { let change: String; let parent: String? }
+                let name: String; let records: [Record]; let accepted: [String]; let tip: String?
+            }
+            let scenarios: [Scenario]
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                .appending(path: "../../../../../tests/fixtures/source-publication.json")))
+        for scenario in fixture.scenarios {
+            #expect(UpdateMachine.publicationTip(scenario.records.map { ($0.change, $0.parent) },
+                accepted: Set(scenario.accepted)) == scenario.tip, Comment(rawValue: scenario.name))
+        }
+    }
+
     @Test("Every shared working-tree update scenario transitions identically")
     func sharedScenarios() throws {
         let data = try Data(contentsOf: conformanceFixtures.appending(path: "client-state-machines.json"))

@@ -1,0 +1,129 @@
+{
+  "scenarios": [
+    {
+      "name": "empty",
+      "records": [],
+      "accepted": [],
+      "tip": null
+    },
+    {
+      "name": "linear queued chain",
+      "records": [
+        {
+          "change": "a"
+        },
+        {
+          "change": "b",
+          "parent": "a"
+        },
+        {
+          "change": "c",
+          "parent": "b"
+        }
+      ],
+      "accepted": [],
+      "tip": "c"
+    },
+    {
+      "name": "accepted prefix",
+      "records": [
+        {
+          "change": "a"
+        },
+        {
+          "change": "b",
+          "parent": "a"
+        },
+        {
+          "change": "c",
+          "parent": "b"
+        }
+      ],
+      "accepted": [
+        "a"
+      ],
+      "tip": "c"
+    },
+    {
+      "name": "siblings are separate",
+      "records": [
+        {
+          "change": "a"
+        },
+        {
+          "change": "b",
+          "parent": "a"
+        },
+        {
+          "change": "c",
+          "parent": "a"
+        },
+        {
+          "change": "d",
+          "parent": "c"
+        }
+      ],
+      "accepted": [],
+      "tip": "b"
+    },
+    {
+      "name": "settled first branch",
+      "records": [
+        {
+          "change": "a"
+        },
+        {
+          "change": "b",
+          "parent": "a"
+        },
+        {
+          "change": "c",
+          "parent": "a"
+        },
+        {
+          "change": "d",
+          "parent": "c"
+        }
+      ],
+      "accepted": [
+        "a",
+        "b"
+      ],
+      "tip": "d"
+    },
+    {
+      "name": "independent bases",
+      "records": [
+        {
+          "change": "a"
+        },
+        {
+          "change": "b"
+        },
+        {
+          "change": "c",
+          "parent": "b"
+        }
+      ],
+      "accepted": [],
+      "tip": "a"
+    },
+    {
+      "name": "all accepted",
+      "records": [
+        {
+          "change": "a"
+        },
+        {
+          "change": "b",
+          "parent": "a"
+        }
+      ],
+      "accepted": [
+        "a",
+        "b"
+      ],
+      "tip": null
+    }
+  ]
+}

@@ -137,3 +137,30 @@ cache-removal helper check pass. The newly built app helper also starts with onl
 system tools on PATH and creates a disposable identity. Real Keychain prompts and
 manual app/QR interaction remain unverified; all credential failure tests used
 mocks or isolated file storage. Older-daemon compatibility was deliberately excluded.
+
+### Shared source publication performance — 2026-09-21
+
+Implemented locally, not installed or deployed: TypeScript and Swift update
+machines select contiguous pending admission chains for one frozen request.
+Uncertain requests survive restart unchanged. Both queues compose plain source
+generations before building intermediate trees; separate durable change IDs
+remain intact. Accepted prefix transport payloads are omitted, canopyd skips
+receipt-proven delta reconstruction, and the merger avoids duplicate matching
+state validation and an unnecessary full authored-state copy. See
+[publication batching](docs/implementing-editors/document-admission.md#8-publication-batching-and-preparation-costs)
+for boundaries and local benchmark results.
+
+Verification with Bun 1.3.14: focused publication/host/queue suites passed
+(48 tests, then 23 queue tests after adding a 60-generation regression);
+CanopyWorkingTree passed 98 tests; ArborSyncClient passed 16. Typecheck, CLI
+build, and the 50,000-file performance gate passed. The full product suite had
+1,131 passes, the existing CLI placement failure, and a merge-history timeout.
+The focused merger rerun passed; the CLI failure also reproduced in an untouched
+baseline checkout. The standard protocol gate stopped at the existing AppKit
+`renameByPageID` fixture failure, also previously reproduced on untouched HEAD.
+
+The remaining live protocol gate passed with only that known rename test
+excluded: ArborSyncClient 16, CanopyAppKit 22, Overstory 44, OverstoryClient 20,
+CanopyWorkingTree 98, and live editor admission 5 tests. The structural lost-ack
+regression now verifies that all ten queued changes reach the server in the first
+batch and recover correctly after restart. Link and whitespace checks passed.

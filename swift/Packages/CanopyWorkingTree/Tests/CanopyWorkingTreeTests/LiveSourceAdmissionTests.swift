@@ -206,7 +206,9 @@ extension LiveSourceAdmissionTests {
             publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
         do { _ = try await interrupted.syncOnce(); Issue.record("Expected uncertain acceptance") }
         catch is StructuralPublicationCrash.Failure { }
-        #expect(try await client.descriptor(tree: treeID).tree.root == records.first?.candidate.root)
+        // The complete queued chain reaches Canopy in the first frozen batch,
+        // even when the client loses its acknowledgement before installation.
+        #expect(try await client.descriptor(tree: treeID).tree.root == records.last?.candidate.root)
         await interrupted.close()
         let reopened = try UpdateCoordinator(workingTree: reopenedTree, transport: transport, stateRoot: root,
             sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))

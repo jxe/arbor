@@ -1,3 +1,4 @@
+import { publicationTip } from "./update-machine.ts";
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -12,7 +13,7 @@ export type SourceAdmissionBasis = { kind: "accepted"; root: string; update: str
 export interface SourceAdmissionGeneration { edits: SourceEdit[]; source: string }
 /** `edits` always take the basis to `source` in one step. `generations`, when
  * present, is the same change as the editor captured it, one generation after
- * another, ending at `source`; the queue emits one frame per generation. */
+ * another, ending at `source`; plain generations may coalesce into one frame. */
 export interface SourceAdmissionIntent {
   basis: { tree: string; path: string; revision: string; source: string };
   edits: SourceEdit[];
@@ -107,8 +108,26 @@ export function prepareSourceAdmission(input: {
       (intent.generations !== undefined && (!Array.isArray(intent.generations) || intent.generations.some(g => !validEdits(g.edits, decoder) || typeof g.source !== "string")))) throw new Error("Invalid source intent");
   validateSourceIntent(intent);
   // A generation that changed nothing states nothing; the rest chain exactly.
-  const generations = (intent.generations ?? [{ edits: intent.edits, source: intent.source }]).filter(g => g.edits.length);
+  let generations = (intent.generations ?? [{ edits: intent.edits, source: intent.source }]).filter(g => g.edits.length);
   if (!generations.length) throw new Error("Invalid source intent");
+  let boundarySource = intent.basis.source;
+  for (const generation of generations) {
+    const bytes = encoder.encode(boundarySource);
+    for (const edit of generation.edits)
+      for (const offset of [edit.offset, edit.offset + edit.length])
+        if (offset < bytes.length && (bytes[offset]! & 0xc0) === 0x80)
+          throw new Error("Source range splits a UTF-8 scalar");
+    boundarySource = generation.source;
+  }
+  // Preserve the validated generation chain's exact result while avoiding a
+  // complete intermediate tree per plain edit. Copies/lineage keep their frames.
+  if (input.compact !== false && generations.length > 1 && generations.every(g =>
+    g.edits.every(e => !e.lineage?.length && !e.copies?.length))) {
+    const edits = composeSourceEdits(generations.map(g => g.edits));
+    if (edits.length && applySourceEdits(intent.basis.source, edits) === intent.source)
+      generations = [{ edits, source: intent.source }];
+  }
+
   const parts = sourcePath.slice(1).split("/");
   if (!sourcePath.startsWith("/") || parts.some(p => !p || p === "." || p === ".." || /[\\\0]/.test(p) || p.normalize("NFC") !== p)) throw new Error("Invalid source path");
   verifyTreeSnapshotGraph(graph, "sparse-files");
@@ -414,12 +433,17 @@ export class SourceAdmissionQueue {
     writers.set(this.path, next);
     try { return await next; } finally { if (writers.get(this.path) === next) writers.delete(this.path); }
   }
-  async request(through: string): Promise<{ base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } }> {
-    const records = await this.retained(), updates: CandidateUpdateJSON[] = [];
+  async nextPublication(accepted: ReadonlySet<string>): Promise<string | undefined> {
+    return publicationTip((await this.retained()).map(record => ({
+      change: record.change, parent: record.basis.kind === "authored" ? record.basis.change : undefined,
+    })), accepted);
+  }
+  async request(through: string, accepted: ReadonlySet<string> = new Set()): Promise<{ base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } }> {
+    const records = new Map((await this.retained()).map(record => [record.change, record])), updates: CandidateUpdateJSON[] = [];
     let current = through;
     for (;;) {
-      const record = records.find(r => r.change === current); if (!record) throw new Error("Missing authored dependency");
-      updates.unshift(record.update);
+      const record = records.get(current); if (!record) throw new Error("Missing authored dependency");
+      updates.unshift(accepted.has(current) ? { ...record.update, objects: [], deltas: [] } : record.update);
       if (record.basis.kind === "accepted") return { base: { root: record.basis.root, update: record.basis.update }, request: { base: record.basis.update, updates } };
       current = record.basis.change;
     }

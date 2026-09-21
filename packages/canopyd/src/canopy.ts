@@ -1416,7 +1416,11 @@ export class CanopyDaemon implements AsyncDisposable {
         basisUpdate = activation.result.update.id;
         continue;
       }
-      const reconstructed = await this.objects.reconstructDeltas(baseRoot, update.deltas, proposed);
+      // Credential-bound receipts already prove this prefix. Transport aids
+      // do not participate in its identity; rebuilding accepted deltas repeats
+      // work and can demand bytes an exact retry no longer needs to supply.
+      const reconstructed = index <= recordedThrough ? []
+        : await this.objects.reconstructDeltas(baseRoot, update.deltas, proposed);
       for (const object of reconstructed) {
         if (
           !(await this.objects.contains(update.candidate, object.hash, proposed))

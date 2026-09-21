@@ -1840,6 +1840,39 @@ struct SourceSessionPublicationTests {
         }
     }
 
+    @Test("Unsent successors batch behind an immutable in-flight source request")
+    func batchedSuccessors() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(markdown: "Before\n")
+            let gate = FirstRequestGate(), transport = SourceModeTransport(initial: initial, peer: initial, gate: gate)
+            let tree = try await makeTree(initial, update: "up_initial")
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,
+                sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+            let session = try await provider.openDocument(.init(tree: treeID, path: "/note"))
+            let basis = try await session.snapshot()
+            var local = try await replace("First\n", session: session, basis: basis)
+            let publishing = Task { try await coordinator.syncOnce() }
+            for _ in 0..<500 where !(await gate.waiting) { try await Task.sleep(for: .milliseconds(1)) }
+            #expect(await gate.waiting)
+            for text in ["Second\n", "Third\n", "Fourth\n"] {
+                local = try await replace(text, session: session, basis: local)
+            }
+            #expect(await transport.received.count == 1)
+            await gate.release()
+            _ = try await publishing.value
+            let requests = await transport.received
+            #expect(requests.count == 2)
+            let batch = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            #expect(batch.updates.count == 4)
+            #expect(requests[0].requestDigests.first == requests[1].requestDigests.first)
+            #expect(batch.updates.first?.objects.isEmpty == true)
+            #expect(try await session.snapshot().source == "Fourth\n")
+            #expect(try await coordinator.presentation().state == .current)
+            await coordinator.close(); await session.close(); await tree.close()
+        }
+    }
+
     @Test("Concurrent admission retries retain one identity and a legacy client cannot ignore the journal")
     func concurrentRetryAndModeGate() async throws {
         try await withTemporaryRoot { root in

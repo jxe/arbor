@@ -1381,7 +1381,7 @@ public actor UpdateCoordinator {
                 try files.write(control)
                 attempt = existing
             } else {
-                guard let pending = try await pendingSourceRecords().first else { return try await presentation() }
+                guard let pending = try await queue.nextPublication(accepted: Set(control.sourceAcceptedChanges ?? [])) else { return try await presentation() }
                 let prepared = try await queue.request(through: pending.change, accepted: Set(control.sourceAcceptedChanges ?? []))
                 attempt = try Self.attempt(tree: pending.tree, base: prepared.base, generation: 0, request: prepared.request)
                 try faultInjector.reached(.beforeRequestPersistence)

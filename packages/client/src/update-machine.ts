@@ -17,6 +17,21 @@ export const PUBLICATION_DELAY_MS = 250;
 /** Maximum delay from the first unsent durable head to its publication. */
 export const PUBLICATION_MAX_DELAY_MS = 1_000;
 
+/** Select one contiguous authored branch in admission order. Prepared requests
+ * bypass this selector: uncertain/in-flight bodies must be retried exactly. */
+export function publicationTip(
+  records: ReadonlyArray<{ change: string; parent?: string }>,
+  accepted: ReadonlySet<string>,
+): string | undefined {
+  let tip: string | undefined;
+  for (const record of records) {
+    if (accepted.has(record.change)) continue;
+    if (tip !== undefined && record.parent !== tip) break;
+    tip = record.change;
+  }
+  return tip;
+}
+
 export interface AcceptedBase {
   conflicted?: boolean;
   root: string;

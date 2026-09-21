@@ -63,7 +63,8 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     static let traceOperationLimit = 1024
 
     /// Builds the record for a source intent. A multi-generation intent
-    /// (`intent.generations`) yields one frame per generation, each from the
+    /// (`intent.generations`) coalesces plain edits before tree construction.
+    /// Otherwise it yields one frame per generation, each from the
     /// root the previous generation produced, with operation keys
     /// `edit-<frame>-<index>`; `compact` then merges adjacent frames of plain
     /// edits (`compactTrace`). Only the final candidate's objects travel;
@@ -74,8 +75,35 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         guard intent.basis.reference.tree.rawValue == tree else { throw Self.invalid("Wrong tree") }
         let parts = sourcePath.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         // A generation that changed nothing states nothing; the rest chain exactly.
-        let generations = (intent.generations.isEmpty ? [WorkspaceDocumentGeneration(patch: intent.patch, source: intent.source)] : intent.generations)
+        var generations = (intent.generations.isEmpty ? [WorkspaceDocumentGeneration(patch: intent.patch, source: intent.source)] : intent.generations)
             .filter { !$0.patch.edits.isEmpty }
+        var boundarySource = intent.basis.source
+        for generation in generations {
+            let bytes = Array(boundarySource.utf8)
+            for edit in generation.patch.edits {
+                for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
+                    if offset < bytes.count && bytes[offset] & 0xc0 == 0x80 {
+                        throw Self.invalid("Source range splits a UTF-8 scalar")
+                    }
+                }
+            }
+            boundarySource = generation.source
+        }
+        // Coalesce plain generations before building/hashing an intermediate
+        // tree per keystroke. Validate the full chain above, and prove that the
+        // composed edit reproduces its final exact bytes. Provenance stays in
+        // separate frames; immutable admissions are never rewritten here.
+        if compact, generations.count > 1,
+           generations.allSatisfy({ $0.patch.edits.allSatisfy {
+               ($0.lineage ?? []).isEmpty && ($0.copies ?? []).isEmpty
+           } }),
+           let edits = try? WorkspaceSourceEdit.compose(generations: generations.map { $0.patch.edits }),
+           !edits.isEmpty {
+            let patch = WorkspaceDocumentPatch(baseContentRevision: intent.basis.contentRevision, edits: edits)
+            if let source = try? patch.applying(to: intent.basis.source), Data(source.utf8) == Data(intent.source.utf8) {
+                generations = [.init(patch: patch, source: intent.source)]
+            }
+        }
         guard sourcePath.hasPrefix("/"), !parts.isEmpty,
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") && Data($0.utf8) == Data($0.precomposedStringWithCanonicalMapping.utf8) }),
               !generations.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
@@ -609,12 +637,26 @@ public actor SourceAdmissionQueue {
         }
     }
 
+    /// Batch the oldest pending branch through its newest contiguous descendant.
+    /// Stop at a sibling/independent basis: equal roots never establish lineage.
+    /// Existing persisted attempts are selected by the coordinator before this
+    /// method, so their exact bodies and identities cannot change.
+    public func nextPublication(accepted: Set<String>) async throws -> SourceAdmissionRecord? {
+        try await reloadIfChanged()
+        let tip = UpdateMachine.publicationTip(records.map { record in
+            let parent: String? = if case let .authored(change) = record.basis { change } else { nil }
+            return (record.change, parent)
+        }, accepted: accepted)
+        return records.first { $0.change == tip }
+    }
+
     /// Replays the original candidate chain, including an already accepted prefix.
     /// A selected peer projection never becomes a substitute for a local predecessor.
     public func request(through change: String, accepted: Set<String> = []) async throws -> (base: WireUpdateBase, request: WireUpdateRequest) {
         try await reloadIfChanged()
+        let byChange = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
         var current = change, updates: [WireCandidateUpdate] = []
-        while let record = records.first(where: { $0.change == current }) {
+        while let record = byChange[current] {
             var update = record.update
             // Durable receipts prove these objects already reached Canopy.
             // Keep the authored chain and its digests; only omit transport aids.

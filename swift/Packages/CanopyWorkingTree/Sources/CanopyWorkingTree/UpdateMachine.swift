@@ -14,6 +14,20 @@ public enum UpdateMachine {
     /// Maximum delay from the first unsent durable head to its publication.
     public static let publicationMaxDelay: Duration = .seconds(1)
 
+    /// Select one contiguous authored branch. Persisted requests bypass this
+    /// selector so new admissions cannot change an uncertain/in-flight body.
+    public static func publicationTip(
+        _ records: [(change: String, parent: String?)], accepted: Set<String>
+    ) -> String? {
+        var tip: String?
+        for record in records {
+            if accepted.contains(record.change) { continue }
+            if let current = tip, record.parent != current { break }
+            tip = record.change
+        }
+        return tip
+    }
+
     public struct AcceptedBase: Sendable, Equatable {
         public var conflicted: Bool?
         public var root: String
