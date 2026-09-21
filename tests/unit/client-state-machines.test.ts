@@ -35,7 +35,7 @@ interface Fixture {
 }
 
 async function loadFixture(): Promise<Fixture> {
-  return JSON.parse(await readFile(join(import.meta.dir, "../../spec/conformance/client-state-machines.json"), "utf8")) as Fixture;
+  return JSON.parse(await readFile(join(import.meta.dir, "../../docs/overstory-spec/conformance/client-state-machines.json"), "utf8")) as Fixture;
 }
 
 function valueAt(value: unknown, path: string): unknown {

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { applyObjectDelta } from "../../../packages/protocol/src/updates/apply.ts";
 import { decodeAcceptedTransitionJSON, decodeUpdateResponseJSON, decodeObjectEnvelopes, decodeTransitionPayloadJSON, verifyTreeSnapshotGraph } from "../../../packages/protocol/src/updates/json.ts";
 import { hashObject, type ObjectHash } from "../../../packages/protocol/src/objects.ts";
-import vectors from "../../../spec/conformance/protocol-accepted-transport.json";
+import vectors from "../../../docs/overstory-spec/conformance/protocol-accepted-transport.json";
 import { decodeAcceptedWatchChange, decodeSubmissionResponse } from "../../../packages/protocol/src/updates/accepted-contract.ts";
 for (const c of vectors.cases) test(`accepted transport: ${c.name}`, () => {
   const value = structuredClone(c.value);

@@ -6,7 +6,7 @@ import { prepareSourceAdmission, SourceAdmissionQueue, type SourceAdmissionInten
 import { decodeTreeSnapshotJSON, encodeWireDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@overstory/protocol";
 import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
 
-const fixture = JSON.parse(await readFile(new URL("../../spec/conformance/source-admission-queue.json", import.meta.url), "utf8"));
+const fixture = JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-admission-queue.json", import.meta.url), "utf8"));
 /** A record's whole authored contribution, in order, across its frames. */
 const authored = (update: { trace: Array<{ operations: SourceOperation[] }> | null }) =>
   (update.trace ?? []).flatMap(frame => frame.operations);
@@ -157,7 +157,7 @@ test("journal references platform objects and compacts only dependency-free sett
 }));
 
 test("source preservation fixtures retain verified lineage across queue restart", async () => {
-  const data=JSON.parse(await readFile(new URL("../../spec/conformance/source-preservation.json",import.meta.url),"utf8"));
+  const data=JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-preservation.json",import.meta.url),"utf8"));
   for(const value of data.cases) await withQueue(async (queue,root) => {
     const bytes=Buffer.from(value.source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file}]});
     const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
@@ -206,7 +206,7 @@ test("copy metadata edits bind to operation output and survive recovery", async 
 }));
 
 test("compound entry fixtures retain one basis and execute atomically after restart",async()=>{
-  const fixtures=await Bun.file(new URL("../../spec/conformance/entry-actions.json",import.meta.url)).json();
+  const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/entry-actions.json",import.meta.url)).json();
   const {prepareEntryAdmission}=await import("@overstory/client");
   const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
   for(const value of fixtures.cases)await withQueue(async(queue,root)=>{
@@ -223,7 +223,7 @@ test("compound entry fixtures retain one basis and execute atomically after rest
 });
 
 test("compound move transports a concurrent child edit without changing the sibling body",async()=>withQueue(async(_queue,root)=>{
-  const fixtures=await Bun.file(new URL("../../spec/conformance/entry-actions.json",import.meta.url)).json();
+  const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/entry-actions.json",import.meta.url)).json();
   const {prepareEntryAdmission}=await import("@overstory/client");
   const {MergeTool}=await import("../../packages/canopyd/src/merge-tool.ts");
   const {decodeWireDirectory}=await import("@overstory/protocol");
@@ -249,7 +249,7 @@ test("compound move transports a concurrent child edit without changing the sibl
 }));
 
 test("explicit source copies validate, survive recovery, and execute through the merge process",async()=>{
-  const fixtures=await Bun.file(new URL("../../spec/conformance/source-copy.json",import.meta.url)).json();
+  const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/source-copy.json",import.meta.url)).json();
   for(const c of fixtures.cases)await withQueue(async(queue,root)=>{
     const bytes=Buffer.from(c.source),file=hashObject(bytes),directory=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file}]});
     const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])};
@@ -325,7 +325,7 @@ test("cross-document copies bind the captured source path and reject changed sou
 });
 
 test("shared cross-document fixture validates exact UTF-8 material", async () => {
-  const f=await Bun.file(new URL("../../spec/conformance/cross-document-copy.json",import.meta.url)).json();
+  const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/cross-document-copy.json",import.meta.url)).json();
   const source=Buffer.from(f.original), destination=Buffer.from(f.destination);
   const directory=encodeWireDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination)},{name:"source.md",file:hashObject(source)}]});
   const graph={root:hashObject(directory),objects:new Map([[hashObject(directory),directory],[hashObject(source),source],[hashObject(destination),destination]])};
@@ -334,7 +334,7 @@ test("shared cross-document fixture validates exact UTF-8 material", async () =>
 });
 
 test("page creation records reproduce their original graph without an undo transaction",async()=>{
-  const f=await Bun.file(new URL("../../spec/conformance/page-conversion-undo.json",import.meta.url)).json();
+  const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/page-conversion-undo.json",import.meta.url)).json();
   const {preparePageCreation}=await import("@overstory/client");
   const source=Buffer.from(f.source),fileSource=hashObject(source);
   const nested=encodeWireDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);

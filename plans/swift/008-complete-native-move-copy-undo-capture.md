@@ -24,8 +24,8 @@ peer edits rather than simply restore an old whole-document snapshot.
 Ordinary source edits, exact source-backed copies (including same-tree cross-document copies),
 page/entry moves and copies, typing/copy undo, and turning blocks into a new page with undo/redo
 have implementation evidence. Their exact scope and release status live in the
-the admission queue (journals in [the local system](../../docs/canopy-browser/local-state.md#source-admission-journals), invariants in [client state machines](../../docs/canopy-browser/document-admission.md#7-admission-invariants-and-trace-compaction)), especially
-cross-document copy and page conversion (`spec/conformance/cross-document-copy.json`, `spec/conformance/page-conversion-undo.json`).
+the admission queue (journals in [the local system](../../docs/architecture/canopy-browser/local-state.md#source-admission-journals), invariants in [client state machines](../../docs/implementing-editors/document-admission.md#7-admission-invariants-and-trace-compaction)), especially
+cross-document copy and page conversion (`docs/overstory-spec/conformance/cross-document-copy.json`, `docs/overstory-spec/conformance/page-conversion-undo.json`).
 The durable queue and source publication path already exist. Do not rebuild them.
 
 ## Remaining command coverage

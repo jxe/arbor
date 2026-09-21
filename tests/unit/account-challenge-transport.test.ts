@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { WireClient } from "@overstory/protocol";
-import fixtures from "../../spec/conformance/protocol-account-challenges.json";
+import fixtures from "../../docs/overstory-spec/conformance/protocol-account-challenges.json";
 
 test("community and exact account requests retain their signed account target", async () => {
   for (const fixture of fixtures.cases) {

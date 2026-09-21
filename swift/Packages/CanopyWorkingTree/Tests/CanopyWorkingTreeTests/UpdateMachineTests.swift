@@ -13,7 +13,7 @@ struct UpdateMachineTests {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appending(path: "../../../../../spec/conformance")
+            .appending(path: "../../../../../docs/overstory-spec/conformance")
             .standardizedFileURL
     }
 

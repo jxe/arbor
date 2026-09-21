@@ -3,7 +3,7 @@
 Historical identifier: **Reliability 009**. The filename number is preserved; this plan now belongs to canopy.
 
 Status: PARTIAL. The eight-operation authority integration is on main and deployed.
-See [the merge tool](../../docs/canopyd/merge-tool.md) and
+See [the merge tool](../../docs/architecture/canopyd/merge-tool.md) and
 live cutover (migration 010, deleted after cutover; see git history) for completed work.
 This plan contains only remaining work.
 
@@ -30,7 +30,7 @@ in status/docs, not by weakening the contract. Unknown operations remain invalid
 
 ## Remaining source-transfer policy work
 
-- Extend the [prose-transfer rule](../../docs/canopyd/merge-tool.md#format-support-contract)
+- Extend the [prose-transfer rule](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)
   to list/table transfers and document-relative/reference links only with explicit structural/binding proofs.
 - Evaluate same-anchor transfer ordering separately from plain edit insertions;
   do not silently order ambiguous destinations or competing moves.

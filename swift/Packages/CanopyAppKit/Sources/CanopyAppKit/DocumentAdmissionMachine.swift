@@ -8,7 +8,7 @@ import Foundation
 /// It lives in CanopyAppKit because the editor binding drives a provider-agnostic
 /// session: on iOS and on the Mac the same machine runs against the working
 /// tree. Admission is working-tree durability, not accepted history: the
-/// update machine (`UpdateMachine` in `CanopyWorkingTree`, spec/09) publishes
+/// update machine (`UpdateMachine` in `CanopyWorkingTree`, docs/overstory-spec/09) publishes
 /// the durable heads afterwards, and the two machines compose in sequence.
 /// It executes the same `document-admission` fixture scenarios as the
 /// TypeScript reducer in `@arbor/core`.

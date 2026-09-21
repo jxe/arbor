@@ -53,7 +53,7 @@ together for Phase 2.
   is what makes concatenation trivial.
 - **D3 "Hints" means optional, never unchecked.** Absent trace = snapshot
   semantics (today's `operations: null`). Present trace: every frame must
-  reproduce its `after` or the update is rejected. Keep spec/10's substance,
+  reproduce its `after` or the update is rejected. Keep docs/overstory-spec/10's substance,
   reword :82 and :100.
 - **D4 History is never deleted by this plan.** Old records stay; the engine
   stops reading what an edit does not touch. Identity checks keep using the full
@@ -178,7 +178,7 @@ current states still reference through their change envelopes.
   first, live only with Joe's go-ahead. No wire change; server deploys alone.
 - Merge records: `evidence.inputs` becomes the three input roots (base,
   current, incoming objects); the evaluator is deterministic, so reproducibility
-  (spec/10 :190–198) holds through re-reading. Convert legacy `dependencies` rows
+  (docs/overstory-spec/10 :190–198) holds through re-reading. Convert legacy `dependencies` rows
   to `retention: {version: 1, roots}` after checking each against the existing
   audit (`canopy.ts` `verifyIntegrity` legacy branch), then drop the field.
 - Old merge states: rewrite the full-copy states into the chunked v3 format.
@@ -243,8 +243,8 @@ current states still reference through their change envelopes.
   the reduced phases.
 
 ### Phase 6 — Spec and docs, written ahead of each phase (plans/canopyd/009 :28-30)
-- spec/10: :82 "each frame MUST reproduce its `after`"; :100 reworded per D3;
-  new Trace section. spec/01: :744 digest covers `trace`. spec/09:
+- docs/overstory-spec/10: :82 "each frame MUST reproduce its `after`"; :100 reworded per D3;
+  new Trace section. docs/overstory-spec/01: :744 digest covers `trace`. docs/overstory-spec/09:
   per-generation capture and coalescing.
 - docs/merge-operation-evaluation.md frames, lazy loading and the deletion
   watermark; docs/update-protocol.md; docs/canopy-update-performance.md
@@ -278,7 +278,7 @@ current states still reference through their change envelopes.
 - The retired causal-undo journal is why undo is an ordinary edit: on the Mac
   it reached 432 records and 75 MB, and every admission re-encoded and fsynced
   all of it, 7.2 s per edit against a host that answered in about 250 ms.
-  `spec/conformance/causal-undo.json` was deleted with it;
+  `docs/overstory-spec/conformance/causal-undo.json` was deleted with it;
   `page-conversion-undo.json` remains.
 - The old 100,000-object / 1 GB per-tree quota checks were removed from update
   acceptance; nothing bounds retained storage today, and periodic storage

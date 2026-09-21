@@ -10,7 +10,7 @@ The TypeScript workspace uses exactly Bun 1.3.14 (a newer Bun canary crashed the
 bun install
 ```
 
-`bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, `bun run canopyd`, and `bun run arbor-merge`. The merge executable runs as a separate Bun process; see [its API and object-store boundary](docs/canopyd/merge-tool.md). `bun link` additionally exposes the `arbor`, `arborsync`, `canopyd`, and `arbor-merge` executables in the shell; the README quickstart uses that form.
+`bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, `bun run canopyd`, and `bun run arbor-merge`. The merge executable runs as a separate Bun process; see [its API and object-store boundary](docs/architecture/canopyd/merge-tool.md). `bun link` additionally exposes the `arbor`, `arborsync`, `canopyd`, and `arbor-merge` executables in the shell; the README quickstart uses that form.
 
 ### Developing Overstory with Quagmire
 
@@ -79,18 +79,18 @@ Keep the local Xcode workspace in place for ongoing coordinated development.
 
 ## What owns what
 
-- `spec/` owns portable behavior, including behavior the reference
-  implementation has not built yet; `spec/conformance/` holds the
+- `docs/overstory-spec/` owns portable behavior, including behavior the reference
+  implementation has not built yet; `docs/overstory-spec/conformance/` holds the
   language-neutral vectors. Do not weaken a portable contract to match a
   staged UI, and do not move implementation detail into the specification.
 - `status.md` owns current implementation status. Implemented, installed,
   deployed, and verified are separate claims.
-- `docs/` owns usage and replaceable implementation choices.
+- `docs/` is the documentation home. Outside `docs/overstory-spec/`, it owns usage and replaceable implementation choices.
 - `plans/` owns remaining work only. A completed plan is deleted after its
   evidence lands in `status.md` or `docs/`; git history is the record.
   Numbers are stable identifiers within a plan directory, not an order.
 - `tests/fixtures/` owns reference-implementation fixtures, as opposed to
-  the portable vectors under `spec/conformance/`.
+  the portable vectors under `docs/overstory-spec/conformance/`.
 - The host's operating material lives with the host:
   `packages/canopyd/deploy/` and `packages/canopyd/migrations/`.
 
@@ -122,7 +122,7 @@ Arbor names the local tools only: the `arbor` command, Arbor Sync, the
 ## Repository map
 
 The [README](README.md#repository-map) has the directory-by-directory map, and
-[the reference implementation](docs/architecture.md) describes every
+[the reference implementation](docs/architecture/README.md) describes every
 package in both languages, runtime ownership, and the layering rules.
 Documentation ownership is summarized in [docs/README.md](docs/README.md).
 

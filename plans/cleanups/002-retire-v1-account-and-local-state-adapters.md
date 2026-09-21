@@ -72,7 +72,7 @@ Execute instead as one change with this order, verifying at each step:
 3. Then delete: `packages/canopyd/src/account-policy.ts`,
    `packages/canopyd-merge/src/account.ts`, the `AnyAccountConfigGraph`/`v2Graph`
    branches in `canopy.ts`, `account-config-v1` in `model.ts`,
-   `merge/src/{index,contract,summary}.ts`, `docs/canopyd/merge-tool.md` wording.
+   `merge/src/{index,contract,summary}.ts`, `docs/architecture/canopyd/merge-tool.md` wording.
 4. Then the local adapter: `packages/protocol/src/config/account-config.ts` (keep
    nothing; `/v1/status` drops `deviceID`, which only fixtures set),
    `loadLegacySingletonTreeRegistry` and the `plural` flag in `trees.ts` and
@@ -223,7 +223,7 @@ Commit this phase independently after the live-copy verification below.
 
 ### 4. Close the migration and documentation
 
-- Update `docs/arborsync/data-home.md` from a pending account-layout cutover to the
+- Update `docs/architecture/arborsync/data-home.md` from a pending account-layout cutover to the
   completed v2-only layout.
 - Keep the plural-account bootstrap documented as the sole account-claim
   endpoint and remove any remaining singleton claim examples.

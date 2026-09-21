@@ -40,7 +40,7 @@ Absolute paths under `$HOME`; a path inside any placed tree is refused with `409
 1. `fs-editor.ts` and routes with tests: list, read, write with etag and 412, refusal inside placed trees, events without gaps.
 2. Web `FsSession` and an end-to-end test that edits a plain folder and merges an external edit.
 3. `FilesystemWorkspaceProvider` with the provider contract cases from `ProviderContractTests` re-targeted, an external-edit observation test, and the refusal test.
-4. Docs: a "Folder editor (`/v1/fs`)" section in `docs/arborsync/arborsync-api.md` labelled "not tree sync"; `docs/arborsync/data-home.md`; `status.md`.
+4. Docs: a "Folder editor (`/v1/fs`)" section in `docs/implementing-sync-services/arborsync-api.md` labelled "not tree sync"; `docs/architecture/arborsync/data-home.md`; `status.md`.
 
 ## Verification
 

@@ -15,7 +15,7 @@ Current identifier: **Cleanup 005**. Former identifiers: **Smaller project 002 /
 ## Target result
 
 A stable key appears in exactly one encoding per surface, every surface is listed in one
-table in [locators](../../spec/03-locators.md), and everything attached to a path segment
+table in [locators](../../docs/overstory-spec/03-locators.md), and everything attached to a path segment
 uses the single `;arbor-<name>=<value>` parameter mechanism. A reader of the spec can answer
 "where can a key show up, and how is it spelled there" from that table alone.
 
@@ -59,7 +59,7 @@ and the `~row-` segment rule.
 
 - Parsers: `packages/protocol/src/model/logical-url.ts` and
   `swift/Packages/CanopyAppKit/Sources/CanopyAppKit/LogicalURL.swift` change together;
-  `spec/conformance/url-resolution.json` is the shared contract and gains a case per surface.
+  `docs/overstory-spec/conformance/url-resolution.json` is the shared contract and gains a case per surface.
 - Renderers: the Markdown alias translation in `overstory/react`'s `Markdown`, the HTTP
   projection redirect rule (locators §6), and link healing in arborsync all read the table.
 - Row segments: `rowPathSegment` in `packages/protocol` and its Swift replica counterpart.

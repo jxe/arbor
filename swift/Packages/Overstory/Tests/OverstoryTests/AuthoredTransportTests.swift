@@ -6,7 +6,7 @@ import Testing
 struct AuthoredTransportTests {
     private func fixture(_ name: String) throws -> [String: Any] {
         let root = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../spec/conformance").standardizedFileURL
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance").standardizedFileURL
         return try #require(JSONSerialization.jsonObject(with: Data(contentsOf: root.appending(path: name))) as? [String: Any])
     }
     private func check(_ c: [String: Any], tree: String) throws {

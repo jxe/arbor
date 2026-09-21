@@ -20,7 +20,7 @@ async function run(command: string[], environment: Record<string, string> = {}):
 }
 
 const fixtures = {
-  ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../spec/conformance"),
+  ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../docs/overstory-spec/conformance"),
   ARBOR_REFERENCE_FIXTURES: join(import.meta.dir, "../fixtures"),
 };
 

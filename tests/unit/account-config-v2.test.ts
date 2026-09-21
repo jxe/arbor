@@ -11,7 +11,7 @@ const device = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 describe("account configuration v2", () => {
   test("accepts every shared flat-graph conformance case", async () => {
-    const registry = JSON.parse(await readFile(join(import.meta.dir, "../../spec/conformance/configuration-yaml.json"), "utf8")) as {
+    const registry = JSON.parse(await readFile(join(import.meta.dir, "../../docs/overstory-spec/conformance/configuration-yaml.json"), "utf8")) as {
       valid: Array<{ configurationTree: string; files: Record<"account.yaml" | "trees.yaml" | "devices.yaml", string> }>;
     };
     for (const candidate of registry.valid) {

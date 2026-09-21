@@ -9,7 +9,7 @@ required. Preserve correctness, not obsolete signatures. [Apps 006](006-durable-
 then replaces authoring/runtime semantics. Apps 003 supplies full compiler tooling;
 its unfinished editor integration does not block a headless extraction fixture.
 
-Normative owners: [locator resolution](../../spec/03-locators.md#4-resolution-rules), the [current-tree read](../../spec/01-tree-operations.md#111-reading-the-current-tree), and [provider bindings](../../docs/canopyd/execution-sidecar.md#provider-bindings).
+Normative owners: [locator resolution](../../docs/overstory-spec/03-locators.md#4-resolution-rules), the [current-tree read](../../docs/overstory-spec/01-tree-operations.md#111-reading-the-current-tree), and [provider bindings](../../docs/architecture/canopyd/execution-sidecar.md#provider-bindings).
 canopyd owns tree authority/resolution; the HTTP sidecar owns query planning,
 evaluation and mutation execution; SQLite remains a direct scoped provider.
 React hosting is the next bridge gate, not a prerequisite to headless extraction.
@@ -27,7 +27,7 @@ React host, hostile-code isolation or cross-store workflow durability.
 
 ## Phase 1: Concrete bridge contract
 
-Complete [reference bridge documentation](../../docs/canopyd/execution-sidecar.md) and paired request/error fixtures
+Complete [reference bridge documentation](../../docs/architecture/canopyd/execution-sidecar.md) and paired request/error fixtures
 before moving code. Specify authenticated local HTTP transport, host-issued context,
 header stripping, source/caller identity, executable/sponsor binding, resource limits,
 request/body bounds, backpressure, cancellation, safe response headers, HTTP errors,

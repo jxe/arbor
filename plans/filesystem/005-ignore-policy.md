@@ -18,7 +18,7 @@ Historical identifier: **Security 005**. The filename number is preserved; this 
 >   packages/fs packages/arborsync/src packages/arborsync/src/state \
 >   tests/unit/discovery.test.ts tests/unit/protocol-objects.test.ts \
 >   tests/integration/workspace.test.ts tests/integration/self-sync.test.ts \
->   docs/arborsync/data-home.md spec/02-directory-format.md
+>   docs/architecture/arborsync/data-home.md docs/overstory-spec/02-directory-format.md
 > git status --short
 > ```
 >
@@ -141,8 +141,8 @@ Relevant files and responsibilities:
 - `packages/arborsync/src/state/placements.ts` deliberately accepts only scalar
   `path: TreeID` entries. Do not widen that schema in this plan.
 - `packages/fs/README.md` says all hidden directories other than the fixed set
-  are ordinary content. `docs/arborsync/data-home.md` owns replaceable local
-  implementation choices. `spec/02-directory-format.md` owns the portable
+  are ordinary content. `docs/architecture/arborsync/data-home.md` owns replaceable local
+  implementation choices. `docs/overstory-spec/02-directory-format.md` owns the portable
   directory projection and is where `.arborignore` membership belongs;
   `.gitignore` compatibility remains reference-implementation documentation.
 
@@ -189,8 +189,8 @@ and verify that `bun.lock` contains only the intended package change.
 - `tests/unit/discovery.test.ts` and `tests/unit/protocol-objects.test.ts`;
 - focused cases in `tests/integration/workspace.test.ts` and
   `tests/integration/self-sync.test.ts`;
-- `packages/fs/README.md`, `docs/arborsync/data-home.md`, and
-  `spec/02-directory-format.md`; and
+- `packages/fs/README.md`, `docs/architecture/arborsync/data-home.md`, and
+  `docs/overstory-spec/02-directory-format.md`; and
 - `plans/README.md` and this plan's eventual deletion.
 
 **Out of scope**:
@@ -327,12 +327,12 @@ cases. Each ends with the expected accepted root and `sync: "idle"`.
 
 ### Step 6: Document the contract and run maintained gates
 
-Update `spec/02-directory-format.md` with `.arborignore`, its nested pattern
+Update `docs/overstory-spec/02-directory-format.md` with `.arborignore`, its nested pattern
 scope, control-file inclusion, tracked-membership rule, and the distinction
 between tree content and opaque placement files. Keep `.gitignore` compatibility,
 the fixed implementation exclusions, policy-error recovery, and unsupported
 global/local Git sources in `packages/fs/README.md` and
-`docs/arborsync/data-home.md` rather than presenting them as universal Overstory protocol.
+`docs/architecture/arborsync/data-home.md` rather than presenting them as universal Overstory protocol.
 
 Update the plan index, run the product and protocol suites, run a repository-wide
 relative Markdown-link check, and run `git diff --check`.

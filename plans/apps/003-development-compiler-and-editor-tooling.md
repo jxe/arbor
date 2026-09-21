@@ -136,7 +136,7 @@ Completion gate:
 
 - Coordinate authored query/mutation syntax changes with Apps 006. Authority
   semantics are defined by
-  [`spec/08-authoring-api.md`](../../spec/08-authoring-api.md#3-handles) and
+  [`docs/overstory-spec/08-authoring-api.md`](../../docs/overstory-spec/08-authoring-api.md#3-handles) and
   [Apps 004](004-mutation-permissions.md); Apps 006 owns the final authoring surface.
 - Do not make a global TreeID/path registry part of authored application code.
 - Do not infer property types from currently sampled rows.

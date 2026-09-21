@@ -156,7 +156,7 @@ extension WorkspaceSourceEdit {
     /// order, so the composed edits are ascending, never adjacent and never
     /// share an anchor. The same rule runs as `composeSourceEdits` in
     /// `@arbor/core` and in Canopy's `composeFrames`;
-    /// `spec/conformance/source-admission-queue.json` holds the shared vectors.
+    /// `docs/overstory-spec/conformance/source-admission-queue.json` holds the shared vectors.
     public static func compose(generations: [[WorkspaceSourceEdit]]) throws -> [WorkspaceSourceEdit] {
         enum Piece { case copy(Range<Int>); case text(Data)
             var size: Int { switch self { case let .copy(range): range.count; case let .text(data): data.count } }
@@ -326,7 +326,7 @@ public struct WorkspaceDocumentGeneration: Hashable, Codable, Sendable {
 /// `generations`, when present, is the same change as the editor captured it:
 /// one patch per generation, each against the source the previous one
 /// produced, ending at `source`. A publication queue emits one frame per
-/// generation from it (spec/09), so no claim is ever re-derived across
+/// generation from it (docs/overstory-spec/09), so no claim is ever re-derived across
 /// generations.
 public struct WorkspaceDocumentIntent: Hashable, Codable, Sendable {
     public let basis: WorkspaceDocumentSnapshot

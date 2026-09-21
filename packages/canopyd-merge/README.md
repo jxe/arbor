@@ -9,7 +9,7 @@ has no database connection or credentials.
 - `intent-engine.ts`, `intent-model.ts`: exact authored-operation execution
   over traces of frames, choices, and retained state.
 - `merge-rules.ts`, `format-rules.ts`, `markdown-format.ts`, `web-formats.ts`:
-  the format support rules (see the [format support contract](../../docs/canopyd/merge-tool.md#format-support-contract)).
+  the format support rules (see the [format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)).
 - `merge.ts`, `pieces.ts`, `state-map.ts`, `state-storage.ts`, `state-value.ts`,
   `history-view.ts`, `retention.ts`: retained state, shared history pages,
   lazy history, and retention closure.
@@ -20,4 +20,4 @@ has no database connection or credentials.
   objects.
 
 The process contract, limits, and failure behavior are in
-[the merge tool](../../docs/canopyd/merge-tool.md).
+[the merge tool](../../docs/architecture/canopyd/merge-tool.md).

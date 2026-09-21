@@ -311,7 +311,7 @@ public final class ArborDocumentBinding {
         let generation = machine.generation + 1
         // The generation's patch is captured against the previous generation's
         // ledger, exactly as the editor produced it; the machine keeps it and the
-        // admission states it in its own frame (spec/09).
+        // admission states it in its own frame (docs/overstory-spec/09).
         let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources)
         let preservesIntent = admission.patch.edits.contains { !($0.lineage ?? []).isEmpty || !($0.copies ?? []).isEmpty }
         authoredLedgers[generation] = nextLedger

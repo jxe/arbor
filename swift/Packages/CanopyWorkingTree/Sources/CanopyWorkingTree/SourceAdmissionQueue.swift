@@ -277,7 +277,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     /// first frame's index in `frames`. A run that ends at the root it started
     /// from changed nothing and yields no frame. Frames with lineage, copies or
     /// operation material are kept as they are, so a claim always stays in the
-    /// frame whose basis it was captured against (spec/09). The same rule runs
+    /// frame whose basis it was captured against (docs/overstory-spec/09). The same rule runs
     /// in `@arbor/canopy-client` and in Canopy's `composeFrames`.
     public static func compactTrace(_ frames: [WireTraceFrame]) -> [WireTraceFrame] {
         var result: [WireTraceFrame] = []

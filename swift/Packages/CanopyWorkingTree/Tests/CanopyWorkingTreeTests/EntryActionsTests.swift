@@ -7,7 +7,7 @@ import Testing
 func compoundEntryFixtures() async throws {
     struct Case: Decodable { let name: String; let actions: EntryActions; let candidate: WireSnapshot; let operations: [WireSourceOperation] }
     struct Fixture: Decodable { let change: String; let graph: WireSnapshot; let cases: [Case] }
-    let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../spec/conformance/entry-actions.json")
+    let path = URL(fileURLWithPath:#filePath).deletingLastPathComponent().appending(path:"../../../../../docs/overstory-spec/conformance/entry-actions.json")
     let fixture = try JSONDecoder().decode(Fixture.self,from:Data(contentsOf:path))
     for value in fixture.cases {
         let root = FileManager.default.temporaryDirectory.appending(path:UUID().uuidString)

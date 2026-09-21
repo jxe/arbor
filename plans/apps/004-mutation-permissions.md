@@ -9,16 +9,16 @@ Depends on current governed account configuration and ordinary accepted updates,
 not the unfinished Apps 003 compiler. Blocks [Apps 005](005-source-resolution-and-sidecar.md)
 and the permissions portion of [Apps 006](006-durable-authoring.md).
 
-Normative contracts: [access control](../../spec/05-access-control.md),
-[account configuration](../../spec/04-accounts-and-devices.md), and
-[locator resolution](../../spec/03-locators.md#4-resolution-rules). Current source, tests,
+Normative contracts: [access control](../../docs/overstory-spec/05-access-control.md),
+[account configuration](../../docs/overstory-spec/04-accounts-and-devices.md), and
+[locator resolution](../../docs/overstory-spec/03-locators.md#4-resolution-rules). Current source, tests,
 `git status`, and schema constants are authoritative implementation evidence.
 This plan schedules Joe's coordinated live upgrade; writing this plan is not a
 live deployment. Preserve dirty editors and unrelated work throughout execution.
 
 ## Worktree checkpoint (2026-09-18)
 
-The implemented boundary is summarized in [status.md](../../status.md) and the supported scope rules in [the reference implementation](../../docs/architecture.md#resource-policy)
+The implemented boundary is summarized in [status.md](../../status.md) and the supported scope rules in [the reference implementation](../../docs/architecture/protocol/README.md#resource-policy)
 and Migration 011 (migration 011, deleted after cutover; see git history). Shared TS/Swift
 rules, resource parsing/indexing, execution tokens, guarded effects, replay checks,
 revocation streams and offline schema/configuration preparation are implemented.

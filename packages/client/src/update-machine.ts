@@ -1,6 +1,6 @@
 /**
  * Working-tree updates: the state machine a working tree runs against Arbor
- * Wire to turn its local heads into accepted updates (spec/09).
+ * Wire to turn its local heads into accepted updates (docs/overstory-spec/09).
  *
  * The reducer is pure and language-neutral: roots, updates, cursors, and
  * request digests are opaque tokens. Every durable store (the daemon's
@@ -8,7 +8,7 @@
  * the runner persists what each state says it retains and executes the
  * effects the reducer returns. The Swift twin is `UpdateMachine` in
  * `CanopyWorkingTree`; both execute `working-tree-updates` in
- * `spec/conformance/client-state-machines.json`. This module moves to
+ * `docs/overstory-spec/conformance/client-state-machines.json`. This module moves to
  * `@overstory/working-tree` in Plan B.
  */
 

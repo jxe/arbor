@@ -1,0 +1,78 @@
+# Overstory reference implementation
+
+This document records the architecture and operating choices of the current
+reference implementation. It is informative; the normative contracts live in
+[docs/overstory-spec/README.md](../overstory-spec/README.md), and [status.md](../../status.md) says which of the
+behavior below is installed or deployed.
+
+## By subcomponent
+
+- [Protocol and object stores](protocol/README.md): encoding, identity, transport, conflict inspection, and resource policy.
+- [Host: canopyd](canopyd/README.md): acceptance, durability, merge and execution sidecars.
+- [Client stack](client-stack/README.md): working-tree synchronization, exact retries, and conflict recovery.
+- [Arbor Sync and local tools](arborsync/README.md): daemon ownership, placed folders, private state, and CLI.
+- [Canopy browsers](canopy-browser/README.md): editor runtime ownership, local state, and recovery.
+- [Executable-document runtime](apps-runtime/README.md): queries, mutations, and the collection sandbox.
+
+## Components
+
+Five components, two languages. Every TypeScript package lives under
+`packages/<name>` and is published as `@overstory/<name>`; every Swift
+package lives under `swift/Packages/<Name>`.
+
+| Component | TypeScript | Swift | Owns |
+|---|---|---|---|
+| Overstory protocol | `protocol`, `object-store` | `Overstory`, `OverstoryObjectStore` | The specification in code: identifiers, node model, canonical CBOR, hashing, objects and snapshots, update contracts, resource policy, the document format, configuration formats, HTTP and SSE transport; the content-addressed object store |
+| Host | `canopyd`, `canopyd-merge`, `apps-runtime` | | Communities, accounts, hosted trees, acceptance, public pages; the merge sidecar; the executable-document runtime and collection sandbox |
+| Client stack | `client`, `fs` | `OverstoryClient`, `CanopyWorkingTree` | Synchronizing a working tree against a host: update machine, admission queue, account bootstrap, filesystem materialization |
+| Arbor local tools | `arborsync`, `arborsync-client`, `cli` | `ArborSyncClient` | The per-user daemon, its loopback REST API and clients, the `arbor` command |
+| Canopy browsers | `canopy-web` | `CanopyAppKit`, `CanopyEditor`, the `Canopy` app target | The human interface |
+
+Layering: `protocol` depends on nothing in the workspace; `apps-runtime`
+depends only on `protocol`; the host and client packages never depend on
+`arborsync*`; `cli` and `canopy-web` may depend on anything. Swift mirrors
+this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
+`CanopyWorkingTree` on both plus `CanopyAppKit`, and `OverstoryClient`,
+`ArborSyncClient`, and `CanopyEditor` sit above.
+
+### TypeScript packages
+
+| Package | Purpose | Depends on |
+|---|---|---|
+| `protocol` | `model/` (types, identifiers, CBOR, hashing, logical paths and URLs, resource policy, errors, SSE), `objects.ts` and `snapshots.ts`, `updates/` (request and accepted contracts, JSON, intent digests, deltas), `transport.ts` (the HTTP client), `documents/` (Markdown and directory documents, child links, titles, document merge), `config/` (account, device, placement, resource configuration and the private data home) | `@noble/hashes`, `yaml` |
+| `object-store` | Immutable hash-sharded storage with verified reads, durable writes, and reachability walks | protocol |
+| `fs` | `WorkspaceFS`: discovery, the write journal, atomic file operations, materialization, watching ([README](../../packages/fs/README.md)) | protocol, `@parcel/watcher` |
+| `client` | Tree sync, sync state, account bootstrap and wire, the update machine, the document admission machine, the source admission queue, publisher, and document session, entry transfer | protocol, fs |
+| `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge worker adapter, projection, the `canopyd` CLI ([README](../../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, canopyd-merge |
+| `canopyd-merge` | The merge sidecar: contract, intent engine and model, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](canopyd/merge-tool.md)) | protocol, object-store, apps-runtime, tree-sitter, saxes |
+| `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the QuickJS schema sandbox and the collection-file codec) ([README](../../packages/apps-runtime/README.md)) | protocol, `quickjs-emscripten`, `csv-parse` |
+| `arborsync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry, placements, connections, local accounts, profile identity, providers, object index) | protocol, client, fs, apps-runtime |
+| `arborsync-client` | `ArborSyncRESTClient` for the daemon's control surface | protocol |
+| `cli` | `arbor`: daemon supervision, identity, placement, moves, cloud sessions | arborsync, arborsync-client, protocol, fs |
+| `canopy-web` | The browser editor (React, BlockNote, Vite); out of the build and typecheck until [Web 025](../../plans/canopy-web/025-arbor-web.md) rebuilds it as a working-tree client | arborsync-client, protocol |
+
+### Swift packages
+
+| Package | Purpose | Depends on |
+|---|---|---|
+| `Overstory` | Protocol models, canonical CBOR, the SSE parser, the HTTP client, authored and accepted contracts, operations, transitions, resource policy, the network log | |
+| `OverstoryObjectStore` | The `ObjectStore` protocol with overlay, layered, directory, and host-backed stores; every store verifies bytes against their hash | Overstory |
+| `CanopyAppKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the document admission machine, the browser tab controller | |
+| `CanopyWorkingTree` | `WorkingTree` and its state store, `UpdateMachine` and `UpdateCoordinator`, durability, the snapshot bridge, `SourceAdmissionQueue`, entry actions and transfer, conflict review | CanopyAppKit, OverstoryObjectStore, Overstory |
+| `OverstoryClient` | Credentials, the placement service, `CanopyWatchRunner`, account configuration YAML, resource consent | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |
+| `ArborSyncClient` | The loopback REST client for the daemon and its process supervisor | CanopyAppKit, OverstoryObjectStore, Overstory |
+| `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec, editor recovery, conflict analysis | ArborSyncClient, CanopyAppKit, Quagmire |
+
+`swift/Canopy.xcodeproj` is generated from `swift/project.yml`
+by xcodegen and committed; see [swift/README.md](../../swift/README.md).
+
+## Verification machinery
+
+Bun tests, TypeScript checking, shared JSON and SSE fixtures, and Swift
+Package Manager tests. The usual gates are in [DEVELOPMENT.md](../../DEVELOPMENT.md).
+Diagnostics that are not gates: `bun tests/performance/merge-history.bench.ts`
+(synthetic, in memory), `bun tests/performance/replay-update-cost.ts <copy>` (per-phase
+timings replaying edits on a copy of host data), and
+`bun tests/performance/benchmark-merge-tool.ts`. Language-neutral vectors under
+[`docs/overstory-spec/conformance/`](../overstory-spec/conformance/README.md) are the portable part; reference
+API and algorithm fixtures live under [`tests/fixtures/`](../../tests/fixtures/README.md).

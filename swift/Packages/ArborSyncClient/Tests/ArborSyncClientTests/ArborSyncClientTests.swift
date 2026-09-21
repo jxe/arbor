@@ -23,7 +23,7 @@ final class ArborSyncClientTests: XCTestCase {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appending(path: "../../../../../spec/conformance")
+            .appending(path: "../../../../../docs/overstory-spec/conformance")
             .standardizedFileURL
     }
 

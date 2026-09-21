@@ -8,7 +8,7 @@
  * `equal` option, so a web editor can keep block snapshots and a native
  * editor can use exact Markdown strings while executing the same fixtures.
  * Admission is working-tree durability, not accepted history: the update
- * machine (`@overstory/client` `reduceUpdate`, spec/09) publishes the
+ * machine (`@overstory/client` `reduceUpdate`, docs/overstory-spec/09) publishes the
  * durable heads afterwards, and the two machines compose in sequence.
  *
  * A submission is the list of editor generations since the last admission.

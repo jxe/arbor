@@ -85,7 +85,7 @@ roots and therefore must own document history and recovery.
   `packages/canopyd/src/canopy.ts`, `acceptedUpdates(treeID)` is explicitly
   internal, and `snapshotForRoot` accepts a known retained root. No Overstory route
   currently enumerates history.
-- `spec/05-access-control.md` defines historical snapshots as known-root and
+- `docs/overstory-spec/05-access-control.md` defines historical snapshots as known-root and
   non-enumerable. Native 006 records the separate decision that a caller
   with current read access may fetch a known object reachable from any retained
   accepted root of that same tree. That does not authorize history enumeration:
@@ -125,8 +125,8 @@ GET /.arbor/trees/{TreeID}/history?path={logical-path}&stableKey={key}&cursor={c
 GET /.arbor/trees/{TreeID}/history/{accepted-update-id}?path={logical-path}&stableKey={key}
 ```
 
-Freeze these semantics in `spec/01-tree-operations.md` and
-`spec/05-access-control.md` before implementation:
+Freeze these semantics in `docs/overstory-spec/01-tree-operations.md` and
+`docs/overstory-spec/05-access-control.md` before implementation:
 
 1. History is Markdown-document scoped. It is ordered newest first and emits a
    row only when the exact file-object hash differs from the preceding version.
@@ -219,7 +219,7 @@ until a second concrete history authority exists.
 Retain `restoreRecovery`, `/v1/recovery`, the filesystem `WriteJournal`, and
 Trash recovery for diagnostics or a separately labelled lost-content repair
 surface. Their mapping into `WorkspaceHistoryEntry` is already removed; keep it
-removed and document the distinction in `docs/arborsync/arborsync-api.md` and the
+removed and document the distinction in `docs/implementing-sync-services/arborsync-api.md` and the
 reference implementation docs.
 
 Update `ArborHistoryView` and its loading/error states:
@@ -237,7 +237,7 @@ Update `ArborHistoryView` and its loading/error states:
 
 Expected implementation scope:
 
-- `spec/01-tree-operations.md`, `spec/05-access-control.md`, Overstory/reference API
+- `docs/overstory-spec/01-tree-operations.md`, `docs/overstory-spec/05-access-control.md`, Overstory/reference API
   docs, and language-neutral conformance fixtures;
 - `packages/canopyd/src/`, `packages/protocol/src/`, focused tests, and the next
   disposable `packages/canopyd/migrations/NNN-document-history/`;
@@ -245,8 +245,8 @@ Expected implementation scope:
   filesystem recovery and, if required, add the thin authenticated proxy;
 - `swift/Packages/Overstory`, `CanopyAppKit`, `ArborSyncClient`, and `CanopyEditor`
   session/binding code and tests; and
-- `swift/CanopyApp`, `swift/CanopyAppTests`, `docs/arborsync/arborsync-api.md`,
-  `docs/architecture.md`, and the two coordinated plan files.
+- `swift/CanopyApp`, `swift/CanopyAppTests`, `docs/implementing-sync-services/arborsync-api.md`,
+  `docs/architecture/README.md`, and the two coordinated plan files.
 
 Out of scope:
 

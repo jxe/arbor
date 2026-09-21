@@ -190,7 +190,7 @@ export async function validateSourceTrace(
  * composed frame is then executed and must reproduce the same result, so a
  * composed trace is never weaker evidence than the chain. Anything that would
  * need its references rebased (lineage, copies, operation material) is
- * refused rather than guessed. `spec/conformance/source-admission-queue.json`
+ * refused rather than guessed. `docs/overstory-spec/conformance/source-admission-queue.json`
  * holds the vectors shared with both clients. */
 export async function composeFrames(
   frames: readonly SourceFrame[],

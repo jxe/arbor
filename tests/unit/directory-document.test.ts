@@ -5,7 +5,7 @@ import { parseMarkdown, placeDirectoryChildren, reorderChildLinks, serializeMark
 
 describe("bounded directory child placement", () => {
   test("matches the language-neutral placement fixtures", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/conformance/directory-documents.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../docs/overstory-spec/conformance/directory-documents.json"), "utf8")) as {
       cases: Array<{
         directory: string;
         source: string;

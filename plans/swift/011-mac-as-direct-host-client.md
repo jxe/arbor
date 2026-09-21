@@ -78,7 +78,7 @@ are deleted rather than kept as adapters.
 
 1. **Credential ownership.** Confirm the daemon and the app read the same
    platform credential entry (scoped by data home and configuration TreeID,
-   [data home](../../docs/arborsync/data-home.md)). If the app already can,
+   [data home](../../docs/architecture/arborsync/data-home.md)). If the app already can,
    nothing changes; if the daemon holds it under a different key, pick one
    and migrate once.
 2. **Accounts on the Mac.** Route claim, pair, forget, and account listing
@@ -98,9 +98,9 @@ are deleted rather than kept as adapters.
 5. **Remove the unused routes and client methods** listed above, in one
    commit per side (daemon, Swift client, TypeScript client), each with the
    CLI suite, `bun run test:protocol`, and a Mac app build green.
-6. **Docs.** Update [the Arbor Sync REST API](../../docs/arborsync/arborsync-api.md)
-   to the reduced surface, [architecture](../../docs/architecture.md)'s client
-   mechanics, and [Canopy local state](../../docs/canopy-browser/local-state.md)
+6. **Docs.** Update [the Arbor Sync REST API](../../docs/implementing-sync-services/arborsync-api.md)
+   to the reduced surface, [architecture](../../docs/architecture/README.md)'s client
+   mechanics, and [Canopy local state](../../docs/architecture/canopy-browser/local-state.md)
    where it says the app "asks the daemon" for accounts. Note in
    [Web 025](../canopy-web/025-arbor-web.md) that the browser's `LocalHost`
    should target the reduced surface.

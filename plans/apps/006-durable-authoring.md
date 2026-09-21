@@ -6,8 +6,8 @@
 [005](005-source-resolution-and-sidecar.md); coordinates [003](003-development-compiler-and-editor-tooling.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another
-canopyd execution engine. Portable semantics live in [executable documents](../../spec/07-executable-documents.md)
-and [authoring API](../../spec/08-authoring-api.md). The illustrative syntax there
+canopyd execution engine. Portable semantics live in [executable documents](../../docs/overstory-spec/07-executable-documents.md)
+and [authoring API](../../docs/overstory-spec/08-authoring-api.md). The illustrative syntax there
 is a design starting point, not an implemented compiler claim.
 
 ## First deliverable: freeze concrete authoring

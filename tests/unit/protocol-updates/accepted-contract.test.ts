@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import vectors from "../../../spec/conformance/protocol-accepted-state.json";
+import vectors from "../../../docs/overstory-spec/conformance/protocol-accepted-state.json";
 import { decodeAcceptedState, decodeDecisionPage, decodeSubmissionResponse, validateAcceptedChain } from "../../../packages/protocol/src/updates/accepted-contract.ts";
 import { decodeAuthoredRequestIntent } from "../../../packages/protocol/src/updates/authored-contract.ts";
 for (const c of vectors.cases) test(`target reads: ${c.name}`,()=>{

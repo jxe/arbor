@@ -91,7 +91,7 @@ canopyd already has the content lineage needed for a derived blame calculation:
 - `packages/canopyd-merge` (the merge sidecar) correlates uniquely identified
   Markdown pages across moves and renames and the additive Markdown merge works
   on exact source lines.
-- `spec/02-directory-format.md` defines a materialized Markdown document's
+- `docs/overstory-spec/02-directory-format.md` defines a materialized Markdown document's
   stable `id` and requires it to survive rename and move.
 
 The missing foundation is immutable profile attribution. HTTP bearer
@@ -118,8 +118,8 @@ shared line provenance.
 ## Contract to freeze first
 
 Add a language-neutral line-provenance contract to
-`spec/01-tree-operations.md` and its authorization rule to
-`spec/05-access-control.md` before implementing routes. Use these semantics:
+`docs/overstory-spec/01-tree-operations.md` and its authorization rule to
+`docs/overstory-spec/05-access-control.md` before implementing routes. Use these semantics:
 
 ```ts
 type LineProvenanceActor =
@@ -315,7 +315,7 @@ Expected implementation scope:
   focused tests;
 - `swift/CanopyApp/ArborAppModel.swift`, `ArborRootView.swift`, and
   `ArborDailyDriverViews.swift` for the first visible presentation;
-- `spec/01-tree-operations.md`, `spec/05-access-control.md`, conformance
+- `docs/overstory-spec/01-tree-operations.md`, `docs/overstory-spec/05-access-control.md`, conformance
   fixtures, reference implementation documentation, and focused Bun/Swift
   tests; and
 - the next disposable `packages/canopyd/migrations/NNN-accepted-update-actors/` directory and
@@ -452,8 +452,8 @@ current. Leave final hands-on visual acceptance to Joe.
 ### Phase 5 — documentation, retention coordination, and migration handoff
 
 1. Update `status.md` only after the feature is implemented and tested.
-2. Update `packages/canopyd/README.md`, `docs/arborsync/arborsync-api.md`, and
-   `docs/architecture.md` with the implemented current-only
+2. Update `packages/canopyd/README.md`, `docs/implementing-sync-services/arborsync-api.md`, and
+   `docs/architecture/README.md` with the implemented current-only
    boundary.
 3. Amend canopyd 001 so pruning either preserves blame-required roots or
    first lands a separately reviewed checkpoint design.

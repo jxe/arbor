@@ -31,7 +31,7 @@ struct SourceAdmissionQueueTests {
     }
     func fixture() throws -> Fixture {
         let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../spec/conformance")
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance")
         return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "source-admission-queue.json")))
     }
     func root() throws -> URL {
@@ -179,7 +179,7 @@ struct SourceAdmissionQueueTests {
             let tree: String; let document: String; let source: String; let createdSource: String; let createdPath: String
         }
         let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../spec/conformance")
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance")
         let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "page-conversion-undo.json")))
         let graph = try graph(f.source), file = Data(f.createdSource.utf8)
         let rootObject = try #require(graph.objects.first { $0.hash == graph.root })
@@ -207,7 +207,7 @@ struct SourceAdmissionQueueTests {
             let tree: String; let original: String; let destination: String; let sourcePath: String; let destinationPath: String; let edit: Edit
         }
         let directory = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"].map { URL(fileURLWithPath: $0) }
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../spec/conformance")
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance")
         let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "cross-document-copy.json")))
         let origin = Data(f.original.utf8), destination = Data(f.destination.utf8)
         let root = try WireObjectCodec.encode(.directory([.init(name: "destination.md", file: WireObjectCodec.hash(destination)), .init(name: "source.md", file: WireObjectCodec.hash(origin))]))

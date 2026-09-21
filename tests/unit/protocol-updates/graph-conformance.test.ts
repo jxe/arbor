@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { verifyTreeSnapshotGraph } from "@overstory/protocol";
-import vectors from "../../../spec/conformance/protocol-graphs.json";
+import vectors from "../../../docs/overstory-spec/conformance/protocol-graphs.json";
 
 for (const vector of vectors.cases) {
   test(`shared Wire graph: ${vector.name}`, () => {

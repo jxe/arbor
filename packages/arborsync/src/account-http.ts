@@ -5,7 +5,7 @@ import { json } from "./http.ts";
 export function accountHandler(service: LocalAccountService) {
   return async (request: Request, url: URL): Promise<Response | undefined> => {
     if (request.method === "GET" && url.pathname === "/v1/credential") {
-      // Deliberate loopback exposure (see docs/arborsync/data-home.md).
+      // Deliberate loopback exposure (see docs/architecture/arborsync/data-home.md).
       const configurationTree = url.searchParams.get("configurationTree") ?? undefined;
       return json({ token: await service.credentialToken(configurationTree) });
     }

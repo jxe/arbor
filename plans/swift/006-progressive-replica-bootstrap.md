@@ -31,7 +31,7 @@ Historical identifier: **Reliability 006**. The filename number is preserved; th
 > git diff --stat 9b7da49..HEAD -- \
 >   swift/CanopyApp \
 >   swift/Packages/OverstoryClient swift/Packages/Overstory \
->   packages/canopyd packages/protocol tests docs spec/01-tree-operations.md
+>   packages/canopyd packages/protocol tests docs docs/overstory-spec/01-tree-operations.md
 > git status --short
 > ```
 >
@@ -199,7 +199,7 @@ Required invariants:
   authorization, and focused host tests
 - language-neutral HTTP fixtures for full, partial, resumed, mismatched, and
   unsatisfiable immutable range responses
-- `spec/01-tree-operations.md`, `docs/architecture.md`, native
+- `docs/overstory-spec/01-tree-operations.md`, `docs/architecture/README.md`, native
   client/state-machine documentation, `status.md`, and plan indexes
 
 **Out of scope**:

@@ -130,7 +130,7 @@ Same as native unless the browser owns the key. Reassignments:
 | ⌥⌘1/2/3 sidebar order | same | none |
 | ⌘\ Toggle Sidebar, ⇧⌘F Search Contents, ⌘↑ Parent, ⇧⌘H Home, ⌥⌘P Move Page, ⇧⌘\ Recover, ⌘I Source and Properties, ⌥⌘S Share, ⌥⌘← / → fold all, ⌘Z / ⇧⌘Z, ⌘/ Block Actions, ⌘K, ⌘↩, ⇧⌘P, Tab / ⇧Tab, ⌥↑ / ⌥↓, ⌘B / ⌘I / ⌘E / ⇧⌘S, ⌥⌘↑ / ⌥⌘↓ choices | same | none |
 
-Every picker list (sidebar, Search Contents, Move to, Move Page) takes ↑ ↓ ↩ and Escape; block-menu one-key chips while open: `t * 1 [ > # 2 3 p - m c [ ]`. Publish the table in `docs/canopy-browser/design.md` in the phase that implements each surface.
+Every picker list (sidebar, Search Contents, Move to, Move Page) takes ↑ ↓ ↩ and Escape; block-menu one-key chips while open: `t * 1 [ > # 2 3 p - m c [ ]`. Publish the table in `docs/implementing-editors/design.md` in the phase that implements each surface.
 
 ## 10. Attention banner
 

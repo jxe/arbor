@@ -7,7 +7,7 @@ first. The points below are the ones that most often go wrong for an agent.
 
 - Read `git status`, the relevant source, and its tests before trusting
   prose or a plan's status label. `status.md` is the status authority;
-  `spec/` is intentionally ahead of the implementation.
+  `docs/overstory-spec/` is intentionally ahead of the implementation.
 - `plans/` contains only remaining work. Delete a completed or superseded
   plan after recording its evidence in `status.md` or `docs/`; do not mark
   it done in place.

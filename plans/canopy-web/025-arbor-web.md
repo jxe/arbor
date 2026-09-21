@@ -4,7 +4,7 @@
 >
 > **Companion**: [surfaces.md](surfaces.md) is the surface-by-surface inventory this plan builds from; every surface there names its phase here.
 >
-> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy swift/ArborApp swift/Packages/CanopyEditor conformance docs/canopy-browser/design.md docs/arborsync/arborsync-api.md` against the commit this plan is written at.
+> **Drift check**: `git diff --stat HEAD -- packages/client packages/object-store packages/protocol packages/render packages/editor packages/arborsync packages/canopy swift/ArborApp swift/Packages/CanopyEditor conformance docs/implementing-editors/design.md docs/implementing-sync-services/arborsync-api.md` against the commit this plan is written at.
 
 ## Status
 
@@ -75,7 +75,7 @@ Mirror the Swift split so the two clients stay legible side by side:
 | `ArborEditorHost` | `EditorHost` | document lookup/creation, mentions, assets, move/relocate, `persistCommit` into the admission machine |
 | `ArborConflictReviewModel` | `ConflictReviewModel` | choices, drafts, preview, apply |
 
-These are plain TypeScript classes over a small observable store; React components only render them. Every model has tests without React, and the two fixture-driven machines (`working-tree-updates`, `document-admission`) run unchanged from `spec/conformance/client-state-machines.json`.
+These are plain TypeScript classes over a small observable store; React components only render them. Every model has tests without React, and the two fixture-driven machines (`working-tree-updates`, `document-admission`) run unchanged from `docs/overstory-spec/conformance/client-state-machines.json`.
 
 ### Editor engine
 
@@ -95,7 +95,7 @@ One writable working tree per tree per browser profile through `navigator.locks`
 
 ### Keyboard
 
-The native shortcut map ports except where the browser owns the key. Reassignments are fixed in [surfaces.md §9](surfaces.md#9-keyboard-map) and documented in `docs/canopy-browser/design.md` under the phase that implements each surface.
+The native shortcut map ports except where the browser owns the key. Reassignments are fixed in [surfaces.md §9](surfaces.md#9-keyboard-map) and documented in `docs/implementing-editors/design.md` under the phase that implements each surface.
 
 ## Projects and phases
 
@@ -106,7 +106,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 **Phase 0 — bookkeeping.** This file and [surfaces.md](surfaces.md). The package is `packages/canopy-web` (`@overstory/canopy-web`); `build:web` still fails because the bundle imports `@overstory/arborsync-client/api`, which does not exist, and fixing it is part of Phase 1.
 
 **Phase 1 — libraries.** `@overstory/object-store`: split the browser-safe interface (`ObjectStore { bytes(hash) }`, `ObjectOverlay`, `LayeredObjectStore`, `MemoryOverlay.retain(roots)`) from the node filesystem store, which moves under `./node`; add `DaemonObjectStore` over `/v1/objects` and `CanopyObjectStore` over the protocol object route, both hash-verifying. `@overstory/working-tree`: state `{ tree, root, accepted?, generation, pending?, index: byPath, byPageID }` built from a bootstrap spine; content-addressed writes rewriting the spine to a new root; `WireProjection` for node semantics; `WorkingTreeStateStore` with memory and IndexedDB implementations; `UpdateMachine` moved from `@overstory/client` (re-exported for the daemon) and `UpdateCoordinator` mirroring Swift (`syncImmediately`, `syncOnce`, `observe`, `recoverWatchGap`); `CanopyWatchRunner` over `WireClient.watch`; `WireClient` takes a token provider and `onUnauthorized`. Node-bound parts of `@overstory/client` move behind `./node`. A client text index for page search, full-text search and backlinks, rendering excerpts as marked ranges, never HTML ([Security 001](../security/001-search-excerpts.md) lands here).
-*Verify*: both `@overstory/working-tree` and `CanopyWorkingTree` pass `spec/conformance/client-state-machines.json`; a write's root equals `snapshotDirectory` of the same files; envelopes ⊆ overlay; IndexedDB store contract tests in a browser.
+*Verify*: both `@overstory/working-tree` and `CanopyWorkingTree` pass `docs/overstory-spec/conformance/client-state-machines.json`; a write's root equals `snapshotDirectory` of the same files; envelopes ⊆ overlay; IndexedDB store contract tests in a browser.
 
 **Phase 2 — local host and app model.** `LocalHost` over `/v1/trees`, `/v1/bootstrap`, `/v1/objects`, `/v1/credential`, `/v1/accounts`. `WorkspaceState`, `AppModel`, `EditorHost` with tests. canopyd adds CORS on its existing routes (`Access-Control-Allow-Origin: *`, `Authorization` and `Arbor-Access-Link` allowed, preflight cached; the bearer is the authority, so no credentials mode) so a loopback origin can publish and watch directly; the daemon proxies nothing and gains no routes. The endpoint removals from Web 023 execute here, unchanged in substance: delete `POST /v1/me`, `POST /v1/local/forget`, `GET /v1/resolve` and filesystem-path byte serving (`?raw`, `/render` aliases, Referer scoping) together with their callers; keep `POST /v1/bootstrap/accounts`, explicit built-asset routes and app-shell navigation; assets resolve through the working tree and object store. `arbor open` drops its notice.
 *Verify*: `bun test tests/unit/local-handlers.test.ts tests/integration/server.test.ts`, `bun run test:protocol`, direct-resolver regressions for symlinks, nested boundaries and account-qualified locators; a filesystem path or `?raw` never returns placed-file bytes; the three removed routes answer `405 unsupported-operation`.
@@ -117,7 +117,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 **Phase 4 — editor pane, minimum.** Surface [4](surfaces.md#4-editor-pane) items marked B1: BlockNote document bound to the admission machine through `EditorHost.persistCommit`, document footer (backlinks, sync chip), block menu with Turn Into tiles, @mention, autotransforms, inline marks, images to `Assets`, undo, find in page, New Document/Folder, Trash/Restore with confirmations, title-rename proposal, orphan-trash prompt, Source and Properties, History/Recover. Source admission uses the existing TypeScript source-admission session: real transactions capture original source and basis; do not infer move/copy from final text; support only operation forms the browser captures and the server executes.
 *Verify*: `bun run build`, `bun run test:e2e` restored with disposable canopyd: edit in the browser and see the folder update within a second; edit on disk and see the page update; close the tab mid-edit and reopen to see the browser's own head replay once; leave a daemon request pending or conflicted and the browser still publishes; a second tab opens read-only.
 
-**Phase 5 — docs and release.** `docs/canopy-browser/design.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/arborsync/arborsync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/architecture.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [release and soak](../verification/release-and-soak.md).
+**Phase 5 — docs and release.** `docs/implementing-editors/design.md` (the browser is a working-tree client; BlockNote sentence updated; shortcut table), `docs/implementing-sync-services/arborsync-api.md` (§3b unchanged, removed routes, §6 static hosting), `docs/architecture/README.md`, `status.md`. Install on Joe's Mac; two-week soak recorded in [release and soak](../verification/release-and-soak.md).
 
 ### B2 — the canopyd host and the account surfaces
 
@@ -127,7 +127,7 @@ Each project ends with the listed gates, a `status.md` entry and a soak on Joe's
 **Phase 7 — accounts, devices, share, sync status, app permissions, network log.** Surfaces [6, 7, 8, 12](surfaces.md) on both hosts. One **Accounts / Sync Status** dialog with a persistent tab selector and a dialog-level cache. Devices with **This browser / Active / Administrator** tags, the ellipsis actions as `devices.yaml` edits through the configuration tree's working tree on both hosts, with the last-administrator rule enforced by canopyd's existing account-configuration merge; pairing shows the QR and code so a phone or another browser can join. Share with the tracked-tree hierarchy (heading with canonical address, invite row, **Who has access** with **Can view / Can edit / Remove access**, scoped and app permissions). Sync Status with the twelve user-facing states, current-document detail, **Sync Now** and **Network Log…**. Network log as a filterable list over the browser's own `WireNetworkLog` in IndexedDB with **Copy**, **Clear**.
 *Verify*: server tests for non-admin, stale-write, last-admin and deauthorization failures; dialog opens immediately at the requested tab and never flashes a first-load spinner on tab change; Share is content-sized, closes on Escape and restores focus; Sync Status orders save failure, conflict, offline, pending, syncing, healthy correctly.
 
-**Phase 8 — docs and release.** Spec: none required (pairing already admits ordinary devices; no new routes). `docs/architecture.md` gains the static mount, CORS and the loader. `docs/canopy-browser/design.md` profile/pairing and share sections gain the browser rows. Railway deploy with go-ahead; soak.
+**Phase 8 — docs and release.** Spec: none required (pairing already admits ordinary devices; no new routes). `docs/architecture/README.md` gains the static mount, CORS and the loader. `docs/implementing-editors/design.md` profile/pairing and share sections gain the browser rows. Railway deploy with go-ahead; soak.
 
 ### B3 — choice review and editor depth
 

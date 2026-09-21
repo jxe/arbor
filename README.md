@@ -14,7 +14,7 @@ a host, a local sync daemon and CLI, the native browser, and the headless
 data runtime. Executable-document presentation, hosted agents, and portable
 deployment remain work in progress or specification only.
 
-For the longer argument, read [A universal dynamic material](docs/intro.md).
+For the longer argument, read [A universal dynamic material](docs/getting-started/intro.md).
 For the exact current boundary, see [status.md](status.md).
 
 ## How it fits together
@@ -134,7 +134,7 @@ arbor place ./notes https://garden.example/~joe/notes
 
 The folder stays where it is and becomes a synchronized tree: the daemon
 pushes your edits, materializes everyone else's, and the app edits it in
-place. `arbor status` shows every placement; the [CLI reference](docs/cli.md)
+place. `arbor status` shows every placement; the [CLI reference](docs/getting-started/cli.md)
 covers moves, sharing, identity backup and restore, cloud sessions, and the
 command safety rules. Linux and Windows daemon supervision are not
 implemented yet.
@@ -147,7 +147,7 @@ implemented yet.
 | **In progress** | The browser Canopy, executable-document compilation and presentation, richer editor capture and review, lazy history and storage bounds |
 | **Specified, not built** | Hosted agents, portable static and live deployment, a complete Postgres child provider |
 
-[status.md](status.md) is the authority, row by row. The [specification](spec/README.md)
+[status.md](status.md) is the authority, row by row. The [specification](docs/overstory-spec/README.md)
 describes portable behavior that may not exist in the reference
 implementation yet.
 
@@ -155,11 +155,10 @@ implementation yet.
 
 | Path | What it is |
 |---|---|
-| [`spec/`](spec/README.md) | The portable specification: entry page, numbered sections, and the conformance vectors both implementations must pass |
 | [`status.md`](status.md) | What the reference implementation does today |
 | [`packages/`](packages/README.md) | The TypeScript workspace: protocol, host, client stack, Arbor tools, browser editor. The host's [deployment guide](packages/canopyd/deploy/README.md) and [migrations](packages/canopyd/migrations/README.md) live with it |
 | [`swift/`](swift/README.md) | The Swift packages and the Canopy app for macOS and iOS |
-| [`docs/`](docs/README.md) | Usage and implementation documentation, organized by component: `canopyd/`, `arborsync/`, `canopy-browser/`, plus the CLI reference, the architecture overview, and the introduction |
+| [`docs/`](docs/README.md) | Getting started, the Overstory specification and conformance fixtures, implementing editors, implementing sync services, and architecture by subcomponent |
 | [`tests/`](tests/README.md) | Bun unit, integration, protocol, and performance suites and their fixtures |
 | [`examples/`](examples/supplies/README.md) | The Supplies corpus: the executable-document reference application |
 | [`plans/`](plans/README.md) | Remaining work: the outcome menu, the catalog, open questions |

@@ -24,7 +24,7 @@ Clients retain exact authored bases, immutable requests, unresolved signals and 
 Accepted ambiguity must not create a local sync hold. Ordinary saves and equal bytes never imply
 resolution. Never fall back to a server that discards accepted alternatives.
 
-- Reconcile [accepted-ambiguity scenarios](../../spec/conformance/accepted-ambiguity.json) with the
+- Reconcile [accepted-ambiguity scenarios](../../docs/overstory-spec/conformance/accepted-ambiguity.json) with the
   actual TS/Swift and live-server tests. They remain semantic requirements until each has an
   executable evidence pointer; do not claim the JSON alone is a conformance gate.
 - Keep a baseline snapshot-client build in the release compatibility matrix. Verify it against
@@ -72,6 +72,6 @@ The dated verification checkpoints that used to live in
 `docs/update-wire-contract.md` (accepted read transport, main integration
 boundary, tree-read ownership cleanup, active request adoption) are in git
 history under that path. Their surviving contracts are now in
-[tree operations §2.1](../../spec/01-tree-operations.md#21-the-update-request),
-[the reference implementation](../../docs/architecture.md), and
+[tree operations §2.1](../../docs/overstory-spec/01-tree-operations.md#21-the-update-request),
+[the reference implementation](../../docs/architecture/README.md), and
 the release-order rules in [the deployment guide](../../packages/canopyd/deploy/README.md#release-order).

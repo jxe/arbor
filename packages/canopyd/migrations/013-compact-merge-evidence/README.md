@@ -15,7 +15,7 @@ object store:
    `{ base, current, incoming }`, taken from the row's `accepted_updates`
    columns (`base_root`, `previous_root`, `candidate_root`). The migration
    refuses a row whose old read set does not list all three. The rule is
-   deterministic, so the roots reproduce the read set; spec/10's
+   deterministic, so the roots reproduce the read set; docs/overstory-spec/10's
    reproducibility promise holds by re-reading. New rows are written in this
    form by the engine (`IntentResponse.evidence.inputs`).
 2. **Retention.** The oldest ~130 rows carried a flattened `dependencies`
