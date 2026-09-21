@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 public struct BrowserTabPresentation: Hashable, Codable, Sendable {
     public var selection: String?
@@ -29,6 +30,7 @@ public struct BrowserTab: Hashable, Codable, Sendable, Identifiable {
 }
 
 @MainActor
+@Observable
 public final class BrowserTabController {
     public private(set) var tabs: [BrowserTab]
     public private(set) var selectedTabID: UUID

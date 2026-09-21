@@ -7,6 +7,10 @@ import Foundation
 import Quagmire
 import QuagmireExtras
 import Testing
+import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 @testable import CanopyApp
 
 @MainActor
@@ -688,6 +692,145 @@ struct CanopyAppTests {
         #expect(model.navigationPath.isEmpty)
         #expect(model.pagePresentation(for: .reference(home))?.editorLease == nil)
         #expect(model.pagePresentation(for: .reference(welcome))?.editorLease != nil)
+    }
+
+#if os(macOS)
+    @Test("Mounted window preserves link history through destination resolution")
+    func mountedLinkHistory() async throws {
+        let home = WorkspaceReference(tree: "tr_sample", path: "/", stableKey: markdownStableKey("pg_console"))
+        let picture = WorkspaceReference(tree: "tr_sample", path: "/Picture-of-Life", stableKey: markdownStableKey("pg_picture"))
+        let provider = InMemoryWorkspaceProvider(nodes: [
+            WorkspaceNode(reference: home, title: "Console", surface: .directoryDocument(source: "# Console\n\n[Picture of Life](Picture-of-Life)\n", contentRevision: "1", stored: true), provenance: .init(authority: .local, sourceDescription: "Test")),
+            WorkspaceNode(reference: picture, title: "Picture of Life", surface: .directoryDocument(source: "# Picture of Life\n", contentRevision: "1", stored: true), provenance: .init(authority: .local, sourceDescription: "Test"))
+        ])
+        let workspace = ArborWorkspaceState(provider: provider)
+        let model = ArborAppModel(workspace: workspace)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(rootView: ArborRootView(workspace: workspace, model: model))
+        window.orderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(400))
+        let previous = model.currentLocation
+        let host = try #require(model.editorHost)
+        host.openDocument(DocumentReference("arbor://tr_sample/Picture-of-Life"))
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(model.currentReference == picture)
+        #expect(model.canGoBack)
+        #expect(model.tabs.selectedTab.back.last == previous)
+        await model.goBack()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(model.currentLocation == previous)
+        #expect(model.editorHost === host)
+        #expect(model.canGoForward)
+        await model.goForward()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(model.currentReference == picture)
+        #expect(model.tabs.selectedTab.back.last == previous)
+        await model.goBack()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(model.currentLocation == previous)
+        #expect(model.editorHost === host)
+    }
+#endif
+
+    @Test("Editor links push history and Back restores the previous editor")
+    func editorLinkPushesHistory() async throws {
+        let model = ArborAppModel()
+        await model.load()
+        await model.navigate(to: WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
+        let previous = model.currentLocation
+        let host = try #require(model.editorHost)
+        host.openDocument(DocumentReference("arbor://tr_sample/"))
+        for _ in 0..<200 where model.currentLocation == previous {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(model.currentReference.path == "/")
+        #expect(model.tabs.selectedTab.back.last == previous)
+        await model.goBack()
+        #expect(model.currentLocation == previous)
+        #expect(model.editorHost === host)
+    }
+
+    @Test("Tree navigation preserves exact destinations and Back, Forward, and native pops")
+    func crossTreeHistory() async throws {
+        let first = InMemoryWorkspaceProvider.sample()
+        let otherHome = WorkspaceReference(tree: "tr_other", path: "/")
+        let otherPage = WorkspaceReference(tree: "tr_other", path: "/linked-page")
+        let second = InMemoryWorkspaceProvider(nodes: [
+            WorkspaceNode(reference: otherHome, title: "Other", surface: .directory(summary: ""), provenance: .init(authority: .diagnostic, sourceDescription: "Test")),
+            WorkspaceNode(reference: otherPage, title: "Linked", surface: .markdown(source: "# Linked\n", contentRevision: "1"), provenance: .init(authority: .diagnostic, sourceDescription: "Test"))
+        ])
+        let workspace = ArborWorkspaceState(provider: first)
+        var treeUnavailable = false
+        let model = ArborAppModel(workspace: workspace, openNavigationTree: { tree in
+            if treeUnavailable { throw ArborWireValidationError.invalidValue("Unavailable tree") }
+            await workspace.switchProvider(
+                tree == otherHome.tree ? second : first,
+                home: tree == otherHome.tree ? otherHome : WorkspaceReference(tree: "tr_sample", path: "/"),
+                detail: "Navigation test"
+            )
+        })
+#if os(macOS)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = NSHostingController(rootView: ArborRootView(workspace: workspace, model: model))
+        window.orderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(400))
+#endif
+        await model.load()
+        await model.navigate(to: WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
+        let previous = model.currentLocation
+        let tabID = model.selectedTabID
+        await model.navigate(to: otherPage)
+        await model.resetForWorkspace()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(model.selectedTabID == tabID)
+        #expect(model.currentReference == otherPage)
+        #expect(model.tabs.selectedTab.back.last == previous)
+        #expect(model.binding != nil)
+        treeUnavailable = true
+        let beforeFailedBack = model.tabs.selectedTab
+        let host = model.editorHost
+        await model.goBack()
+        #expect(model.tabs.selectedTab == beforeFailedBack)
+        #expect(model.editorHost === host)
+        treeUnavailable = false
+        await model.goBack()
+        #expect(model.currentLocation == previous)
+        #expect(workspace.home.tree.rawValue == "tr_sample")
+        #expect(model.binding != nil)
+        await model.goForward()
+        #expect(model.currentReference == otherPage)
+        #expect(workspace.home.tree == otherHome.tree)
+        model.setNavigationPath(Array(model.navigationPath.dropLast()))
+        for _ in 0..<200 where model.currentLocation != previous || model.isLoading {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(model.currentLocation == previous)
+        #expect(workspace.home.tree.rawValue == "tr_sample")
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("A failed tree open leaves the current editor and history intact")
+    func failedTreeNavigation() async throws {
+        let workspace = ArborWorkspaceState(provider: .sample())
+        let model = ArborAppModel(workspace: workspace, openNavigationTree: { _ in
+            throw ArborWireValidationError.invalidValue("Unavailable tree")
+        })
+        await model.load()
+        await model.navigate(to: WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
+        let previous = model.currentLocation
+        let host = try #require(model.editorHost)
+        let history = model.tabs.selectedTab
+        await model.navigate(to: WorkspaceReference(tree: "tr_unavailable", path: "/page"))
+        #expect(model.currentLocation == previous)
+        #expect(model.tabs.selectedTab == history)
+        #expect(model.editorHost === host)
+        #expect(model.errorMessage != nil)
     }
 
     @Test("Home pops back to the tree root instead of pushing it again")

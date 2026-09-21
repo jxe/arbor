@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import CanopyAppKit
 
@@ -180,6 +181,22 @@ struct WorkspaceCoordinatorTests {
 @Suite("Browser tabs", .serialized)
 @MainActor
 struct BrowserTabControllerTests {
+    @Test("Back availability invalidates observation when a link pushes history")
+    @MainActor
+    func backAvailabilityIsObservable() {
+        @MainActor final class Change { var observed = false }
+        let change = Change()
+        let controller = BrowserTabController(home: .init(tree: "tr_sample", path: "/"))
+        withObservationTracking {
+            #expect(!controller.canGoBack)
+        } onChange: {
+            MainActor.assumeIsolated { change.observed = true }
+        }
+        controller.navigate(to: .reference(.init(tree: "tr_sample", path: "/page")))
+        #expect(change.observed)
+        #expect(controller.canGoBack)
+    }
+
     @Test("Tabs retain independent navigation and presentation")
     func independentTabs() {
         let home = WorkspaceReference(tree: "tr_sample", path: "/")

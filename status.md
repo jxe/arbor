@@ -29,6 +29,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Client state machines: the document admission machine and the working-tree update machine are pure reducers in both languages executing one shared fixture; one request in flight per document session and per tree, with one retained successor | installed | [client state machines](docs/implementing-editors/document-admission.md) |
 | Durable source admission queue: exact source, basis, and candidate records with explicit predecessors, fsynced journals (schema 4, one frame per record), trace compaction, read-your-writes sessions, publication and settlement, recovery after restart; installed Canopy emits the supported operations and explicit structural snapshots | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#source-admission-journals), [client state machines](docs/implementing-editors/document-admission.md#7-admission-invariants-and-trace-compaction) |
 | Canopy working-tree editors: the Mac and iOS apps edit placed trees directly as working trees over the object store; the daemon is the folder's client plus loopback bootstrap, credential, and object services and has no editor path | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#native-working-trees), [client design](docs/implementing-editors/design.md) |
+| Canopy navigation: observable Back availability, editor-link pushes, exact cross-tree destinations, and Back/Forward/native-pop provider reopening without resetting tab history | implemented; Mac user-verified | [client design](docs/implementing-editors/design.md) |
 | Canopy editor recovery: saves wait for durable coordinator heads; committed generations keep exact-source local recovery copies with Local History restore; reconnection retries pending work; restart, divergent-draft review, disk-failure retry, and keystroke races have regressions | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#editor-recovery-store) |
 | Canopy operation capture: ordinary and compound sibling-body entry moves and copies, explicit current-page path rename with subtree relocation and proactive link healing, post-copy page-ID edits, explicit removals for private Trash, same-document and cross-document copies, page-conversion undo and redo, durable undo-horizon collection, exact CRLF and BOM preservation | installed | [client design](docs/implementing-editors/design.md#labels-and-actions), [Native 008](plans/swift/008-complete-native-move-copy-undo-capture.md) |
 | Canopy conflict review: sidebar navigation, page markers, exact-source comparison and composition, durable grouped drafts, recursive previews, guarded source-range and structural resolution | implemented | [Native 010](plans/swift/010-client-conflict-review.md) |
@@ -138,6 +139,19 @@ system tools on PATH and creates a disposable identity. Real Keychain prompts an
 manual app/QR interaction remain unverified; all credential failure tests used
 mocks or isolated file storage. Older-daemon compatibility was deliberately excluded.
 
+### Native navigation verification — 2026-09-21
+
+The macOS app test build and iOS simulator build passed. Six focused app tests
+cover editor-link history, same-tree Home/native pops, save-before-navigation,
+cross-tree Back/Forward/native pops, and failed opens; the cross-tree test also
+checks that failed Back leaves the editor and trail intact. All nine browser-tab
+package tests passed, including observation of Back availability. Tests used a
+separate macOS app identity and did not replace the running app. Live UI behavior
+has not been manually verified. The broader CanopyAppKit suite encountered the
+existing `renameByPageID` failure (the historical Welcome fixture was selected),
+also reproduced from an untouched HEAD export. Link and whitespace checks passed.
+
+
 ### Shared source publication performance — 2026-09-21
 
 Implemented locally, not installed or deployed: TypeScript and Swift update
@@ -232,3 +246,27 @@ Follow-up verification passed the 50,000-file performance gate, 16 Swift
 ArborSyncClient tests, and the live protocol gate with only the previously
 baseline-reproduced AppKit rename fixture excluded. The product suite's sole
 failure remains the previously baseline-reproduced CLI placement test.
+
+### Mounted macOS navigation repair — 2026-09-21
+
+The running Mac app reproduced a missing Back control after following the
+Picture of Life link from the todos directory document. A mounted-window
+regression then demonstrated that SwiftUI's nested `NavigationStack` writes an
+empty path while the pushed destination resolves: the browser records the push,
+then loses its trail to that callback. macOS now renders the browser's current
+page directly in `NavigationSplitView`, leaving Back/Forward and retained editor
+presentations under one controller. iOS keeps its native stack.
+
+The regression failed with the old stack and passed with the direct page view;
+it covers directory documents, path-to-stable-identity resolution, restoration
+of the original editor, and repeated Back/Forward. This source fix has not yet
+replaced the running Mac app.
+
+The mounted cross-tree case also exposed a generation task superseding an
+already-running destination load; workspace reset now leaves that load alone.
+All seven focused app tests passed, including both mounted-window regressions,
+and all nine browser-tab package tests passed. macOS and iOS Simulator builds,
+relative-link checks, and whitespace checks passed. A signed Mac build is ready
+in a temporary derived-data directory; the user's running app was not replaced.
+
+Joe subsequently tested the Mac navigation fix and confirmed that it works.

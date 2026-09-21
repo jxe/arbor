@@ -778,11 +778,12 @@ struct ArborRootView: View {
 
     init(
         workspace: ArborWorkspaceState,
-        onDisconnect: @escaping @MainActor () -> Void = {}
+        onDisconnect: @escaping @MainActor () -> Void = {},
+        model: ArborAppModel? = nil
     ) {
         self.workspace = workspace
         self.onDisconnect = onDisconnect
-        let model = ArborAppModel(workspace: workspace)
+        let model = model ?? ArborAppModel(workspace: workspace)
         let recordingSession = VoiceRecordingSession(
             recoveryStore: PendingVoiceRecordingStore(
                 directoryURL: ArborSupportDirectories.pendingVoiceRecordings
@@ -1048,13 +1049,11 @@ struct ArborRootView: View {
                     ArborLaunchConfirmationBar(phase: workspace.launchPhase) {
                         Task { await workspace.retryRestore() }
                     }
-                    NavigationStack(path: navigationPathBinding) {
-                        pageFrame(for: model.navigationRoot)
-                            .navigationDestination(for: WorkspaceLocation.self) { location in
-                                pageFrame(for: location)
-                            }
-                    }
-                    .id(model.selectedTabID)
+                    // Desktop history belongs to BrowserTabController. Mirroring
+                    // it into a NavigationStack inside NavigationSplitView lets
+                    // SwiftUI write an empty path during destination resolution,
+                    // erasing the page we just pushed.
+                    pageFrame(for: model.currentLocation)
                 }
             }
         }

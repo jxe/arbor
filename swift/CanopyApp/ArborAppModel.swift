@@ -149,6 +149,7 @@ final class ArborWorkspaceState {
     private(set) var localArborSyncOverviewError: String?
     private(set) var localCanopyDevicesByConfigurationTree: [String: [LocalArborSyncDevicePresentation]] = [:]
 #endif
+    private var navigationLocators: [TreeID: String] = [:]
     private let directoryStore = DirectoryStore()
     private(set) var directory: [DirectoryPerson] = []
     private(set) var directoryIsRefreshing = false
@@ -792,6 +793,7 @@ final class ArborWorkspaceState {
     /// Drop the tree that is open: its watch, its coordinator, or its visit follower.
     private func closeOpenTree() async throws {
         try await conflictReview?.flushDraft()
+        if let locator = openVisitLocator { navigationLocators[home.tree] = locator }
         serverWatchTask?.cancel()
         serverWatchTask = nil
         visitFollowTask?.cancel()
@@ -1562,6 +1564,15 @@ final class ArborWorkspaceState {
             try await openPlacedTree(tree.rawValue)
             return
         }
+        if let locator = navigationLocators[tree] {
+            try await openRemoteLocator(locator)
+            return
+        }
+#else
+        if let placement = try await nativePlacementStore.loadAll().first(where: { $0.tree.id == tree.rawValue }) {
+            try await place(tree: placement.tree, from: placement.origin, configurationTree: placement.configurationTree)
+            return
+        }
 #endif
         guard let person = directory.first(where: {
             $0.entry.profile == tree.rawValue && $0.entry.locator != nil
@@ -1706,7 +1717,7 @@ final class ArborWorkspaceState {
         return result
     }
 
-    private func switchProvider(
+    func switchProvider(
         _ nextProvider: any WorkspaceProvider,
         home nextHome: WorkspaceReference,
         launchLocation nextLaunchLocation: WorkspaceLocation? = nil,
@@ -1715,6 +1726,9 @@ final class ArborWorkspaceState {
         preservingNavigation: Bool = false,
         recoversEdits: Bool = true
     ) async {
+#if os(macOS)
+        if let locator = openVisitLocator { navigationLocators[home.tree] = locator }
+#endif
         await editorWorkspace.closeAll()
         conflictReview = nil
         provider = nextProvider
@@ -1791,6 +1805,8 @@ final class ArborAppModel {
     private var retainedPagePresentations: [PagePresentationKey: PagePresentation] = [:]
     private var observedWorkspaceGeneration: Int
     private var observedProviderRevision: Int
+    private var isSwitchingNavigationTree = false
+    private let openNavigationTree: @MainActor (TreeID) async throws -> Void
     private var loadRequestID = 0
     private var searchRequestID = 0
     private var lastSearchQuery = ""
@@ -1801,8 +1817,12 @@ final class ArborAppModel {
         UserDefaults.standard.stringArray(forKey: manuallyNamedPagesDefaultsKey) ?? []
     )
 
-    init(workspace: ArborWorkspaceState) {
+    init(
+        workspace: ArborWorkspaceState,
+        openNavigationTree: (@MainActor (TreeID) async throws -> Void)? = nil
+    ) {
         self.workspace = workspace
+        self.openNavigationTree = openNavigationTree ?? { try await workspace.openNestedTree($0) }
         self.tabs = BrowserTabController(launchLocation: workspace.launchLocation)
         self.sidebarLocation = workspace.launchLocation
         self.observedWorkspaceGeneration = workspace.generation
@@ -1861,9 +1881,11 @@ final class ArborAppModel {
     func resetForWorkspace() async {
         // Before a tree is shown (launch is still restoring, or nothing is
         // open) there is no page to load; the window shows the launch view.
-        guard workspace.launchPhase.showsTree else { return }
+        guard workspace.launchPhase.showsTree, !isSwitchingNavigationTree else { return }
         guard observedWorkspaceGeneration != workspace.generation else {
-            if node == nil { await load() }
+            // A tree-history transition may already be loading its destination.
+            // The mounted view's generation task must not supersede that load.
+            if node == nil, !isLoading { await load() }
             return
         }
         observedWorkspaceGeneration = workspace.generation
@@ -1888,7 +1910,7 @@ final class ArborAppModel {
     /// Tabs and history stay; the current page reloads in place, with its old
     /// presentation on screen until the new one is ready.
     func reloadForProviderRevision() async {
-        guard observedProviderRevision != workspace.providerRevision else { return }
+        guard !isSwitchingNavigationTree, observedProviderRevision != workspace.providerRevision else { return }
         observedProviderRevision = workspace.providerRevision
         retainCurrentPagePresentation()
         let key = PagePresentationKey(tabID: selectedTabID, location: currentLocation)
@@ -1990,12 +2012,7 @@ final class ArborAppModel {
 
     func navigate(to location: WorkspaceLocation) async {
         await binding?.flush()
-        if case let .reference(reference) = location,
-           reference.tree != workspace.home.tree {
-            do { try await workspace.openNestedTree(reference.tree) }
-            catch { errorMessage = error.localizedDescription }
-            return
-        }
+        guard await prepareWorkspace(for: location) else { return }
         retainCurrentPagePresentation()
         tabs.navigate(to: location)
         tabVersion += 1
@@ -2068,8 +2085,24 @@ final class ArborAppModel {
         }
     }
 
-    func goBack() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goBack(); tabVersion += 1; await loadOrRestoreCurrentPage() }
-    func goForward() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goForward(); tabVersion += 1; await loadOrRestoreCurrentPage() }
+    func goBack() async {
+        guard let destination = tabs.selectedTab.back.last else { return }
+        await binding?.flush()
+        guard await prepareWorkspace(for: destination) else { return }
+        retainCurrentPagePresentation()
+        tabs.goBack()
+        tabVersion += 1
+        await loadOrRestoreCurrentPage()
+    }
+    func goForward() async {
+        guard let destination = tabs.selectedTab.forward.last else { return }
+        await binding?.flush()
+        guard await prepareWorkspace(for: destination) else { return }
+        retainCurrentPagePresentation()
+        tabs.goForward()
+        tabVersion += 1
+        await loadOrRestoreCurrentPage()
+    }
     func goParent() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goParent(); tabVersion += 1; await loadOrRestoreCurrentPage() }
     func goHome() async {
         guard let home = treeHomeLocation else { return }
@@ -2086,15 +2119,26 @@ final class ArborAppModel {
     }
 
     func setNavigationPath(_ path: [WorkspaceLocation]) {
-        guard path != tabs.navigationPath else { return }
+        guard !isSwitchingNavigationTree, path != tabs.navigationPath else { return }
+        let destination = path.last ?? tabs.navigationRoot
+        if case let .reference(reference) = destination, reference.tree != workspace.home.tree {
+            Task {
+                await binding?.flush()
+                guard await prepareWorkspace(for: destination) else { return }
+                retainCurrentPagePresentation()
+                tabs.setNavigationPath(path)
+                tabVersion += 1
+                await loadOrRestoreCurrentPage()
+            }
+            return
+        }
         retainCurrentPagePresentation()
         tabs.setNavigationPath(path)
         tabVersion += 1
         if !restoreCurrentPagePresentation() {
             isLoading = true
             Task {
-                await load()
-                await pruneRetainedPagePresentations()
+                await loadOrRestoreCurrentPage()
             }
         } else {
             Task {
@@ -2173,7 +2217,33 @@ final class ArborAppModel {
         return true
     }
 
+    /// A history entry names a tree as well as a page. Reopen its provider
+    /// before resolving it, without letting workspace replacement reset tabs.
+    private func prepareWorkspace(for location: WorkspaceLocation) async -> Bool {
+        guard !isSwitchingNavigationTree else { return false }
+        guard case let .reference(reference) = location,
+              reference.tree != workspace.home.tree else { return true }
+        isSwitchingNavigationTree = true
+        defer { isSwitchingNavigationTree = false }
+        do {
+            await binding?.flush()
+            try await openNavigationTree(reference.tree)
+            loadRequestID += 1
+            await releaseAllPagePresentations()
+            observedWorkspaceGeneration = workspace.generation
+            observedProviderRevision = workspace.providerRevision
+            searchResults = []
+            pageIndexTree = nil
+            pageIndexResults = []
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     private func loadOrRestoreCurrentPage() async {
+        guard await prepareWorkspace(for: currentLocation) else { return }
         if restoreCurrentPagePresentation() {
             await loadBacklinks()
         } else {
