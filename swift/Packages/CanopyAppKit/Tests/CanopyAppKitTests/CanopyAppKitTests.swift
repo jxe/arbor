@@ -155,6 +155,8 @@ struct WorkspaceCoordinatorTests {
         #expect(renamed.title == "Welcome")
         let resolved = try await provider.resolve(.init(tree: "tr_sample", path: "/stale", stableKey: markdownStableKey("pg_welcome")))
         #expect(resolved.reference.path == "/hello")
+        let historical = try await provider.resolve(.init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome_history")))
+        #expect(historical.reference.path == "/welcome")
     }
 
     @Test("Non-document nodes cannot open document sessions")

@@ -351,3 +351,47 @@ that test excluded (16 ArborSyncClient, 22 CanopyAppKit, 44 Overstory,
 The macOS app build and iOS Simulator build-for-testing passed after the final
 pairing-client cleanup. Link and whitespace checks passed. These checks do not
 constitute a new installation or deployment.
+
+
+## Test reliability and host latency follow-up (2026-09-21)
+
+The cleanup's baseline test failures are now fixed. The in-memory Swift provider
+renames the selected root identity instead of also relocating a historical node
+at the same path and returning whichever dictionary entry came last. Its test
+checks that the historical page stays at its original path. Remote-to-local CLI
+placement now explicitly synchronizes (which reloads the placement registry)
+before checking adoption, removing reliance on filesystem notification delivery.
+
+Source-admission trace vectors each have an independent test and dispose their
+merge worker. Lazy-history scenarios clone one differentially validated history
+fixture rather than rebuilding the same 60-step history for every scenario;
+the two conflict-projection histories still exercise their own rules. The shared
+90-step setup has a 30-second budget; ordinary test budgets remain unchanged.
+Bun 1.3.14's normal product gate passed all 1,150 tests with no exclusions or
+per-test timeout override. The complete protocol gate passed, including all
+23 CanopyAppKit tests and the live editor cases. Standalone CanopyAppKit tests
+and TypeScript typechecking also passed.
+
+Read-only investigation of the September 19–21 Native network logs and the
+September 21 Railway structured logs identifies increasing host validation and
+retention work. Successful-request daily medians were 210/308/428 ms host time,
+52/108/152 ms worker-retention, and 33/66/79 ms worker-validate-state. These are
+observational samples with differing workloads, not a controlled benchmark.
+Recent individual updates 3739–3741 took 339–397 ms host time, with 146–181 ms
+retention, 71–82 ms validation, and 43–57 ms merge-worker execution. They reported
+zero object-file reads, four proof-cache rejections, zero remembered proofs,
+and a 128 MiB result-proof accounting weight against the 64 MiB cache limit.
+The multi-job counters are summed, so batched-request values must not be read as
+one proof's size.
+
+Source tracing confirms that proof weight includes expanded historical state;
+oversized proofs survive acceptance but cannot be reused across requests.
+Retention also enumerates every supplied proof dependency and reference despite
+its typed-map cache. This provides concrete mechanisms for history-dependent
+latency; the logs do not establish when the cache threshold was first crossed.
+The first observed post-startup update additionally spent 14 seconds cold,
+including 7.8 seconds validation and 5.7 seconds retention. The next performance
+change should make proof/retention reuse proportional to changed history and
+measure on a disposable production copy; simply enlarging the cache would leave
+the full-dependency traversal. No performance change was deployed during this
+investigation.

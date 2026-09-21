@@ -716,8 +716,10 @@ async function placeCommand(args: string[]): Promise<void> {
       path: destination,
       tree: descriptor.id,
     });
-    await waitForLocalPlacement(client, descriptor.id, selected.configuration.configurationTree, destination);
+    // Synchronization explicitly reloads placements before materializing the tree.
+    // Do not depend on delivery of a filesystem notification to adopt this write.
     await service.synchronizeNow(selected.configuration.configurationTree);
+    await waitForLocalPlacement(client, descriptor.id, selected.configuration.configurationTree, destination);
     console.log(`${canonicalArborLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
   });
 }

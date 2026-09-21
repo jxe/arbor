@@ -309,7 +309,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         let rootIdentity = node.id
         var movedRoot: WorkspaceNode?
         let affected = nodesByIdentity.values
-            .filter { $0.reference.tree == node.reference.tree && ($0.reference.path == oldPath || $0.reference.path.hasPrefix(oldPath + "/")) }
+            .filter { $0.reference.tree == node.reference.tree && ($0.id == rootIdentity || $0.reference.path.hasPrefix(oldPath + "/")) }
             .sorted { $0.reference.path.count < $1.reference.path.count }
         for var value in affected {
             let oldID = value.id
@@ -329,7 +329,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
                     childrenByIdentity[key] = childrenByIdentity[key]?.map { $0 == oldID ? value.id : $0 }
                 }
             }
-            if suffix.isEmpty { movedRoot = value }
+            if oldID == rootIdentity { movedRoot = value }
         }
         guard let movedRoot else { throw WorkspaceProviderError.notFound(node.reference) }
         for key in Array(childrenByIdentity.keys) {

@@ -354,12 +354,19 @@ test("page creation records reproduce their original graph without an undo trans
   } finally {await rm(root,{recursive:true,force:true});}
 });
 
-test("shared trace vectors: one frame per generation, compaction, and Canopy's composeFrames agree", async () => {
+type TraceVector = {
+  name: string;
+  source: string;
+  generations: SourceEdit[][];
+  frames: NonNullable<SourceAdmissionRecord["update"]["trace"]>;
+  compacted: NonNullable<SourceAdmissionRecord["update"]["trace"]> | null;
+};
+test.each(fixture.traces as TraceVector[])("shared trace vector $name: generation frames and compaction agree", async (value) => {
   const { compactTrace } = await import("@overstory/client");
   const { composeFrames, validateSourceTrace } = await import("../../packages/canopyd/src/updates/source-edits.ts");
   const { MergeTool } = await import("../../packages/canopyd/src/merge-tool.ts");
   expect(fixture.traces.length).toBeGreaterThan(0);
-  for (const value of fixture.traces) await withQueue(async (queue, root) => {
+  await withQueue(async (queue, root) => {
     const graph = initial();
     let source = fixture.source as string;
     const chain = value.generations.map((edits: SourceEdit[]) => ({ edits, source: source = applySourceEdits(source, edits) }));
@@ -386,7 +393,8 @@ test("shared trace vectors: one frame per generation, compaction, and Canopy's c
       expect(composed.operations).toEqual(value.compacted?.[0]?.operations ?? []);
     }
     // The merge process reaches the same decisions for the chain and its compaction.
-    const tool = new MergeTool(root), rules = { id: "tree-default", revision: 1 as const };
+    await using tool = new MergeTool(root);
+    const rules = { id: "tree-default", revision: 1 as const };
     const evaluate = (record: typeof plain) => tool.evaluate({ kind: "tree", tree: fixture.tree, base: { object: graph.root }, current: { object: graph.root },
       incoming: { change: record.change, object: record.candidate.root, trace: decodeCandidateUpdateJSON(record.update).trace ?? [] }, rules }, objects);
     const [first, second] = await Promise.all([evaluate(plain), evaluate(compact)]);

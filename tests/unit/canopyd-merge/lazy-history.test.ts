@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { beforeAll, test, expect } from "bun:test";
 import type { SourceOperation } from "@overstory/protocol";
 import {
   checkpointIntent,
@@ -95,25 +95,38 @@ async function history(f: Fixture, count = 60): Promise<Step[]> {
   return steps;
 }
 
-test("a head edit on a long history matches eager evaluation", async () => {
+// Build and differentially validate the immutable history once. Each scenario
+// gets its own object map so its new results cannot affect another scenario.
+const prepared = new Fixture();
+let preparedSteps: Step[];
+beforeAll(async () => {
+  preparedSteps = await history(prepared, 90);
+}, 30_000);
+function preparedFixture() {
   const f = new Fixture();
-  const steps = await history(f);
+  f.objects = new Map(prepared.objects);
+  return f;
+}
+
+test("a head edit on a long history matches eager evaluation", async () => {
+  const f = preparedFixture();
+  const steps = preparedSteps.slice(0, 60);
   const head = steps.at(-1)!;
   const { op, next } = edit(f, head.text, [0, 0], "HEAD ");
   await differential(f, f.request(head.result, f.tree({ "a.md": next }), [op], "head"));
 });
 
 test("a divergent edit based at step 32 merges into head as eager evaluation does", async () => {
-  const f = new Fixture();
-  const steps = await history(f);
+  const f = preparedFixture();
+  const steps = preparedSteps.slice(0, 60);
   const old = steps[31]!, head = steps.at(-1)!;
   const { op, next } = edit(f, old.text, [0, 0], "OLD ");
   await differential(f, f.request(old.result, f.tree({ "a.md": next }), [op], "divergent", head.result));
 });
 
 test("moving and copying old text from a divergent basis matches eager evaluation", async () => {
-  const f = new Fixture();
-  const steps = await history(f);
+  const f = preparedFixture();
+  const steps = preparedSteps.slice(0, 60);
   const old = steps[49]!, head = steps.at(-1)!;
   for (const kind of ["moveSource", "copySource"] as const) {
     const t = old.text;
@@ -130,16 +143,16 @@ test("moving and copying old text from a divergent basis matches eager evaluatio
 });
 
 test("concurrent inserts at one anchor match eager evaluation", async () => {
-  const f = new Fixture();
-  const steps = await history(f);
+  const f = preparedFixture();
+  const steps = preparedSteps.slice(0, 60);
   const old = steps[54]!, head = steps.at(-1)!;
   const { op, next } = edit(f, old.text, [end(old.text), end(old.text)], " concurrent");
   await differential(f, f.request(old.result, f.tree({ "a.md": next }), [op], "concurrent", head.result));
 });
 
 test("an edit inside text deleted on the other branch matches eager evaluation", async () => {
-  const f = new Fixture();
-  const steps = await history(f);
+  const f = preparedFixture();
+  const steps = preparedSteps.slice(0, 60);
   const basis = steps.at(-1)!;
   // Head deletes [3, 12); the incoming branch, based before that, edits inside it.
   const deleted = edit(f, basis.text, [3, 12], "", "delete");
@@ -191,8 +204,8 @@ test.each([undefined, "current"] as const)("a live decision is created and resol
 test("a divergent merge reads history in proportion to the edit, not its length", async () => {
   const reads: Record<string, number[]> = { eager: [], lazy: [] };
   for (const count of [30, 90]) {
-    const f = new Fixture();
-    const steps = await history(f, count);
+    const f = preparedFixture();
+    const steps = preparedSteps.slice(0, count);
     const old = steps.at(-4)!, head = steps.at(-1)!;
     const { op, next } = edit(f, old.text, [0, 0], "OLD ");
     const request = f.request(old.result, f.tree({ "a.md": next }), [op], "divergent", head.result);
