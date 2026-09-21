@@ -1,5 +1,7 @@
 # Apps 003: Compile and typecheck executable Overstory documents
 
+> This plan supplies coherent compilation and SSR/hydration artifacts for the browser integration gate owned by [Apps 001](001-supplies-executable-site.md). That integration follows the headless [Apps 005](005-source-resolution-and-sidecar.md) gate; compiler work may proceed independently, and Apps 005 does not wait for it.
+
 > **Execution-model revision (2026-09-18):** Resource policy is now owned by
 > [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
 > by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /

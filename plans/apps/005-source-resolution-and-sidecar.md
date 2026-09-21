@@ -1,120 +1,232 @@
 # Apps 005: Source resolution and the HTTP execution sidecar
 
-## Status and target
+## Status, prerequisites and target
 
-**P1 · PLANNED · after [Apps 004](004-mutation-permissions.md).** Define the concrete
-internal bridge first, then extract existing headless execution. The unused current
-query/mutation formats may break; no adapters or dual-route compatibility are
-required. Preserve correctness, not obsolete signatures. [Apps 006](006-durable-authoring.md)
-then replaces authoring/runtime semantics. Apps 003 supplies full compiler tooling;
-its unfinished editor integration does not block a headless extraction fixture.
+**P1 · PLANNED · L effort · high authority-boundary risk.** Replanned at
+`d55f4142`, 2026-09-21. Execute after
+[Apps 007: CDDL collection schemas](007-cddl-collection-schemas.md).
+Read [DEVELOPMENT.md](../../DEVELOPMENT.md), `status.md`, current source and tests
+before relying on this checkpoint. No live-data, installed-app or public-host
+changes are authorized by this plan. Do not commit or push unless requested.
 
-Normative owners: [locator resolution](../../docs/overstory-spec/03-locators.md#4-resolution-rules), the [current-tree read](../../docs/overstory-spec/01-tree-operations.md#111-reading-the-current-tree), and [provider bindings](../../docs/architecture/canopyd/execution-sidecar.md#provider-bindings).
-canopyd owns tree authority/resolution; the HTTP sidecar owns query planning,
-evaluation and mutation execution; SQLite remains a direct scoped provider.
-React hosting is the next bridge gate, not a prerequisite to headless extraction.
+Prerequisites from [Apps 004](004-mutation-permissions.md) are implemented execution
+tokens, scoped authorization, guarded updates and authority invalidation primitives.
+Step 1 here implements and tests host/session/code-activation attestation and connects
+it to token issuance and authority invalidation. Do not wait for Apps 004's
+entire provider-integration checklist: this plan implements that integration.
+Interactive consent/live rollout gates still apply before enabling a real application.
 
-## Current seams to inspect
+The outcome is an independently shippable **headless HTTP execution sidecar**.
+canopyd owns identity, authorization, immutable tree reads, accepted watches and
+updates; the sidecar owns query planning/evaluation and mutation execution. SQLite
+is a direct mediated provider. CDDL collection validation, ordinary row projection
+and collection merge stay independent of application activation and availability.
+No authored schema JavaScript, compiler, React or query evaluator belongs in the
+canopyd process dependency graph.
 
-`packages/canopyd/src/host.ts` injects `QueryStreamRuntime` and `MutationCallRuntime`
-from core protocol. Existing evaluator, observer, SQLite and mutation machinery
-lives in `packages/apps-runtime/src/{host,node-query,live,live-stream,observer,sqlite,mutation,authoring}.ts`.
-Read `tests/integration/query-stream-api.test.ts`, `data-live-query.test.ts`,
-`generic-node-query.test.ts`, and `supplies-mutations.test.ts` before extraction.
-Inspect node/provider resolution, source binding checks and ordinary canopyd object,
-watch/update APIs. Current passing tests do not establish a production compiler,
-React host, hostile-code isolation or cross-store workflow durability.
+Unused current query/mutation signatures may break without compatibility adapters.
+Preserve authority, data and retry semantics. [Apps 006](006-durable-authoring.md)
+subsequently replaces authoring/workflow semantics. Browser document hosting, SSR,
+hydration and full compiler/editor integration belong to Apps 001/003 after this
+headless gate; they are not completion requirements here.
 
-## Phase 1: Concrete bridge contract
+## Baseline, scope and ownership
 
-Complete [reference bridge documentation](../../docs/architecture/canopyd/execution-sidecar.md) and paired request/error fixtures
-before moving code. Specify authenticated local HTTP transport, host-issued context,
-header stripping, source/caller identity, executable/sponsor binding, resource limits,
-request/body bounds, backpressure, cancellation, safe response headers, HTTP errors,
-query stream errors after headers, health/version handshake, restart and shutdown.
-Do not create an app ID, module registry in canopyd, or durable query subscription
-resource. Execution activation is host configuration; ordinary requests remain
-self-contained. Immutable compilation/cache entries are replaceable artifacts.
+Run `git status --short` and
+`git diff --stat d55f4142..HEAD -- packages tests docs tools swift`.
+Apps 007 deliberately changes these paths: reconcile its completion evidence and
+new schema package before implementation. Do not restore the old sandbox seams.
 
-canopyd forwards ordinary canonical document/action/asset requests and execution
-traffic; runtime routes are not authored document routes. No compiler, React or
-query evaluator import remains in the canopyd runtime dependency graph. Browser
-credentials are not forwarded as general sidecar credentials. Test forged context,
-spoofed `via`, response cookie/header injection, disconnect and timeout behavior.
+At this baseline, `packages/canopyd/src/host.ts` has:
 
-## Phase 2: Authorized source binding
+```ts
+import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
+// serveCanopy options:
+queryRuntime?: QueryStreamRuntime;
+mutationRuntime?: MutationCallRuntime;
+```
 
-There is no canopyd resolution route. Resolve relative locators in the runtime
-from pinned defining-module roots by the spec's resolution rules; preserve
-TreeID/path and nested/mounted boundaries, imported helper context and explicit
-user resource selections. For a host-backed source, take `(root, update,
-observedThrough)` and the access summary from the ordinary current-tree read under
-the execution token; consent UI performs the same read as the grantor. Fetch
-private schemas/data separately under current authority. No paths, DSNs, raw
-SQLite or private schema reach browser responses.
+`packages/apps-runtime/src/host.ts` passes `{ signal, user }` to the stream runtime,
+but `{ user }` to mutations; its broad catch turns failures into HTTP 400. These
+are implementation starting points, not the future authority/cancellation contract.
+`tests/integration/query-stream-api.test.ts` injects in-process fake runtimes; it
+does not prove process isolation. Existing evaluator/observer/SQLite/receipt machinery
+is in `packages/apps-runtime/src/{node-query,live,live-stream,observer,sqlite,mutation,authoring}.ts`.
+`schema.ts` there contains filesystem-based source resolution; inspect its current
+API after Apps 007 rather than confusing it with collection schema parsing.
 
-Replace the filesystem-based `resolveArborSource` in `packages/apps-runtime/src/schema.ts`
-with logical resolution over retained objects. Add trusted provider-descriptor
-publication/configuration for opaque SQLite bindings in sidecar host configuration;
-validate schema ownership and invalidate on change. Bindings convey no authority.
-Implement binding invalidation from tree changes and provider metadata changes;
-cache versions separately from data cursors and code hashes. No stale same-name
-fallback. Unsupported remote/federated sources fail explicitly.
+Read `tests/integration/{query-stream-api,data-live-query,generic-node-query,supplies-mutations}.test.ts`,
+`packages/canopyd/src/{account-policy,host,canopy}.ts`, token and authority-watch
+handlers, and merge process contracts. Shared package barrels must not pull worker
+implementations into canopyd; the existing merge package has executable exports.
 
-## Phase 3: Extract headless runtime
+Normative owners: [locator resolution](../../docs/overstory-spec/03-locators.md),
+[current-tree reads](../../docs/overstory-spec/01-tree-operations.md#111-reading-the-current-tree),
+[execution authority](../../docs/overstory-spec/05-access-control.md#21-execution-tokens),
+and [executable documents](../../docs/overstory-spec/07-executable-documents.md).
+Complete the reference [bridge contract](../../docs/architecture/canopyd/execution-sidecar.md)
+without changing portable behavior merely to fit the extraction.
 
-Move/reuse the current registered query/mutation runtime behind the HTTP server.
-Keep SQLite snapshots, dependency plans, transactions and same-transaction receipts.
-Use provider bindings rather than a database chosen by caller path or current working
-directory. canopyd sources use immutable objects and authorized watch/update calls;
-SQLite sources use direct mediated connections and committed provider observation.
-Cross-provider queries are finite and use cursor vectors, not fictitious snapshots.
-Do not relocate query-plan evaluation into canopyd during extraction.
+Scope: apps-runtime plus a new executable entrypoint/package if useful; canopyd HTTP
+forwarding and execution configuration; pure shared bridge contracts; Arbor Sync's
+local integration; deployment/packaging configuration; affected protocol/Swift models,
+fixtures/tests and reference docs. Keep CDDL enforcement and collection codecs in
+the pure package established by Apps 007. Out of scope: schema migration, app registry,
+durable subscription resources, cross-host delegation, React/compiler implementation,
+cross-provider durable workflows, provider storage redesign and hostile-JS sandboxing.
 
-Public query streams remain complete replacement values with stateless reconnect.
-Reauthorize and establish snapshot-follow on every subscription; preserve membership
-race protection, relevance filtering and output deduplication. Propagate authority
-invalidation into both provider reads and queued disclosures. Provider unavailability
-or sidecar death must leave ordinary canopyd sync/merge usable. Exact mutation retries
-must recover from persisted receipts after sidecar restart.
+## 1. Freeze the bridge and activation contract
 
-## Phase 4: HTTP document and local integration
+Write paired request/error fixtures in `tests/fixtures/execution-sidecar/` and create
+`tests/integration/execution-sidecar.test.ts`. Specify authenticated local HTTP
+transport (private loopback listener or supported Unix socket), private credential
+provisioning, protocol version handshake, startup/readiness, shutdown and supervision.
+Public readiness must still allow ordinary canopyd operations when apps are disabled
+or unavailable. Bound body/header sizes, concurrent executions, queue size, deadlines
+and stream buffers; document explicit initial limits in configuration and tests.
 
-Use Apps 003 coherent compilation to serve one Supplies document, public assets,
-SSR initial results and hydration without duplicate initial reads. Test ordinary
-links/search/back/reload and JavaScript-free form actions. Reuse the boundary beside
-Arbor Sync; host differences do not alter provider/query semantics. Supervision,
-connection paths and provider credentials belong in private deployment configuration.
-Document initial trusted-runtime assumption and no claim of hostile cross-tree JS
-sandboxing. Activation revocation stops all affected execution, not static sync.
+Specify host-issued context with actual caller, source TreeID/logical path, pinned
+code root/version, sponsoring account, activation identity and allowed execution
+scope. Bind imported code to the correct executable identity without escalation.
+Strip all client-supplied context headers; never forward browser credentials as
+sidecar service credentials. Sidecar canopyd calls use the host-private execution
+token through ordinary current-tree/object/watch/update APIs; no public mint or
+special resolution route. Requests contain enough information for restart/reconnect
+without an app ID or subscription registry in canopyd. Activation remains private
+host configuration binding reviewed code, sponsor, providers and resource limits.
 
-## Lifecycle acceptance cases
+Specify initial HTTP status/error mapping and post-header stream errors separately.
+Allowlist response headers; test cookies, redirects and credentials cannot be smuggled
+across the boundary. Distinguish unavailable runtime, invalid input and denied authority.
+Disconnect cancels reads/subscriptions and releases resources. For mutations define
+pre-commit cancellation versus an already committed effect: cancellation never promises
+rollback after commit; an unknown response is recovered by exact retry and receipt.
 
-1. Anonymous public query: author policy enables read via code; resolve private
-   SQLite binding, evaluate/render, subscribe with snapshot-follow, mutate backing,
-   stream only authorized projection, then revoke and prove output stops.
-2. User notebook mutation: consent binds selected TreeID, create without broad read,
-   guarded update accepts, lost response retries do not duplicate, denied grants
-   cannot expose objects or watch whole-tree changes.
-3. Switching schema/binding invalidates compiled query; changing ordinary data only
-   reruns queries. Imported helpers resolve against their own module context.
-4. Kill/restart sidecar while canopyd read/watch/update/merge stays available; reconnect
-   stream and replay a committed mutation. Kill invalidation channel and prove fail-closed.
+**Verify:** `bun test tests/integration/execution-sidecar.test.ts` → contract cases
+pass against separately launched fixture processes; `bun run check:links` and
+`git diff --check` → exit 0. Do not expose a half-specified bridge publicly.
 
-The combined SQLite-to-Overstory workflow belongs to Apps 006, not this extraction.
+## 2. Implement authorized bindings and provider enforcement
 
-## Gates and completion
+Replace filesystem-based `resolveArborSource` with logical resolution over retained
+objects, pinned defining-module roots and explicit user selections. Preserve TreeID,
+logical path, nested/mounted boundaries and each imported helper's defining context.
+For a host-backed source, obtain `(root, update, observedThrough)` and access summary
+from ordinary current-tree read under the execution token. Consent reads run as the
+grantor. Fetch private schemas/objects separately under current authority; a binding
+is metadata, never permission. No paths, DSNs, raw databases or private schemas may
+escape through browser responses/errors.
 
-Add process-level HTTP tests plus focused existing data/query/mutation suites.
+Publish opaque SQLite descriptors and schema fingerprints from private provider
+configuration. Never select a database from a caller filename or current directory.
+Validate schema ownership; reject unsupported remote/federated sources explicitly.
+Code versions, binding versions and data cursors remain separate. Schema/target changes
+invalidate affected plans; ordinary row updates trigger reevaluation, not recompilation.
+No stale same-name fallback. Running mutations retain original concrete bindings.
+
+Tie activation/token revocation and authority-watch invalidation to provider reads,
+in-flight work and queued disclosures. Loss/expiry of the invalidation channel fails
+closed until fresh authorization is established. Define the authorized commit check
+and disclosure boundary for SQLite explicitly; do not claim cross-store atomicity
+from a last-minute asynchronous permission lookup. If the current authority APIs
+cannot support the promised revocation semantics, stop for a contract decision rather
+than temporarily granting broader access.
+
+**Verify:** extend `tests/integration/execution-sidecar.test.ts` with anonymous via
+reads, caller-only ordinary reads, forged context, nested-tree escape, helper context,
+stale bindings, provider changes and revocation while results are queued → all pass.
+Use actual execution tokens and backing providers, not only mocked grants.
+
+## 3. Extract execution and preserve stream/receipt semantics
+
+Run current registered query/mutation machinery behind the bridge. Keep SQLite
+snapshots, dependency plans, transactions and same-transaction retry receipts.
+canopyd sources use authorized immutable-object reads and watch/update calls; SQLite
+uses direct mediated connections and committed observation. Cross-provider queries
+are finite and use cursor vectors, not a claimed global snapshot. Query-plan evaluation
+must not move into canopyd as an optimization.
+
+Streams publish complete replacement values with stateless reconnect. Reauthorize
+and establish snapshot-follow on every subscription. Preserve membership race protection,
+relevance filtering, output deduplication and cleanup. Keep mutation ID/digest/binding
+checks across restart: lost responses retry the exact request, changed payloads reject,
+and revoked callers cannot use old receipts to bypass current disclosure authority.
+
+Replace in-process runtime injection in the production host with a bridge client.
+Keep test fakes only for focused unit cases; production integration tests must start
+real independent processes. Add package-boundary tests at
+`tests/unit/execution-sidecar-boundary.test.ts` for the transitive canopyd CLI/runtime
+closure, including barrel re-exports and dynamic imports, and remove its direct
+apps-runtime dependency. If merge contracts pull in the worker implementation, expose
+pure contract imports rather than moving merge execution back into canopyd.
+
+**Verify:**
+
+```sh
+bun test tests/integration/execution-sidecar.test.ts
+bun test tests/integration/query-stream-api.test.ts tests/integration/data-live-query.test.ts tests/integration/generic-node-query.test.ts tests/integration/supplies-mutations.test.ts
+bun test tests/unit/execution-sidecar-boundary.test.ts tests/unit/collection-schema-boundary.test.ts
+```
+
+All pass. The resolved daemon graph has no apps evaluator/compiler/React/QuickJS;
+starting canopyd without installed apps-runtime or QuickJS in a disposable packaging
+fixture still supports ordinary and CDDL collection operations.
+
+## 4. Prove failure independence and local reuse
+
+Reuse the bridge beside Arbor Sync with private connection/credential configuration;
+do not fork provider semantics. Document launch, configuration, graceful shutdown,
+version mismatch, restart and rollback. Sidecar failure must not restart canopyd or
+make its ordinary readiness depend on application health. Keep credentials out of
+synchronized files and public responses. Runtime/image packaging is distinct: report
+what each process imports and what the deployed artifact contains.
+
+Required process-level cases in `tests/integration/execution-sidecar.test.ts`:
+
+1. Anonymous authorized projection from private SQLite; mutate backing and observe
+   a replacement result; revoke and prove no queued or subsequent disclosure.
+2. User-selected notebook create with no broad read; guarded update; dropped response;
+   exact retry after restart creates no duplicate and denied authority leaks no objects.
+3. Schema/binding change invalidates a plan, data-only change reevaluates it, and imported
+   helpers resolve using their own pinned module context.
+4. Kill sidecar before/during streams and after mutation commit. While it stays down,
+   exercise canopyd read/watch/update/merge, including CDDL collections; all remain usable.
+   Restart, reconnect with a fresh snapshot and replay a persisted receipt.
+5. Lose authority invalidation, inject hostile context/response headers, exceed body/
+   execution limits, disconnect slow readers and shut down; prove bounded resources,
+   fail-closed disclosures and eventual cleanup.
+6. Run the same headless query/mutation fixture beside Arbor Sync on disposable roots.
+
+**Verify:** the above integration command passes all cases with real processes.
+Measure cold/steady request latency, stream cancellation and retained memory against
+baseline; record limits and results without unsupported performance claims.
+
+## Completion and subsequent work
+
 Run `bun run typecheck`, `bun run test`, `bun run test:protocol`, `bun run build`,
-affected Swift protocol/client suites, dependency-boundary checks, relative-link
-check and `git diff --check`. SSR/browser gates use maintained tooling established
-with Apps 001/003, not the currently retired web-editor build. Measure cold/steady
-request, stream cancellation and memory behavior; do not invent thresholds without
-baseline. Record actual installed/local artifacts separately from test evidence.
+`bun run test:performance`,
+`bun test tests/unit/canopyd-merge tests/integration/canopyd-merge`,
+`swift test --package-path swift/Packages/ArborSyncClient`, `bun run check:links`,
+and `git diff --check` → exit 0. Run affected Swift model suites if wire shapes changed;
+CanopyEditor testing uses the repository wrapper. Verify changed packaging through
+`bun run build:cli:package` and `bun run test:cli:package` when applicable; root
+`bun run build` builds the CLI and is not sufficient evidence of host isolation.
 
-Done: no in-process canopyd execution imports; fixtures run against real separate
-processes; source resolution and revocation pass; one local/hosted document traverses
-the bridge. Document deployment rollback, update status and move to completed plans.
-If scoped data cannot be returned safely or retry atomicity regresses, stop extraction
-at the failing gate rather than widen authority or drop checks.
+Done: authorized headless execution across a real HTTP process boundary; durable
+retry/revocation tests; ordinary host and CDDL operations independent of apps;
+QuickJS/compiler/evaluator-free daemon closure; local bridge reuse; documented private
+configuration, failure behavior and rollback. Initial runtime is trusted; process
+separation alone makes no claim of hostile cross-tree JavaScript isolation.
+Stop if safe scoped results, receipt atomicity, failure independence or dependency
+separation cannot be proved. Never widen authority to get a fixture passing.
+
+Apps 001/003 next supply ordinary document/action/asset forwarding, coherent compilation,
+SSR initial results, hydration without duplicate reads, links/search/back/reload and
+JavaScript-free actions over this boundary. Keep that next gate recorded in those
+plans; do not silently drop it or fold it into this headless completion requirement.
+Apps 006 owns combined SQLite-to-Overstory workflows and durable authoring semantics.
+
+Record implementation/test evidence in `status.md` and architecture docs separately
+from installed/deployed evidence. Repair incoming links, delete the completed plan and
+update indexes; do not move it to a completed-plans directory. Changes to bridge
+versions, execution tokens or provider invalidation require paired process fixtures.

@@ -1,5 +1,7 @@
 # Apps 001: Complete the Supplies executable site
 
+> After the headless [Apps 005](005-source-resolution-and-sidecar.md) gate, this plan owns browser integration acceptance: document/action/asset forwarding, SSR and hydration without duplicate initial reads, navigation and JavaScript-free form actions, using the coherent compiler supplied by Apps 003. Apps 005 does not wait for this gate.
+
 > **Execution-model revision (2026-09-18):** Resource policy is now owned by
 > [Apps 004](004-mutation-permissions.md), source resolution and runtime extraction
 > by [Apps 005](005-source-resolution-and-sidecar.md), and replacement authoring /
