@@ -47,12 +47,6 @@ import {
   type UpdateResult,
 } from "@overstory/protocol";
 import {
-  authorizeAccountConfigTransition,
-  readAccountConfigGraph,
-  snapshotAccountConfig,
-  type AccountConfigGraph,
-} from "./account-policy.ts";
-import {
   authorizeAccountConfigTransitionV2,
   readAccountConfigGraphV2,
   snapshotAccountConfigV2,
@@ -99,24 +93,15 @@ export interface CanopyBootstrap {
 
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 
-type AnyAccountConfigGraph = AccountConfigGraph | AccountConfigGraphV2;
-
-function v2Graph(graph: AnyAccountConfigGraph): graph is AccountConfigGraphV2 {
-  return !("version" in graph.account);
-}
-
-function graphTrees(graph: AnyAccountConfigGraph): Record<string, { canonicalPath: string; access: AccessRule[] }> {
-  if (!v2Graph(graph)) return graph.trees.trees;
+function graphTrees(graph: AccountConfigGraphV2): Record<string, { canonicalPath: string; access: AccessRule[] }> {
   return Object.fromEntries(Object.entries(graph.trees).map(([id, declaration]) => [id, {
     canonicalPath: new URL(declaration.canonical).pathname,
     access: declaration.access,
   }]));
 }
 
-function graphAdministrators(graph: AnyAccountConfigGraph): string[] {
-  return v2Graph(graph)
-    ? Object.values(graph.devices).filter((device) => device.administrator).map((device) => device.id)
-    : graph.account.admins;
+function graphAdministrators(graph: AccountConfigGraphV2): string[] {
+  return Object.values(graph.devices).filter((device) => device.administrator).map((device) => device.id);
 }
 
 function sameOrDescendant(path: string, parent: string): boolean {
@@ -639,7 +624,6 @@ export class CanopyDaemon implements AsyncDisposable {
     deviceID: string;
     credentialDigest: string;
     label: string;
-    placements: Record<string, { server: string; path?: string }>;
   }): Promise<{ device: ServerDevice; confirmationCode: string }> {
     const { id, secret, label } = input;
     const safeLabel = label.trim();
@@ -665,28 +649,12 @@ export class CanopyDaemon implements AsyncDisposable {
     const expectedUpdate = this.currentUpdate(account.configTree!)!.id;
     const current = await this.accountConfigGraph(account);
     if (current.devices[input.deviceID]) throw new Error("DeviceID is already active");
-    const next = v2Graph(current)
-      ? {
-          account: current.account,
-          trees: current.trees,
-          devices: {
-            ...current.devices,
-            [input.deviceID]: { id: input.deviceID, label: safeLabel, administrator: false },
-          },
-        }
-      : {
-          account: current.account,
-          trees: current.trees,
-          devices: {
-            ...current.devices,
-            [input.deviceID]: { version: 1 as const, id: input.deviceID, label: safeLabel, placements: input.placements },
-          },
-        };
-    const nextSnapshot = v2Graph(current)
-      ? snapshotAccountConfigV2(next as Omit<AccountConfigGraphV2, "sources">)
-      : snapshotAccountConfig(next as Omit<AccountConfigGraph, "sources">);
-    if (v2Graph(current)) readAccountConfigGraphV2(nextSnapshot, account.configTree!);
-    else readAccountConfigGraph(nextSnapshot, account.configTree!);
+    const next = { ...current, devices: {
+      ...current.devices,
+      [input.deviceID]: { id: input.deviceID, label: safeLabel, administrator: false },
+    } };
+    const nextSnapshot = snapshotAccountConfigV2(next);
+    readAccountConfigGraphV2(nextSnapshot, account.configTree!);
     await this.objects.store([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configTree = this.get(account.configTree!)!;
     const transition = await this.acceptedTransitionPayload(configTree.ref, nextSnapshot.root);
@@ -781,13 +749,13 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!account.profileTree) continue;
       const devices = Object.fromEntries(this.devices(account)
         .filter((device) => device.revokedAt === null)
-        .map((device) => [device.id, { version: 1 as const, id: device.id, label: device.label, placements: {} }]));
+        .map((device) => [device.id, { id: device.id, label: device.label, administrator: true }]));
       const active = Object.keys(devices);
       if (!active.length) throw new Error(`Account ${id} has no active device to administer its configuration`);
       const declarations = Object.fromEntries(this.list()
         .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree.id))
         .map((tree) => [tree.id, {
-          canonicalPath: tree.canonicalPath!,
+          canonical: `${new URL(origin).origin}${tree.canonicalPath!}`,
           access: this.accessEntries(tree.id).map((entry): AccessRule => ({
             subject: entry.subjectKind === "everyone"
               ? { kind: "everyone" }
@@ -800,7 +768,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!declarations[account.profileTree]) {
         const profile = this.get(account.profileTree)!;
         declarations[profile.id] = {
-          canonicalPath: profile.canonicalPath!,
+          canonical: `${new URL(origin).origin}${profile.canonicalPath!}`,
           access: this.accessEntries(profile.id).map((entry): AccessRule => ({
             subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
               : entry.subjectKind === "profile" ? { kind: "profile", tree: entry.subject }
@@ -810,18 +778,18 @@ export class CanopyDaemon implements AsyncDisposable {
         };
       }
       const graph = {
-        account: { version: 1 as const, community: new URL(origin).origin, profile: { tree: account.profileTree, handle: account.handle }, admins: active },
-        trees: { version: 1 as const, trees: declarations },
+        account: { canopy: new URL(origin).origin, profile: account.profileTree },
+        trees: declarations,
         devices,
       };
-      const snapshot = snapshotAccountConfig(graph);
+      const snapshot = snapshotAccountConfigV2(graph);
       const configID = generateArborID("tr");
       await this.validateGraph(snapshot.root, snapshot.objects);
       await this.objects.store([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
       const now = Date.now();
       this.db.transaction(() => {
         this.db.run(
-          "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v1', 'active', ?)",
+          "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
           [configID, snapshot.root, now, account.id],
         );
         this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [configID, snapshot.root, now]);
@@ -831,7 +799,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private applyAccountConfigDerived(accountID: string, current: AnyAccountConfigGraph, next: AnyAccountConfigGraph): void {
+  private applyAccountConfigDerived(accountID: string, current: AccountConfigGraphV2, next: AccountConfigGraphV2): void {
     const now = Date.now();
     for (const id of Object.keys(current.devices)) {
       if (!next.devices[id]) this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, accountID]);
@@ -841,16 +809,16 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!row) throw new Error(`Device ${id} has no credential binding`);
       if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
     }
-    if ((v2Graph(current) && current.resources) || (v2Graph(next) && next.resources)) {
+    if (current.resources || next.resources) {
       this.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES (?, '1')", [resourcePolicyFormatKey(accountID)]);
     }
     this.db.run("DELETE FROM resource_policy WHERE account_id = ?", [accountID]);
-    const resources = v2Graph(next) ? next.resources ?? (
+    const resources = next.resources ?? (
       this.db.query("SELECT 1 FROM meta WHERE key=?").get(resourcePolicyFormatKey(accountID))
         ? Object.fromEntries(Object.entries(next.trees).map(([id, declaration]) => [id, {
           canonical: declaration.canonical, access: declaration.access.map(resourceRuleFromLegacy),
         }])) : undefined
-    ) : undefined;
+    );
     if (resources) {
       for (const [tree, declaration] of Object.entries(resources)) {
         this.db.run("INSERT INTO resource_policy(account_id, tree_id, rules_json) VALUES (?, ?, ?)", [accountID, tree, JSON.stringify(declaration.access)]);
@@ -901,14 +869,12 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private async accountConfigGraph(account: CanopyAccount): Promise<AnyAccountConfigGraph> {
+  private async accountConfigGraph(account: CanopyAccount): Promise<AccountConfigGraphV2> {
     if (!account.configTree) throw new Error("Account configuration tree is missing");
     const tree = this.get(account.configTree);
     if (!tree) throw new Error("Account configuration tree is missing");
     const snapshot = await this.objects.completeSnapshot(tree.ref);
-    return tree.policy === "account-config-v2"
-      ? readAccountConfigGraphV2(snapshot, tree.id)
-      : readAccountConfigGraph(snapshot, tree.id);
+    return readAccountConfigGraphV2(snapshot, tree.id);
   }
 
   async activateTree(
@@ -935,7 +901,6 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!authentication.device) throw new Error("An administrator device is required for activation");
     const config = await this.accountConfigGraph(authentication.account);
     if (!graphAdministrators(config).includes(authentication.device)) throw new Error("Only an administrator device may initialize a tree");
-    if (!v2Graph(config) && !config.devices[authentication.device]?.placements[treeID]) throw new Error("The initializing administrator must place the tree");
     const declaration = graphTrees(config)[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
     const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
@@ -1200,12 +1165,6 @@ export class CanopyDaemon implements AsyncDisposable {
   ): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
     if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new Error("Execution update form is not allowed");
-    if (
-      this.get(treeID)?.policy === "account-config-v1" &&
-      request.updates.some((u) => u.resolves.length)
-    ) {
-      throw new UpdateProtocolError("unsupported-operation", "Configuration conflict resolution is not enabled");
-    }
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
       if (
@@ -2107,52 +2066,39 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("An active account device is required for configuration updates");
     }
     const deviceID = credentialSubject.slice("device:".length);
-    const v2 = tree.policy === "account-config-v2";
-    const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AnyAccountConfigGraph> => {
+    const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AccountConfigGraphV2> => {
       const snapshot = await this.objects.completeSnapshot(root, objects);
-      return v2 ? readAccountConfigGraphV2(snapshot, tree.id) : readAccountConfigGraph(snapshot, tree.id);
+      return readAccountConfigGraphV2(snapshot, tree.id);
     };
-    let baseGraph: AnyAccountConfigGraph;
-    let candidateGraph: AnyAccountConfigGraph;
-    let currentGraph: AnyAccountConfigGraph;
-    let nextGraph: AnyAccountConfigGraph;
-    const authorize = (current: AnyAccountConfigGraph, next: AnyAccountConfigGraph, changesFrom: AnyAccountConfigGraph) => {
-      if (v2) {
-        authorizeAccountConfigTransitionV2(
-          current as AccountConfigGraphV2,
-          next as AccountConfigGraphV2,
-          deviceID,
-          changesFrom as AccountConfigGraphV2,
-          !!(current as AccountConfigGraphV2).resources || !!this.db.query("SELECT 1 FROM meta WHERE key=?").get(resourcePolicyFormatKey(account.id)),
-        );
-      } else {
-        authorizeAccountConfigTransition(
-          current as AccountConfigGraph,
-          next as AccountConfigGraph,
-          deviceID,
-          changesFrom as AccountConfigGraph,
-        );
-      }
+    let baseGraph: AccountConfigGraphV2;
+    let candidateGraph: AccountConfigGraphV2;
+    let currentGraph: AccountConfigGraphV2;
+    let nextGraph: AccountConfigGraphV2;
+    const authorize = (current: AccountConfigGraphV2, next: AccountConfigGraphV2, changesFrom: AccountConfigGraphV2) => {
+      authorizeAccountConfigTransitionV2(
+        current, next, deviceID, changesFrom,
+        !!current.resources || !!this.db.query("SELECT 1 FROM meta WHERE key=?").get(resourcePolicyFormatKey(account.id)),
+      );
     };
     return {
       subject: credentialSubject,
       rejection: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
       validateCandidate: async (root, objects) => {
         candidateGraph = await graphAt(root, objects);
-        if (v2) this.validateCurrentCanopyAccountPaths(account.handle, candidateGraph as AccountConfigGraphV2, account);
+        this.validateCurrentCanopyAccountPaths(account.handle, candidateGraph, account);
         baseGraph = await graphAt(baseRoot);
         const current = this.currentUpdate(tree.id);
         if (!current) throw new Error("Account configuration has no accepted update");
         const acceptedGraph = await graphAt(current.root);
-        if (request.resolves.length && !(acceptedGraph as AccountConfigGraphV2).devices[deviceID]?.administrator) throw new Error("Only an administrator may resolve policy conflicts");
+        if (request.resolves.length && !acceptedGraph.devices[deviceID]?.administrator) throw new Error("Only an administrator may resolve policy conflicts");
         authorize(acceptedGraph, candidateGraph, baseGraph);
       },
       merge: (base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed,
-        v2 ? "account-config-v2" : "account-config-v1"),
+        "account-config-v2"),
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);
-        if (v2) this.validateCurrentCanopyAccountPaths(account.handle, nextGraph as AccountConfigGraphV2, account);
+        this.validateCurrentCanopyAccountPaths(account.handle, nextGraph, account);
         authorize(currentGraph, nextGraph, currentGraph);
       },
       prepareCommit: async (_remoteTree, _root, now) => {
@@ -2458,7 +2404,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return { parent, ...rewrite };
   }
 
-  private async prepareAccountBoundaryRewrites(current: AnyAccountConfigGraph, next: AnyAccountConfigGraph) {
+  private async prepareAccountBoundaryRewrites(current: AccountConfigGraphV2, next: AccountConfigGraphV2) {
     const grouped = new Map<string, { removals: Array<{ path: string; tree: string }>; additions: Array<{ path: string; tree: string }> }>();
     const group = (parent: string) => {
       const value = grouped.get(parent) ?? { removals: [], additions: [] };

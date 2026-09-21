@@ -27,7 +27,7 @@ export class AmbiguousWorkspaceIdentityError extends Error {
   }
 }
 
-type StoredWorkspaceRegistry = Record<string, string | WorkspaceRegistryRecord>;
+type StoredWorkspaceRegistry = Record<string, WorkspaceRegistryRecord>;
 
 /**
  * Arbor's one default local state home. Tests and isolated runs may override
@@ -48,10 +48,6 @@ export function arborDataRoot(): string {
 
 export function arborPrivateRoot(): string {
   return join(arborDataRoot(), ".state");
-}
-
-function rootIDForInitialPath(path: string): string {
-  return `rt_${sha256(path).slice(0, 10)}`;
 }
 
 async function pathKind(path: string): Promise<"missing" | "directory" | "symlink" | "other"> {
@@ -137,32 +133,28 @@ async function normalizeRegistry(stored: StoredWorkspaceRegistry): Promise<{
   registry: Record<string, WorkspaceRegistryRecord>;
   changed: boolean;
 }> {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new Error("Invalid workspace registry: expected object records; offline migration required");
+  for (const [path, value] of Object.entries(stored)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || ![value.stateID, value.rootID, value.path].every(field => typeof field === "string" && field.length > 0)) {
+      throw new Error(`Invalid workspace registry record at ${path}: stateID, rootID and path are required; offline migration required`);
+    }
+  }
   const registry: Record<string, WorkspaceRegistryRecord> = {};
   let changed = false;
   for (const [path, value] of Object.entries(stored)) {
     const fingerprint = await directoryFingerprint(path);
-    if (typeof value === "string") {
-      registry[path] = {
-        stateID: value,
-        rootID: rootIDForInitialPath(path),
-        path,
-        ...fingerprint,
-      };
-      changed = true;
-      continue;
-    }
     const device = fingerprint.device ?? value.device;
     const inode = fingerprint.inode ?? value.inode;
     registry[path] = {
       ...value,
       path,
-      rootID: value.rootID || rootIDForInitialPath(path),
+      rootID: value.rootID,
       ...(device ? { device } : {}),
       ...(inode ? { inode } : {}),
     };
     if (
       value.path !== path
-      || !value.rootID
       || value.device !== device
       || value.inode !== inode
     ) changed = true;

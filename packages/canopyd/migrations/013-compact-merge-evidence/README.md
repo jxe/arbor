@@ -1,6 +1,6 @@
 # Migration 013: compact merge evidence and old merge states (14 → 15)
 
-Carries [canopyd 010](../../../../plans/canopyd/010-operation-frames-and-lazy-history.md)
+Carries [the completed operation-frame and lazy-history work](../../../../status.md#operation-frames-and-lazy-history-closeout--2026-09-21)
 Phase 3b. Server-only: no wire field changes, so Native is unaffected and the
 server deploys alone. It must land before Phase 4, because lazy history changes
 what the evaluator reads, and that would silently change what the old

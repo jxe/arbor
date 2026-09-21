@@ -659,6 +659,10 @@ struct UpdateProtocolTests {
         )
         #expect(claimed.device.id == deviceID)
         #expect(claimed.confirmationCode == "123456")
+        let captured = await WireURLProtocolStub.state.snapshot()
+        let body = try #require(captured.bodies.first)
+        let fields = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(Set(fields.keys) == Set(["secret", "device"]))
     }
 
     @Test("Descriptors, snapshots, and objects use tree-scoped routes")

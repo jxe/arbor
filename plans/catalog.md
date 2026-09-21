@@ -15,7 +15,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Native 003 — Project collection files into native offline replicas](swift/003-native-offline-collection-file-projection.md) — **DEFERRED; depends on historical Data 002 and 011 and Apps 003.** Promote when offline collection-row browsing is selected as a product requirement; its plan does not currently authorize implementation.
 - [Native 006 — Preview and resume initial working-tree bootstrap](swift/006-progressive-replica-bootstrap.md) — **PLANNED; not near-term.** Applies to iOS placement and visits; show a verified read-only root early, resume immutable snapshot bytes, then atomically install the complete working tree.
 - [Native 008 — Complete native move, copy, and undo capture](swift/008-complete-native-move-copy-undo-capture.md) — **FOUNDATION IMPLEMENTED; additional command coverage.** Extend remaining move/copy/compound-undo cases; existing capture and durable publication are not pending work.
-- [Native 011 — Make the Mac a direct host client like iOS](swift/011-mac-as-direct-host-client.md) — **NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
+- [Native 011 — Unify Mac account management and fold daemon clients into their callers](swift/011-unify-mac-accounts-and-fold-daemon-clients.md) — **NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
 - [Native 010 — Extend accepted-choice review](swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
 
 ## Web client
@@ -42,7 +42,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [canopyd 006 — Attribute accepted updates and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; depends on canopyd 007 and coordinates retained-root policy with canopyd 001.** Reuse canopyd's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
 - [canopyd 007 — Surface accepted document history from canopyd](canopyd/007-canopy-document-history.md) — **P1 · PLANNED; execute before canopyd 006 and coordinate retained-root policy with canopyd 001.** Surface accepted document history and restore-as-new-change from canopyd while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
 - [canopyd 009](canopyd/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
-- [canopyd 010 — Operations as evidence frames; history loaded lazily](canopyd/010-operation-frames-and-lazy-history.md) — **P1 · PLANNED (approved 2026-09-19).** Optional root-to-root operation frames on the protocol, one frame per editor generation coalesced by concatenation, and a server that loads history by touched page with a deletion watermark instead of scanning it whole; collapsing old history is deferred.
 
 ## CLI and external agents
 
@@ -100,7 +99,6 @@ manual acceptance and soak gates. Check current source/tests before executing an
 `cleanups/` — Gated compatibility removal and simplification of locator identity surfaces.
 
 - [Cleanup 001 — Retire the PageID-shaped stable-key bridge](cleanups/001-pageid-stable-key-cutoff.md) — **WAITING** for its read-only data audit, an explicitly closed compatibility window, and Joe to resume it.
-- [Cleanup 002 — Retire v1 account and legacy local-state adapters](cleanups/002-retire-v1-account-and-local-state-adapters.md) — **WAITING** until Migration 003's rollback window ends, every supported canopyd and client is proven current, Joe removes the retained backups, and the v1 compatibility window is explicitly closed.
 - [Cleanup 005 — Unify locator identity surfaces](cleanups/005-locator-identity-surfaces.md) — **P2 · NEEDS DESIGN; depends on Cleanup 001.** Give stable keys one spelling per surface and one segment-parameter grammar.
 - [Cleanup 006 — Rename code identifiers and UI copy to the Overstory vocabulary](cleanups/006-overstory-identifiers.md) — **READY.** `Wire*` and `Canopy*` type names in both languages, the app's "Arbor" UI strings, and the `-v2` file suffixes once Cleanup 002 lands.
 

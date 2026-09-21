@@ -1,4 +1,4 @@
-import { encodeSSEFrame, currentDeviceID, ProtocolError } from "@overstory/protocol";
+import { encodeSSEFrame, ProtocolError } from "@overstory/protocol";
 import { ResyncRequiredError } from "./events.ts";
 import type { ArborSyncDaemon } from "./service.ts";
 import { OBJECT_HASH_PATTERN } from "./object-cache.ts";
@@ -23,14 +23,12 @@ export function syncHandler(service: SyncHTTPService, options: {
   const { instanceID } = options;
   return async (request: Request, url: URL, server: { timeout(request: Request, seconds: number): void }): Promise<Response | undefined> => {
     if (request.method === "GET" && url.pathname === "/v1/status") {
-      const deviceID = await currentDeviceID();
       return json({
         service: "arborsync",
         version: "0.1.0",
         protocolVersion: "v1",
         instanceID,
         runtimeKind: options.runtimeKind,
-        ...(deviceID ? { deviceID } : {}),
       });
     }
     if (request.method === "POST" && url.pathname === "/v1/sync") {

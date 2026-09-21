@@ -1,7 +1,17 @@
-# Native 011: Make the Mac a direct host client like iOS
+# Native 011: Unify Mac account management and fold daemon clients into their callers
 
 Status: NEEDS DESIGN REVIEW; approved in principle 2026-09-20. Sole user; no
 compatibility shims. Depends on nothing; Web 025 should build on the result.
+
+## Source audit, 2026-09-21
+
+Still unimplemented. Mac source publication and watch are already direct, but
+`ArborAppModel` still calls daemon `accounts` and `createCommunityPairing`,
+`CanopyOnboarding` still calls daemon `claimAccount` and `credential`, and both
+`packages/arborsync-client` and `swift/Packages/ArborSyncClient` remain standalone.
+Cleanup 002 removed the singleton account model; it did not change ownership of
+these v2 account routes. Reconcile the removal list with the newer onboarding
+identity/recovery routes before execution, preserving their tested behavior.
 
 ## Why
 

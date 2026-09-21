@@ -46,8 +46,7 @@ bytes), and `evidence: { rule, summary? }`. Conflict decisions name their path,
 reason, and entry or coupled-directory scope. A successful partial merge may
 contain unresolved decisions. Empty decisions do not clear existing canopyd choices.
 canopyd reifies the rule output with retained alternatives and origins, assigning
-durable identities itself. Account merge selection uses `account-config-v1` or
-`account-config-v2`; authorization remains in canopyd before and after evaluation.
+durable identities itself. Account merge selection uses `account-config-v2`; authorization remains in canopyd before and after evaluation.
 
 A `kind: "source"` request carries the same object-reference inputs plus `tree`,
 `path`, and `proposal: { object }`. Its incoming material also carries exact
@@ -315,7 +314,7 @@ caller's working directory or execute authored schemas in the host runtime.
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint
 checks; plain-text and Markdown source-proposal validation; account configuration
-v1/v2 merging. Exact authored-operation execution, nested choices, and the
+v2 merging. Exact authored-operation execution, nested choices, and the
 conservative format rules are described next.
 
 ## Verification

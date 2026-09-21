@@ -49,7 +49,6 @@ final class ArborSyncClientTests: XCTestCase {
 
         XCTAssertEqual(status.instanceID, "instance-fixture-01")
         XCTAssertEqual(status.runtimeKind, "cloud")
-        XCTAssertEqual(status.deviceID, "dv_fixturedevice23456723456723")
         XCTAssertEqual(error.error, "future-error-code")
         XCTAssertEqual(errors.last?.error, "future-error-code")
         XCTAssertEqual(conflict.items.first?.draft.text, "both\n")

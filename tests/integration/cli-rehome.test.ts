@@ -1,4 +1,4 @@
-import { CommunityConfigStore, generateArborID, CanopyAccountStore, loadCanopyAccountConfigurations } from "@overstory/protocol";
+import { generateArborID, CanopyAccountStore, loadCanopyAccountConfigurations } from "@overstory/protocol";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -62,8 +62,8 @@ beforeAll(async () => {
   });
   const daemon = await ArborSyncDaemon.open(profile);
   try {
-    await new LocalAccountService({ trees: daemon.trees, events: daemon.events, communityConfig: new CommunityConfigStore() }).claimCanopyAccount(`${sourceCanopy.url}/~joe`, profile, "Joe");
-    await new LocalAccountService({ trees: daemon.trees, events: daemon.events, communityConfig: new CommunityConfigStore() }).claimCanopyAccount(`${destinationCanopy.url}/~joe`, profile, "Joe");
+    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimCanopyAccount(`${sourceCanopy.url}/~joe`, profile, "Joe");
+    await new LocalAccountService({ trees: daemon.trees, events: daemon.events }).claimCanopyAccount(`${destinationCanopy.url}/~joe`, profile, "Joe");
     const accounts = await loadCanopyAccountConfigurations();
     const sourceAccount = accounts.find((account) => account.account?.canopy === sourceCanopy.url)!;
     tree = generateArborID("tr");

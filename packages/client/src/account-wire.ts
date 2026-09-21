@@ -1,4 +1,4 @@
-import { ProtocolError, CanopyAccountStore, CommunityConfigStore, WireClient } from "@overstory/protocol";
+import { ProtocolError, CanopyAccountStore, WireClient } from "@overstory/protocol";
 
 /**
  * Which claimed account a Wire call should speak for: an explicit account
@@ -25,7 +25,7 @@ export interface AccountWireClient {
  */
 export async function accountWireClient(
   selector: AccountSelector,
-  options: { communityConfig?: CommunityConfigStore; timeoutMs?: number; required?: boolean } = {},
+  options: { timeoutMs?: number; required?: boolean } = {},
 ): Promise<AccountWireClient> {
   const wireOptions = options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {};
   if (selector.configurationTree) {
@@ -55,10 +55,6 @@ export async function accountWireClient(
       configurationTree: record.configurationTree,
       authenticated: true,
     };
-  }
-  const legacy = await (options.communityConfig ?? new CommunityConfigStore()).get();
-  if (legacy?.record.origin === selector.origin) {
-    return { client: new WireClient(legacy.record.origin, legacy.accountToken, wireOptions), origin: legacy.record.origin, authenticated: true };
   }
   if (options.required) {
     throw new ProtocolError("credential-unavailable", `No claimed account for ${selector.origin}`, 409);

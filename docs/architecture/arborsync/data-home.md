@@ -25,10 +25,11 @@ ${ARBOR_DATA_HOME:-~/.arbor}/
 
 Each directory under `accounts/` is the source-preserving checkout of the
 configuration tree named by that directory. `placements.yaml` is local-only
-and groups absolute filesystem paths by configuration TreeID. The root-level
-v1 `account.yaml`, `trees.yaml`, and `devices/` shape remains only behind a
-named singleton compatibility adapter during the post-migration compatibility
-window; current state uses the plural layout above.
+and groups absolute filesystem paths by configuration TreeID. The plural layout above is the only supported account layout. The former
+root-level account graph and singleton credential record were retired on
+2026-09-21. Workspace registry records require `stateID`, `rootID`, and `path`;
+existing `rt_` and `tr_` root identities are preserved unchanged. Incomplete
+records fail with an offline-migration diagnostic before registry writes.
 
 `.state` is excluded from discovery, recursive watching, indexing, snapshots,
 synchronization, and deletion. The current implementation stores refs, pending
@@ -70,8 +71,7 @@ local `placements.yaml` independently. A valid account edit is synchronized as
 an ordinary account-tree change. An invalid candidate leaves that account's
 last fully valid projection active without removing other accounts; an invalid
 placement file likewise retains the last valid placement projection. Both
-produce safe diagnostics. The v1 watcher remains only inside the removable
-singleton adapter during its compatibility window.
+produce safe diagnostics.
 
 The configuration checkout is edited on disk, not through the daemon. The CLI
 (`arbor place`, `arbor mv`, cloud bundle revocation) and, later, the Mac app

@@ -5,7 +5,7 @@ import { LocalAccountService } from "./account-service.ts";
 import { browserHandler } from "./browser-http.ts";
 import { LocalFileService } from "./local-files.ts";
 import { realpath } from "node:fs/promises";
-import { PathEscapeError, CommunityConfigStore } from "@overstory/protocol";
+import { PathEscapeError } from "@overstory/protocol";
 import { ResyncRequiredError } from "./events.ts";
 import { ArborSyncDaemon } from "./service.ts";
 import { ProtocolError, type Workspace } from "./workspace.ts";
@@ -32,7 +32,7 @@ function startArborSyncServer(
 ) {
   const instanceID = options.instanceID ?? crypto.randomUUID();
   const accounts = accountHandler(new LocalAccountService({
-    trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore(),
+    trees: service.trees, events: service.events,
   }));
   const sync = syncHandler(service, { instanceID, runtimeKind: options.runtimeKind ?? (workspace ? "foreground" : "persistent") });
   const browser = browserHandler(new LocalFileService(service.trees));

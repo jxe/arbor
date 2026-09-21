@@ -14,7 +14,6 @@
     "./utf8": "./src/model/utf8.ts",
     "./path": "./src/model/path.ts",
     "./file-ops": "./src/model/file-ops.ts",
-    "./account-config": "./src/config/account-config.ts",
     "./account-config-v2": "./src/config/account-config-v2.ts"
   },
   "dependencies": {

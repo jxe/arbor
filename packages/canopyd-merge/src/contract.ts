@@ -269,12 +269,6 @@ export function parseResponse(
           .strict(),
         z
           .object({
-            version: z.literal("account-config-v1"),
-            mergedFields: z.number().int().nonnegative(),
-          })
-          .strict(),
-        z
-          .object({
             version: z.literal("account-config-v2"),
             mergedFields: z.number().int().nonnegative(),
           })

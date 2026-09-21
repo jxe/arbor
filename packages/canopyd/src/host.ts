@@ -339,12 +339,10 @@ export async function serveCanopy(options: {
           const body = await request.json() as {
             secret?: unknown;
             device?: { id?: unknown; label?: unknown; credentialDigest?: unknown };
-            placements?: unknown;
           };
           if (
             typeof body.secret !== "string" || typeof body.device?.id !== "string"
             || typeof body.device.label !== "string" || typeof body.device.credentialDigest !== "string"
-            || (body.placements !== undefined && (typeof body.placements !== "object" || body.placements === null || Array.isArray(body.placements)))
           ) throw new Error("Pairing claim requires secret, generated device identity, credential digest, and label");
           const claimed = await canopy.claimPairing({
             id: pairingID,
@@ -352,7 +350,6 @@ export async function serveCanopy(options: {
             deviceID: body.device.id,
             credentialDigest: body.device.credentialDigest,
             label: body.device.label,
-            placements: (body.placements ?? {}) as Record<string, { server: string; path?: string }>,
           });
           return json({ device: claimed.device, confirmationCode: claimed.confirmationCode }, 201);
         }

@@ -26,8 +26,8 @@ by the existing suites. This plan finishes the job.
    that name the system; the app is Canopy and the trees are Overstory
    trees. Update the quoted strings in `docs/implementing-editors/design.md` and the tests that
    assert them in the same commit.
-4. **`-v2` file names.** After [Cleanup 002](002-retire-v1-account-and-local-state-adapters.md)
-   retires the v1 readers, rename `account-config-v2.ts`,
+4. **`-v2` file names.** The v1 readers were retired on 2026-09-21 (see
+   [status](../../status.md#v1-account-and-local-state-cutoff--2026-09-21)); rename `account-config-v2.ts`,
    `account-policy-v2.ts`, `account-v2.ts`, their tests, and the
    `./account-config-v2` export subpath to the plain names.
 5. **`tests/fixtures/canopy/wire-merge.json`** and the `wire-format`

@@ -1,5 +1,5 @@
 import type { LocalTreeDescriptor, TreeID, WorkspaceChange, WorkspaceEvent } from "@overstory/protocol";
-import type { CommunityConfigStore, SharedTreePlacement, TreePlacement } from "@overstory/protocol";
+import type { SharedTreePlacement, TreePlacement } from "@overstory/protocol";
 
 /**
  * The daemon-owned objects the Canopy client needs, expressed as narrow ports
@@ -36,5 +36,4 @@ export interface AccountTreeRegistry {
 export interface AccountBootstrapDeps {
   trees: AccountTreeRegistry;
   events: SyncEventSink;
-  communityConfig: CommunityConfigStore;
 }

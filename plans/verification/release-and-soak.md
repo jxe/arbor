@@ -61,9 +61,9 @@ without claiming to prove the original incident's exact cause.
 
 ## Compatibility windows remain separate
 
-[Cleanup 001](../cleanups/001-pageid-stable-key-cutoff.md) and
-[Cleanup 002](../cleanups/002-retire-v1-account-and-local-state-adapters.md) retain their own data audits,
-operator decisions and backup conditions. A date passing does not close those windows.
+[Cleanup 001](../cleanups/001-pageid-stable-key-cutoff.md) retains its own data audit,
+operator decision and backup conditions. A date passing does not close that window.
+Cleanup 002 closed on 2026-09-21; its evidence is in [status](../../status.md#v1-account-and-local-state-cutoff--2026-09-21).
 
 When a gate passes, record exact revision/date/evidence in its owning checkpoint, then remove
 that completed checkbox here. Do not keep finished release steps as an evergreen executor plan.

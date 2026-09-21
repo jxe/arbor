@@ -79,9 +79,8 @@ implementations.
 Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](../architecture/README.md), including the local API, CLI, and client design, is informative rather than normative.
 
 The checked-in configuration vectors describe the revised three-file
-`account-config-v2` graph. The old `account-config-v1` grammar remains only in
-its named runtime compatibility parser and future offline migration fixtures;
-it is not a valid v2 authored graph.
+`account-config-v2` graph. The former v1 grammar is no longer accepted by the reference runtime;
+old state requires an offline migration before startup.
 
 ## Route index
 

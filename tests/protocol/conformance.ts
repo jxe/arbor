@@ -1,11 +1,12 @@
+import { installAccountHome } from "../helpers/account-home.ts";
 import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveCanopy } from "@overstory/canopyd";
-import { canonicalArborLocator, generateArborID, CommunityConfigStore, saveCurrentDeviceID, WireClient, decodeWireDirectory, type SourceOperation } from "@overstory/protocol";
-import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopyd/src/account-policy.ts";
+import { generateArborID, WireClient, decodeWireDirectory, type SourceOperation } from "@overstory/protocol";
+import { readAccountConfigGraphV2, snapshotAccountConfigV2 } from "../../packages/canopyd/src/account-policy-v2.ts";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
@@ -51,7 +52,7 @@ try {
     accounts: [{ handle: "owner", token: authorityToken, communityWriter: true }],
   });
   try {
-    await mkdir(join(home, "devices"), { recursive: true });
+    await mkdir(home, { recursive: true });
     await mkdir(join(treeDir, "sub"), { recursive: true });
     await writeFile(join(treeDir, "_index.md"), "# Protocol tree\n");
     await writeFile(join(treeDir, "page.md"), "Shared live-server fixture\n");
@@ -63,30 +64,21 @@ try {
     const configurationTree = account.account.configuration.id;
     const configuration = await owner.descriptor(configurationTree);
     const configurationSnapshot = await owner.snapshot(configurationTree, configuration.tree.root);
-    const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
-    const device = graph.account.admins[0]!;
+    const graph = readAccountConfigGraphV2({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
+    const device = Object.values(graph.devices).find(device => device.administrator)!.id;
     const tree = generateArborID("tr");
     const sourceTree = generateArborID("tr");
     const crossDocumentTree = generateArborID("tr");
     const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"].map(mode => [mode, generateArborID("tr")]));
-    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
+    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfigV2({
       account: graph.account,
-      trees: { version: 1, trees: { ...graph.trees.trees,
-        [tree]: { canonicalPath: "/~owner/protocol", access: [] },
-        [sourceTree]: { canonicalPath: "/~owner/source-admissions", access: [] },
-        [crossDocumentTree]: { canonicalPath: "/~owner/cross-document", access: [] },
-        ...Object.fromEntries(Object.entries(reviewTrees).map(([mode, id]) => [id, { canonicalPath: `/~owner/review-${mode}`, access: [] }])),
-      } },
-      devices: {
-        ...graph.devices,
-        [device]: { ...graph.devices[device]!, placements: {
-          ...graph.devices[device]!.placements,
-          [tree]: { server: new URL(canopy.url).origin, path: treeDir },
-          [sourceTree]: { server: new URL(canopy.url).origin },
-          [crossDocumentTree]: { server: new URL(canopy.url).origin },
-          ...Object.fromEntries(Object.values(reviewTrees).map(id => [id, { server: new URL(canopy.url).origin }])),
-        } },
+      trees: { ...graph.trees,
+        [tree]: { canonical: `${canopy.url}/~owner/protocol`, access: [] },
+        [sourceTree]: { canonical: `${canopy.url}/~owner/source-admissions`, access: [] },
+        [crossDocumentTree]: { canonical: `${canopy.url}/~owner/cross-document`, access: [] },
+        ...Object.fromEntries(Object.entries(reviewTrees).map(([mode, id]) => [id, { canonical: `${canopy.url}/~owner/review-${mode}`, access: [] }])),
       },
+      devices: graph.devices,
     }));
     await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
     await owner.submitUpdate(sourceTree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
@@ -97,23 +89,7 @@ try {
 
     // Materialize the accepted configuration checkout into the data home and
     // record the device and community credential the daemon reads at start.
-    const accepted = await owner.descriptor(configurationTree);
-    const acceptedSnapshot = await owner.snapshot(configurationTree, accepted.tree.root);
-    const acceptedGraph = readAccountConfigGraph({ root: acceptedSnapshot.root, objects: acceptedSnapshot.objects }, configurationTree);
-    for (const [path, source] of Object.entries(acceptedGraph.sources)) await writeFile(join(home, path), source);
-    process.env.ARBOR_DATA_HOME = home;
-    await saveCurrentDeviceID(device);
-    await new CommunityConfigStore().set(canopy.url, authorityToken, {
-      id: account.account.id,
-      handle: account.account.handle!,
-      profileTree: account.account.profileTree,
-      profileURL: account.account.profileURL,
-      communityTree: account.account.community.id,
-      communityURL: canonicalArborLocator(account.account.community.canonical!),
-      configurationTree,
-      configurationRef: accepted.tree.root,
-      configurationUpdate: accepted.tree.update,
-    });
+    await installAccountHome(home, owner, device, authorityToken, { [treeDir]: tree });
 
     const control = await serveArborSyncControl({ port: 0, syncIntervalMs: 60_000 });
     try {

@@ -80,3 +80,21 @@ describe("Canopy schema version stamp", () => {
     await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version future.*run the offline migration/);
   });
 });
+
+test("rejects a v1 account policy at the current schema without changing its row", async () => {
+  const root = await dataRoot();
+  const first = await CanopyDaemon.open(root, bootstrap);
+  await first.ensureAccountConfigTrees("https://community.example");
+  await first[Symbol.asyncDispose]();
+  const path = join(root, "canopy.sqlite3");
+  const db = new Database(path);
+  db.run("UPDATE trees SET policy = 'account-config-v1' WHERE policy = 'account-config-v2'");
+  const before = db.query("SELECT * FROM trees ORDER BY id").all();
+  expect(before.some(row => (row as { policy: string }).policy === "account-config-v1")).toBe(true);
+  db.close();
+  await expect(CanopyDaemon.open(root)).rejects.toThrow("account-config-v1 requires offline migration");
+  const after = new Database(path, { readonly: true });
+  expect(after.query("SELECT * FROM trees ORDER BY id").all()).toEqual(before);
+  expect(after.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: CANOPY_SCHEMA_VERSION });
+  after.close();
+});

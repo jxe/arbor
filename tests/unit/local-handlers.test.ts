@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { CommunityConfigStore } from "@overstory/protocol";
 import { accountHandler } from "../../packages/arborsync/src/account-http.ts";
 import { LocalAccountService } from "../../packages/arborsync/src/account-service.ts";
 import { browserHandler } from "../../packages/arborsync/src/browser-http.ts";
@@ -26,7 +25,6 @@ test("browser handler preserves conditional/ranged bytes independently of sync",
 test("account handler takes only account bootstrap ports and leaves sync routes alone", async () => {
   const unexpected = () => { throw new Error("Unrelated account dependency was used"); };
   const handler = accountHandler(new LocalAccountService({
-    communityConfig: new CommunityConfigStore(),
     trees: { openSession: unexpected, refreshConfiguration: unexpected, invalidateDescriptors: unexpected },
     events: { emit: unexpected },
   }));

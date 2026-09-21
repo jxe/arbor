@@ -1,3 +1,4 @@
+import { installAccountHome } from "../helpers/account-home.ts";
 import { encodeWireDirectory } from "@overstory/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
@@ -288,14 +289,13 @@ describe("arborsync bootstrap and credential routes", () => {
     const { serveCanopy } = await import("@overstory/canopyd");
     const { WireClient } = await import("@overstory/protocol");
     const { resolveSnapshot, snapshotDirectory } = await import("@overstory/fs");
-    const { generateArborID, canonicalArborLocator } = await import("@overstory/protocol");
-    const { CommunityConfigStore, saveCurrentDeviceID } = await import("@overstory/protocol");
-    const { readAccountConfigGraph, snapshotAccountConfig } = await import("../../packages/canopyd/src/account-policy.ts");
+    const { generateArborID } = await import("@overstory/protocol");
+    const { readAccountConfigGraphV2, snapshotAccountConfigV2 } = await import("../../packages/canopyd/src/account-policy-v2.ts");
 
     sandbox = await mkdtemp(join(tmpdir(), "arbor-bootstrap-route-"));
     home = join(sandbox, "home");
     treeDir = join(sandbox, "tree");
-    await mkdir(join(home, "devices"), { recursive: true });
+    await mkdir(home, { recursive: true });
     await mkdir(join(treeDir, "sub"), { recursive: true });
     await writeFile(join(treeDir, "_index.md"), "# Bootstrap tree\n");
     await writeFile(join(treeDir, "note.md"), "A note\n");
@@ -315,40 +315,18 @@ describe("arborsync bootstrap and credential routes", () => {
     const configurationTree = account.account.configuration.id;
     const configuration = await owner.descriptor(configurationTree);
     const configurationSnapshot = await owner.snapshot(configurationTree, configuration.tree.root);
-    const graph = readAccountConfigGraph({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
-    const device = graph.account.admins[0]!;
+    const graph = readAccountConfigGraphV2({ root: configurationSnapshot.root, objects: configurationSnapshot.objects }, configurationTree);
+    const device = Object.values(graph.devices).find(device => device.administrator)!.id;
     tree = generateArborID("tr");
-    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfig({
+    await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfigV2({
       account: graph.account,
-      trees: { version: 1, trees: { ...graph.trees.trees, [tree]: { canonicalPath: "/~owner/bootstrap", access: [] } } },
-      devices: {
-        ...graph.devices,
-        [device]: { ...graph.devices[device]!, placements: {
-          ...graph.devices[device]!.placements,
-          [tree]: { server: new URL(canopy.url).origin, path: treeDir },
-        } },
-      },
+      trees: { ...graph.trees, [tree]: { canonical: `${canopy.url}/~owner/bootstrap`, access: [] } },
+      devices: graph.devices,
     }));
     await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeDir)));
 
-    const accepted = await owner.descriptor(configurationTree);
-    const acceptedSnapshot = await owner.snapshot(configurationTree, accepted.tree.root);
-    const acceptedGraph = readAccountConfigGraph({ root: acceptedSnapshot.root, objects: acceptedSnapshot.objects }, configurationTree);
-    for (const [path, source] of Object.entries(acceptedGraph.sources)) await writeFile(join(home, path), source);
     previousHome = process.env.ARBOR_DATA_HOME;
-    process.env.ARBOR_DATA_HOME = home;
-    await saveCurrentDeviceID(device);
-    await new CommunityConfigStore().set(canopy.url, token, {
-      id: account.account.id,
-      handle: account.account.handle!,
-      profileTree: account.account.profileTree,
-      profileURL: account.account.profileURL,
-      communityTree: account.account.community.id,
-      communityURL: canonicalArborLocator(account.account.community.canonical!),
-      configurationTree,
-      configurationRef: accepted.tree.root,
-      configurationUpdate: accepted.tree.update,
-    });
+    await installAccountHome(home, owner, device, token, { [treeDir]: tree });
     // A long fallback interval keeps the daemon from racing the stored-state tests below.
     daemon = await serveArborSync(treeDir, { port: 0, syncIntervalMs: 60_000 });
     placedBase = daemon.url;

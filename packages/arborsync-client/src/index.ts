@@ -41,7 +41,6 @@ export interface ArborSyncStatus {
   protocolVersion: string;
   instanceID: string;
   runtimeKind: "persistent" | "foreground" | "cloud";
-  deviceID?: string;
 }
 
 export class ArborSyncError extends Error {

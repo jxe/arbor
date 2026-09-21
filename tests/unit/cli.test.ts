@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachedArborSyncURL, openTarget } from "../../packages/cli/src/index.ts";
 import { resolveUserPath, serveArborSync } from "@overstory/arborsync";
-import { communityCredentialName } from "@overstory/protocol";
+import { accountCredentialName } from "@overstory/protocol";
 
 describe("arbor open operands", () => {
   test("rejects the removed --port option", async () => {
@@ -89,10 +89,10 @@ describe("arbor open operands", () => {
   });
 
   test("isolates active credentials by Arbor data home", () => {
-    expect(communityCredentialName("/Users/alice/.arbor"))
-      .not.toBe(communityCredentialName("/tmp/arbor-e2e-state"));
-    expect(communityCredentialName("/Users/alice/.arbor"))
-      .toBe(communityCredentialName("/Users/alice/.arbor"));
+    expect(accountCredentialName("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "/Users/alice/.arbor"))
+      .not.toBe(accountCredentialName("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "/tmp/arbor-e2e-state"));
+    expect(accountCredentialName("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "/Users/alice/.arbor"))
+      .toBe(accountCredentialName("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "/Users/alice/.arbor"));
   });
 
   test("attaches to an existing Arbor Sync workspace", async () => {

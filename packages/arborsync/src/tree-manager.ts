@@ -33,7 +33,7 @@ function acceptedBase(placement: { ref?: string | null; update?: string | null; 
 }
 
 /**
- * Owns legacy and shared entries in `~/.arbor/trees.yaml` and the private
+ * Owns plural account placements and the private
  * Workspace instances behind one shared event bus. Private workspace IDs
  * are never projected as durable public identity for unpromoted content.
  */
@@ -45,7 +45,6 @@ export class TreeManager implements AsyncDisposable {
   private syncStates = new Map<string, NonNullable<LocalTreeDescriptor["sync"]>>();
   private workspaceOptions: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {};
   private stopWatching?: () => void;
-  private registryPlural?: boolean;
   private reloadTail: Promise<void> = Promise.resolve();
   private descriptorRevisionValue = 0;
   private placementConfigurationFailed = false;
@@ -66,13 +65,10 @@ export class TreeManager implements AsyncDisposable {
 
   async init(): Promise<void> {
     const snapshot = await loadTreeRegistry();
-    this.registryPlural = snapshot.plural;
     this.recordDiagnostics = [...snapshot.diagnostics];
-    if (snapshot.plural && !snapshot.placementsValid) throw this.invalidPlacementConfiguration(snapshot.diagnostics);
-    if (!snapshot.diagnostics.length || snapshot.plural) {
-      const applied = await this.applyPlacements(snapshot.placements, false);
-      if (!applied) throw new Error(this.recordDiagnostics[0]?.message ?? "Tree placements are inconsistent");
-    }
+    if (!snapshot.placementsValid) throw this.invalidPlacementConfiguration(snapshot.diagnostics);
+    const applied = await this.applyPlacements(snapshot.placements, false);
+    if (!applied) throw new Error(this.recordDiagnostics[0]?.message ?? "Tree placements are inconsistent");
     await this.restartRegistryWatcher();
   }
 
@@ -272,44 +268,28 @@ export class TreeManager implements AsyncDisposable {
 
   private async reloadFromDisk(): Promise<void> {
     const snapshot = await loadTreeRegistry();
-    if (snapshot.plural && !snapshot.placementsValid) {
+    if (!snapshot.placementsValid) {
       this.failPlacementConfiguration(snapshot.diagnostics);
       return;
     }
-    if (snapshot.diagnostics.length && !snapshot.plural) {
-      this.recordDiagnostics = [...snapshot.diagnostics];
-      this.events.emit({ tree: "system", kind: "diagnostic", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
-      return;
-    }
-    let placements = snapshot.placements;
-    if (snapshot.plural) {
-      const invalidAccounts = new Set(snapshot.invalidAccounts);
-      const retained = [...this.known.values()]
-        .map((root) => root.placement)
-        .filter((placement): placement is TreePlacement => Boolean(
-          placement && (
-            (placement.configurationTree && invalidAccounts.has(placement.configurationTree))
-            || (!snapshot.placementsValid && placement.kind !== "account-configuration")
-          )
-        ));
-      placements = [
-        ...placements.filter((placement) =>
-          !(placement.configurationTree && invalidAccounts.has(placement.configurationTree))
-          && (snapshot.placementsValid || placement.kind === "account-configuration")
-        ),
-        ...retained,
-      ];
-    }
+    const invalidAccounts = new Set(snapshot.invalidAccounts);
+    const retained = [...this.known.values()]
+      .map((root) => root.placement)
+      .filter((placement): placement is TreePlacement => Boolean(
+        placement?.configurationTree && invalidAccounts.has(placement.configurationTree)
+      ));
+    const placements = [
+      ...snapshot.placements.filter((placement) =>
+        !(placement.configurationTree && invalidAccounts.has(placement.configurationTree))
+      ),
+      ...retained,
+    ];
     const applied = await this.applyPlacements(placements, true);
     if (!applied) {
       this.failPlacementConfiguration(this.recordDiagnostics);
       return;
     }
     this.recordDiagnostics = [...snapshot.diagnostics];
-    if (this.registryPlural !== snapshot.plural) {
-      this.registryPlural = snapshot.plural;
-      await this.restartRegistryWatcher();
-    }
   }
 
   async refreshConfiguration(): Promise<void> {

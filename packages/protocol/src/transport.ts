@@ -216,12 +216,11 @@ export class WireClient {
     id: string,
     secret: string,
     device: { id: string; label: string; credentialDigest: `sha256:${string}` },
-    placements: Record<TreeID, { server: string; path?: string }> = {},
   ): Promise<PairingClaimResult> {
     const response = await this.checked(await this.request(`/.arbor/pairings/${encodeURIComponent(id)}/claim`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secret, device, placements }),
+      body: JSON.stringify({ secret, device }),
     }));
     return response.json();
   }

@@ -1,6 +1,6 @@
 # Implementation status
 
-*Source reviewed: `4853ac9`, 2026-09-20. Check the working tree and tests
+*Source reviewed: `17da9152` plus the cleanup below, 2026-09-21. Check the working tree and tests
 before relying on a label.*
 
 This page reports what the reference implementation does today. The
@@ -45,7 +45,6 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 |---|---|---|---|
 | Canopy editing and review | implemented, not installed | Richer review previews, precise inline markers, transformed copies and other compound editor commands, interactive accessibility gates | [Native 008](plans/swift/008-complete-native-move-copy-undo-capture.md), [010](plans/swift/010-client-conflict-review.md) |
 | Markdown source-transfer policy | implemented, not deployed | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order; structured formats and protected structure still require review | [canopyd 009](plans/canopyd/009-canopy-provenance-merges.md) |
-| Operation frames and lazy history | phases 1 to 3 deployed | Lazy authority validation, retained-storage measurement before packing, deletion watermark | [canopyd 010](plans/canopyd/010-operation-frames-and-lazy-history.md) |
 | Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 004](plans/apps/004-mutation-permissions.md), [005](plans/apps/005-source-resolution-and-sidecar.md) |
 | Working-tree client transition | installed | The explicit soak closeout | [release and soak](plans/verification/release-and-soak.md#observation-and-soak-closeout) |
 | Canopy for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/canopy-web/025-arbor-web.md) |
@@ -63,14 +62,14 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## Known gaps
 
-- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the editor recovery store is never pruned. Measurement precedes packing in [canopyd 010](plans/canopyd/010-operation-frames-and-lazy-history.md) and [001](plans/canopyd/001-pack-object-storage.md).
+- **Storage is unbounded.** The per-tree object and byte quotas were removed from update acceptance; nothing bounds retained history, the iOS replica keeps every accepted object, and the editor recovery store is never pruned. Measurement precedes packing in [canopyd 001](plans/canopyd/001-pack-object-storage.md).
 - **Every accepted-state change requires review.** The host requires exact accepted-state guards, so a client must review the latest evidence even when projected bytes are equal or the update is unrelated.
 - **Range translation across a merged predecessor** is future work; the host relates an authored predecessor to its accepted projection through a validated or exactly replayed prefix only.
 - **Cross-account rehome of resource policy** fails before mutation until a policy-transfer contract is reviewed.
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward; divergent-merge and live latency are not established, and the first edit after a restart is measured in seconds unless warm-up ran.
 - **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. [canopyd 007](plans/canopyd/007-canopy-document-history.md) owns it.
-- **Compatibility windows.** The v1 account-configuration and local-state readers remain until [Cleanup 002](plans/cleanups/002-retire-v1-account-and-local-state-adapters.md); scalar group-member entries are legacy input only.
+- **Compatibility cutoff.** Account configuration is v2-only and workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
 ## Where work is tracked
@@ -283,3 +282,72 @@ and unkeyed roots now pop two pages, restore the original editor, and retain
 those pages in Forward order. All three focused app tests passed (parameterized
 Home plus mounted link and cross-tree history); the Mac test build and iOS
 Simulator build passed. This follow-up is source-only, not installed.
+
+
+### Operation frames and lazy history closeout — 2026-09-21
+
+Retired canopyd 010 after checking implementation, tests and the September 19
+performance report (`a7acdb01`, formerly `docs/canopy-update-performance.md`).
+Frames, per-generation capture/compaction, schema-15 evidence compaction,
+on-demand history and path-copy writes are implemented. The editable basis and
+structural effects-map difference serve as the deletion watermark; a separate
+`deletionsThrough` field was unnecessary. Authority validation still validates
+complete semantics; cached map proofs charge their own records/pointers instead
+of repeatedly charging their full descendants (`3a69d859`). Retention and warm-up
+reuse verified map nodes. This supersedes the literal touched-page proof design.
+
+The retained replay report measured a 640-merge-record production copy: edits on
+a live decision fell from 644–685 ms to 75–77 ms, divergent edits to 144–176 ms,
+and worker reads from 9.8 MB to about 470 KB. These were local replay measurements.
+The current lazy/eager differential and incremental suites passed 15 tests.
+
+Joe confirmed production timing is good on 2026-09-21. The native network log
+`~/.arbor/Logs/network-2026-09-21.jsonl` independently records the latest 20
+successful updates from 17:54:17 to 18:07:05 UTC: median round trip 462.4 ms,
+host total 403.7 ms (343.4–1772.2 ms), worker evaluation 56.5 ms, retention
+157.0 ms, and state validation 80.9 ms. These ordinary-use measurements do not
+prove the old sub-200-ms whole-host target or that all 20 edits had live decisions.
+Production behavior is accepted; storage packing/accounting remains canopyd 001.
+Undo is an ordinary edit; the retired causal-undo journal had reached 432 records,
+75 MB and 7.2 seconds per admission. Retained history remains unbounded.
+
+### V1 account and local-state cutoff — 2026-09-21
+
+Implemented locally; no deployment or app installation performed for this cutoff.
+Joe explicitly requested execution, confirmed Migration 003 rollback backups
+removed, and confirmed current iPhone synchronization. Read-only inspection of
+the live host found schema 15, one v2 configuration tree, four ordinary trees,
+one account and no missing/v1 configuration. The default Mac home has stamp 5,
+one plural account checkout, local placements, no singleton account/device
+record, and 109 complete workspace records (106 `rt_`, three `tr_`).
+
+Removed the singleton parser/watcher/credentials and v1 host/merge policies.
+Bootstrap fixtures now create v2 graphs and install account-local checkouts with
+local-only placements. The loopback status no longer exposes a singleton
+`deviceID`; account summaries retain their scoped device identities. Pairing
+clients no longer send filesystem placements, and the host has no placement
+branch in pairing. Current-schema
+startup rejects v1 policy rows before changing them. Incomplete workspace records
+fail without rewriting the registry; existing complete root identities survive.
+Migration 003's repository directory was already absent. Native 011 remains
+unimplemented and was renamed to describe account management and client-package
+consolidation rather than the already-direct publication path.
+
+The private cutoff receipt is
+`~/.arbor/.state/migration/v1-compatibility-cutoff-20260921T192722Z/receipt.json`.
+A disposable restored schema-15 production copy passed the full integrity audit
+and v2 graph decoding with authority rows unchanged. No authored trees or
+existing workspace identities were migrated by this source cleanup.
+
+Verification used Bun 1.3.14: typecheck, CLI build, the 50,000-file performance
+gate, 251 merger tests, and focused store/schema/sync checks passed. The product
+suite with a 15-second per-test budget passed 1,145 tests; its sole failure was
+the previously baseline-reproduced CLI private-tree placement test. The default
+five-second parallel run additionally hit three load-sensitive timeouts, all
+passing on focused rerun. The standard protocol gate encountered the known
+AppKit `renameByPageID` failure; the complete remaining gate passed with only
+that test excluded (16 ArborSyncClient, 22 CanopyAppKit, 44 Overstory,
+20 OverstoryClient, 98 CanopyWorkingTree, and five live editor tests).
+The macOS app build and iOS Simulator build-for-testing passed after the final
+pairing-client cleanup. Link and whitespace checks passed. These checks do not
+constitute a new installation or deployment.

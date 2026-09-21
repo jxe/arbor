@@ -1,129 +1,64 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { arborPrivateRoot, loadAccountConfiguration, parseAccountConfiguration, parseDeviceConfiguration, parseTreesConfiguration, saveCurrentDeviceID } from "@overstory/protocol";
-import { loadTreeRegistry } from "@overstory/arborsync/state";
-
+import { CanopyAccountStore, saveCurrentAccountDeviceID, parseCanopyAccountConfiguration, parseHostedTreesConfiguration, parseAccountDevicesConfiguration } from "@overstory/protocol";
+import { loadTreeRegistry, parseLocalPlacements } from "@overstory/arborsync/state";
 const previousDataHome = process.env.ARBOR_DATA_HOME;
+const previousCredentialStore = process.env.ARBOR_CREDENTIAL_STORE;
 const temporary: string[] = [];
-const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const shared = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb";
-const device = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-async function dataHome(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "arbor-account-config-"));
-  temporary.push(path);
-  process.env.ARBOR_DATA_HOME = path;
-  return path;
+const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", shared = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb", cfg = "tr_cccccccccccccccccccccccccc", device = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+const account = { canopy: "https://community.example", profile };
+async function dataHome() {
+  const home = await mkdtemp(join(tmpdir(), "arbor-account-config-"));
+  temporary.push(home); process.env.ARBOR_DATA_HOME = home; process.env.ARBOR_CREDENTIAL_STORE = "file"; return home;
 }
-
-async function writeConfiguration(home: string, placementPath?: string): Promise<void> {
-  await mkdir(join(home, "devices"), { recursive: true });
-  await writeFile(join(home, "account.yaml"), [
-    "version: 1",
-    "community: https://community.example",
-    `profile: { tree: ${profile}, handle: joe }`,
-    `admins: [${device}]`,
-    "",
-  ].join("\n"));
-  await writeFile(join(home, "trees.yaml"), [
-    "version: 1",
-    "trees:",
-    `  ${profile}:`,
-    "    canonicalPath: /~joe",
-    "    access: [{ subject: { kind: everyone }, access: read }]",
-    `  ${shared}:`,
-    "    canonicalPath: /~joe/shared",
-    "    access: []",
-    "",
-  ].join("\n"));
-  await writeFile(join(home, "devices", `${device}.yaml`), [
-    "version: 1",
-    "label: Joe's Mac",
-    "placements:",
-    `  ${shared}:`,
-    "    server: https://community.example",
-    ...(placementPath ? [`    path: ${JSON.stringify(placementPath)}`] : []),
-    "",
-  ].join("\n"));
-  await saveCurrentDeviceID(device);
+async function writeConfiguration(home: string, placementPath: string) {
+  const checkout = join(home, "accounts", cfg);
+  await mkdir(checkout, { recursive: true });
+  await writeFile(join(checkout, "account.yaml"), JSON.stringify(account));
+  await writeFile(join(checkout, "trees.yaml"), JSON.stringify({ [shared]: { canonical: `${account.canopy}/~joe/shared`, access: [] } }));
+  await writeFile(join(checkout, "devices.yaml"), JSON.stringify({ [device]: { label: "Mac", administrator: true } }));
+  await writeFile(join(home, "placements.yaml"), JSON.stringify({ [cfg]: { [placementPath]: shared } }));
+  await saveCurrentAccountDeviceID(cfg, device);
+  await new CanopyAccountStore(cfg).set("fixture-token", { origin: account.canopy, account: `${account.canopy}/~joe`, accountID: "joe", profileTree: profile, deviceID: device });
 }
-
 afterEach(async () => {
+  if (previousCredentialStore === undefined) delete process.env.ARBOR_CREDENTIAL_STORE;
+  else process.env.ARBOR_CREDENTIAL_STORE = previousCredentialStore;
   if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
   else process.env.ARBOR_DATA_HOME = previousDataHome;
-  await Promise.all(temporary.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(temporary.splice(0).map(path => rm(path, { recursive: true, force: true })));
 });
-
-describe("account configuration YAML", () => {
-  test("loads only the current device placements and materializes a pathless private replica", async () => {
-    const home = await dataHome();
-    await writeConfiguration(home);
-    const snapshot = await loadTreeRegistry();
-    expect(snapshot.diagnostics).toEqual([]);
-    expect(snapshot.configuration?.currentDevice?.id).toBe(device);
-    expect(snapshot.placements).toEqual([expect.objectContaining({
-      tree: shared,
-      endpoint: "https://community.example",
-      path: join(arborPrivateRoot(), "replicas", shared),
-      replica: true,
-      access: "write",
-    })]);
-  });
-
-  test("uses an explicit filesystem placement without copying or normalizing it", async () => {
-    const home = await dataHome();
-    const placed = join(home, "authored-tree");
-    await mkdir(placed);
-    await writeConfiguration(home, placed);
-    expect((await loadTreeRegistry()).placements).toEqual([
-      expect.objectContaining({ tree: shared, path: placed, replica: false }),
-    ]);
-  });
-
-  test("strictly rejects duplicate keys, aliases, unknown fields, stored none, and relative paths", async () => {
-    expect(() => parseTreesConfiguration("version: 1\ntrees: {}\ntrees: {}\n")).toThrow();
-    expect(() => parseTreesConfiguration("version: 1\ntrees: &x {}\ncopy: *x\n")).toThrow("aliases");
-    expect(() => parseAccountConfiguration([
-      "version: 1",
-      "community: https://community.example",
-      `profile: { tree: ${profile}, handle: joe }`,
-      `admins: [${device}]`,
-      "status: syncing",
-    ].join("\n"))).toThrow("unknown fields");
-    expect(() => parseTreesConfiguration([
-      "version: 1", "trees:", `  ${profile}:`, "    canonicalPath: /~joe",
-      "    access: [{ subject: { kind: everyone }, access: none }]",
-    ].join("\n"))).toThrow("read or write");
-    // Profile kind lives only in the root document's frontmatter; a declared kind is an unknown field.
-    expect(() => parseTreesConfiguration([
-      "version: 1", "trees:", `  ${profile}:`, "    kind: person-profile", "    canonicalPath: /~joe", "    access: []",
-    ].join("\n"))).toThrow("unknown fields");
-    expect(() => parseDeviceConfiguration([
-      "version: 1", "label: Laptop", "placements:", `  ${profile}:`,
-      "    server: https://community.example", "    path: relative/path",
-    ].join("\n"), device, `devices/${device}.yaml`)).toThrow("canonical and absolute");
-  });
-
-  test("rejects the retired authority placement key", () => {
-    expect(() => parseDeviceConfiguration([
-      "version: 1", "label: Laptop", "placements:", `  ${profile}:`,
-      "    authority: https://legacy.example",
-    ].join("\n"), device, `devices/${device}.yaml`)).toThrow("unknown fields: authority");
-  });
-
-  test("reports invalid candidates without inventing active configuration", async () => {
-    const home = await dataHome();
-    await mkdir(join(home, "devices"));
-    await writeFile(join(home, "account.yaml"), "version: 1\nadmins: []\n");
-    await writeFile(join(home, "trees.yaml"), "version: 1\ntrees: {}\ntrees: {}\n");
-    await writeFile(join(home, "devices", "laptop.yaml"), "version: 1\nlabel: Laptop\nplacements: {}\n");
-    const result = await loadAccountConfiguration();
-    expect(result.account).toBeUndefined();
-    expect(result.trees).toBeUndefined();
-    expect(result.diagnostics.map((entry) => entry.code)).toEqual([
-      "invalid-account-yaml", "invalid-trees-yaml", "invalid-device-file",
-    ]);
-  });
+test("an empty data home has an empty current registry", async () => {
+  await dataHome(); const result = await loadTreeRegistry();
+  expect(result.accounts).toEqual([]); expect(result.placements).toEqual([]); expect(result.diagnostics).toEqual([]);
+});
+test("uses an explicit local placement and separate account checkout", async () => {
+  const home = await dataHome(), placed = join(home, "authored-tree");
+  await mkdir(placed); await writeConfiguration(home, placed);
+  const result = await loadTreeRegistry();
+  expect(result.diagnostics).toEqual([]);
+  expect(result.accounts[0]?.currentDevice?.id).toBe(device);
+  expect(result.placements).toEqual([
+    expect.objectContaining({ tree: cfg, configurationTree: cfg, path: join(home, "accounts", cfg), kind: "account-configuration" }),
+    expect.objectContaining({ tree: shared, configurationTree: cfg, path: placed, endpoint: account.canopy }),
+  ]);
+});
+test("strict YAML rejects duplicates, aliases, unknown fields, stored none and relative local paths", () => {
+  expect(() => parseHostedTreesConfiguration(`${shared}: {}\n${shared}: {}\n`, account)).toThrow();
+  expect(() => parseHostedTreesConfiguration("a: &x {}\nb: *x\n", account)).toThrow();
+  expect(() => parseCanopyAccountConfiguration(JSON.stringify({ ...account, status: "syncing" }))).toThrow();
+  expect(() => parseHostedTreesConfiguration(JSON.stringify({ [shared]: { canonical: `${account.canopy}/~joe/shared`, access: [{ subject: { kind: "everyone" }, access: "none" }] } }), account)).toThrow();
+  expect(() => parseHostedTreesConfiguration(JSON.stringify({ [shared]: { kind: "person-profile", canonical: `${account.canopy}/~joe/shared`, access: [] } }), account)).toThrow();
+  expect(() => parseLocalPlacements(JSON.stringify({ [cfg]: { "relative/path": shared } }))).toThrow("canonical and absolute");
+  expect(() => parseAccountDevicesConfiguration(JSON.stringify({ [device]: { label: "Mac", administrator: true, placements: {} } }))).toThrow();
+});
+test("invalid account candidates do not invent an active projection", async () => {
+  const home = await dataHome(); await writeConfiguration(home, join(home, "tree"));
+  await writeFile(join(home, "accounts", cfg, "account.yaml"), "canopy: invalid\n");
+  const result = await loadTreeRegistry();
+  expect(result.invalidAccounts).toContain(cfg);
+  expect(result.placements).toEqual([]);
+  expect(result.diagnostics.map(d => d.code)).toContain("invalid-account-yaml");
 });

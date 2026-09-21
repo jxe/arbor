@@ -10,7 +10,6 @@ import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
 import { mergeWireTrees } from "../../../packages/canopyd-merge/src/merge.ts";
 import { snapshotAccountConfigV2 } from "../../../packages/canopyd-merge/src/account-v2.ts";
-import { snapshotAccountConfig } from "../../../packages/canopyd-merge/src/account.ts";
 import fixtures from "../../fixtures/canopy/wire-merge.json";
 
 let directory: string, store: ObjectStore, tool: MergeTool;
@@ -60,17 +59,12 @@ test.each(["plain-text-disjoint", "markdown-prose-disjoint"])("source rule %s re
   }
 });
 
-test("account configuration v1 and v2 rules run outside Canopy without authorization code", async () => {
+test("account configuration v2 rules run outside Canopy without authorization code", async () => {
   const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa", phone = "dv_bbbbbbbbbbbbbbbbbbbbbbbbbb";
   const v2 = { account: { canopy: "https://canopy.example", profile }, trees: {}, devices: {
     [admin]: { id: admin, label: "Mac", administrator: true }, [phone]: { id: phone, label: "Phone", administrator: false },
   } };
-  const v1 = { account: { version: 1 as const, community: "https://canopy.example", profile: { tree: profile, handle: "joe" }, admins: [admin] },
-    trees: { version: 1 as const, trees: { [profile]: { canonicalPath: "/~joe", access: [] } } }, devices: {
-      [admin]: { version: 1 as const, id: admin, label: "Mac", placements: {} }, [phone]: { version: 1 as const, id: phone, label: "Phone", placements: {} },
-    } };
   for (const [id, make] of [
-    ["account-config-v1", (a: string, b: string) => snapshotAccountConfig({ ...v1, devices: { [admin]: { ...v1.devices[admin]!, label: a }, [phone]: { ...v1.devices[phone]!, label: b } } })],
     ["account-config-v2", (a: string, b: string) => snapshotAccountConfigV2({ ...v2, devices: { [admin]: { ...v2.devices[admin]!, label: a }, [phone]: { ...v2.devices[phone]!, label: b } } })],
   ] as const) {
     const base = make("Mac", "Phone"), current = make("Desktop", "Phone"), incoming = make("Mac", "Mobile");

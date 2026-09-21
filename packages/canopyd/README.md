@@ -20,7 +20,7 @@ depends on it except tests and the deployment tooling.
   `source-intent-store.ts`, `entry-ambiguity.ts`, `semantic-merge.ts`.
 - `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, and the
   worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
-- `access.ts`, `accounts.ts`, `account-policy.ts` and `-v2.ts`, `profile.ts`,
+- `access.ts`, `accounts.ts`, `account-policy-v2.ts`, `profile.ts`,
   `boundaries.ts`, `resource-effects.ts`, `execution-authority.ts`: claims,
   accounts, governed configuration, and resource policy.
 - `public-page.ts`, `projection.ts`: public HTML and Markdown projection and

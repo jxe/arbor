@@ -29,7 +29,7 @@ export class LocalAccountService {
       }
       token = accounts.length === 1
         ? (await new CanopyAccountStore(accounts[0]!.configurationTree).get())?.accountToken
-        : (await this.deps.communityConfig.get())?.accountToken;
+        : undefined;
     }
     if (!token) throw new ProtocolError("not-found", "No account credential is available", 404);
     return token;
@@ -93,11 +93,11 @@ export class LocalAccountService {
   }
 
   async accountList(): Promise<LocalAccountSummary[]> {
-    return listLocalAccounts(this.deps.communityConfig);
+    return listLocalAccounts();
   }
 
   async createPairingBootstrap(configurationTree?: string) {
-    return createPairingBootstrap(this.deps, configurationTree);
+    return createPairingBootstrap(configurationTree);
   }
 
 }

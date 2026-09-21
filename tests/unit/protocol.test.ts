@@ -72,7 +72,6 @@ describe("REST v1 protocol fixtures", () => {
       protocolVersion: "v1",
       instanceID: "instance-fixture-01",
       runtimeKind: "cloud",
-      deviceID: "dv_fixturedevice23456723456723",
     });
   });
 

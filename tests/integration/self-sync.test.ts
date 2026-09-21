@@ -1,3 +1,4 @@
+import { installAccountHome } from "../helpers/account-home.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,8 +8,8 @@ import { ArborSyncRESTClient } from "@overstory/arborsync-client";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "../../packages/canopyd/src/updates/store.ts";
 import { serveCanopy } from "@overstory/canopyd";
-import { canonicalArborLocator, generateArborID, sha256, CommunityConfigStore, saveCurrentDeviceID, type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireDirectory, encodeWireDirectory, hashObject, WireClient } from "@overstory/protocol";
-import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopyd/src/account-policy.ts";
+import { CanopyAccountStore, generateArborID, sha256, type CandidateUpdate, compareWireNames, decodeCandidateUpdateJSON, decodeWireDirectory, encodeWireDirectory, hashObject, WireClient } from "@overstory/protocol";
+import { readAccountConfigGraphV2, snapshotAccountConfigV2 } from "../../packages/canopyd/src/account-policy-v2.ts";
 import {
   appendPendingTreeSuccessor,
   pendingFromSnapshot,
@@ -38,33 +39,6 @@ async function readAccepted(client: WireClient, treeID: string) {
   const descriptor = await client.descriptor(treeID);
   const snapshot = await client.snapshot(treeID, descriptor.tree.root);
   return { descriptor, snapshot };
-}
-
-async function installDataHome(
-  home: string,
-  device: string,
-  credential: string,
-  graph: ReturnType<typeof readAccountConfigGraph>,
-  account: Awaited<ReturnType<WireClient["account"]>>,
-): Promise<void> {
-  await mkdir(join(home, "devices"), { recursive: true });
-  for (const [path, source] of Object.entries(graph.sources)) {
-    await writeFile(join(home, path), source);
-  }
-  process.env.ARBOR_DATA_HOME = home;
-  await saveCurrentDeviceID(device);
-  const configuration = await new WireClient(host.url, credential).descriptor(account.account.configuration.id);
-  await new CommunityConfigStore().set(host.url, credential, {
-    id: account.account.id,
-    handle: account.account.handle!,
-    profileTree: account.account.profileTree,
-    profileURL: account.account.profileURL,
-    communityTree: account.account.community.id,
-    communityURL: canonicalArborLocator(account.account.community.canonical!),
-    configurationTree: account.account.configuration.id,
-    configurationRef: configuration.tree.root,
-    configurationUpdate: configuration.tree.update,
-  });
 }
 
 async function launch(
@@ -120,25 +94,19 @@ beforeAll(async () => {
   const owner = new WireClient(host.url, token);
   const initialAccount = await owner.account();
   let configuration = await readAccepted(owner, initialAccount.account.configuration.id);
-  let graph = readAccountConfigGraph({
+  let graph = readAccountConfigGraphV2({
     root: configuration.snapshot.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
-  deviceA = graph.account.admins[0]!;
+  deviceA = Object.values(graph.devices).find(device => device.administrator)!.id;
   tree = generateArborID("tr");
-  const reserved = snapshotAccountConfig({
+  const reserved = snapshotAccountConfigV2({
     account: graph.account,
-    trees: { version: 1, trees: {
-      ...graph.trees.trees,
-      [tree]: { canonicalPath: "/~owner/self-sync", access: [] },
-    } },
-    devices: {
-      ...graph.devices,
-      [deviceA]: { ...graph.devices[deviceA]!, placements: {
-        ...graph.devices[deviceA]!.placements,
-        [tree]: { server: new URL(host.url).origin, path: treeA },
-      } },
+    trees: {
+      ...graph.trees,
+      [tree]: { canonical: `${host.url}/~owner/self-sync`, access: [] },
     },
+    devices: graph.devices,
   });
   await owner.submitUpdate(configuration.descriptor.tree.id, configuration.descriptor.tree.update, reserved);
   await owner.submitUpdate(tree, null, await resolveSnapshot(await snapshotDirectory(treeA)));
@@ -149,15 +117,14 @@ beforeAll(async () => {
     id: deviceB,
     label: "Self-sync peer",
     credentialDigest: `sha256:${sha256(tokenB)}`,
-  }, { [tree]: { server: new URL(host.url).origin, path: treeB } });
+  });
   configuration = await readAccepted(owner, initialAccount.account.configuration.id);
-  graph = readAccountConfigGraph({
+  graph = readAccountConfigGraphV2({
     root: configuration.snapshot.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
-  const account = await owner.account();
-  await installDataHome(stateA, deviceA, token, graph, account);
-  await installDataHome(stateB, deviceB, tokenB, graph, account);
+  await installAccountHome(stateA, owner, deviceA, token, { [treeA]: tree });
+  await installAccountHome(stateB, new WireClient(host.url, tokenB), deviceB, tokenB, { [treeB]: tree });
 });
 
 afterAll(async () => {
@@ -165,12 +132,12 @@ afterAll(async () => {
   await host.canopy[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateA;
   const cleanup = await serveArborSync(treeA, { port: 0 });
-  await new CommunityConfigStore().remove();
+  for (const account of await CanopyAccountStore.list()) await new CanopyAccountStore(account.configurationTree).remove();
   cleanup.server.stop(true);
   await cleanup.service[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateB;
   const peerCleanup = await serveArborSync(bootstrapB, { port: 0 });
-  await new CommunityConfigStore().remove();
+  for (const account of await CanopyAccountStore.list()) await new CanopyAccountStore(account.configurationTree).remove();
   peerCleanup.server.stop(true);
   await peerCleanup.service[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });

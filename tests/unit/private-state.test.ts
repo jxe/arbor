@@ -49,7 +49,7 @@ describe("Arbor private state", () => {
     expect(await readdir(join(privateRoot, "format-recovery"))).toEqual(archives);
   });
 
-  test("an explicit data home is used as-is and upgrades registry identity", async () => {
+  test("an explicit data home preserves current registry identities and refreshes fingerprints", async () => {
     const state = await temp("arbor-data-override-");
     process.env.ARBOR_DATA_HOME = state;
     await prepareArborDataRoot();
@@ -63,13 +63,13 @@ describe("Arbor private state", () => {
     const canonicalOtherRoot = await realpath(otherRoot);
     const legacyStateID = "legacy-state-id";
     await writeFile(join(state, ".state", "workspaces.json"), `${JSON.stringify({
-      [canonicalRoot]: legacyStateID,
-      [canonicalOtherRoot]: "other-legacy-state-id",
+      [canonicalRoot]: { stateID: legacyStateID, rootID: "rt_preserved", path: canonicalRoot },
+      [canonicalOtherRoot]: { stateID: "other-legacy-state-id", rootID: "tr_preserved", path: canonicalOtherRoot },
     })}\n`);
 
     const identity = await workspaceIdentity(root);
     expect(identity.stateID).toBe(legacyStateID);
-    expect(identity.rootID).toStartWith("rt_");
+    expect(identity.rootID).toBe("rt_preserved");
     const registry = JSON.parse(await readFile(join(state, ".state", "workspaces.json"), "utf8"));
     expect(registry[canonicalRoot]).toMatchObject({
       stateID: legacyStateID,
@@ -149,4 +149,15 @@ describe("Arbor private state", () => {
     await expect(workspaceIdentity(root)).rejects.toBeInstanceOf(SyntaxError);
     expect(await readFile(join(state, ".state", "workspaces.json"), "utf8")).toBe(malformed);
   });
+});
+
+test.each([["old-state"], [{ stateID: "old-state", path: "/missing" }], [null], [[]]])("rejects incomplete registry records without rewriting them (%j)", async value => {
+  const state = await temp("arbor-invalid-registry-");
+  process.env.ARBOR_DATA_HOME = state;
+  await prepareArborDataRoot();
+  const root = await realpath(state), path = join(state, ".state", "workspaces.json");
+  const source = JSON.stringify({ [root]: value });
+  await writeFile(path, source);
+  await expect(workspaceIdentity(root)).rejects.toThrow("offline migration required");
+  expect(await readFile(path, "utf8")).toBe(source);
 });

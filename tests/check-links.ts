@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Check every relative Markdown link in tracked `.md` files.
+ * Check every relative Markdown link in tracked and unignored new `.md` files.
  *
  *   bun tests/check-links.ts [--strict]
  *
@@ -18,8 +18,9 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
-const proc = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], { cwd: root });
-const files = proc.stdout.toString().split("\0").filter(Boolean);
+const proc = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "*.md"], { cwd: root });
+const files = [...new Set(proc.stdout.toString().split("\0").filter(Boolean))]
+  .filter(file => existsSync(join(root, file)));
 const skip = [/^examples\//, /^tests\/fixtures\//];
 const linkPattern = /\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 

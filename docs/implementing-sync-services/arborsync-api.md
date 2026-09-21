@@ -129,8 +129,8 @@ GET  /v1/resolve?locator={ArborLocator}
 ```
 
 Status returns the service and protocol versions, an opaque process
-`instanceID`, the `runtimeKind` (`persistent`, `foreground`, or `cloud`), and
-the current `DeviceID` when connected. The instance ID lets an owner verify
+`instanceID`, and the `runtimeKind` (`persistent`, `foreground`, or `cloud`).
+Device identity is account-scoped and appears in `GET /v1/accounts`, not status. The instance ID lets an owner verify
 that a PID or loopback port still belongs to the runtime it created; clients
 must not assign meaning to its contents.
 

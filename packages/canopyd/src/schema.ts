@@ -165,6 +165,9 @@ export function assertCurrentCanopySchema(db: Database): void {
     }
   }
   if (!issues.length) {
+    if (db.query("SELECT 1 FROM trees WHERE policy = ? LIMIT 1").get("account-config-v1")) {
+      throw new Error("Canopy account-config-v1 requires offline migration to account-config-v2 before startup");
+    }
     const missingHistory = db.query(`
       SELECT COUNT(*) AS count FROM trees t
       WHERE NOT EXISTS (SELECT 1 FROM accepted_updates u WHERE u.tree_id = t.id)

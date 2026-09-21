@@ -1,4 +1,4 @@
-import { CommunityConfigStore, generateArborID, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
+import { generateArborID, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -215,7 +215,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       await owner.submitUpdate(community.tree.id, community.tree.update, await resolveSnapshot(await snapshotDirectory(source, nested)));
       expect(running.canopy.isReservedHandle("orphan")).toBe(false);
 
-      const bootstrap = new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() });
+      const bootstrap = new LocalAccountService({ trees: service.trees, events: service.events });
       await expect(bootstrap.claimCanopyAccount(`${new URL(running.url).origin}/~unassigned`, profilePath))
         .rejects.toThrow();
       expect(await bootstrap.pendingClaim()).toMatchObject({ canCancel: true });
@@ -234,10 +234,10 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       expect(await bootstrap.pendingClaim()).toEqual({ account: `${new URL(running.url).origin}/~charlie`, path: await realpath(profilePath), canCancel: false });
       await expect(bootstrap.cancelPendingClaim()).rejects.toThrow("may already have reached");
       // A fresh service resumes the exact claim even though the reservation is now claimed.
-      await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() })
+      await new LocalAccountService({ trees: service.trees, events: service.events })
         .claimCanopyAccount(new URL(running.url).origin, profilePath, "Charlie");
       expect(await bootstrap.pendingClaim()).toBeNull();
-      const accounts = await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).accountList();
+      const accounts = await new LocalAccountService({ trees: service.trees, events: service.events }).accountList();
       expect(accounts).toHaveLength(1);
       const configurationTree = accounts[0]!.configurationTree;
       configurationTrees.push(configurationTree);
@@ -263,7 +263,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       await new ProfileIdentityStore().restore(backupPath, pairedProfile);
       const pairedDaemon = await ArborSyncDaemon.open(pairedProfile, {}, { autoSync: false });
       try {
-        const paired = new LocalAccountService({ trees: pairedDaemon.trees, events: pairedDaemon.events, communityConfig: new CommunityConfigStore() });
+        const paired = new LocalAccountService({ trees: pairedDaemon.trees, events: pairedDaemon.events });
         const originalPair = WireClient.prototype.claimPairing;
         const lostPair = spyOn(WireClient.prototype, "claimPairing").mockImplementationOnce(async function (this: WireClient, ...args) {
           await originalPair.apply(this, args);
@@ -306,8 +306,8 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       const retainedPlacements = `${configurationTree}: {}\n`;
       await writeFile(join(home, "placements.yaml"), retainedPlacements);
 
-      await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).claimCanopyAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie");
-      const pluralAccounts = await new LocalAccountService({ trees: service.trees, events: service.events, communityConfig: new CommunityConfigStore() }).accountList();
+      await new LocalAccountService({ trees: service.trees, events: service.events }).claimCanopyAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie");
+      const pluralAccounts = await new LocalAccountService({ trees: service.trees, events: service.events }).accountList();
       expect(pluralAccounts).toHaveLength(2);
       expect(new Set(pluralAccounts.map((account) => account.profileTree))).toEqual(new Set([localProfileTree]));
       expect(new Set(pluralAccounts.map((account) => account.handle))).toEqual(new Set(["charlie", "charlie-two"]));

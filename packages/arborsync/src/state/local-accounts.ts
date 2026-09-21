@@ -1,5 +1,5 @@
 import type { LocalAccountSummary } from "@overstory/protocol";
-import { loadCanopyAccountConfigurations, CanopyAccountStore, CommunityConfigStore } from "@overstory/protocol";
+import { loadCanopyAccountConfigurations, CanopyAccountStore } from "@overstory/protocol";
 
 export type { LocalAccountSummary } from "@overstory/protocol";
 
@@ -9,33 +9,19 @@ export type { LocalAccountSummary } from "@overstory/protocol";
  * `GET /v1/accounts`; a same-machine caller such as the CLI may read it
  * directly because it touches nothing the daemon owns in memory or watches.
  */
-export async function listLocalAccounts(
-  communityConfig: CommunityConfigStore = new CommunityConfigStore(),
-): Promise<LocalAccountSummary[]> {
+export async function listLocalAccounts(): Promise<LocalAccountSummary[]> {
   const configurations = await loadCanopyAccountConfigurations();
-  if (configurations.length) {
-    return Promise.all(configurations.map(async (configuration) => {
-      const store = new CanopyAccountStore(configuration.configurationTree);
-      const stored = await store.safe();
-      return {
-        configurationTree: configuration.configurationTree,
-        canopy: configuration.account?.canopy ?? stored?.origin ?? null,
-        handle: stored?.handle ?? null,
-        profileTree: configuration.account?.profile ?? stored?.profileTree ?? null,
-        deviceID: configuration.currentDevice?.id ?? stored?.deviceID ?? null,
-        credentialAvailable: Boolean(await store.get()),
-        diagnostics: configuration.diagnostics,
-      };
-    }));
-  }
-  const legacy = await communityConfig.status();
-  return legacy ? [{
-    configurationTree: legacy.record.configurationTree,
-    canopy: legacy.record.origin,
-    handle: legacy.record.handle,
-    profileTree: legacy.record.profileTree,
-    deviceID: null,
-    credentialAvailable: legacy.credentialAvailable,
-    diagnostics: [],
-  }] : [];
+  return Promise.all(configurations.map(async (configuration) => {
+    const store = new CanopyAccountStore(configuration.configurationTree);
+    const stored = await store.safe();
+    return {
+      configurationTree: configuration.configurationTree,
+      canopy: configuration.account?.canopy ?? stored?.origin ?? null,
+      handle: stored?.handle ?? null,
+      profileTree: configuration.account?.profile ?? stored?.profileTree ?? null,
+      deviceID: configuration.currentDevice?.id ?? stored?.deviceID ?? null,
+      credentialAvailable: Boolean(await store.get()),
+      diagnostics: configuration.diagnostics,
+    };
+  }));
 }

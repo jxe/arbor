@@ -957,16 +957,6 @@ public struct WirePairingDevice: Codable, Sendable, Equatable {
     }
 }
 
-public struct WirePlacement: Codable, Sendable, Equatable {
-    public var server: String
-    public var path: String?
-
-    public init(server: String, path: String? = nil) {
-        self.server = server
-        self.path = path
-    }
-}
-
 public struct WireAccountChallenge: Codable, Sendable, Equatable {
     public var version: Int
     public var id: String

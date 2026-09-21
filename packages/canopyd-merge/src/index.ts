@@ -7,7 +7,6 @@ import type { ObjectStore } from "@overstory/object-store";
 import { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeWireTrees, type MergeResult } from "./merge.ts";
 import { markdownProseSourceRule, plainTextSourceRule } from "./merge-rules.ts";
-import { readAccountConfigGraph, mergeAccountConfigGraphs, snapshotAccountConfig } from "./account.ts";
 import { readAccountConfigGraphV2, mergeAccountConfigGraphsV2, snapshotAccountConfigV2 } from "./account-v2.ts";
 export { isIntentRequest, parseRequest, parseResponse, type MergeRequest, type MergeResponse, type ProjectionRequest, type ProjectionResponse } from "./contract.ts";
 import { mergeIntent } from "./intent-engine.ts";
@@ -65,20 +64,15 @@ export async function merge(raw: MergeRequest, objects: MergeObjects): Promise<M
   const { base, current, incoming } = request;
   if (request.rules.id === "tree-default") {
     result = await mergeWireTrees(base.object, incoming.object, current.object, hash => objects.read(hash));
-  } else if (request.rules.id === "account-config-v1" || request.rules.id === "account-config-v2") {
+  } else if (request.rules.id === "account-config-v2") {
     const [b, i, c] = await Promise.all([base, incoming, current].map(ref => snapshot(ref.object, objects)));
-    const resourceInputs = request.rules.id === "account-config-v2"
-      ? [b!, i!, c!].map(value => readAccountConfigGraphV2(value)) : null;
-    const merged = resourceInputs
-      ? mergeAccountConfigGraphsV2(resourceInputs[0]!, resourceInputs[1]!, resourceInputs[2]!)
-      : mergeAccountConfigGraphs(readAccountConfigGraph(b!), readAccountConfigGraph(i!), readAccountConfigGraph(c!));
+    const resourceInputs = [b!, i!, c!].map(value => readAccountConfigGraphV2(value));
+    const merged = mergeAccountConfigGraphsV2(resourceInputs[0]!, resourceInputs[1]!, resourceInputs[2]!);
     const policyOnlyRemoval = (field: string) => {
       const match = /^resources\.([^.]+)$/.exec(field);
       return !!match && !!resourceInputs && resourceInputs.every(graph => !graph.resources?.[match[1]!]?.canonical);
     };
-    const output = request.rules.id === "account-config-v1"
-      ? snapshotAccountConfig(merged.graph as Parameters<typeof snapshotAccountConfig>[0])
-      : snapshotAccountConfigV2(merged.graph as Parameters<typeof snapshotAccountConfigV2>[0]);
+    const output = snapshotAccountConfigV2(merged.graph);
     result = { root: output.root, objects: output.objects, conflicts: merged.conflicts.map(field => ({
       path: /^resources\.[^.]+\.access(?:\.|$)/.test(field) || policyOnlyRemoval(field) ? "/trees.yaml/access"
         : /^(resources|trees)\./.test(field) ? "/trees.yaml"

@@ -8,15 +8,13 @@ public struct ArborSyncStatus: Codable, Sendable, Equatable {
     public var protocolVersion: String
     public var instanceID: String
     public var runtimeKind: String
-    public var deviceID: String?
 
-    public init(service: String, version: String, protocolVersion: String, instanceID: String, runtimeKind: String, deviceID: String? = nil) {
+    public init(service: String, version: String, protocolVersion: String, instanceID: String, runtimeKind: String) {
         self.service = service
         self.version = version
         self.protocolVersion = protocolVersion
         self.instanceID = instanceID
         self.runtimeKind = runtimeKind
-        self.deviceID = deviceID
     }
 }
 

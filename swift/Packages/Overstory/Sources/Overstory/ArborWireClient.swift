@@ -229,13 +229,12 @@ public actor ArborWireClient {
     public func claimPairing(
         id: String,
         secret: String,
-        device: WirePairingDevice,
-        placements: [String: WirePlacement] = [:]
+        device: WirePairingDevice
     ) async throws -> WirePairingClaim {
         try validateObjectHash(device.credentialDigest)
         let value: WirePairingClaim = try await put(
             path: "/.arbor/pairings/\(component(id))/claim",
-            body: PairingClaimBody(secret: secret, device: device, placements: placements),
+            body: PairingClaimBody(secret: secret, device: device),
             authorized: false
         )
         return try value.validated()
@@ -602,7 +601,6 @@ private struct AccountChallengeRequest: Encodable {
 private struct PairingClaimBody: Encodable {
     var secret: String
     var device: WirePairingDevice
-    var placements: [String: WirePlacement]
 }
 private struct WireErrorEnvelope: Decodable {
     var error: String
