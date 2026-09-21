@@ -307,3 +307,12 @@ test("the single-worker queue is bounded and shutdown rejects waiting work", asy
   expect(await readdir(join(directory,"merge-workers"))).toEqual([]);
   await expect(sequential.evaluate(request,inputs)).rejects.toThrow("closing");
 });
+
+
+test("host evaluation budgets are bounded by the worker timeout", () => {
+  expect(new MergeTool(directory).evaluationMillis).toBe(20_000);
+  expect(new MergeTool(directory, {timeoutMs: 100}).evaluationMillis).toBe(100);
+  expect(new MergeTool(directory, {evaluationMillis: 12_000}).evaluationMillis).toBe(12_000);
+  expect(() => new MergeTool(directory, {evaluationMillis: 30_001})).toThrow("Invalid merge worker limits");
+  expect(() => new MergeTool(directory, {evaluationMillis: NaN})).toThrow("Invalid merge worker limits");
+});

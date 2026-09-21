@@ -191,7 +191,10 @@ choices; it does not escalate to the root directory. A newly authored enclosure
 is not itself evidence of a concurrent conflict.
 
 Evaluation time-budget exhaustion is an execution failure: canopyd returns a
-retryable HTTP 503, not a malformed-request HTTP 400. Deterministic invalid-input
+retryable HTTP 503, not a malformed-request HTTP 400. The host grants evaluations
+20 seconds by default, capped by the worker timeout (`evaluationMillis` can
+configure a smaller budget); the standalone evaluator retains its 5-second default.
+Deterministic invalid-input
 and operation-limit checks retain their existing classification.
 
 ### Format support contract

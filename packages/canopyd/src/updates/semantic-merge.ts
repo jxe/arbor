@@ -255,7 +255,7 @@ export class SemanticMerge {
       rules: {
         id: "tree-default",
         revision: 1,
-        config: { contentChoices: this.tool.contentChoices, conflictProjection: "current" },
+        config: { contentChoices: this.tool.contentChoices, conflictProjection: "current", maxMillis: this.tool.evaluationMillis },
       },
       ...(alternatives.length ? { alternatives } : {}),
     };

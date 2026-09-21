@@ -51,6 +51,8 @@ export interface MergeToolOptions {
    * exceed the evaluator's 5 s default. */
   validationMillis?: number;
   timeoutMs?: number;
+  /** Host evaluation budget; defaults to 20 s, bounded by the worker timeout. */
+  evaluationMillis?: number;
   /** Presentation policy; source choices remain coupled when the format requires it. */
   contentChoices?: "source" | "file";
 }
@@ -109,6 +111,7 @@ export class MergeTool {
       await rm(join(this.dataRoot, name), { recursive: true, force: true });
   }
   get contentChoices(): "source" | "file" { return this.options.contentChoices ?? "source"; }
+  get evaluationMillis(): number { return this.options.evaluationMillis ?? Math.min(20_000, this.options.timeoutMs ?? 30_000); }
   private get validationMillis(): number { return this.options.validationMillis ?? 60_000; }
 
   /** Validate one accepted state and its retention ahead of any request, so the
@@ -142,7 +145,9 @@ export class MergeTool {
   ) {
     if (
       !Number.isInteger(options.timeoutMs ?? 30_000) ||
-      (options.timeoutMs ?? 30_000) < 1
+      (options.timeoutMs ?? 30_000) < 1 ||
+      !Number.isInteger(this.evaluationMillis) || this.evaluationMillis < 1 ||
+      this.evaluationMillis > (options.timeoutMs ?? 30_000)
     )
       throw new Error("Invalid merge worker limits");
     this.shared = options.objects ?? new ObjectStore(join(dataRoot, "objects"));
