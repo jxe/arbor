@@ -1845,6 +1845,7 @@ final class ArborAppModel {
     private let openNavigationTree: @MainActor (TreeID) async throws -> Void
     private var loadRequestID = 0
     private var searchRequestID = 0
+    private var backlinksRequestID = 0
     private var lastSearchQuery = ""
     private var pageIndexTree: TreeID?
     private var pageIndexResults: [WorkspaceSearchResult] = []
@@ -2373,9 +2374,14 @@ final class ArborAppModel {
     }
 
     func loadBacklinks() async {
+        backlinksRequestID += 1
+        let requestID = backlinksRequestID
         guard workspace.capabilities.backlinks else { backlinks = []; return }
-        do { backlinks = try await workspace.provider.backlinks(to: currentReference) }
-        catch { backlinks = [] }
+        let reference = currentReference
+        let loaded = (try? await workspace.provider.backlinks(to: reference)) ?? []
+        // Navigation may have moved on while the provider answered.
+        guard requestID == backlinksRequestID, reference.identity == currentReference.identity else { return }
+        backlinks = loaded
     }
 
     func loadHistory() async {
