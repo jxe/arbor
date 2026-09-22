@@ -300,7 +300,7 @@ struct ArborSearchPalette: View {
                 isLoading = false
                 return
             }
-            do { try await Task.sleep(for: .milliseconds(140)) }
+            do { try await Task.sleep(for: arborQueryDebounce) }
             catch { return }
             guard !Task.isCancelled else { return }
             isLoading = true
@@ -404,6 +404,9 @@ struct ArborSearchPalette: View {
     }
 }
 
+/// The typing pause before a palette or picker runs its query.
+private let arborQueryDebounce = Duration.milliseconds(140)
+
 struct ArborMoveDestinationSheet: View {
     let host: ArborEditorHost
     let request: ArborMoveRequest
@@ -500,7 +503,7 @@ struct ArborMoveDestinationSheet: View {
         .task { searchFocused = true }
         .task(id: query) {
             if !query.isEmpty {
-                do { try await Task.sleep(for: .milliseconds(140)) }
+                do { try await Task.sleep(for: arborQueryDebounce) }
                 catch { return }
             }
             guard !Task.isCancelled else { return }
@@ -717,7 +720,7 @@ struct ArborStructuralMoveSheet: View {
         .task { searchFocused = true }
         .task(id: query) {
             if !query.isEmpty {
-                do { try await Task.sleep(for: .milliseconds(140)) }
+                do { try await Task.sleep(for: arborQueryDebounce) }
                 catch { return }
             }
             guard !Task.isCancelled else { return }

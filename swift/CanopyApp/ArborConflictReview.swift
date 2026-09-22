@@ -620,6 +620,8 @@ private struct ArborChoiceSourceComparison: View {
 
 /// Byte-exact comparisons preserve Unicode spelling and original line endings.
 struct ArborSourceLineComparison {
+    /// Combined line count beyond which a line diff is not attempted.
+    static let highlightedLineLimit = 4000
     let lines: [String]
     let changedLines: Set<Int>
     let status: String
@@ -637,7 +639,7 @@ struct ArborSourceLineComparison {
             return
         }
         let other = baseline.components(separatedBy: "\n")
-        guard lines.count + other.count <= 4000 else {
+        guard lines.count + other.count <= Self.highlightedLineLimit else {
             changedLines = []
             status = "Highlighting unavailable for this large comparison"
             return
