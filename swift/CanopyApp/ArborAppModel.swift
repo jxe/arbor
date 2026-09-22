@@ -1442,6 +1442,13 @@ final class ArborWorkspaceState {
         overviewEventRefreshTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: Self.overviewEventCoalescing) } catch { return }
             guard let self else { return }
+            // A refresh already in flight may have read the overview before
+            // these events; joining it would drop them. Let it finish (events
+            // meanwhile still share this task), then read afresh.
+            while let inFlight = self.overviewRefreshTask {
+                await inFlight.value
+                guard !Task.isCancelled else { return }
+            }
             self.overviewEventRefreshTask = nil
             await self.refreshLocalArborSyncOverview()
         }
