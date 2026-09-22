@@ -148,15 +148,6 @@ public enum UpdateMachine {
         }
 
         public var kind: String { phase.kind }
-
-        /// Whether the machine holds a request whose outcome may already be known to the authority.
-        public var requestMayHaveReachedAuthority: Bool {
-            switch phase {
-            case .submitting, .submittingPending: true
-            case let .offline(_, _, transmitted, _): transmitted
-            default: false
-            }
-        }
     }
 
     public enum Timer: String, Sendable, Equatable {

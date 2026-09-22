@@ -264,13 +264,12 @@ public actor UpdateCoordinator {
             try await recordObservedCursor(event)
             return presentation
         }
-        if let requestDigest = event.requestDigest, control.attempt == nil,
+        if event.requestDigest != nil, control.attempt == nil,
            control.sourceAcceptedChanges != nil || heads.acceptedUpdate != nil,
            event.tree.update.utf8.elementsEqual((heads.acceptedUpdate ?? "").utf8),
            event.tree.root == heads.acceptedRoot {
             // Our own accepted update, already installed from its response: only
             // the observation cursor is new, so a reconnect need not replay it.
-            _ = requestDigest
             try await recordObservedCursor(event)
             return try await presentation()
         }
@@ -1111,7 +1110,7 @@ public actor UpdateCoordinator {
                     }
                 }
                 var creation: SourcePageCreation?
-                if case let .pageCreation(_, _, _, transaction, document) = admission {
+                if case let .pageCreation(_, _, _, _, document) = admission {
                     // Remove the first branch introduced by creation. A promoted
                     // Markdown parent's sibling body stays exactly where it was.
                     let parts = (node.reference.path + ".md").dropFirst().split(separator: "/").map(String.init)
@@ -1124,7 +1123,6 @@ public actor UpdateCoordinator {
                         guard let next = entry.directory else { throw ArborWireValidationError.invalidValue("Creation overwrote an existing entry") }
                         hash = next
                     }
-                    _ = transaction
                     creation = .init(document: document, removals: ["/" + prefix.joined(separator: "/")])
                 }
                 var record = try SourceAdmissionRecord(tree: await workingTree.treeID().rawValue, basis: basis,
