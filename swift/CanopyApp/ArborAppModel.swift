@@ -1967,8 +1967,7 @@ final class ArborAppModel {
         // A failure against the provider being replaced must not show as
         // "Unable to open" while the new provider's page loads.
         errorMessage = nil
-        editorHost?.resolveMoveRequest(with: nil)
-        editorHost?.resolveStructuralMoveRequest(with: nil)
+        Self.cancelMoveRequests(of: editorHost)
         await releaseAllPagePresentations()
         tabs = BrowserTabController(launchLocation: workspace.launchLocation)
         sidebarLocation = workspace.launchLocation
@@ -2000,8 +1999,7 @@ final class ArborAppModel {
         isLoading = true
         linkedPageTrashPrompt = nil
         if let editorLease {
-            editorHost?.resolveMoveRequest(with: nil)
-            editorHost?.resolveStructuralMoveRequest(with: nil)
+            Self.cancelMoveRequests(of: editorHost)
             await workspace.editorWorkspace.release(editorLease)
             self.editorLease = nil
             editorHost = nil
@@ -2083,10 +2081,19 @@ final class ArborAppModel {
     }
 
     func navigate(to location: WorkspaceLocation) async {
+        await transition(preparing: location) { tabs.navigate(to: location) }
+    }
+
+    /// Leave the current page for the one `move` makes current: retain edits
+    /// and the page's presentation, reopen the destination's tree when it
+    /// names another one, then show the destination.
+    private func transition(preparing destination: WorkspaceLocation? = nil, _ move: () -> Void) async {
         await binding?.flush()
-        guard await prepareWorkspace(for: location) else { return }
+        if let destination {
+            guard await prepareWorkspace(for: destination) else { return }
+        }
         retainCurrentPagePresentation()
-        tabs.navigate(to: location)
+        move()
         await loadOrRestoreCurrentPage()
     }
 
@@ -2158,21 +2165,13 @@ final class ArborAppModel {
 
     func goBack() async {
         guard let destination = tabs.selectedTab.back.last else { return }
-        await binding?.flush()
-        guard await prepareWorkspace(for: destination) else { return }
-        retainCurrentPagePresentation()
-        tabs.goBack()
-        await loadOrRestoreCurrentPage()
+        await transition(preparing: destination) { tabs.goBack() }
     }
     func goForward() async {
         guard let destination = tabs.selectedTab.forward.last else { return }
-        await binding?.flush()
-        guard await prepareWorkspace(for: destination) else { return }
-        retainCurrentPagePresentation()
-        tabs.goForward()
-        await loadOrRestoreCurrentPage()
+        await transition(preparing: destination) { tabs.goForward() }
     }
-    func goParent() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goParent(); await loadOrRestoreCurrentPage() }
+    func goParent() async { await transition { tabs.goParent() } }
     func goHome() async {
         guard let home = treeHomeLocation else { return }
         await returnTo(home)
@@ -2180,23 +2179,14 @@ final class ArborAppModel {
 
     /// Pops back to `location` when it is already on the tab's trail, else pushes it.
     func returnTo(_ location: WorkspaceLocation) async {
-        await binding?.flush()
-        retainCurrentPagePresentation()
-        tabs.returnTo(location)
-        await loadOrRestoreCurrentPage()
+        await transition { tabs.returnTo(location) }
     }
 
     func setNavigationPath(_ path: [WorkspaceLocation]) {
         guard !isSwitchingNavigationTree, path != tabs.navigationPath else { return }
         let destination = path.last ?? tabs.navigationRoot
         if case let .reference(reference) = destination, reference.tree != workspace.home.tree {
-            Task {
-                await binding?.flush()
-                guard await prepareWorkspace(for: destination) else { return }
-                retainCurrentPagePresentation()
-                tabs.setNavigationPath(path)
-                await loadOrRestoreCurrentPage()
-            }
+            Task { await transition(preparing: destination) { tabs.setNavigationPath(path) } }
             return
         }
         retainCurrentPagePresentation()
@@ -2215,17 +2205,11 @@ final class ArborAppModel {
     }
 
     func newTab() async {
-        await binding?.flush()
-        retainCurrentPagePresentation()
-        tabs.newTab()
-        await loadOrRestoreCurrentPage()
+        await transition { tabs.newTab() }
     }
 
     func openInNewTab(_ location: WorkspaceLocation) async {
-        await binding?.flush()
-        retainCurrentPagePresentation()
-        tabs.newTab(at: location)
-        await loadOrRestoreCurrentPage()
+        await transition { tabs.newTab(at: location) }
     }
 
     func closeSelectedTab() async {
@@ -2239,16 +2223,18 @@ final class ArborAppModel {
 
     func selectTab(_ id: UUID) async {
         guard id != selectedTabID else { return }
-        await binding?.flush()
-        retainCurrentPagePresentation()
-        tabs.selectTab(id)
-        await loadOrRestoreCurrentPage()
+        await transition { tabs.selectTab(id) }
+    }
+
+    /// Answer any move the editor host is waiting on with no destination.
+    private static func cancelMoveRequests(of host: ArborEditorHost?) {
+        host?.resolveMoveRequest(with: nil)
+        host?.resolveStructuralMoveRequest(with: nil)
     }
 
     private func retainCurrentPagePresentation() {
         guard let node else { return }
-        editorHost?.resolveMoveRequest(with: nil)
-        editorHost?.resolveStructuralMoveRequest(with: nil)
+        Self.cancelMoveRequests(of: editorHost)
         let key = PagePresentationKey(tabID: selectedTabID, location: node.location)
         retainedPagePresentations[key] = PagePresentation(
             node: node,
@@ -2336,8 +2322,7 @@ final class ArborAppModel {
     }
 
     private func release(_ presentation: PagePresentation) async {
-        presentation.editorHost?.resolveMoveRequest(with: nil)
-        presentation.editorHost?.resolveStructuralMoveRequest(with: nil)
+        Self.cancelMoveRequests(of: presentation.editorHost)
         if let lease = presentation.editorLease {
             await workspace.editorWorkspace.release(lease)
         }
@@ -2345,8 +2330,7 @@ final class ArborAppModel {
 
     private func releaseAllPagePresentations() async {
         if let editorLease {
-            editorHost?.resolveMoveRequest(with: nil)
-            editorHost?.resolveStructuralMoveRequest(with: nil)
+            Self.cancelMoveRequests(of: editorHost)
             await workspace.editorWorkspace.release(editorLease)
         }
         for presentation in retainedPagePresentations.values {
