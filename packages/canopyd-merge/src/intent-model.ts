@@ -295,7 +295,16 @@ export interface Effect {
   preserves?: boolean;
   before: Record<string, Node>;
   after: Record<string, Node>;
+  /** The piece edits of an `editSource` effect, per file node. When present,
+   * `before`/`after` copies omit `pieces`: the edits carry exactly what
+   * deletion enforcement and retention read. Legacy records keep the pieces. */
+  edits?: Record<string, EffectEdit[]>;
   undone: boolean;
+}
+export interface EffectEdit {
+  range: [number, number];
+  removed: Piece[];
+  inserted: Piece[];
 }
 export interface IntentState extends View {
   format: "arbor-merge-intent-state";
@@ -446,6 +455,11 @@ const stateSchema = z
           preserves: z.boolean().optional(),
           before: nodesSchema,
           after: nodesSchema,
+          edits: z.record(z.string(), z.array(z.object({
+            range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]),
+            removed: z.array(pieceSchema).max(100_000),
+            inserted: z.array(pieceSchema).max(100_000),
+          }).strict())).optional(),
           undone: z.boolean(),
         })
         .strict()
@@ -594,6 +608,8 @@ export function intentDependencies(state: IntentState): Set<string> {
     hashes.add(effect.authored.basis);
     nodes(effect.before);
     nodes(effect.after);
+    for (const edits of Object.values(effect.edits ?? {}))
+      for (const edit of edits) { pieces(edit.removed); pieces(edit.inserted); }
   }
   for (const decision of state.decisions) {
     if (decision.context) hashes.add(decision.context);

@@ -19,6 +19,7 @@ import {
   parseIntentRequest,
   traceOperations,
   type Effect,
+  type EffectEdit,
   type IntentRequest,
   type IntentRequestInput,
   type IntentDecision,
@@ -1183,8 +1184,24 @@ class Engine {
       ...Object.keys(state.nodes),
     ]))
       if (!same(before[id], state.nodes[id])) {
-        if (before[id]) effect.before[id] = before[id]!;
-        if (state.nodes[id]) effect.after[id] = clone(state.nodes[id]!);
+        const old = before[id], now = state.nodes[id];
+        // Source edits store their piece delta instead of two whole copies of
+        // the file's pieces: the delta is all deletion enforcement reads.
+        if (operation.kind === "editSource" && old?.pieces && now?.pieces) {
+          const edits = pieceEdits(old.pieces, now.pieces).map((edit) => ({
+            range: edit.range,
+            removed: clone(slice(old.pieces!, ...edit.range)),
+            inserted: clone(edit.pieces),
+          }));
+          if (edits.length) (effect.edits ??= {})[id] = edits;
+          const { pieces: _before, ...slimBefore } = old;
+          const { pieces: _after, ...slimAfter } = clone(now);
+          effect.before[id] = slimBefore;
+          effect.after[id] = slimAfter;
+          continue;
+        }
+        if (old) effect.before[id] = old;
+        if (now) effect.after[id] = clone(now);
       }
     state.effects[key] = effect;
     if (result) state.outputs[key] = result;
@@ -1205,12 +1222,10 @@ class Engine {
   enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects) {
     for (const effect of Object.values(effects)) {
       if (effect.undone || effect.kind !== "editSource") continue;
-      for (const [id, before] of Object.entries(effect.before)) {
-        const after = effect.after[id];
-        if (!before.pieces || !after?.pieces) continue;
-        for (const edit of pieceEdits(before.pieces, after.pieces)) {
-          if (edit.pieces.length || edit.range[0] === edit.range[1]) continue;
-          const removed = slice(before.pieces, ...edit.range);
+      for (const [id, edits] of Object.entries(effectEdits(effect))) {
+        for (const edit of edits) {
+          if (edit.inserted.length || edit.range[0] === edit.range[1]) continue;
+          const removed = edit.removed;
           for (const node of Object.values(state.nodes))
             if (
               node.active &&
@@ -3059,4 +3074,21 @@ export async function validateIntentState(
     objects
   );
   return engine.load(ref, validation);
+}
+
+/** An `editSource` effect's piece edits per file node: stored on new records,
+ * recomputed from the whole piece copies on legacy ones. */
+export function effectEdits(effect: Effect): Record<string, EffectEdit[]> {
+  if (effect.edits) return effect.edits;
+  const result: Record<string, EffectEdit[]> = {};
+  for (const [id, before] of Object.entries(effect.before)) {
+    const after = effect.after[id];
+    if (!before.pieces || !after?.pieces) continue;
+    result[id] = pieceEdits(before.pieces, after.pieces).map((edit) => ({
+      range: edit.range,
+      removed: slice(before.pieces!, ...edit.range),
+      inserted: edit.pieces,
+    }));
+  }
+  return result;
 }

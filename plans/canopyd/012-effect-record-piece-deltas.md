@@ -1,6 +1,9 @@
 # canopyd 012: Effect records store piece deltas, not whole node copies
 
-Status: PLANNED. Written 2026-09-22 from measurements on the 2026-09-19 Railway backup.
+Status: IMPLEMENTED 2026-09-22 (deploy with the canopyd 013 cutover). Written the same day from
+measurements on the 2026-09-19 Railway backup. As built, only `editSource` effects carry
+the delta; move/copy and entry effects keep their pieces (the competing-move test reads
+`moveSource` before-pieces, and they are rare), so no reader's meaning changed.
 Independent of canopyd 011; both reduce what a checkpoint or retention walk reads.
 
 

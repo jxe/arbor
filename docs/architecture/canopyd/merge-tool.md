@@ -284,6 +284,12 @@ editable state inherits editability: it adds no effects, unchanged files keep
 their enforced pieces, and replaced files get fresh origins. Reading a record that was
 not loaded is an evaluator error, never "absent".
 
+An `editSource` effect records its piece delta per file node (`edits`: each
+edit's `range`, `removed` and `inserted` pieces), and its `before`/`after` node
+copies omit `pieces`. Deletion enforcement and retention read only the delta.
+Records written before the delta keep whole piece copies and are read by
+recomputing the same edits; there is no migration of stored history.
+
 ### Limits
 
 Requests are bounded to 8 MiB at the CLI with at most 1024 operations.
