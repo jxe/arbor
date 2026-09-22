@@ -583,8 +583,9 @@ public actor NativeAccountService {
         let result: WireAccountClaimResult
         do {
             result = try await wire.joinAccount(request(pending))
-        } catch {
-            guard String(describing: error).localizedCaseInsensitiveContains("challenge is expired") else { throw error }
+        } catch let error as WireHTTPError
+            // canopyd reports an expired challenge only as an invalid request with this message.
+            where error.code == "invalid-request" && error.message?.localizedCaseInsensitiveContains("challenge is expired") == true {
             let challenge = try await wire.createAccountChallenge(
                 account: account.absoluteString,
                 profileTree: pending.profileTree,
