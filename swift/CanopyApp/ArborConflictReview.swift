@@ -307,9 +307,13 @@ struct ArborChoiceReviewPanel: View {
     @State private var discardComposition = false
     @State private var discardDraft = false
 
-    private func effectEvidence(_ change: ConflictReviewChange) -> String {
+    private static let evidenceEncoder: JSONEncoder = {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return (try? String(decoding: encoder.encode(change), as: UTF8.self)) ?? change.path
+        return encoder
+    }()
+
+    private func effectEvidence(_ change: ConflictReviewChange) -> String {
+        (try? String(decoding: Self.evidenceEncoder.encode(change), as: UTF8.self)) ?? change.path
     }
 
     var body: some View {
@@ -580,9 +584,10 @@ private struct ArborChoiceSourceComparison: View {
     let sameAlternative: Bool
     @State private var showCurrent = false
     @State private var viewportWidth: CGFloat = 0
+    @State private var comparisons = ArborSourceLineComparisonCache()
     var body: some View {
         let displayed = showCurrent && !sameAlternative ? current ?? proposed : proposed
-        let comparison = ArborSourceLineComparison(
+        let comparison = comparisons.comparison(
             displayed: displayed,
             baseline: sameAlternative ? nil : (showCurrent ? proposed : current))
         VStack(alignment: .leading, spacing: 6) {
@@ -614,6 +619,29 @@ private struct ArborChoiceSourceComparison: View {
             .onGeometryChange(for: CGFloat.self, of: \.size.width) { viewportWidth = $0 }
             .frame(height: ArborChoiceReviewPanel.sourceHeight - 40)
             .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
+/// The last line comparison a view rendered, so a resize or unrelated render
+/// does not diff the same sources again. Keys compare exact bytes.
+private final class ArborSourceLineComparisonCache {
+    private var cached: (displayed: String, baseline: String?, value: ArborSourceLineComparison)?
+
+    func comparison(displayed: String, baseline: String?) -> ArborSourceLineComparison {
+        if let cached, Self.sameBytes(cached.displayed, displayed), Self.sameBytes(cached.baseline, baseline) {
+            return cached.value
+        }
+        let value = ArborSourceLineComparison(displayed: displayed, baseline: baseline)
+        cached = (displayed, baseline, value)
+        return value
+    }
+
+    private static func sameBytes(_ lhs: String?, _ rhs: String?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): true
+        case let (lhs?, rhs?): lhs.utf8.elementsEqual(rhs.utf8)
+        default: false
         }
     }
 }
