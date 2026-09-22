@@ -132,17 +132,19 @@ enum ArborSidebarPages {
         _ results: [WorkspaceSearchResult],
         by order: ArborSidebarPageOrder
     ) -> [WorkspaceSearchResult] {
-        results.sorted { lhs, rhs in
-            if order == .recent, lhs.modifiedAt != rhs.modifiedAt {
-                return (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
+        // Derive each title's sort key once, not once per comparison.
+        let keyed = results.map { (result: $0, title: alphabeticalTitle($0.title)) }
+        return keyed.sorted { lhs, rhs in
+            if order == .recent, lhs.result.modifiedAt != rhs.result.modifiedAt {
+                return (lhs.result.modifiedAt ?? .distantPast) > (rhs.result.modifiedAt ?? .distantPast)
             }
-            if order == .linkCount, lhs.backlinkCount != rhs.backlinkCount {
-                return lhs.backlinkCount > rhs.backlinkCount
+            if order == .linkCount, lhs.result.backlinkCount != rhs.result.backlinkCount {
+                return lhs.result.backlinkCount > rhs.result.backlinkCount
             }
-            let titleOrder = alphabeticalTitle(lhs.title).localizedStandardCompare(alphabeticalTitle(rhs.title))
+            let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
-            return lhs.reference.path.localizedStandardCompare(rhs.reference.path) == .orderedAscending
-        }
+            return lhs.result.reference.path.localizedStandardCompare(rhs.result.reference.path) == .orderedAscending
+        }.map { $0.result }
     }
 
     private static func alphabeticalTitle(_ title: String) -> String {
