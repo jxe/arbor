@@ -1297,22 +1297,25 @@ public actor UpdateCoordinator {
     public func sourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
-        if let latest = try await pendingSourceRecords().last(where: { $0.document == nil || $0.document?.reference.identity == reference.identity }) {
-            let view = try await localSourceView(latest, reference: reference)
-            sourceViews[view.document.contentRevision] = view
-            return view.document
-        }
+        if let pending = try await pendingSourceSnapshot(reference) { return pending }
         let captured = try await workingTree.captureSourceAdmissionBasis(reference)
-        if let latest = try await pendingSourceRecords().last(where: { $0.document == nil || $0.document?.reference.identity == reference.identity }) {
-            let view = try await localSourceView(latest, reference: reference)
-            sourceViews[view.document.contentRevision] = view
-            return view.document
-        }
+        // An admission can be retained while the accepted basis is captured.
+        if let pending = try await pendingSourceSnapshot(reference) { return pending }
         guard let accepted = captured.accepted else { throw ArborWireValidationError.invalidValue("Legacy local work has no source admission dependency") }
         let token = "source-accepted:" + (try sortedKeysJSON(SourceViewToken(base: accepted, reference: captured.document.reference, path: captured.sourcePath))).base64EncodedString()
         var document = captured.document; document.contentRevision = token
         sourceViews[token] = CapturedSourceAdmissionBasis(document: document, graph: captured.graph, accepted: accepted, sourcePath: captured.sourcePath)
         return document
+    }
+
+    /// The hidden candidate view of `reference` when retained source work touches it.
+    private func pendingSourceSnapshot(_ reference: WorkspaceReference) async throws -> WorkspaceDocumentSnapshot? {
+        guard let latest = try await pendingSourceRecords().last(where: {
+            $0.document == nil || $0.document?.reference.identity == reference.identity
+        }) else { return nil }
+        let view = try await localSourceView(latest, reference: reference)
+        sourceViews[view.document.contentRevision] = view
+        return view.document
     }
 
     private func localPredecessor(_ revision: String) throws -> String? {
