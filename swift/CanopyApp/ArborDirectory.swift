@@ -1,3 +1,4 @@
+import CanopyAppKit
 import Foundation
 import Overstory
 import OverstoryClient
@@ -202,7 +203,7 @@ struct ArborProfileDocument: Equatable {
         let tree = profileTree.trimmingCharacters(in: .whitespacesAndNewlines)
         var localHandle = handle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if localHandle.hasPrefix("~") { localHandle.removeFirst() }
-        guard tree.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil else {
+        guard TreeID.isWellFormed(tree) else {
             throw ArborWireValidationError.invalidValue("Enter a TreeID such as tr_abc234")
         }
         if reservesCanopyHandle,

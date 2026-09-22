@@ -743,7 +743,7 @@ final class ArborWorkspaceState {
         configurationTree: String
     ) async throws -> String {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil { return value }
+        if TreeID.isWellFormed(value) { return value }
         let locator: String
         if value.hasPrefix("~"),
            let origin = overview.accounts.first(where: { $0.configurationTree == configurationTree })?.canopy,
