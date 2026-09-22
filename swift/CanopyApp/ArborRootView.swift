@@ -3599,27 +3599,39 @@ private struct MacArborSyncAccountPanel: View {
 
 private struct PairingQRCode: View {
     let payload: String
+    /// The code rendered for `payload`, generated once per payload rather
+    /// than on every body evaluation.
+    @State private var rendered: (payload: String, image: CGImage?)?
 
     var body: some View {
-        if let image = Self.image(payload) {
-            Image(decorative: image, scale: 1)
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-                .padding(14)
-                .background(.white, in: RoundedRectangle(cornerRadius: 16))
-                .accessibilityLabel("One-time iPhone pairing code")
-        } else {
-            ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+        Group {
+            if let rendered, rendered.payload == payload {
+                if let image = rendered.image {
+                    Image(decorative: image, scale: 1)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(14)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                        .accessibilityLabel("One-time iPhone pairing code")
+                } else {
+                    ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+                }
+            } else {
+                Color.clear.aspectRatio(1, contentMode: .fit)
+            }
         }
+        .task(id: payload) { rendered = (payload, Self.image(payload)) }
     }
 
-    private static func image(_ payload: String) -> CGImage? {
+    @MainActor private static let context = CIContext()
+
+    @MainActor private static func image(_ payload: String) -> CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
         guard let output = filter.outputImage else { return nil }
-        return CIContext().createCGImage(output, from: output.extent)
+        return context.createCGImage(output, from: output.extent)
     }
 }
 #endif
