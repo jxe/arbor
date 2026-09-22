@@ -624,14 +624,19 @@ public actor SourceAdmissionQueue {
                     files.unlockSourceAdmissions(descriptor)
                     continue
                 }
-                var next = records
+                var added: [SourceAdmissionRecord] = []
+                var known = Dictionary(uniqueKeysWithValues: records.map { ($0.change, $0) })
                 for record in batch {
-                    if let prior = next.first(where: { $0.change == record.change }) {
+                    if let prior = known[record.change] {
                         guard prior == record else { throw ArborWireValidationError.invalidValue("Authored identity was reused") }
-                    } else { next.append(record) }
+                    } else {
+                        added.append(record)
+                        known[record.change] = record
+                    }
                 }
-                try Self.validate(next, tree: tree)
-                try persist(next)
+                // Retained records were validated when they were loaded or retained.
+                try Self.validate(added, tree: tree, after: records)
+                try persist(records + added)
                 files.unlockSourceAdmissions(descriptor)
                 return
             } catch {
@@ -846,8 +851,9 @@ public actor SourceAdmissionQueue {
         )
     }
 
-    private static func validate(_ records: [SourceAdmissionRecord], tree: String) throws {
-        var prior: [String: SourceAdmissionRecord] = [:]
+    /// Validate `records` in order as successors of the already valid `retained`.
+    private static func validate(_ records: [SourceAdmissionRecord], tree: String, after retained: [SourceAdmissionRecord] = []) throws {
+        var prior = Dictionary(uniqueKeysWithValues: retained.map { ($0.change, $0) })
         for record in records {
             try record.validate()
             guard record.tree == tree, prior[record.change] == nil else { throw ArborWireValidationError.invalidValue("Invalid queue scope or duplicate identity") }
