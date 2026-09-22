@@ -156,9 +156,8 @@ struct ArborDirectoryView: View {
     let openProfile: (DirectoryPerson) -> Void
     @State private var query = ""
 
-    private var people: [DirectoryPerson] { DirectoryMatcher.matches(query: query, in: workspace.directory) }
-
     var body: some View {
+        let people = DirectoryMatcher.matches(query: query, in: workspace.directory)
         List {
             directorySection("People", values: people.filter { $0.entry.kind != "group" })
             directorySection("Groups", values: people.filter { $0.entry.kind == "group" })
