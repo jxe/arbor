@@ -19,7 +19,16 @@ import UIKit
 import VisionKit
 #endif
 
-private extension LocalCanopyAccountDescriptor {
+/// How a Canopy account is named in account lists, whether the Mac daemon or
+/// the iPhone's keychain holds it.
+private protocol ArborAccountPresentable {
+    var configurationTree: String { get }
+    var handle: String? { get }
+    /// The account's Canopy host, when known.
+    var arborHost: String? { get }
+}
+
+private extension ArborAccountPresentable {
     var profileSectionID: String { "profile:\(configurationTree)" }
     var devicesSectionID: String { "devices:\(configurationTree)" }
 
@@ -29,28 +38,23 @@ private extension LocalCanopyAccountDescriptor {
     }
 
     var arborDisplayDetail: String {
-        if let canopy, !canopy.isEmpty {
-            return URL(string: canopy)?.host() ?? canopy
-        }
+        if let host = arborHost, !host.isEmpty { return host }
         let suffix = configurationTree.dropFirst(3).prefix(8)
         return suffix.isEmpty ? "Account settings" : "Account \(suffix.uppercased())"
+    }
+
+    var arborDisplayLabel: String { "\(arborDisplayName) · \(arborDisplayDetail)" }
+}
+
+extension LocalCanopyAccountDescriptor: ArborAccountPresentable {
+    fileprivate var arborHost: String? {
+        guard let canopy, !canopy.isEmpty else { return nil }
+        return URL(string: canopy)?.host() ?? canopy
     }
 }
 
-private extension NativeCanopyAccount {
-    var profileSectionID: String { "profile:\(configurationTree)" }
-    var devicesSectionID: String { "devices:\(configurationTree)" }
-
-    var arborDisplayName: String {
-        guard let handle, !handle.isEmpty else { return "Canopy account" }
-        return "~\(handle)"
-    }
-
-    var arborDisplayDetail: String {
-        if let host = origin.host(), !host.isEmpty { return host }
-        let suffix = configurationTree.dropFirst(3).prefix(8)
-        return suffix.isEmpty ? "Account settings" : "Account \(suffix.uppercased())"
-    }
+extension NativeCanopyAccount: ArborAccountPresentable {
+    fileprivate var arborHost: String? { origin.host() }
 }
 
 /// Keep the focused editor-command dependency at the toolbar leaf. Reading it
@@ -1278,16 +1282,22 @@ struct ArborRootView: View {
     private var sidebarTrees: [SidebarTree] {
 #if os(macOS)
         let overview = workspace.localArborSyncOverview
+        let accountLabels = Dictionary(
+            (overview?.accounts ?? []).map { ($0.configurationTree, $0.arborDisplayLabel) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let values = (overview?.trees ?? []).filter { $0.kind != "account-configuration" && $0.path != nil }.map { tree in
-            let account = overview?.accounts.first { $0.configurationTree == tree.configurationTree }
-            return SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name,
-                account: account.map { "\($0.arborDisplayName) · \($0.arborDisplayDetail)" } ?? "Other Trees")
+            SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name,
+                account: tree.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #else
+        let accountLabels = Dictionary(
+            sidebarAccounts.map { ($0.configurationTree, $0.arborDisplayLabel) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let values = workspace.nativePlacements.map { placement in
-            let account = sidebarAccounts.first { $0.configurationTree == placement.configurationTree }
-            return SidebarTree(id: placement.tree.id, title: placement.tree.canonicalPath ?? placement.tree.id,
-                account: account.map { "\($0.arborDisplayName) · \($0.arborDisplayDetail)" } ?? "Other Trees")
+            SidebarTree(id: placement.tree.id, title: placement.tree.canonicalPath ?? placement.tree.id,
+                account: placement.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
 #endif
         let query = sidebarSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1297,8 +1307,9 @@ struct ArborRootView: View {
 
     private var sidebarTreesList: some View {
         ScrollViewReader { proxy in
+            let trees = sidebarTrees
             List {
-                ForEach(sidebarTrees) { tree in
+                ForEach(trees) { tree in
                     Button { openSidebarTree(tree.id) } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "tree").font(.system(size: 18)).frame(width: 20)
@@ -1321,7 +1332,7 @@ struct ArborRootView: View {
                     .arborKeyboardSelectedRow(sidebarTreeSelection == tree.id)
                     .id(tree.id)
                 }
-                if sidebarTrees.isEmpty { Text(sidebarSearchText.isEmpty ? "No trees available" : "No matching trees").foregroundStyle(.secondary) }
+                if trees.isEmpty { Text(sidebarSearchText.isEmpty ? "No trees available" : "No matching trees").foregroundStyle(.secondary) }
                 if let sidebarAccountError { Text(sidebarAccountError).font(.caption).foregroundStyle(.secondary) }
 #if os(macOS)
                 Button("Open Tree…", systemImage: "folder.badge.plus") { presentedSheet = .openLocation }
