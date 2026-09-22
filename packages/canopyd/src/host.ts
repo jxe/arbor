@@ -1,4 +1,5 @@
 import { IntentError } from "../../canopyd-merge/src/intent-model.ts";
+import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
@@ -543,7 +544,8 @@ export async function serveCanopy(options: {
                 authentication ?? undefined,
               ));
             } catch (error) {
-              logUpdate({ event: "update", tree: treeID, status: "error", updates: update.updates.length, ...timer.summary() });
+              const message = error instanceof Error ? error.message : String(error);
+              logUpdate({ event: "update", tree: treeID, status: "error", error: message, updates: update.updates.length, ...timer.summary() });
               throw error;
             }
             if (direct && !canopy.execution.covered(direct)) return wireError("permission-denied", "Authorization changed before receipt disclosure", 403);
@@ -858,6 +860,11 @@ export async function serveCanopy(options: {
           return wireError("conflict", "The update would change an independently versioned tree boundary", 409, false, {
             kind: "server-update",
           }, { path: error.path, tree: error.tree });
+        }
+        if (error instanceof MergeWorkerError) {
+          return error.retryable
+            ? wireError("merge-failed", error.message, 503, true)
+            : wireError("merge-failed", error.message, 422);
         }
         const message = error instanceof Error ? error.message : String(error);
         if (/authentication is required/i.test(message)) return wireError("unauthenticated", message, 401);

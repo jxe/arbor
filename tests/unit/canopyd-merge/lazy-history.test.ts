@@ -229,3 +229,34 @@ test("a divergent merge reads history in proportion to the edit, not its length"
   expect(reads.lazy![1]!).toBeLessThan(reads.eager![1]! / 5);
   expect(reads.lazy![1]! / reads.lazy![0]!).toBeLessThan(2.5);
 });
+
+test("a checkpoint of an editable state reads active material, not its history", async () => {
+  // A snapshot of a long-edited tree (a page created beside a traced edit)
+  // once loaded every history record before it could rebind one file.
+  const reads: number[] = [];
+  const results: string[] = [];
+  for (const count of [30, 90]) {
+    const f = preparedFixture();
+    const head = preparedSteps.slice(0, count).at(-1)!;
+    let bytes = 0;
+    const checkpoint = await checkpointIntent(
+      { kind: "checkpoint", tree: "tree", current: head.result, projection: f.tree({ "a.md": head.text, "b.md": "new page\n" }), change: `page-${count}`, decisions: [] },
+      {
+        read: async (hash) => {
+          const value = f.objects.get(hash)!;
+          bytes += value.length;
+          return value;
+        },
+        store: async () => {},
+      },
+    );
+    if (!("result" in checkpoint)) throw Error(JSON.stringify(checkpoint));
+    reads.push(bytes);
+    results.push(checkpoint.result.object);
+  }
+  // Measured: eager 152 KB -> 540 KB; lazy 7 KB -> 15 KB, where the growth is
+  // the file's own piece list (one piece per append), read once to rebind it.
+  expect(reads[1]!).toBeLessThan(60_000);
+  expect(reads[1]! / reads[0]!).toBeLessThan(2.5);
+  expect(results[0]).not.toBe(results[1]);
+});

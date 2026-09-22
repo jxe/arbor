@@ -1436,6 +1436,14 @@ class Engine {
     const state = await loadIntentState(hash, (hash) => this.read(hash));
     return this.load({ object: await this.project(state), state: hash });
   }
+  /** Read history on demand when the basis is an editable state: its nodes
+   * already reflect every deletion in its effects, so evaluation only needs
+   * the records it touches. Snapshot, imported and legacy states load eagerly. */
+  async detectLazy(ref: { state?: string }): Promise<boolean> {
+    this.lazy = !this.eager && !!ref.state &&
+      await isEditableState(ref.state, (hash) => this.read(hash));
+    return this.lazy;
+  }
   async record(state: IntentState, editable = false): Promise<{ object: string; state: string }> {
     const object = await this.project(state),
       stored = await storeLazyIntentState(state, (hash) => this.read(hash), (bytes) => this.put(bytes), editable);
@@ -1470,8 +1478,7 @@ class Engine {
     const startedLoad = performance.now();
     // An editable base's nodes reflect every deletion in its effects, so only
     // newer effects are enforced and history is read on demand.
-    this.lazy = !this.eager && !!this.request.base.state &&
-      await isEditableState(this.request.base.state, (hash) => this.read(hash));
+    await this.detectLazy(this.request.base);
     const request = this.request,
       base = await this.load(request.base),
       sameBasis = request.base.object === request.current.object && request.base.state === request.current.state,
@@ -2751,8 +2758,12 @@ export async function checkpointIntent(
     },
     objects
   );
+  // A checkpoint of an editable state needs its active material and the
+  // records it writes, never the whole history: the trusted projection seeds
+  // per-file objects from the accepted root, and lazy views path-copy on store.
+  await engine.detectLazy(request.current);
   const previous = await engine.load(request.current),
-    state = clone(previous);
+    state = cloneState(previous);
   const previousRecord = await engine.record(previous);
   const resolved = new Set(request.resolves ?? []);
   for (const key of resolved) {

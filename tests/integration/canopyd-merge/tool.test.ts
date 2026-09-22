@@ -311,3 +311,15 @@ test("host evaluation budgets are bounded by the worker timeout", () => {
   expect(() => new MergeTool(directory, {timeoutMs: 60_000, evaluationMillis: 40_000})).toThrow("Invalid merge worker limits");
   expect(() => new MergeTool(directory, {evaluationMillis: NaN})).toThrow("Invalid merge worker limits");
 });
+
+test("a worker evaluation failure surfaces its own message, not a response-schema complaint",async()=>{
+  const {MergeWorkerError}=await import("../../../packages/canopyd/src/merge-tool.ts");
+  const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));
+  const fake=join(directory,"worker-error.ts");
+  await writeFile(fake,`console.log(${JSON.stringify(JSON.stringify({error:{message:"Evaluation time budget exceeded"}}))});`);
+  const request={kind:"checkpoint" as const,tree:"tree",current:{object:base.root},projection:base.root,change:"change",decisions:[]};
+  const failure=await new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map()).then(()=>null,(error:unknown)=>error);
+  expect(failure).toBeInstanceOf(MergeWorkerError);
+  expect((failure as Error).message).toBe("Evaluation time budget exceeded");
+  expect((failure as InstanceType<typeof MergeWorkerError>).retryable).toBe(true);
+});

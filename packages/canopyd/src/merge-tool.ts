@@ -59,6 +59,19 @@ export interface MergeToolOptions {
 
 type StateProof = {hash: string; object: string; state: IntentState; bytes: number; dependencies: Set<string>; material: ValidatedMaterial; references: ReadonlySet<string>; history: readonly MapProof[]};
 
+/** The merge worker evaluated the request and failed: a budget, an invalid
+ * state or an unsupported input. Its message is the worker's own. */
+export class MergeWorkerError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+    this.name = "MergeWorkerError";
+  }
+  /** Budget failures may pass on a retry once the host is less loaded. */
+  get retryable(): boolean {
+    return /budget exceeded/i.test(this.message);
+  }
+}
+
 export class MergeTool {
   private worker?: PersistentMergeWorker;
   private readonly jobs = new Set<Promise<unknown>>();
@@ -343,8 +356,16 @@ export class MergeTool {
         }
       } catch { /* diagnostics only */ }
       const raw = JSON.parse(stdout);
-      if (request.kind === "checkpoint-batch" && raw.error?.code === "checkpoint-batch-too-large")
-        throw new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget");
+      if (raw && typeof raw === "object" && "error" in raw) {
+        if (request.kind === "checkpoint-batch" && raw.error?.code === "checkpoint-batch-too-large")
+          throw new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget");
+        // The worker reports evaluation failures as {error}; never let that
+        // shape reach the response schema, whose complaint would hide it.
+        throw new MergeWorkerError(
+          typeof raw.error?.message === "string" ? raw.error.message : "Merge evaluation failed",
+          typeof raw.error?.code === "string" ? raw.error.code : undefined,
+        );
+      }
       const response = parseResponse(raw, request);
       const objects = new Map<ObjectHash, Uint8Array>();
       for (const hash of response.objects)
