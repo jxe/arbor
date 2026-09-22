@@ -1844,11 +1844,16 @@ final class ArborAppModel {
     private var isSwitchingNavigationTree = false
     private let openNavigationTree: @MainActor (TreeID) async throws -> Void
     private var loadRequestID = 0
-    private var searchRequestID = 0
     private var backlinksRequestID = 0
     private var lastSearchQuery = ""
+    /// Every page of `pageIndexTree`, fetched once and filtered per query.
+    /// Set `pageIndexIsStale` wherever the tree may have changed; a change in
+    /// the sync presentation's roots also marks it stale.
     private var pageIndexTree: TreeID?
     private var pageIndexResults: [WorkspaceSearchResult] = []
+    private var pageIndexIsStale = true
+    private var pageIndexSyncBasis: [String?] = []
+    private var pageIndexRequestID = 0
     private var dismissedTitleRenameProposals = Set<String>()
     private var manuallyNamedPageKeys = Set(
         UserDefaults.standard.stringArray(forKey: manuallyNamedPagesDefaultsKey) ?? []
@@ -2034,6 +2039,7 @@ final class ArborAppModel {
             titleRenameProposal = nil
             isLoading = false
             Task { await self.loadBacklinks() }
+            pageIndexIsStale = true
             Task { await self.search(self.lastSearchQuery) }
         } catch {
             guard requestID == loadRequestID else { return }
@@ -2334,25 +2340,33 @@ final class ArborAppModel {
     }
 
     func search(_ query: String) async {
-        searchRequestID += 1
-        let requestID = searchRequestID
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         lastSearchQuery = trimmed
         let tree = currentReference.tree
+        let syncBasis = [workspace.syncPresentation.acceptedRoot, workspace.syncPresentation.localRoot]
         if pageIndexTree == tree {
             searchResults = sidebarResults(matching: trimmed, in: pageIndexResults)
+            guard pageIndexIsStale || pageIndexSyncBasis != syncBasis else { return }
         } else {
             pageIndexTree = tree
             pageIndexResults = []
             searchResults = []
         }
+        pageIndexRequestID += 1
+        let requestID = pageIndexRequestID
+        pageIndexIsStale = false
+        pageIndexSyncBasis = syncBasis
         do {
             let results = try await workspace.provider.search("", in: tree)
-            guard requestID == searchRequestID, tree == currentReference.tree else { return }
+            guard requestID == pageIndexRequestID, tree == pageIndexTree, tree == currentReference.tree else { return }
             pageIndexResults = results
-            searchResults = sidebarResults(matching: trimmed, in: results)
+            // Queries typed while the index loaded filtered the previous one.
+            searchResults = sidebarResults(matching: lastSearchQuery, in: results)
         }
-        catch { errorMessage = error.localizedDescription }
+        catch {
+            if requestID == pageIndexRequestID { pageIndexIsStale = true }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func sidebarResults(
@@ -2489,6 +2503,7 @@ final class ArborAppModel {
             tabs.replaceCurrent(with: renamedLocation)
             sidebarLocation = renamedLocation.parent ?? workspace.launchLocation
             children = try await workspace.provider.children(of: sidebarLocation)
+            pageIndexIsStale = true
             searchResults = searchResults.map { result in
                 guard result.reference.identity == renamed.reference.identity else { return result }
                 return WorkspaceSearchResult(
@@ -2593,6 +2608,7 @@ final class ArborAppModel {
                 sidebarLocation = result.location.parent ?? workspace.launchLocation
             }
         }
+        pageIndexIsStale = true
         do {
             children = try await workspace.provider.children(of: sidebarLocation)
             await search(lastSearchQuery)
