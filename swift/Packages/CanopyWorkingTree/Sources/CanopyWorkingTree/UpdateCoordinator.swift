@@ -805,9 +805,8 @@ public actor UpdateCoordinator {
 
     /// Express the just-admitted Markdown edit as an object delta when the
     /// accepted base file is retained locally and the delta is smaller than the
-    /// complete result object. Deltas address canonical object bytes, so the
-    /// result's header (which carries the new payload length) is inserted and
-    /// unchanged payload ranges are copied at their base offsets.
+    /// complete result object. A file object is its payload, so unchanged
+    /// payload ranges are copied at their base offsets.
     private func immediateDelta(
         _ admission: WorkingTreePatchAdmission?,
         heads: WorkingTreeHeads,
@@ -845,26 +844,10 @@ public actor UpdateCoordinator {
         let reconstructed = try WireObjectCodec.encode(.file(resultPayload))
         guard WireObjectCodec.hash(reconstructed) == admission.resultFile,
               reconstructed == resultEnvelope.bytes else { return skip("patched result does not match the candidate file") }
-
-        var instructions: [WireObjectDeltaInstruction] = []
-        var cursor = 0
-        for edit in admission.patch.edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
-            let lower = edit.utf8Range.lowerBound
-            guard lower >= cursor, edit.utf8Range.upperBound <= basePayload.count else { return skip("patch edits overlap or exceed the base") }
-            if lower > cursor { instructions.append(.copy(offset: cursor, length: lower - cursor)) }
-            let replacement = Data(edit.replacement.utf8)
-            if !replacement.isEmpty { instructions.append(.insert(replacement)) }
-            cursor = edit.utf8Range.upperBound
+        guard let delta = SourceAdmissionRecord.delta(baseHash: admission.baseFile, base: basePayload,
+                                                      edits: admission.patch.edits, result: resultEnvelope) else {
+            return skip("delta is invalid, does not reproduce the result, or is not smaller than the file")
         }
-        if cursor < basePayload.count {
-            instructions.append(.copy(offset: cursor, length: basePayload.count - cursor))
-        }
-        let delta: WireObjectDelta
-        do {
-            delta = try WireObjectDelta(base: admission.baseFile, result: admission.resultFile, instructions: instructions).validated()
-            guard try delta.apply(to: baseBytes) == reconstructed else { return skip("delta does not reproduce the result") }
-        } catch { return skip("delta is invalid: \(error)") }
-        guard try sortedKeysJSON(delta).count < sortedKeysJSON(resultEnvelope).count else { return skip("delta is not smaller than the file") }
         return delta
     }
 

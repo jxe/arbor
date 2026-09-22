@@ -268,7 +268,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             if let file = basisFile,
                let resultHash = (try? WireObjectCodec.encode(.file(Data(intent.source.utf8)))).map(WireObjectCodec.hash),
                let result = update.objects.first(where: { $0.hash == resultHash }),
-               let delta = Self.delta(baseHash: file, baseSource: intent.basis.source, edits: intent.patch.edits, result: result) {
+               let delta = Self.delta(baseHash: file, base: Data(intent.basis.source.utf8), edits: intent.patch.edits, result: result) {
                 deltas.append(delta)
             }
             // Directories along the path change hash on every edit but differ
@@ -374,10 +374,10 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         return delta
     }
 
-    /// Copy/insert instructions from ordered, non-overlapping patch edits, only
-    /// when the delta reproduces the exact result bytes and is smaller than them.
-    static func delta(baseHash: String, baseSource: String, edits: [WorkspaceSourceEdit], result: WireObjectEnvelope) -> WireObjectDelta? {
-        let base = Data(baseSource.utf8)
+    /// Copy/insert instructions from ordered, non-overlapping patch edits over
+    /// the file payload `base`, only when the delta reproduces the exact result
+    /// bytes and is smaller than them.
+    static func delta(baseHash: String, base: Data, edits: [WorkspaceSourceEdit], result: WireObjectEnvelope) -> WireObjectDelta? {
         var instructions: [WireObjectDeltaInstruction] = []
         var cursor = 0
         for edit in edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
