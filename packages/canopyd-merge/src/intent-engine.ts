@@ -3051,7 +3051,10 @@ export async function validateIntentState(
       base: ref,
       current: ref,
       incoming: { change: "validate", object: ref.object, trace: [] },
-      rules: { id: "tree-default", revision: 1, ...(validation?.maxMillis ? { config: { maxMillis: validation.maxMillis } } : {}) },
+      // Validation walks every history record on a cold cache; the evaluator's
+      // 32 MiB read budget is for one edit. The state loader caps expansion at
+      // 128 MiB itself, so allow that much here.
+      rules: { id: "tree-default", revision: 1, ...(validation ? { config: { maxBytes: 128 * 1024 * 1024, ...(validation.maxMillis ? { maxMillis: validation.maxMillis } : {}) } } : {}) },
     },
     objects
   );

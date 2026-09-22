@@ -2185,9 +2185,12 @@ export class CanopyDaemon implements AsyncDisposable {
       for (const tree of trees) {
         try {
           const current = this.currentUpdate(tree);
-          const record = current ? this.semantic.store.get(current.id) : null;
-          if (!current || !record) continue;
-          const result = await this.mergeTool.warm(tree, { object: current.root, state: record.state });
+          if (!current) continue;
+          // Resolve the state the first edit would use: a retained record, a
+          // cached checkpoint, or one rebuilt from the last retained ancestor.
+          const ref = await this.semantic.state(current, new Map());
+          if (!ref.state) continue;
+          const result = await this.mergeTool.warm(tree, { object: ref.object, state: ref.state });
           warmed++;
           if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm", tree, reads: result.reads, ms: Math.round(result.milliseconds) }));
         } catch (error) {
