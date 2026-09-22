@@ -115,12 +115,15 @@ test("prepared records round-trip optional guards and reject unrepresentable rep
     edits: [{ offset: 0, length: Buffer.byteLength(fixture.source), replacement: "\ud800" }], source: "\ufffd" } })).toThrow("intent");
 }));
 
-test("first directory-body save retains an exact snapshot without inventing source material", async () => withQueue(async q => {
+test("first directory-body save adds the body without inventing source material", async () => withQueue(async q => {
   const bytes = encodeWireDirectory({ type: "directory", entries: [] }), root = hashObject(bytes);
   const graph = { root, objects: new Map([[root, bytes]]) };
   const record = prepareSourceAdmission({ tree: fixture.tree, graph, basis: { kind: "accepted", root, update: "empty" }, sourcePath: "/_index.md",
     intent: { basis: { tree: fixture.tree, path: "/", revision: "empty-body", source: "" }, source: "Exact\r\n", edits: [{ offset: 0, length: 0, replacement: "Exact\r\n" }] } });
-  expect(record.update.trace).toBeNull();
+  const body = hashObject(Buffer.from("Exact\r\n"));
+  expect(record.update.trace).toEqual([{ before: root, after: record.update.candidate, operations: [
+    { key: "add-0", kind: "addEntry", destination: { parent: { material: { kind: "basis", path: "/", object: root } }, name: "_index.md" }, value: { file: body } },
+  ] }]);
   await q.retain(record);
   expect((await q.retained())[0]).toEqual(record);
   expect(decodeTreeSnapshotJSON(record.candidate).objects.has(hashObject(Buffer.from("Exact\r\n")))).toBe(true);
@@ -345,6 +348,9 @@ test("page creation records reproduce their original graph without an undo trans
   const candidate={root:hashObject(directory),objects:new Map([...graph.objects].filter(([h])=>h!==graph.root))};
   candidate.objects.set(file,bytes);candidate.objects.set(candidate.root,directory);
   const created=preparePageCreation({change:"creation",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:[f.createdPath]}});
+  // A creation is traced: one addEntry of the new file under the basis root.
+  expect(created.update.trace).toEqual([{before:graph.root,after:candidate.root,operations:[
+    {key:"add-0",kind:"addEntry",destination:{parent:{material:{kind:"basis",path:"/",object:graph.root}},name:f.createdPath.slice(1)},value:{file}}]}]);
   expect(()=>preparePageCreation({change:"wrong",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:["/elsewhere"]}})).toThrow();
   const root=await mkdtemp(join(tmpdir(),"page-creation-"));
   try {

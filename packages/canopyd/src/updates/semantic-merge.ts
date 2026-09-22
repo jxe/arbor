@@ -26,6 +26,7 @@ const id = (value: unknown) =>
 export type StateRef = { object: string; state: string };
 export type Evaluated = Extract<IntentResponse, { outcome: "evaluated" }>;
 export function operationReferences(op: SourceOperation): MaterialRef[] {
+  if (op.kind === "addEntry") return [op.destination.parent];
   const refs = [op.source];
   if (op.kind === "editSource")
     refs.push(...(op.lineage ?? []).map((l) => l.source));

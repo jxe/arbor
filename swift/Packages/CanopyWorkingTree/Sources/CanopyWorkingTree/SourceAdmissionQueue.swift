@@ -119,15 +119,19 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         // Directories along the path, by depth: their basis hash and the hash the final generation produced.
         var baseDirectories: [Int: String] = [:], resultDirectories: [Int: String] = [:]
         var file: String?, basisFile: String?
+        // A directory's first body, added by this generation: where and what.
+        var addedBody: (parentPath: String, parent: String, file: String)?
         func replace(_ hash: String, _ depth: Int, from previous: String, to source: String, first: Bool) throws -> String {
             guard case let .directory(originalEntries, descriptor)? = decoded[hash] else { throw Self.invalid("Source path is not in basis") }
             var entries = originalEntries
             // A directory without a stored body has empty source. Its first save
-            // creates material, so publish a snapshot rather than editSource with
-            // a fabricated empty-file identity.
+            // creates material: an addEntry of the new body, never editSource
+            // with a fabricated empty-file identity.
             if depth == parts.count - 1, parts[depth] == "_index.md",
                !entries.contains(where: { $0.name == parts[depth] }), previous.isEmpty {
-                entries.append(WireDirectoryEntry(name: parts[depth], file: try store(.file(Data(source.utf8)))))
+                let body = try store(.file(Data(source.utf8)))
+                addedBody = (depth == 0 ? "/" : "/" + parts[..<depth].joined(separator: "/"), hash, body)
+                entries.append(WireDirectoryEntry(name: parts[depth], file: body))
                 entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
                 return try store(.directory(entries, childrenSource: descriptor))
             }
@@ -171,12 +175,12 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         var previousRoot = graph.root, previousSource = intent.basis.source
         var evidence = true
         for (frame, generation) in generations.enumerated() {
-            file = nil
+            file = nil; addedBody = nil
             let root = try replace(previousRoot, 0, from: previousSource, to: generation.source, first: frame == 0)
             if frame == 0 { basisFile = file }
             sources[root] = generation.source
             let basisSource = Array(previousSource.utf8)
-            let operations = try Self.operationEdits(generation.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
+            var operations = try Self.operationEdits(generation.patch.edits).enumerated().flatMap { index, edit -> [WireSourceOperation] in
                 // Byte-valid output alone does not prove scalar-aligned selection.
                 for offset in [edit.utf8Range.lowerBound, edit.utf8Range.upperBound] {
                     if offset < basisSource.count && basisSource[offset] & 0xc0 == 0x80 { throw Self.invalid("Source range splits a UTF-8 scalar") }
@@ -216,9 +220,19 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                 }
                 return operations
             }
-            // A generation without operations (the first body of a directory)
-            // cannot be a frame; the whole record is then a snapshot.
-            if file == nil || operations.isEmpty { evidence = false }
+            if file == nil, let added = addedBody {
+                operations = [try WireSourceOperation([
+                    "key": .string("add-\(frame)"), "kind": .string("addEntry"),
+                    "destination": .object([
+                        "parent": .object(["material": .object(["kind": .string("basis"), "path": .string(added.parentPath), "object": .string(added.parent)])]),
+                        "name": .string("_index.md"),
+                    ]),
+                    "value": .object(["file": .string(added.file)]),
+                ])]
+            }
+            // A generation without operations cannot be a frame; the whole
+            // record is then a snapshot.
+            if operations.isEmpty { evidence = false }
             frames.append(WireTraceFrame(before: previousRoot, after: root, operations: operations))
             previousRoot = root; previousSource = generation.source
         }
@@ -408,7 +422,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         let prepared = try entryActions?.prepare(graph:graph, candidate:candidate, changeID:change) ?? entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change)
         if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
-        let captured = prepared?.operations ?? []
+        let captured = try prepared?.operations ?? creation.map { try Self.creationOperations($0, graph: graph, candidate: candidate) } ?? []
         self.update = WireCandidateUpdate(candidate: candidate.root, change: change,
                                           trace: captured.isEmpty ? nil : [WireTraceFrame(before: graph.root, after: candidate.root, operations: captured)],
                                           objects: self.candidate.objects.filter { !known.contains($0.hash) })
@@ -478,6 +492,53 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
     }
 
     private static func invalid(_ message: String) -> ArborWireValidationError { .invalidValue(message) }
+
+    /// A page creation adds the first new branch of its path under the basis
+    /// directory that already held it. The removal proof in `init` shows the
+    /// candidate is exactly the basis plus these branches.
+    static func creationOperations(_ creation: SourcePageCreation, graph: WireSnapshot, candidate: WireSnapshot) throws -> [WireSourceOperation] {
+        let basis = try WireObjectGraph.validate(graph, mode: .sparseFiles)
+        let result = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
+        func directory(_ objects: [String: WireObject], _ root: String, _ parts: ArraySlice<String>) throws -> [WireDirectoryEntry] {
+            var hash = root
+            for part in parts {
+                guard case let .directory(entries, _)? = objects[hash], let next = entries.first(where: { $0.name == part })?.directory else {
+                    throw invalid("Page creation parent is not a basis directory")
+                }
+                hash = next
+            }
+            guard case let .directory(entries, _)? = objects[hash] else { throw invalid("Page creation parent is not a directory") }
+            return entries
+        }
+        return try creation.removals.enumerated().map { index, path in
+            let parts = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            guard path.hasPrefix("/"), let name = parts.last, !name.isEmpty else { throw invalid("Invalid page creation path") }
+            let parentParts = parts.dropLast()
+            var parentHash = graph.root
+            for part in parentParts {
+                guard case let .directory(entries, _)? = basis[parentHash], let next = entries.first(where: { $0.name == part })?.directory else {
+                    throw invalid("Page creation parent is not a basis directory")
+                }
+                parentHash = next
+            }
+            guard let added = try directory(result, candidate.root, parentParts).first(where: { $0.name == name }) else {
+                throw invalid("Page creation entry is not in its candidate")
+            }
+            let value: WireSemanticValue
+            if let file = added.file { value = .object(["file": .string(file)]) }
+            else if let directory = added.directory { value = .object(["directory": .string(directory)]) }
+            else { throw invalid("Page creation entry is not a file or directory") }
+            let parentPath = parentParts.isEmpty ? "/" : "/" + parentParts.joined(separator: "/")
+            return try WireSourceOperation([
+                "key": .string("add-\(index)"), "kind": .string("addEntry"),
+                "destination": .object([
+                    "parent": .object(["material": .object(["kind": .string("basis"), "path": .string(parentPath), "object": .string(parentHash)])]),
+                    "name": .string(name),
+                ]),
+                "value": value,
+            ])
+        }
+    }
 }
 
 /// Client-owned durable intent, independent of the legacy head/rejection file.

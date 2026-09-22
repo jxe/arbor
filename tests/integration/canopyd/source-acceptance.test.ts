@@ -814,7 +814,7 @@ test("a continuation after a merged prefix retains an intervening same-file snap
   await running.canopy.verifyIntegrity();
 });
 
-test("all seven operation kinds execute through accepted authority and survive restart", async()=>{
+test("all eight operation kinds execute through accepted authority and survive restart", async()=>{
  let head={id:base,root};
  let directory=decodeWireDirectory(objects.get(root)!);
  const body=(text:string)=>{const bytes=Buffer.from(text),hash=hashObject(bytes);objects.set(hash,bytes);return hash;};
@@ -838,6 +838,8 @@ test("all seven operation kinds execute through accepted authority and survive r
  await apply({key:"op",kind:"replaceEntry",source:ref("copy.md"),value:{file:body("replacement")}},()=>file("copy.md","replacement"));
  const removed=directory.entries.find(e=>e.name==="copy.md")!;
  await apply({key:"op",kind:"removeEntry",source:ref("copy.md")},()=>{directory.entries=directory.entries.filter(e=>e.name!=="copy.md");});
+ await apply({key:"op",kind:"addEntry",destination:{parent:parent(),name:"added.md"},value:{file:body("added")}},()=>{directory.entries.push({name:"added.md",file:body("added")});});
+ await apply({key:"op",kind:"editSource",source:{...ref("added.md"),range:[5,5]},text:"!"},()=>file("added.md","added!"));
  await stop();await start();
  // Undo is no longer an operation: restoring the removed entry is an ordinary
  // authored replacement of its content at its old name.

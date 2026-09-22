@@ -114,6 +114,12 @@ public struct WireAuthoredRequestIntent: Codable, Sendable, Equatable {
             if value["file"] != nil { try keys(value, ["file"]); try hash(value["file"]) }
             else if value["directory"] != nil { try keys(value, ["directory"]); try hash(value["directory"]) }
             else { try reference(.object(value), entry: true) }
+        case "addEntry":
+            try keys(v, ["key", "kind", "destination", "value"])
+            let d = try object(v["destination"]); try keys(d, ["parent", "name"]); try reference(d["parent"], entry: true); try component(d["name"])
+            let value = try object(v["value"])
+            if value["file"] != nil { try keys(value, ["file"]); try hash(value["file"]) }
+            else { try keys(value, ["directory"]); try hash(value["directory"]) }
         default: try check(false)
         }
         return v["key"]!.text!

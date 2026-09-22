@@ -15,6 +15,7 @@ export type AuthoredOperation = { key: string } & (
   | { kind: "moveEntry" | "copyEntry"; source: MaterialRef; destination: EntryDestination }
   | { kind: "removeEntry"; source: MaterialRef }
   | { kind: "replaceEntry"; source: MaterialRef; value: { file: string } | { directory: string } | MaterialRef }
+  | { kind: "addEntry"; destination: EntryDestination; value: { file: string } | { directory: string } }
 );
 /** One tree-root to tree-root step of a change's authored evidence. Basis
  * references inside a frame name objects in that frame's `before` tree, and
@@ -89,6 +90,14 @@ function operation(raw: unknown): AuthoredOperation {
       if (Object.hasOwn(value, "file")) { keys(value, ["file"]); hash(value.file); }
       else if (Object.hasOwn(value, "directory")) { keys(value, ["directory"]); hash(value.directory); }
       else { reference(value, true); }
+      break;
+    }
+    case "addEntry": {
+      keys(v, ["key", "kind", "destination", "value"]);
+      const d = obj(v.destination); keys(d, ["parent", "name"]); reference(d.parent, true); component(d.name);
+      const value = obj(v.value);
+      if (Object.hasOwn(value, "file")) { keys(value, ["file"]); hash(value.file); }
+      else { keys(value, ["directory"]); hash(value.directory); }
       break;
     }
     default: require(false);

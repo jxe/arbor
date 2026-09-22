@@ -188,6 +188,11 @@ struct SourceAdmissionQueueTests {
         let candidate = WireSnapshot(root: WireObjectCodec.hash(bytes), objects: graph.objects.filter { $0.hash != graph.root } + [file, bytes].map { .init(hash: WireObjectCodec.hash($0), bytes: $0) })
         let created = try SourceAdmissionRecord(change: "creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
             creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
+        // A creation is traced: one addEntry of the new file under the basis root.
+        let added = try #require(created.update.trace?.first?.operations.first)
+        #expect(created.update.trace?.count == 1 && created.update.trace?.first?.operations.count == 1)
+        #expect(added.kind == "addEntry")
+        #expect(added.fields["value"] == .object(["file": .string(WireObjectCodec.hash(file))]))
         #expect(throws: (any Error).self) {
             try SourceAdmissionRecord(change: "wrong", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
                 creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: ["/elsewhere"]))

@@ -102,7 +102,7 @@ describe("authored source traces", () => {
     const objects = new Map([[fileA, bytesA], [fileB, bytesB], [root, rootBytes]]);
     return { root, fileA, fileB, objects };
   }
-  const edit = (key: string, path: string, object: string, range: [number, number], text: string): SourceOperation =>
+  const edit = (key: string, path: string, object: string, range: [number, number], text: string): Extract<SourceOperation, { kind: "editSource" }> =>
     ({ key, kind: "editSource", source: { material: { kind: "basis", path, object }, range }, text });
 
   test("each frame reproduces its own result and generated objects carry forward", async () => {

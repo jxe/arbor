@@ -209,6 +209,7 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
           "copyEntry",
           "removeEntry",
           "replaceEntry",
+          "addEntry",
         ].includes(String(op.kind))
       )
         throw new IntentError("unsupported", "Unknown operation kind");

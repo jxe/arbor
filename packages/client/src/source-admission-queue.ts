@@ -133,6 +133,9 @@ export function prepareSourceAdmission(input: {
   verifyTreeSnapshotGraph(graph, "sparse-files");
   const objects = new Map(graph.objects);
   let file = "";
+  // A directory's first body, added by this generation: where and what.
+  type AddedBody = {parentPath: string; parent: string; file: string};
+  let addedBody: AddedBody | undefined;
   function replace(hash: string, depth: number, previous: string, source: string): string {
     const bytes = objects.get(hash);
     if (!bytes) throw new Error("Missing directory basis");
@@ -140,6 +143,7 @@ export function prepareSourceAdmission(input: {
     if (!entry && depth === parts.length - 1 && parts[depth] === "_index.md" && previous === "") {
       const produced = encoder.encode(source), file = hashObject(produced);
       objects.set(file, produced);
+      addedBody = {parentPath: depth === 0 ? "/" : "/" + parts.slice(0, depth).join("/"), parent: hash, file};
       directory.entries.push({ name: "_index.md", file });
       directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
       const next = encodeWireDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
@@ -179,11 +183,11 @@ export function prepareSourceAdmission(input: {
   const sources = new Map<string, string>([[graph.root, intent.basis.source]]);
   let previousRoot = graph.root, previousSource = intent.basis.source;
   for (const [frame, generation] of generations.entries()) {
-    file = "";
+    file = ""; addedBody = undefined;
     const root = replace(previousRoot, 0, previousSource, generation.source);
     sources.set(root, generation.source);
     const sourceBytes = encoder.encode(previousSource);
-    const operations: SourceOperation[] = operationEdits(generation.edits).flatMap((edit, i) => {
+    let operations: SourceOperation[] = operationEdits(generation.edits).flatMap((edit, i) => {
       for (const offset of [edit.offset, edit.offset + edit.length]) if (offset < sourceBytes.length && (sourceBytes[offset]! & 0xc0) === 0x80) throw new Error("Source range splits a UTF-8 scalar");
       if (!file) return [];
       const key = `edit-${frame}-${i}`;
@@ -199,9 +203,13 @@ export function prepareSourceAdmission(input: {
       }
       return result;
     });
-    // A generation without operations (the first body of a directory) cannot
-    // be a frame; the whole record is then a snapshot.
-    if (!file || !operations.length) evidence = false;
+    // Assigned inside replace(), so read it through its declared type.
+    const added = addedBody as AddedBody | undefined;
+    if (!file && added)
+      operations = [{key: `add-${frame}`, kind: "addEntry", destination: {parent: {material: {kind: "basis", path: added.parentPath, object: added.parent}}, name: "_index.md"}, value: {file: added.file}}];
+    // A generation without operations cannot be a frame; the whole record is
+    // then a snapshot.
+    if (!operations.length) evidence = false;
     frames.push({ before: previousRoot, after: root, operations });
     previousRoot = root; previousSource = generation.source;
   }
@@ -307,17 +315,40 @@ function reproduces(frame: SourceFrame, sourcePath: string, sources: ReadonlyMap
   try { return applySourceEdits(before, plain.edits) === after; } catch { return false; }
 }
 
-/** Page creation is still a snapshot. Its record names the branch it introduced
- * and proves that removing it restores the original graph: a validity check on
- * the record. Undoing a conversion in the editor is a plain source edit. */
+/** Page creation adds the branch it introduced with `addEntry`. Its record
+ * names that branch and proves that removing it restores the original graph, so
+ * the candidate is exactly the basis plus the addition. Undoing a conversion in
+ * the editor is a plain source edit. */
 export function preparePageCreation(input: {change: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation}): SourceAdmissionRecord {
   const {change,tree,basis,graph,candidate,creation} = input;
   if (creation.document.tree !== tree) throw Error("Invalid creation scope");
   const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change});
   if (removed.candidate.root !== graph.root) throw Error("Creation does not reproduce original graph");
   verifyTreeSnapshotGraph(graph,"sparse-files"); verifyTreeSnapshotGraph(candidate,"sparse-files");
-  const update = encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  const operations = creationOperations(creation.removals, graph, candidate);
+  const update = encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:[{before:graph.root,after:candidate.root,operations}],resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   return {change,tree,basis,graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,document:null,creation:{document:{...creation.document},removals:[...creation.removals]},update};
+}
+/** One `addEntry` per created branch, under the basis directory that held it. */
+function creationOperations(paths: string[], graph: TreeSnapshot, candidate: TreeSnapshot): SourceOperation[] {
+  const walk = (snapshot: TreeSnapshot, parts: string[]) => {
+    let hash = snapshot.root;
+    for (const part of parts) {
+      const next = decodeWireDirectory(snapshot.objects.get(hash)!).entries.find(e => e.name === part)?.directory;
+      if (!next) throw Error("Page creation parent is not a basis directory");
+      hash = next;
+    }
+    return hash;
+  };
+  return paths.map((path, index) => {
+    const parts = path.slice(1).split("/"), name = parts.pop();
+    if (!path.startsWith("/") || !name) throw Error("Invalid page creation path");
+    const parent = walk(graph, parts);
+    const added = decodeWireDirectory(candidate.objects.get(walk(candidate, parts))!).entries.find(e => e.name === name);
+    const value = added?.file ? {file: added.file} : added?.directory ? {directory: added.directory} : undefined;
+    if (!value) throw Error("Page creation entry is not a file or directory");
+    return {key: `add-${index}`, kind: "addEntry", destination: {parent: {material: {kind: "basis", path: parts.length ? "/" + parts.join("/") : "/", object: parent}}, name}, value};
+  });
 }
 export function prepareEntryAdmission(input: {
   change?: string; tree: string; basis: SourceAdmissionBasis; graph: TreeSnapshot; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate?: TreeSnapshot;

@@ -1052,6 +1052,25 @@ class Engine {
           );
         result = { node: destination.id, pieces: clone(pieces) };
       }
+    } else if (operation.kind === "addEntry") {
+      // A new entry under an existing directory: the value's objects are
+      // imported under this operation's identity, exactly as replaceEntry
+      // imports a replacement, and the name must be free.
+      const target = await this.binding(operation.destination.parent, basis, state);
+      if (operation.destination.parent.range || target.pieces)
+        return fail("Invalid entry destination");
+      const value = operation.value,
+        kind = "file" in value ? "file" : "directory";
+      await this.importNode(state, "file" in value ? value.file : value.directory, kind, key, null, operation.destination.name);
+      this.placement(state, key, target.node, operation.destination.name);
+      // The exact-basis path records effects only for nodes it names.
+      if (validatedBasisObject)
+        for (const id of Object.keys(state.nodes))
+          if (id === key || id.startsWith(`${key}/`)) (before as Record<string, Node | undefined>)[id] = undefined;
+      result = {
+        node: key,
+        view: { root: state.root, nodes: clone(state.nodes) },
+      };
     } else {
       const material = await this.binding(operation.source, basis, state),
         node = state.nodes[material.node];
@@ -2630,7 +2649,8 @@ class Engine {
     return material;
   }
 
-  /** Exact-basis source replacements cannot import historical material. Read
+  /** Exact-basis source replacements and entry additions cannot import
+   * historical material (an added entry brings only fresh objects). Read
    * current nodes and identity keys, then append records by path-copying their
    * maps. Existing history remains reachable without being decoded or copied. */
   private async editFastForward(): Promise<IntentResponse | undefined> {
@@ -2645,8 +2665,9 @@ class Engine {
     if (request.alternatives?.length || request.incoming.resolves?.length) return decline(2);
     const trace = request.incoming.trace;
     if (!operationsOf(request.incoming).length) return decline(3);
-    if (!operationsOf(request.incoming).every(op => op.kind === "editSource" &&
-          op.source.material.kind === "basis" && !op.lineage?.length)) return decline(4);
+    if (!operationsOf(request.incoming).every(op =>
+          op.kind === "editSource" ? op.source.material.kind === "basis" && !op.lineage?.length
+          : op.kind === "addEntry" && op.destination.parent.material.kind === "basis")) return decline(4);
     if (trace[0]!.before !== request.base.object) return decline(8);
     const partial = await loadEditableIntentState(request.base.state, hash => this.read(hash));
     if (!partial) return decline(5);

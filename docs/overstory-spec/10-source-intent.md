@@ -89,6 +89,7 @@ so there is no separate `editAlternative` operation.
 | `copyEntry` | `source: Ref, destination: EntryDestination` | Create a distinct entry/subtree derived from observed material. Result is the new subtree. |
 | `removeEntry` | `source: Ref` | Remove the observed entry; concurrent modifications remain evidence to reconcile. No material result. |
 | `replaceEntry` | `source: Ref, value: { file: Hash } \| { directory: Hash } \| Ref` | Replace the selected entry's content/subtree while retaining its outer entry identity. Result is the replaced entry. |
+| `addEntry` | `destination: EntryDestination, value: { file: Hash } \| { directory: Hash }` | Create a new entry/subtree under an existing directory; the name MUST be free after the preceding operations. Result is the new entry, whose identity is the operation. |
 
 Undo is not an operation. An editor publishes an undo as the ordinary operations
 that restore the earlier text against the generation being undone, which a frame
@@ -102,8 +103,15 @@ lineage. A material value takes the exact content and descendant provenance of a
 referenced entry, including a hidden alternative. It does not assert a copy or permit
 two simultaneous placements of one entry identity. A deliberate duplicate uses
 `copyEntry`. Boundary attachment kind/authorization and all model constraints remain
-in force. Creation at an absent location can use a separate snapshot candidate;
-`replaceEntry` requires an existing entry in its authored basis.
+in force. `replaceEntry` requires an existing entry in its authored basis.
+
+`addEntry` creates what `replaceEntry` cannot: an entry at an absent name. Its
+`destination.parent` is an entry reference (never ranged) to a live directory, and
+its value is a supplied `file` or `directory` object, never material; adding
+existing material is `copyEntry`. The value asserts new content with no lineage.
+Two additions of one name in concurrent branches are reconciled like two moves
+into that name: they leave an explicit choice, even when the added bytes match,
+because each addition is a distinct entry identity.
 
 `lineage` maps ascending nonoverlapping ranges in the replacement text to verified
 source selections. Each mapping MUST preserve exact bytes and origin. Unmapped text

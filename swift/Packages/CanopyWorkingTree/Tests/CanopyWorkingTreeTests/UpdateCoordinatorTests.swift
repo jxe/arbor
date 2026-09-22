@@ -1989,7 +1989,8 @@ extension SourceSessionPublicationTests {
             #expect(records[0].update.trace == nil)
             #expect(records[1].update.trace?.first?.operations.first?.kind == "editSource")
             #expect(records[3].update.trace?.first?.operations.first?.kind == "moveEntry")
-            #expect(records[4].update.trace == nil) // New directory material, not a made-up source identity.
+            // New directory material is added, not edited from a made-up source identity.
+            #expect(records[4].update.trace?.first?.operations.map(\.kind) == ["addEntry"])
             for index in 1..<records.count { #expect(records[index].basis == .authored(change: records[index - 1].change)) }
             await coordinator.close(); await session.close(); await body.close()
             let reopened = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root,

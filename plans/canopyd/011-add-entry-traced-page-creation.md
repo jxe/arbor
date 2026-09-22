@@ -1,7 +1,18 @@
 # canopyd 011: Traced page creation with an `addEntry` authored operation
 
-Status: PLANNED. Written 2026-09-22 after f83194c8 made snapshot checkpoints cheap again;
-the remaining cost of a snapshot is the evidence it does not carry.
+Status: IMPLEMENTED 2026-09-22 (deploy with the canopyd 013 cutover). Written the same day
+after f83194c8 made snapshot checkpoints cheap again; the remaining cost of a snapshot is the
+evidence it does not carry.
+
+As built:
+- Clients emit `addEntry` straight from the creation record (`add-<i>`), which already names
+  the added branch and proves it; `EntryActions` gained no `creations` list.
+- A directory's first `_index.md` body is an `addEntry` frame in both clients.
+- Sidebar `createMarkdown`/`createDirectory` actions still publish snapshots; converting them is
+  a follow-on (their records have no editor document for `creation.document`).
+- A concurrent same-name addition leaves the existing whole-directory choice, exactly as two
+  `moveEntry` into one name do; no new per-name placement decision was added.
+- `addEntry` takes the fast-forward path when its parent is basis material.
 
 
 ## Context

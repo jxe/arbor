@@ -3530,6 +3530,182 @@
           }
         ]
       }
+    },
+    {
+      "name": "add entry with supplied file",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "add",
+                    "kind": "addEntry",
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/notes",
+                          "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                        }
+                      },
+                      "name": "new.md"
+                    },
+                    "value": {
+                      "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:db4b849efeff480d672611ccbdc2afb0e079ec7ed5acdec47a363c05e7700236",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBpGNrZXljYWRkZGtpbmRoYWRkRW50cnlldmFsdWWhZGZpbGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExa2Rlc3RpbmF0aW9uomRuYW1lZm5ldy5tZGZwYXJlbnShaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL25vdGVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
+        }
+      ]
+    },
+    {
+      "name": "add entry with supplied directory",
+      "valid": true,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "add",
+                    "kind": "addEntry",
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/notes",
+                          "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                        }
+                      },
+                      "name": "trip"
+                    },
+                    "value": {
+                      "directory": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      },
+      "identities": [
+        {
+          "digest": "sha256:4ef6a4380a6795f6ddb8f8e79b4c57a2a4cf51e9a2d3687f13610879a8abd311",
+          "canonicalCBORBase64": "qGRiYXNla2FjY2VwdGVkLcOpZHRyZWVqdHJfZml4dHVyZWV0cmFjZYGjZWFmdGVyeEdzaGEyNTY6MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMWZiZWZvcmV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwam9wZXJhdGlvbnOBpGNrZXljYWRkZGtpbmRoYWRkRW50cnlldmFsdWWhaWRpcmVjdG9yeXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFrZGVzdGluYXRpb26iZG5hbWVkdHJpcGZwYXJlbnShaG1hdGVyaWFso2RraW5kZWJhc2lzZHBhdGhmL25vdGVzZm9iamVjdHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJmY2hhbmdlamNoYW5nZS1vbmVmZG9tYWlubmFyYm9yLXVwZGF0ZS8yaHJlc29sdmVzgGljYW5kaWRhdGV4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExaWlmQ3VycmVudPY="
+        }
+      ]
+    },
+    {
+      "name": "add entry parent cannot select a range",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "add",
+                    "kind": "addEntry",
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/notes",
+                          "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                        },
+                        "range": [
+                          0,
+                          1
+                        ]
+                      },
+                      "name": "new.md"
+                    },
+                    "value": {
+                      "file": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    }
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "add entry value cannot be material",
+      "valid": false,
+      "value": {
+        "base": "accepted-é",
+        "updates": [
+          {
+            "change": "change-one",
+            "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "trace": [
+              {
+                "before": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "after": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "operations": [
+                  {
+                    "key": "add",
+                    "kind": "addEntry",
+                    "destination": {
+                      "parent": {
+                        "material": {
+                          "kind": "basis",
+                          "path": "/notes",
+                          "object": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                        }
+                      },
+                      "name": "new.md"
+                    },
+                    "value": {
+                      "material": {
+                        "kind": "basis",
+                        "path": "/a.md",
+                        "object": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "resolves": []
+          }
+        ]
+      }
     }
   ]
 }
