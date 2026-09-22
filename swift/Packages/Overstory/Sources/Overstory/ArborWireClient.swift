@@ -336,7 +336,6 @@ public actor ArborWireClient {
                                 guard seen.insert(Data(transition.update.id.utf8)).inserted else {
                                     throw ArborWireValidationError.malformedSSE("Repeated accepted identity")
                                 }
-                                _ = try transition.validated()
                                 guard transition.update.tree == tree else {
                                     throw ArborWireValidationError.malformedSSE("Tree ref transition belongs to another tree")
                                 }

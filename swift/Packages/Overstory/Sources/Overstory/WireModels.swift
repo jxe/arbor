@@ -253,7 +253,12 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
         try c.encode(subject,forKey:.subject); try c.encode(conflicted,forKey:.conflicted)
     }
     public func validated() throws -> Self {
-        _ = try JSONDecoder().decode(WireAcceptedStateContract.self,from:JSONEncoder().encode(self))
+        try AcceptedReadValidation.state([
+            "id": .string(id), "tree": .string(tree), "root": .string(root),
+            "previous": previous.map { .object(["id": .string($0.id), "root": .string($0.root)]) } ?? .null,
+            "acceptedAt": .number(acceptedAt), "subject": subject.map(WireReadValue.string) ?? .null,
+            "conflicted": .bool(conflicted),
+        ])
         return self
     }
 }
@@ -456,11 +461,17 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
         objects = payload.objects
         deltas = payload.deltas
         requestDigest = try values.decodeIfPresent(String.self, forKey: .requestDigest)
-        _ = try validated()
+        // Decoding `update` already validated it against the accepted-state contract.
+        try validateTransition()
     }
 
     public func validated() throws -> Self {
         _ = try update.validated()
+        try validateTransition()
+        return self
+    }
+
+    private func validateTransition() throws {
         guard update.previous != nil else {
             throw ArborWireValidationError.invalidValue("Initial accepted update cannot be replayed as a transition")
         }
@@ -472,23 +483,7 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
             }
         }
         if let requestDigest { try validateObjectHash(requestDigest) }
-        var results = Set<String>()
-        for envelope in objects {
-            try validateObjectHash(envelope.hash)
-            guard WireObjectCodec.hash(envelope.bytes) == envelope.hash else {
-                throw ArborWireValidationError.objectHashMismatch(expected: envelope.hash, actual: WireObjectCodec.hash(envelope.bytes))
-            }
-            guard results.insert(envelope.hash).inserted else {
-                throw ArborWireValidationError.invalidValue("Duplicate transition result")
-            }
-        }
-        for delta in deltas {
-            _ = try delta.validated()
-            guard results.insert(delta.result).inserted else {
-                throw ArborWireValidationError.invalidValue("Transition result supplied more than once")
-            }
-        }
-        return self
+        _ = try WireTransitionPayload(objects: objects, deltas: deltas).validated()
     }
 }
 
@@ -883,7 +878,7 @@ extension WireUpdateResult: Codable {
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        let update = try values.decode(WireAcceptedUpdate.self, forKey: .update).validated()
+        let update = try values.decode(WireAcceptedUpdate.self, forKey: .update)
         switch try values.decode(String.self, forKey: .outcome) {
         case "unchanged": self = .unchanged(update)
         case "accepted": self = .accepted(update)
