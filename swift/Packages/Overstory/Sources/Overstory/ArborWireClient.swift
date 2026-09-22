@@ -18,6 +18,11 @@ private struct StaticWireCredential: WireCredentialProvider, Sendable {
 public actor ArborWireClient {
     public typealias RetryDelay = @Sendable (_ attempt: Int) async throws -> Void
 
+    /// Wait 100 ms before the first retry and 500 ms before each later one.
+    public static let defaultRetryDelay: RetryDelay = { attempt in
+        try await Task.sleep(for: .milliseconds(attempt == 1 ? 100 : 500))
+    }
+
     /// Submissions are idempotent by request digest, so a lost exchange is retried this many times in all.
     private static let updateAttempts = 3
 
@@ -37,9 +42,7 @@ public actor ArborWireClient {
         origin: URL,
         credential: String? = nil,
         session: URLSession = .shared,
-        retryDelay: @escaping RetryDelay = { attempt in
-            try await Task.sleep(for: .milliseconds(attempt == 1 ? 100 : 500))
-        }
+        retryDelay: @escaping RetryDelay = ArborWireClient.defaultRetryDelay
     ) {
         self.origin = origin
         self.credentialProvider = StaticWireCredential(credential)
@@ -51,9 +54,7 @@ public actor ArborWireClient {
         origin: URL,
         credentialProvider: any WireCredentialProvider,
         session: URLSession = .shared,
-        retryDelay: @escaping RetryDelay = { attempt in
-            try await Task.sleep(for: .milliseconds(attempt == 1 ? 100 : 500))
-        }
+        retryDelay: @escaping RetryDelay = ArborWireClient.defaultRetryDelay
     ) {
         self.origin = origin
         self.credentialProvider = credentialProvider

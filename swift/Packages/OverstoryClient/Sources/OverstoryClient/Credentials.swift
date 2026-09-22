@@ -460,9 +460,7 @@ public actor NativeAccountService {
         credentials: any AccountCredentialStore = KeychainDeviceCredentialStore(),
         legacyCredentials: (any DeviceCredentialStore)? = KeychainDeviceCredentialStore(),
         session: URLSession = .shared,
-        retryDelay: @escaping ArborWireClient.RetryDelay = { attempt in
-            try await Task.sleep(for: .milliseconds(attempt == 1 ? 100 : 500))
-        }
+        retryDelay: @escaping ArborWireClient.RetryDelay = ArborWireClient.defaultRetryDelay
     ) {
         self.origin = origin
         self.configurationTree = configurationTree

@@ -50,13 +50,17 @@ public enum ArborSyncLaunchPolicy: Sendable, Equatable {
 public actor ArborSyncProcessSupervisor {
     private static let serviceLabel = "org.nxhx.Arbor.arborsync"
     private static let servicePlist = "org.nxhx.Arbor.arborsync.plist"
+    /// The loopback port the persistent service listens on.
+    public static let defaultPort = 4317
+    /// How much of a log's end `logs()` shows.
+    private static let logTailBytes = 32_768
 
     private let launchPolicy: ArborSyncLaunchPolicy
     private var process: Process?
     /// Whether `start` has run, so `restartControl` knows what to restart.
     private var started = false
     private var executable: URL?
-    private var preferredPort: Int = 4317
+    private var preferredPort = ArborSyncProcessSupervisor.defaultPort
     private var logURL: URL?
     private var controlRuntime: ArborSyncControlRuntime?
     private var serviceRegistrationFailure: String?
@@ -72,7 +76,7 @@ public actor ArborSyncProcessSupervisor {
     /// clients open trees through `bootstrap(tree:)`.
     public func start(
         executable explicitExecutable: URL? = nil,
-        preferredPort: Int = 4317
+        preferredPort: Int = ArborSyncProcessSupervisor.defaultPort
     ) async throws -> ArborSyncControlRuntime {
         if let controlRuntime { return controlRuntime }
         started = true
@@ -115,7 +119,7 @@ public actor ArborSyncProcessSupervisor {
             }
             return persistent
         }
-        return String(decoding: data.suffix(32_768), as: UTF8.self)
+        return String(decoding: data.suffix(Self.logTailBytes), as: UTF8.self)
     }
 
     // MARK: Shared attach-or-launch path
@@ -129,7 +133,7 @@ public actor ArborSyncProcessSupervisor {
             throw ArborSyncSupervisorError.serviceUnavailable
         }
 
-        if explicitExecutable == nil, preferredPort == 4317, shouldUsePersistentService {
+        if explicitExecutable == nil, preferredPort == Self.defaultPort, shouldUsePersistentService {
             if await kickstartInstalledService() {
                 if let attached = try await waitForService(port: preferredPort) { return attached }
                 throw ArborSyncSupervisorError.readinessTimedOut(canonicalServiceLog())
@@ -264,7 +268,7 @@ public actor ArborSyncProcessSupervisor {
         guard let data = try? Data(contentsOf: url), !data.isEmpty else {
             return "No Arbor Sync log output at \(url.path)"
         }
-        return String(decoding: data.suffix(32_768), as: UTF8.self)
+        return String(decoding: data.suffix(Self.logTailBytes), as: UTF8.self)
     }
 
     private func validate(_ status: ArborSyncStatus) throws {
