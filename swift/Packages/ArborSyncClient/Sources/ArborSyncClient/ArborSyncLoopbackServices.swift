@@ -49,8 +49,8 @@ public actor ArborSyncCredentialProvider: WireCredentialProvider {
 
 /// The daemon's `/v1/objects` route as a platform `ObjectStore`.
 ///
-/// The daemon already verifies every body it serves; this store verifies again on
-/// the client side so a corrupted loopback hop can never hand out wrong bytes.
+/// The daemon already verifies every body it serves; `ArborSyncRESTClient.object`
+/// verifies again on the client side so a corrupted loopback hop can never hand out wrong bytes.
 /// A `404` becomes `ObjectStoreError.missing` so a layered store can fall through.
 public struct DaemonObjectStore: ObjectStore {
     public let client: ArborSyncRESTClient
@@ -66,7 +66,7 @@ public struct DaemonObjectStore: ObjectStore {
 
     public func bytes(_ hash: String) async throws -> Data {
         do {
-            return try verifyObject(try await client.object(tree: tree, hash: hash, origin: origin), hash: hash)
+            return try await client.object(tree: tree, hash: hash, origin: origin)
         } catch let error as ArborSyncServerError where error.status == 404 {
             throw ObjectStoreError.missing(hash)
         } catch let error as ArborWireValidationError {
