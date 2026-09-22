@@ -579,6 +579,33 @@ struct UpdateProtocolTests {
         #expect(captured.idempotencyKeys == [nil, nil])
     }
 
+    @Test("A response that fails validation is not retried")
+    func invalidResponseIsNotRetried() async throws {
+        let file = try WireObjectCodec.object(.file(Data("mismatch".utf8)))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let baseHash = "sha256:" + String(repeating: "0", count: 64)
+        let otherDigest = "sha256:" + String(repeating: "2", count: 64)
+        let client = ArborWireClient(
+            origin: URL(string: "https://canopy.test")!,
+            credential: "device-token",
+            session: wireStubSession(),
+            retryDelay: { _ in }
+        )
+        let prepared = try await client.prepareUpdate(
+            tree: "tr_retry",
+            base: .init(root: baseHash, update: "up_base"),
+            snapshot: WireSnapshot(root: root.hash, objects: [file, root])
+        )
+        let response = Data("""
+        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
+        """.utf8)
+        await WireURLProtocolStub.state.install { _, _ in (201, response) }
+        await #expect(throws: ArborWireValidationError.invalidValue("Server response update-string identity mismatch")) {
+            _ = try await client.submitUpdate(prepared)
+        }
+        #expect(await WireURLProtocolStub.state.snapshot().count == 1)
+    }
+
     @Test("A conflict decodes completely and is not retried")
     func typedConflict() async throws {
         let local = try wireTestSnapshot("local")

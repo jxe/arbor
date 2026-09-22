@@ -15,6 +15,9 @@ public struct StaticWireCredential: WireCredentialProvider, Sendable {
 public actor ArborWireClient {
     public typealias RetryDelay = @Sendable (_ attempt: Int) async throws -> Void
 
+    /// Submissions are idempotent by request digest, so a lost exchange is retried this many times in all.
+    private static let updateAttempts = 3
+
     private let origin: URL
     private let credentialProvider: any WireCredentialProvider
     private let session: URLSession
@@ -173,7 +176,7 @@ public actor ArborWireClient {
 
         var lastError: Error = URLError(.unknown)
         let log = WireNetworkLog.current
-        for attempt in 0..<3 {
+        for attempt in 0..<Self.updateAttempts {
             var entry = WireNetworkLogEntry(kind: .update, name: "updates", tree: prepared.tree)
             entry.method = "POST"
             entry.attempt = attempt + 1
@@ -183,11 +186,12 @@ public actor ArborWireClient {
             do {
                 let (data, response) = try await loggedData(request, entry: &entry)
                 let status = try statusCode(response)
-                if status < 400, let decoded = try? decoder.decode(WireUpdateResponse.self, from: data) {
-                    entry.updateIDs = decoded.results.map { element in
+                let decoded = status < 400 ? Result { try decoder.decode(WireUpdateResponse.self, from: data) } : nil
+                if case let .success(value)? = decoded {
+                    entry.updateIDs = value.results.map { element in
                         switch element.result { case .accepted(let update), .unchanged(let update): update.id }
                     }
-                    if case .accepted(let update) = decoded.results.last?.result { entry.root = update.root }
+                    if case .accepted(let update) = value.results.last?.result { entry.root = update.root }
                     log?.noteUpdateResponded(digests: prepared.requestDigests)
                 }
                 log?.record(entry)
@@ -201,22 +205,19 @@ public actor ArborWireClient {
                 }
                 if status >= 500 {
                     lastError = decodeHTTPError(data: data, status: status)
-                    throw RetryableWireError()
+                } else {
+                    try validate(data: data, status: status)
+                    guard let value = try decoded?.get(), value.results.map(\.requestDigest) == prepared.requestDigests else {
+                        throw ArborWireValidationError.invalidValue("Server response update-string identity mismatch")
+                    }
+                    return value
                 }
-                try validate(data: data, status: status)
-                let decoded = try decoder.decode(WireUpdateResponse.self, from: data)
-                guard decoded.results.map(\.requestDigest) == prepared.requestDigests else {
-                    throw ArborWireValidationError.invalidValue("Server response update-string identity mismatch")
-                }
-                return decoded
-            } catch let error as WireUpdateConflictError {
-                throw error
-            } catch let error as WireHTTPError {
-                throw error
-            } catch {
-                if !(error is RetryableWireError) { lastError = error }
-                if attempt < 2 { try await retryDelay(attempt + 1) }
+            } catch let error as URLError {
+                // Only a lost exchange or a server failure (above) is retried; a response
+                // that fails validation would fail identically again.
+                lastError = error
             }
+            if attempt < Self.updateAttempts - 1 { try await retryDelay(attempt + 1) }
         }
         throw lastError
     }
@@ -607,4 +608,3 @@ private struct WireErrorEnvelope: Decodable {
     var message: String
     var retryable: Bool
 }
-private struct RetryableWireError: Error {}
