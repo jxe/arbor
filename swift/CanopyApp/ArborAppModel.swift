@@ -809,15 +809,26 @@ final class ArborWorkspaceState {
         }
         do {
             try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
         } catch {
-            _ = try? ArborAccountConfigurationYAML.editFile(
-                named: "trees.yaml",
-                in: accountCheckout(account.configurationTree)
-            ) { latest in
-                try ArborAccountConfigurationYAML.replacingTrees(in: latest) { $0[tree] = nil }
+            do {
+                try ArborAccountConfigurationYAML.editFile(
+                    named: "trees.yaml",
+                    in: accountCheckout(account.configurationTree)
+                ) { latest in
+                    try ArborAccountConfigurationYAML.replacingTrees(in: latest) { $0[tree] = nil }
+                }
+            } catch let rollbackError {
+                throw ArborWireValidationError.invalidValue(
+                    "\(error.localizedDescription) Removing \(tree) from trees.yaml again also failed: \(rollbackError.localizedDescription)"
+                )
             }
             throw error
+        }
+        do {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
+        } catch {
+            // The placement is written; only its permissions could not be narrowed.
+            Self.recordDiagnostic("placements-permissions", error)
         }
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         try await client.synchronize(configurationTree: account.configurationTree)
@@ -888,10 +899,12 @@ final class ArborWorkspaceState {
         guard placed.osPath != nil else {
             throw ArborWireValidationError.invalidValue("\(placed.name) is not placed on this Mac")
         }
-        let accounts = (try? await client.accounts()) ?? []
-        let account = accounts.first { $0.configurationTree == placed.configurationTree }
-        guard let originValue = placed.canonical?.endpoint ?? account?.canopy,
-              let origin = URL(string: originValue) else {
+        // The account's Canopy is the origin only for a tree without a canonical endpoint.
+        var originValue = placed.canonical?.endpoint
+        if originValue == nil {
+            originValue = try await client.accounts().first { $0.configurationTree == placed.configurationTree }?.canopy
+        }
+        guard let rawOrigin = originValue, let origin = URL(string: rawOrigin) else {
             throw ArborWireValidationError.invalidValue("\(placed.name) has no Canopy origin")
         }
         let descriptor = try WireTreeDescriptor(
@@ -1003,7 +1016,11 @@ final class ArborWorkspaceState {
             CanopyObjectStore(client: client, tree: tree.id)
         }
         let rootLocator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
-        try? await visitedTreeStore.record(VisitedTreeRecord(origin: remote.origin, tree: tree, locator: rootLocator))
+        do {
+            try await visitedTreeStore.record(VisitedTreeRecord(origin: remote.origin, tree: tree, locator: rootLocator))
+        } catch {
+            Self.recordDiagnostic("visit-record", error)
+        }
         if tree.access == "write" {
             try await openWritableRemoteTree(
                 tree: tree,
@@ -1121,8 +1138,16 @@ final class ArborWorkspaceState {
     func restoreLocalWorkspaceIfAvailable() async {
         guard !attemptedWorkspaceRestore else { return }
         attemptedWorkspaceRestore = true
-        nativePlacements = (try? await nativePlacementStore.loadAll()) ?? []
-        let record = try? await nativePlacementStore.load()
+        let record: NativePlacementRecord?
+        do {
+            nativePlacements = try await nativePlacementStore.loadAll()
+            record = try await nativePlacementStore.load()
+        } catch {
+            // An unreadable placement store opens like a fresh installation.
+            Self.recordDiagnostic("placement-restore", error)
+            nativePlacements = []
+            record = nil
+        }
         if let record, !launchPhase.isPreviewing, let osPath = record.osPath,
            FileManager.default.fileExists(atPath: osPath) {
             let tree = TreeID(rawValue: record.tree.id)
