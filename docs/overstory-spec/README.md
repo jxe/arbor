@@ -89,7 +89,7 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | Route | Defined in |
 |---|---|
 | `GET /.arbor/health`, `GET /.arbor/integrity`, `GET /.arbor/account`, `GET /.arbor/trees`, `GET /.well-known/arbor[/{path}]` | [locators §5](03-locators.md#5-finding-trees) |
-| `GET /.arbor/trees/{TreeID}`, `/snapshots/{root}`, `/objects/{hash}` | [tree reads §1.1–1.2](01-tree-operations.md#1-reading-trees) |
+| `GET /.arbor/trees/{TreeID}`, `/snapshots/{root}`, `/entry-metadata`, `/objects/{hash}` | [tree reads §1.1–1.2](01-tree-operations.md#1-reading-trees) |
 | `POST /.arbor/trees/{TreeID}/updates` | [updates §2.1](01-tree-operations.md#21-the-update-request) |
 | `GET /.arbor/trees/{TreeID}/watch` | [watching §1.1.3](01-tree-operations.md#113-watching) |
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries) |

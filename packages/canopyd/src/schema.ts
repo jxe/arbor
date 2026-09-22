@@ -9,7 +9,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * history. The migration sets the stamp. "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "15";
+export const CANOPY_SCHEMA_VERSION = "16";
 /** Empty access lists have identical legacy/new YAML: retain the writer floor independently. */
 export const resourcePolicyFormatKey = (accountID: string) => `resource-policy-format:${accountID}`;
 
@@ -32,6 +32,8 @@ export const AUTHORITY_SCHEMA = {
   access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
   tree_reservations: ["id", "account_id", "canonical_path", "status", "error"],
   observations: ["ordinal", "cursor", "tree_id", "kind", "update_id", "change_json", "created_at"],
+  entry_metadata: ["tree_id", "path", "modified_at", "update_id", "data_json"],
+  document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   meta: ["key", "value"],
 } as const;
 
@@ -159,7 +161,7 @@ export function assertCurrentCanopySchema(db: Database): void {
       issues.push(`${table} columns`);
     }
   }
-  for (const index of ["accepted_updates_request", "accepted_updates_change", "observations_tree_order"]) {
+  for (const index of ["accepted_updates_request", "accepted_updates_change", "observations_tree_order", "document_versions_key"]) {
     if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
       issues.push(`missing ${index} index`);
     }

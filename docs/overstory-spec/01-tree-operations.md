@@ -287,6 +287,33 @@ type ObjectEnvelope = { hash: Hash; bytes: string };
 
 Section 4.1 defines the common encoding and hash rules.
 
+#### 1.1.2a Reading entry metadata
+
+```text
+GET /.arbor/trees/{TreeID}/entry-metadata
+```
+
+Descriptive metadata about the file entries of the tree's current accepted
+root. It is never part of any object or hash: identical content hashes
+identically whenever and wherever it was written, and metadata can change
+without changing a root.
+
+```ts
+type EntryMetadataResponse = {
+  update: UpdateId; // the accepted update the entries describe
+  entries: Record<EntryPath, { modifiedAt?: number }>; // "/Trips/_index.md" → Unix ms
+};
+```
+
+Keys are directory-entry paths of files, not logical page paths; a client maps
+a page to its body entry. `modifiedAt` is the `acceptedAt` of the accepted
+update that last wrote that entry's object at that path, so a move is a change
+at its new path. A host MAY omit entries it cannot date. Clients ignore unknown
+fields inside an entry; later descriptive fields are added there. Read access is
+the same as for the snapshot read. The response is not immutable: it describes
+`update`, which a client may compare with the snapshot it installed and let the
+watch correct.
+
 #### 1.1.3 Watching
 
 ```text

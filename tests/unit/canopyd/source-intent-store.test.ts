@@ -6,6 +6,7 @@ import { encodeWireDirectory, hashObject, type SourceOperation } from "@overstor
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
 import { SourceIntentStore } from "../../../packages/canopyd/src/updates/source-intent-store.ts";
 import { executeExactSourceEdits } from "../../../packages/canopyd/src/updates/source-edits.ts";
+const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
 let db: Database, dir: string, store: AcceptedUpdateStore;
 const bytes = new TextEncoder().encode("abc"), file = hashObject(bytes);
@@ -16,10 +17,10 @@ const executed = await executeExactSourceEdits(root, operations, async hash => h
 const sourceIntent = { change: "change-one", trace: [{ before: root, after: executed.root, operations }], evidence: executed.evidence };
 function initialize(tree: string) {
   db.run("INSERT INTO trees VALUES (?, ?, 1)", [tree, root]);
-  store.insert({ tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
+  store.insert({entryChanges:NO_ENTRY_CHANGES, tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
 }
 function input(tree = "one", digest = "sha256:request") {
-  return { tree, root, previousRoot: root, expectedRoot: root, expectedUpdate: store.current(tree)!.id,
+  return { entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: root, expectedRoot: root, expectedUpdate: store.current(tree)!.id,
     kind: "accepted" as const, acceptedAt: 2, subject: "device:one", requestDigest: digest,
     baseRoot: root, candidateRoot: root, sourceIntent };
 }

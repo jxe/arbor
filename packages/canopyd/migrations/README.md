@@ -162,6 +162,9 @@ than it understands. The stamps that have shipped:
 | 11 | Optional physical parent path on the private entry encoding; missing parents keep the historical root meaning. |
 | 12 | `accepted_merge_states`, owned by the accepted update ID: accepted and authored state hashes, public inspections, the complete immutable dependency closure, original intent and validation evidence. The accepted row, inspection ownership, and transition commit in one transaction; objects are hash-verified and durably stored first; schema-11 records stay readable. |
 | 13 | Resource policy: governed rule index persisted in the accepted transaction, plus a durable account format marker (set by migration 011 even for all-private configurations) that rejects old privilege writes after conversion. Required matching Mac and iPhone clients. |
+| 14 | Operation frames: authored changes carry `trace` frames (migration 012). |
+| 15 | Compact merge evidence and v3 merge states (migration 013). |
+| 16 | `entry_metadata` (per file entry: last accepted change) and `document_versions` (per Markdown document: accepted content versions), both written inside the accepted transaction and backfilled by replaying accepted history (migration 014). No wire change is required of clients; the new `entry-metadata` read is additive. |
 
 Client-side formats have their own ladders, recorded in [the local system
 reference](../../../docs/architecture/arborsync/data-home.md): iOS working-tree format marker 4, local
@@ -169,7 +172,7 @@ update-control schema 3 (source mode), and admission journal schemas 2 to 4.
 
 ## Writing the next migration
 
-Copy the most recent migration directory (today `013-compact-merge-evidence/`) as the template: a `README.md` with the
+Copy the most recent migration directory (today `014-entry-metadata/`) as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice);
 a `migrate.test.ts` runnable with

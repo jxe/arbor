@@ -502,6 +502,13 @@ export async function serveCanopy(options: {
             headers: immutableHeaders(request, `sha256:${sha256(body)}`),
           });
         }
+        const metadata = /^\/\.arbor\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
+        if (metadata && request.method === "GET") {
+          const tree = canopy.get(decodeURIComponent(metadata[1]!));
+          if (!tree || !canopy.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
+          const value = canopy.entryMetadata(tree.id);
+          return value ? json(value) : new Response("Not found", { status: 404 });
+        }
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
           if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });

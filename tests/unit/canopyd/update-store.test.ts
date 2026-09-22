@@ -4,6 +4,7 @@ import { AcceptedUpdateStore } from "@overstory/canopyd";
 import { encodeWireDirectory, type ObjectHash } from "@overstory/protocol";
 import { ensureCanopyReadIndexes } from "../../../packages/canopyd/src/schema.ts";
 import { ObservationLog } from "../../../packages/canopyd/src/updates/observations.ts";
+const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
 const A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as ObjectHash;
 const B = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as ObjectHash;
@@ -21,7 +22,7 @@ describe("accepted-update transaction store", () => {
     AcceptedUpdateStore.createSchema(db);
     store = new AcceptedUpdateStore(db);
     db.run("INSERT INTO trees (id, ref, updated_at) VALUES ('tr_test', ?, 1)", [A]);
-    store.insert({
+    store.insert({entryChanges:NO_ENTRY_CHANGES,
       tree: "tr_test",
       root: A,
       previousRoot: null,
@@ -36,7 +37,7 @@ describe("accepted-update transaction store", () => {
     const log = new ObservationLog(db);
     const anchor = log.latestCursor("tr_test")!;
     const start = log.position("tr_test", anchor);
-    for (let i=0;i<150;i++) store.insert({tree:"tr_test",root:A,previousRoot:A,kind:"accepted",acceptedAt:i+2,transition:{objects:[],deltas:[]}});
+    for (let i=0;i<150;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,tree:"tr_test",root:A,previousRoot:A,kind:"accepted",acceptedAt:i+2,transition:{objects:[],deltas:[]}});
     const seen: string[] = [];
     let ordinal = start.through;
     for (;;) {
@@ -49,7 +50,7 @@ describe("accepted-update transaction store", () => {
     expect(new Set(seen).size).toBe(150);
     expect(log.position("other-tree",anchor).retained).toBe(false);
     expect(log.position("tr_test",null).through).toBe(ordinal);
-    const appended=store.insert({tree:"tr_test",root:A,previousRoot:A,kind:"accepted",acceptedAt:999});
+    const appended=store.insert({entryChanges:NO_ENTRY_CHANGES,tree:"tr_test",root:A,previousRoot:A,kind:"accepted",acceptedAt:999});
     expect(log.page("tr_test",ordinal).map(row=>row.updateID)).toEqual([appended.id]);
   });
 
@@ -70,7 +71,7 @@ describe("accepted-update transaction store", () => {
 
   test("commits the ref, reflog, accepted row, and digest as one result", () => {
     const bytes = encodeWireDirectory({ type: "directory", entries: [] });
-    const accepted = store.commit({
+    const accepted = store.commit({entryChanges:NO_ENTRY_CHANGES,
       tree: "tr_test",
       root: B,
       previousRoot: A,
@@ -98,7 +99,7 @@ describe("accepted-update transaction store", () => {
   });
 
   test("a failed compare-and-swap changes no authority state", () => {
-    const accepted = store.commit({
+    const accepted = store.commit({entryChanges:NO_ENTRY_CHANGES,
       tree: "tr_test",
       root: C,
       previousRoot: B,
@@ -116,7 +117,7 @@ describe("accepted-update transaction store", () => {
 
   test("accepted identity guards commits even when projection bytes are unchanged", () => {
     const initial = store.current("tr_test")!;
-    const input = { tree: "tr_test", root: A, previousRoot: A, expectedRoot: A, expectedUpdate: initial.id, kind: "accepted" as const, acceptedAt: 2 };
+    const input = { entryChanges: NO_ENTRY_CHANGES, tree: "tr_test", root: A, previousRoot: A, expectedRoot: A, expectedUpdate: initial.id, kind: "accepted" as const, acceptedAt: 2 };
     const metadata = store.commit(input)!;
     expect(metadata.root).toBe(initial.root);
     expect(metadata.id).not.toBe(initial.id);
@@ -127,9 +128,9 @@ describe("accepted-update transaction store", () => {
 
   test("persists unresolved metadata and predecessor links independently of projection and observation", () => {
     const initial = store.current("tr_test")!;
-    const metadata = store.commit({ tree: "tr_test", root: A, previousRoot: A,
+    const metadata = store.commit({entryChanges:NO_ENTRY_CHANGES, tree: "tr_test", root: A, previousRoot: A,
       expectedRoot: A, expectedUpdate: initial.id, kind: "accepted", acceptedAt: 2, conflicted: true })!;
-    const next = store.commit({ tree: "tr_test", root: B, previousRoot: A,
+    const next = store.commit({entryChanges:NO_ENTRY_CHANGES, tree: "tr_test", root: B, previousRoot: A,
       expectedRoot: A, expectedUpdate: metadata.id, kind: "merged", acceptedAt: 3,
       merge: { version: "markdown-additive-v1", approximatePlacements: 1 } })!;
     expect(next.conflicted).toBe(true);
@@ -153,7 +154,7 @@ describe("accepted-update transaction store", () => {
     expect(observations.after("tr_test", initial.id).records).toEqual([]);
     expect(observations.after("tr_test", "legacy-status").retained).toBe(true);
 
-    const accepted = store.commit({
+    const accepted = store.commit({entryChanges:NO_ENTRY_CHANGES,
       tree: "tr_test",
       root: B,
       previousRoot: A,
@@ -167,8 +168,8 @@ describe("accepted-update transaction store", () => {
   });
   test("ancestry uses accepted identities and refuses gaps or a traversal beyond its bound", () => {
     const initial = store.current("tr_test")!;
-    const first = store.insert({ tree: "tr_test", root: A, previousRoot: A, kind: "accepted", acceptedAt: 2 });
-    const second = store.insert({ tree: "tr_test", root: A, previousRoot: A, kind: "accepted", acceptedAt: 3 });
+    const first = store.insert({entryChanges:NO_ENTRY_CHANGES, tree: "tr_test", root: A, previousRoot: A, kind: "accepted", acceptedAt: 2 });
+    const second = store.insert({entryChanges:NO_ENTRY_CHANGES, tree: "tr_test", root: A, previousRoot: A, kind: "accepted", acceptedAt: 3 });
     expect(store.ancestry(initial.id, second.id)).toEqual([first, second]);
     expect(store.ancestry(initial.id, second.id, 1)).toBeNull();
     expect(store.ancestry(second.id, second.id)).toEqual([]);

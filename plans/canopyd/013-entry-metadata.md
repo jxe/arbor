@@ -1,6 +1,14 @@
 # canopyd 013: Entry metadata and the document-version index
 
-Status: PLANNED. Written 2026-09-22 after ccaeb760 fixed pending-view dates on the Mac.
+Status: SERVER IMPLEMENTED 2026-09-22 (steps 1–3: tables, write seam, route, migration 014);
+Arbor Sync and client steps 4–5 remain. Written the same day after ccaeb760 fixed pending-view
+dates on the Mac.
+
+As built, `document_versions` keeps a rowid for accepted order (the newest version is the
+largest rowid, independent of clock ties) and is unique on `(tree_id, stable_key, update_id,
+entry_path)`, so two files sharing an ID in one update both land. `entryChanges` reports a
+moved file as set at its new path; the version index then skips it when its content hash is
+unchanged. The Swift wire mirror of the route moves to step 5 with the client that reads it.
 Also carries the storage half of [canopyd 007](007-canopy-document-history.md)
 (the `document_versions` index), so both backfills share one history replay and
 one migration. 007 keeps its routes, access rule and History UI.

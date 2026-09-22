@@ -12,6 +12,7 @@ import {
 } from "@overstory/protocol";
 import { SourceIntentStore, type SourceIntent } from "./source-intent-store.ts";
 import { ObservationLog } from "./observations.ts";
+import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
 
 export interface StoredAcceptedResponse {
   status: number;
@@ -37,6 +38,9 @@ export interface AcceptedUpdateInput {
   sourceIntent?: SourceIntent;
   conflicts?: ConflictState;
   mergeState?:MergeStateRecord;
+  /** File entries this update wrote or removed (`entryChanges(previousRoot, root)`),
+   * computed before the transaction because object reads are async. */
+  entryChanges: EntryChanges;
 }
 
 export interface AcceptedCommitInput extends AcceptedUpdateInput {
@@ -84,6 +88,7 @@ export class AcceptedUpdateStore {
     SourceIntentStore.createSchema(db);
     ConflictStore.createSchema(db);
     MergeStateStore.createSchema(db);
+    EntryMetadataStore.createSchema(db);
   }
 
   private row(value: unknown): AcceptedUpdate | null {
@@ -239,6 +244,7 @@ export class AcceptedUpdateStore {
       input.change ?? input.sourceIntent?.change ?? null,
     ]);
     this.observations.bindUpdate(id, id);
+    new EntryMetadataStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
     if (state && !input.mergeState) conflicts.insert(id, state);
     if(input.mergeState)new MergeStateStore(this.db).insert(id,input.mergeState);
     if (input.sourceIntent) {

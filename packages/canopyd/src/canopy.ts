@@ -1,3 +1,4 @@
+import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -507,6 +508,16 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.objects.completeSnapshot(root);
   }
 
+  /** Descriptive metadata of the current accepted root's file entries, keyed
+   * by entry path. Not part of any hash; read in one turn with its update. */
+  entryMetadata(treeID: string): { update: string; entries: Record<string, { modifiedAt: number }> } | null {
+    const current = this.acceptedStore.current(treeID);
+    if (!current) return null;
+    const entries: Record<string, { modifiedAt: number }> = {};
+    for (const [path, entry] of new EntryMetadataStore(this.db).entries(treeID)) entries[path] = { modifiedAt: entry.modifiedAt };
+    return { update: current.id, entries };
+  }
+
   boundary(path: string): CanopyTree | null {
     return this.treeSelect("WHERE b.path = ?", normalizeBoundaryPath(path));
   }
@@ -658,8 +669,10 @@ export class CanopyDaemon implements AsyncDisposable {
     await this.objects.store([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configTree = this.get(account.configTree!)!;
     const transition = await this.acceptedTransitionPayload(configTree.ref, nextSnapshot.root);
+    const changes = await this.entryChanges(configTree.ref, nextSnapshot.root);
     const now = Date.now();
     const accepted = this.acceptedStore.commit({
+      entryChanges: changes,
       tree: configTree.id,
       root: nextSnapshot.root,
       previousRoot: configTree.ref,
@@ -786,6 +799,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const configID = generateArborID("tr");
       await this.validateGraph(snapshot.root, snapshot.objects);
       await this.objects.store([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+      const changes = await this.entryChanges(null, snapshot.root);
       const now = Date.now();
       this.db.transaction(() => {
         this.db.run(
@@ -793,7 +807,7 @@ export class CanopyDaemon implements AsyncDisposable {
           [configID, snapshot.root, now, account.id],
         );
         this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [configID, snapshot.root, now]);
-        this.insertAcceptedUpdate({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now });
+        this.insertAcceptedUpdate({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
       })();
     }
@@ -1052,6 +1066,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
     const firstWriter = this.firstWriterHandle() === input.handle;
     await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+    const configurationChanges = await this.entryChanges(null, input.configurationSnapshot.root);
     const accountID = generateArborID("ac");
     const now = Date.now();
     this.db.transaction(() => {
@@ -1082,6 +1097,7 @@ export class CanopyDaemon implements AsyncDisposable {
         kind: "initial",
         acceptedAt: now,
         subject: `device:${input.deviceID}`,
+        entryChanges: configurationChanges,
       });
       if (config.resources) this.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES (?, '1')", [resourcePolicyFormatKey(accountID)]);
       if (config.resources) for (const [tree, declaration] of Object.entries(config.resources)) {
@@ -1119,6 +1135,11 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
     return buildAcceptedTransitionPayload(previousRoot, root, (hash) => this.object(hash));
+  }
+
+  /** The file entries an accepted update writes, read before its transaction. */
+  private entryChanges(previousRoot: ObjectHash | null, root: ObjectHash): Promise<EntryChanges> {
+    return entryChanges(previousRoot, root, (hash) => this.object(hash));
   }
 
   private acceptedRequest(tree: string, subject: string, digest: string): StoredAcceptedResponse | null {
@@ -1739,9 +1760,11 @@ export class CanopyDaemon implements AsyncDisposable {
       const now = Date.now();
       const prepared = await policy.prepareCommit(remoteTree, nextRoot, now);
       const transition = await this.acceptedTransitionPayload(remoteTree.ref, nextRoot);
+      const changes = await this.entryChanges(remoteTree.ref, nextRoot);
       markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
+          entryChanges: changes,
           tree: treeID,
           root: nextRoot,
           previousRoot: remoteTree.ref,
@@ -1938,9 +1961,11 @@ export class CanopyDaemon implements AsyncDisposable {
         current.root,
         result.object
       );
+      const changes = await this.entryChanges(current.root, result.object);
       markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
+          entryChanges: changes,
           tree: tree.id,
           root: result.object,
           previousRoot: current.root,
@@ -2104,10 +2129,12 @@ export class CanopyDaemon implements AsyncDisposable {
       prepareCommit: async (_remoteTree, _root, now) => {
         const rewrites = await this.prepareAccountBoundaryRewrites(currentGraph, nextGraph);
         const transitions = new Map<string, AcceptedTransitionPayload>();
+        const rewriteChanges = new Map<string, EntryChanges>();
         for (const rewrite of rewrites) {
           await this.cacheRootProfile(rewrite.nextRoot, rewrite.generated);
           await this.objects.store([...rewrite.generated].map(([hash, bytes]) => ({ hash, bytes })));
           transitions.set(rewrite.parent.id, await this.acceptedTransitionPayload(rewrite.parent.ref, rewrite.nextRoot));
+          rewriteChanges.set(rewrite.parent.id, await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot));
         }
         const boundaryUpdates: AcceptedUpdate[] = [];
         return {
@@ -2129,6 +2156,7 @@ export class CanopyDaemon implements AsyncDisposable {
                 acceptedAt: now,
                 subject: credentialSubject,
                 transition: transitions.get(rewrite.parent.id),
+                entryChanges: rewriteChanges.get(rewrite.parent.id)!,
               }));
             }
           },
@@ -2337,6 +2365,8 @@ export class CanopyDaemon implements AsyncDisposable {
     const attachmentTransition = attachment
       ? await this.acceptedTransitionPayload(attachment.parent.ref, attachment.nextRoot)
       : null;
+    const attachmentChanges = attachment ? await this.entryChanges(attachment.parent.ref, attachment.nextRoot) : null;
+    const initialChanges = await this.entryChanges(null, snapshot.root);
     const now = Date.now();
     this.db.transaction(() => {
       this.db.run("INSERT INTO trees (id, ref, updated_at, account_id) VALUES (?, ?, ?, ?)", [id, snapshot.root, now, accountID ?? null]);
@@ -2358,6 +2388,7 @@ export class CanopyDaemon implements AsyncDisposable {
         candidateRoot: requestDigest ? snapshot.root : undefined,
         requestDigest,
         change,
+        entryChanges: initialChanges,
       });
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);
@@ -2381,6 +2412,7 @@ export class CanopyDaemon implements AsyncDisposable {
           acceptedAt: now,
           subject: credentialSubject ?? null,
           ...(attachmentTransition ? { transition: attachmentTransition } : {}),
+          entryChanges: attachmentChanges!,
         });
       }
     })();
