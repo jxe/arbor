@@ -137,6 +137,7 @@ final class ArborWorkspaceState {
     private var arborsyncClient: ArborSyncRESTClient?
     private let visitedTreeStore = VisitedTreeStore()
     private var visitFollowTask: Task<Void, Never>?
+    private var initialSyncTask: Task<Void, Never>?
     /// The placed tree open as this app's working tree, if any.
     private(set) var openPlacedTreeID: String?
     /// The root locator of the visit open, if any.
@@ -239,48 +240,22 @@ final class ArborWorkspaceState {
         // not continuous across such a change), the tree and its update state
         // cannot resume against the server and are re-placed from a fresh
         // snapshot.
-        let formatMarker = replicaRoot.appending(path: "wire-format")
-        let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
         let syncStateRoot = root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
-        let workingTree: WorkingTree
-        if placedFormat == Self.workingTreeFormat,
-           FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
-            workingTree = try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id), platform: platform)
-        } else {
-            // Retain old admissions and materialized content for recovery; never
-            // replay an old-format journal against reset accepted history.
-            let archive = root.appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
-            for (source, name) in [(replicaRoot, "WorkingTree"), (syncStateRoot, "Sync")] {
-                if FileManager.default.fileExists(atPath: source.path) {
-                    try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
-                    try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
-                }
-            }
-            workingTree = try await WorkingTreePlacementService.place(
-                tree: tree,
-                at: replicaRoot,
-                transport: transport,
-                platform: platform
-            )
-            try Self.workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
-        }
-        let initiallyAvailable = nativeTransportAvailable
-        let coordinator = try UpdateCoordinator(
+        let workingTree = try await Self.openOrPlaceWorkingTree(
+            tree,
+            replicaRoot: replicaRoot,
+            syncStateRoot: syncStateRoot,
+            recoveryNames: (workingTree: "WorkingTree", sync: "Sync"),
+            transport: transport,
+            platform: platform
+        )
+        let (coordinator, nextProvider) = try synchronizedProvider(
             workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
-            transportAvailable: initiallyAvailable,
-            sourceOperationEmission: true,
-            sourceObjectStore: workingTree
+            sourceObjectStore: workingTree,
+            readOnly: tree.access != "write"
         )
-        let nextProvider = WorkingTreeProvider(
-            workingTree: workingTree,
-            readOnly: tree.access != "write",
-            sourceCoordinator: coordinator
-        ) { [weak self] admission in
-            try await coordinator.syncImmediately(admission)
-            await self?.refreshSyncPresentation(from: coordinator)
-        }
         if remember {
             try await nativePlacementStore.save(NativePlacementRecord(origin: origin, configurationTree: configurationTree, tree: tree))
             nativePlacements = try await nativePlacementStore.loadAll()
@@ -291,6 +266,86 @@ final class ArborWorkspaceState {
             detail: "Offline replica · \(tree.canonicalPath ?? tree.id)",
             canonicalPath: tree.canonicalPath
         )
+        try await installSyncCoordinator(coordinator, client: client, tree: tree)
+    }
+
+    /// Open the durable working tree at `replicaRoot`, or place it afresh from
+    /// a snapshot. A working tree records the wire format it was placed under.
+    /// When the format changes (accepted-update ids, cursors, and request
+    /// shapes are not continuous across such a change), the tree and its update
+    /// state cannot resume against the server and are re-placed.
+    private static func openOrPlaceWorkingTree(
+        _ tree: WireTreeDescriptor,
+        replicaRoot: URL,
+        syncStateRoot: URL,
+        recoveryNames: (workingTree: String, sync: String),
+        transport: ArborWireReplicaTransport,
+        platform: any ObjectStore
+    ) async throws -> WorkingTree {
+        let formatMarker = replicaRoot.appending(path: "wire-format")
+        let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if placedFormat == workingTreeFormat,
+           FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
+            return try await WorkingTree.open(at: replicaRoot, tree: TreeID(rawValue: tree.id), platform: platform)
+        }
+        // Retain old admissions and materialized content for recovery; never
+        // replay an old-format journal against reset accepted history.
+        let archive = ArborSupportDirectories.root
+            .appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
+        for (source, name) in [(replicaRoot, recoveryNames.workingTree), (syncStateRoot, recoveryNames.sync)] {
+            if FileManager.default.fileExists(atPath: source.path) {
+                try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+                try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
+            }
+        }
+        let workingTree = try await WorkingTreePlacementService.place(
+            tree: tree,
+            at: replicaRoot,
+            transport: transport,
+            platform: platform
+        )
+        try workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
+        return workingTree
+    }
+
+    /// An update coordinator for `workingTree` and the provider that saves
+    /// through it, refreshing the sync presentation after each immediate sync.
+    private func synchronizedProvider(
+        workingTree: WorkingTree,
+        transport: ArborWireReplicaTransport,
+        stateRoot: URL,
+        sourceObjectStore: any ObjectStore,
+        readOnly: Bool = false,
+        materializedRoot: URL? = nil
+    ) throws -> (UpdateCoordinator, WorkingTreeProvider) {
+        let coordinator = try UpdateCoordinator(
+            workingTree: workingTree,
+            transport: transport,
+            stateRoot: stateRoot,
+            transportAvailable: nativeTransportAvailable,
+            sourceOperationEmission: true,
+            sourceObjectStore: sourceObjectStore
+        )
+        let provider = WorkingTreeProvider(
+            workingTree: workingTree,
+            readOnly: readOnly,
+            materializedRoot: materializedRoot,
+            sourceCoordinator: coordinator
+        ) { [weak self] admission in
+            try await coordinator.syncImmediately(admission)
+            await self?.refreshSyncPresentation(from: coordinator)
+        }
+        return (coordinator, provider)
+    }
+
+    /// Make `coordinator` the open tree's: its conflict review, sync
+    /// presentation, and server watch.
+    private func installSyncCoordinator(
+        _ coordinator: UpdateCoordinator,
+        client: ArborWireClient,
+        tree: WireTreeDescriptor
+    ) async throws {
         syncCoordinator = coordinator
         conflictReview = ArborConflictReviewModel(coordinator: coordinator)
         Task { [weak self] in await self?.conflictReview?.refresh() }
@@ -801,6 +856,8 @@ final class ArborWorkspaceState {
         serverWatchTask = nil
         visitFollowTask?.cancel()
         visitFollowTask = nil
+        initialSyncTask?.cancel()
+        initialSyncTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
         conflictReview = nil
@@ -861,19 +918,13 @@ final class ArborWorkspaceState {
 
         let stateRoot = ArborSupportDirectories.workingTrees
             .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
-        let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: transport, stateRoot: stateRoot,
-            transportAvailable: nativeTransportAvailable,
-            sourceOperationEmission: true,
-            sourceObjectStore: platform)
-
-        let nextProvider = WorkingTreeProvider(
+        let (coordinator, nextProvider) = try synchronizedProvider(
             workingTree: workingTree,
-            materializedRoot: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) },
-            sourceCoordinator: coordinator
-        ) { [weak self] admission in
-            try await coordinator.syncImmediately(admission)
-            await self?.refreshSyncPresentation(from: coordinator)
-        }
+            transport: transport,
+            stateRoot: stateRoot,
+            sourceObjectStore: platform,
+            materializedRoot: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) }
+        )
         try await nativePlacementStore.save(NativePlacementRecord(
             origin: origin,
             configurationTree: placed.configurationTree,
@@ -893,17 +944,25 @@ final class ArborWorkspaceState {
             preservingNavigation: launchPhase.isPreviewing && home == nextHome
         )
         launchPhase = .ready
-        syncCoordinator = coordinator
-        conflictReview = ArborConflictReviewModel(coordinator: coordinator)
-        Task { [weak self] in await self?.conflictReview?.refresh() }
         openPlacedTreeID = treeID
-        syncPresentation = try await coordinator.presentation()
-        startServerWatch(client: wireClient, tree: descriptor, coordinator: coordinator)
-        Task { [weak self] in
-            _ = try? await coordinator.syncOnce()
+        try await installSyncCoordinator(coordinator, client: wireClient, tree: descriptor)
+        startInitialSync(coordinator)
+        prefetchLocalArborSyncOverview()
+    }
+
+    /// Reconcile a freshly opened tree once; the server watch alone replays
+    /// only what arrives after it connects.
+    private func startInitialSync(_ coordinator: UpdateCoordinator) {
+        initialSyncTask = Task { [weak self] in
+            do {
+                _ = try await coordinator.syncOnce()
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.recordDiagnostic("initial-sync", error)
+            }
             await self?.refreshSyncPresentation(from: coordinator)
         }
-        prefetchLocalArborSyncOverview()
     }
 
     // MARK: Visits
@@ -998,65 +1057,29 @@ final class ArborWorkspaceState {
             .appending(path: key, directoryHint: .isDirectory)
         let syncStateRoot = ArborSupportDirectories.remoteSync
             .appending(path: key, directoryHint: .isDirectory)
-        let formatMarker = replicaRoot.appending(path: "wire-format")
-        let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let workingTree: WorkingTree
-        if placedFormat == Self.workingTreeFormat,
-           FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
-            workingTree = try await WorkingTree.open(
-                at: replicaRoot,
-                tree: TreeID(rawValue: tree.id),
-                platform: platform
-            )
-        } else {
-            let archive = ArborSupportDirectories.root
-                .appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
-            for (source, name) in [(replicaRoot, "RemoteWorkingTree"), (syncStateRoot, "RemoteSync")] {
-                if FileManager.default.fileExists(atPath: source.path) {
-                    try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
-                    try FileManager.default.moveItem(at: source, to: archive.appending(path: name))
-                }
-            }
-            workingTree = try await WorkingTreePlacementService.place(
-                tree: tree,
-                at: replicaRoot,
-                transport: transport,
-                platform: platform
-            )
-            try Self.workingTreeFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
-        }
-        let coordinator = try UpdateCoordinator(
+        let workingTree = try await Self.openOrPlaceWorkingTree(
+            tree,
+            replicaRoot: replicaRoot,
+            syncStateRoot: syncStateRoot,
+            recoveryNames: (workingTree: "RemoteWorkingTree", sync: "RemoteSync"),
+            transport: transport,
+            platform: platform
+        )
+        let (coordinator, provider) = try synchronizedProvider(
             workingTree: workingTree,
             transport: transport,
             stateRoot: syncStateRoot,
-            transportAvailable: nativeTransportAvailable,
-            sourceOperationEmission: true,
             sourceObjectStore: workingTree
         )
-        let provider = WorkingTreeProvider(
-            workingTree: workingTree,
-            sourceCoordinator: coordinator
-        ) { [weak self] admission in
-            try await coordinator.syncImmediately(admission)
-            await self?.refreshSyncPresentation(from: coordinator)
-        }
         await switchProvider(
             provider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
             detail: "Working tree · \(locator)",
             canonicalPath: tree.canonicalPath
         )
-        syncCoordinator = coordinator
-        conflictReview = ArborConflictReviewModel(coordinator: coordinator)
-        Task { [weak self] in await self?.conflictReview?.refresh() }
         openVisitLocator = locator
-        syncPresentation = try await coordinator.presentation()
-        startServerWatch(client: client, tree: tree, coordinator: coordinator)
-        Task { [weak self] in
-            _ = try? await coordinator.syncOnce()
-            await self?.refreshSyncPresentation(from: coordinator)
-        }
+        try await installSyncCoordinator(coordinator, client: client, tree: tree)
+        startInitialSync(coordinator)
         prefetchLocalArborSyncOverview()
     }
 #endif
@@ -1700,6 +1723,8 @@ final class ArborWorkspaceState {
 #if os(macOS)
         visitFollowTask?.cancel()
         visitFollowTask = nil
+        initialSyncTask?.cancel()
+        initialSyncTask = nil
         overviewRefreshTask?.cancel()
         overviewWatchTask?.cancel()
         overviewRefreshTask = nil
@@ -1767,6 +1792,14 @@ final class ArborWorkspaceState {
         serverWatchTask = CanopyWatchRunner(client: client, tree: tree.id, coordinator: coordinator) { [weak self] in
             await self?.refreshSyncPresentation(from: coordinator)
         }.start()
+    }
+
+    /// Record a failure that no banner reports as a network-log note, where
+    /// sync diagnostics are read.
+    static func recordDiagnostic(_ name: String, _ error: Error) {
+        var note = WireNetworkLogEntry(kind: .note, name: name)
+        note.error = error.localizedDescription
+        WireNetworkLog.current?.record(note)
     }
 }
 
