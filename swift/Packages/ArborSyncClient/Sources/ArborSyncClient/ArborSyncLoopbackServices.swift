@@ -26,10 +26,14 @@ public actor ArborSyncCredentialProvider: WireCredentialProvider {
         let configurationTree = self.configurationTree
         let task = Task { try await client.credential(configurationTree: configurationTree) }
         inFlight = task
-        defer { inFlight = nil }
-        let value = try await task.value
-        cached = value
-        return value
+        let result = await task.result
+        // An `invalidate()` during the fetch may have started a newer one; this
+        // older result must neither clear that fetch nor be cached over it.
+        if inFlight == task {
+            inFlight = nil
+            if case let .success(value) = result { cached = value }
+        }
+        return try result.get()
     }
 
     /// Forget the cached token so the next `credential()` asks the daemon again.
