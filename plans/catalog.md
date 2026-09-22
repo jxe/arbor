@@ -44,6 +44,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [canopyd 009](canopyd/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
 - [canopyd 011 — Traced page creation with an `addEntry` authored operation](canopyd/011-add-entry-traced-page-creation.md) — **PLANNED.** Page creation publishes a snapshot because no authored operation can add an entry; a new `addEntry` kind across protocol, merge engine, Swift and web clients puts creations on the fast-forward path with mergeable evidence.
 - [canopyd 012 — Effect records store piece deltas](canopyd/012-effect-record-piece-deltas.md) — **PLANNED.** Effects copy whole piece arrays twice per edit (75% of a tree's state DAG); store the piece delta that deletion enforcement, move detection and retention actually read, with legacy records still readable.
+- [canopyd 013 — Entry metadata and the document-version index](canopyd/013-entry-metadata.md) — **PLANNED.** Directly placed trees (always on iPhone) have no page dates; canopyd keeps a per-entry side table of last-accepted change times outside the hashes, served by a new `entry-metadata` read, plus canopyd 007's `document_versions` index, both filled by one change walk and backfilled by one migration (014).
 
 ## CLI and external agents
 

@@ -38,7 +38,9 @@ Historical identifier: **Smaller project 007**. The filename number is preserved
 - **Effort:** XL
 - **Risk:** HIGH — this adds an authenticated canopyd protocol and changes the
   authority and meaning of a visible restore action
-- **State:** PLANNED
+- **State:** PLANNED. Storage moved to [canopyd 013](013-entry-metadata.md) (2026-09-22):
+  the `document_versions` index, its identity rules and its backfill ship there.
+  What remains here is the contract, routes, access rule, restore and UI.
 - **Depends on:** no implementation milestone; execute before
   [canopyd 006](006-line-provenance.md), and coordinate retained-root
   policy with [canopyd 001](001-pack-object-storage.md)
@@ -159,41 +161,20 @@ changing it.
 
 ## Storage and indexing design
 
-Add one private, rebuildable `document_versions` table owned by canopyd. Use the
-next available migration number at execution time; schema version is currently
-`6`, and both may drift. The logical columns are:
+Implemented by [canopyd 013](013-entry-metadata.md#document-versions-the-storage-half-of-canopyd-007),
+which owns the `document_versions` table, its identity rules (`id:<PageID>` or
+`path:<entry path>`, a row per content change, and none for a pure move of an
+identified page), the write seam inside the accepted-update transaction, and
+the backfill in migration 014. This plan's routes read that index, resolve
+`content_hash` through the object store, and map `entry_path` to the logical
+path they return. They must not add a competing scan or schema. canopyd 006
+reuses the same index.
 
-```text
-tree_id, stable_key, historical_path, update_id, root,
-content_hash, accepted_at
-```
+Still open for this plan, to settle at the contract freeze:
 
-Use a primary/unique key that prevents duplicate rows for one document and
-accepted update, plus an index supporting newest-first `(tree_id, stable_key,
-accepted_at, update_id)` pagination. Reference the accepted update so retention
-cannot leave orphan metadata.
-
-For each accepted root, derive Markdown identities and file-object hashes from
-the validated Overstory graph before acknowledgement, then insert only changed
-document versions inside the same SQLite transaction as the accepted update
-and observation. Reuse `AcceptedUpdateStore.commit(..., withinTransaction:)` or
-an equally small existing transaction seam; do not create a second commit log.
-Object bytes must already be hash-verified and durable before their metadata is
-committed.
-
-The disposable migration backfills by walking each retained accepted chain in
-order and reading the retained roots. It must preserve all accepted IDs, order,
-roots, transition JSON, observations, accounts, ACLs, and object bytes. Report
-counts only. Rehearse on copies; never silently migrate a live canopyd at
-startup. If retained roots are incomplete, record an explicit earliest-history
-boundary rather than inventing continuity, or STOP if the contract has no such
-representation.
-
-Do not copy Markdown source into SQLite. The index stores the existing file
-object hash; the detail route resolves and verifies that immutable object when
-requested. Coordinate the retained-root/object requirement with canopyd storage
-001. canopyd 006 must reuse this accepted document-version index for
-line provenance rather than add a competing historical scan or schema.
+- Duplicate IDs: the index files them under one key, and the routes fail
+  explicitly when a page of history mixes entry paths that coexisted in one root.
+- The route cursor is `(accepted_at, update_id)` over `document_versions_newest`.
 
 ## Native and Arbor Sync ownership
 
