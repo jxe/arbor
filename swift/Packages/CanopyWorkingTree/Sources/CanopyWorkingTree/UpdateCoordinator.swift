@@ -1028,13 +1028,19 @@ public actor UpdateCoordinator {
     func admitStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
+        return try await afterEarlierAdmissions { try await self.retainStructure(admission) }.value
+    }
+
+    /// Run `admission` after every earlier local admission settles, and make
+    /// later admissions wait for this one, whatever its outcome.
+    private func afterEarlierAdmissions<T: Sendable>(_ admission: @escaping @Sendable () async throws -> T) -> Task<T, any Error> {
         let previous = admissionTail
         let task = Task {
             await previous?.value
-            return try await self.retainStructure(admission)
+            return try await admission()
         }
         admissionTail = Task { _ = try? await task.value }
-        return try await task.value
+        return task
     }
 
     private func retainStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
@@ -1358,12 +1364,7 @@ public actor UpdateCoordinator {
     public func admitSourceIntent(_ intent: WorkspaceDocumentIntent) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         guard sourceOperationEmission else { throw ArborWireValidationError.invalidValue("Source admission is not enabled") }
-        let previous = admissionTail
-        let task = Task {
-            await previous?.value
-            return try await self.retainSourceIntent(intent)
-        }
-        admissionTail = Task { _ = try? await task.value }
+        let task = afterEarlierAdmissions { try await self.retainSourceIntent(intent) }
         let log = Self.admissionLog
         log.notice("retain begin edits=\(intent.patch.edits.count) bytes=\(intent.source.utf8.count)")
         // The journal rewrite is client-side latency the editor waits on; report
