@@ -1720,13 +1720,21 @@ final class ArborWorkspaceState {
 
     @discardableResult
     func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
+        try await performWithReceipt(action).result
+    }
+
+    /// Perform `action` and return its own receipt. `latestStructuralReceipt`
+    /// announces the receipt to every window, but a later action may already
+    /// have replaced it by the time the caller reads it.
+    func performWithReceipt(_ action: WorkspaceStructuralAction) async throws -> WorkspaceStructuralReceipt {
         let healingSources = await editorWorkspace.linkHealingSources(for: action)
         let movedFrom: String? = switch action {
         case let .rename(reference, _), let .move(reference, _): reference.path
         default: nil
         }
         let result = try await provider.perform(action)
-        latestStructuralReceipt = WorkspaceStructuralReceipt(action: action, result: result)
+        let receipt = WorkspaceStructuralReceipt(action: action, result: result)
+        latestStructuralReceipt = receipt
         if let result, let movedFrom, !healingSources.isEmpty {
             await editorWorkspace.healLinks(
                 in: healingSources,
@@ -1734,7 +1742,7 @@ final class ArborWorkspaceState {
                 to: result.reference
             )
         }
-        return result
+        return receipt
     }
 
     func switchProvider(
@@ -2012,11 +2020,9 @@ final class ArborAppModel {
                     navigateBack: { [weak self] in Task { await self?.goBack() } },
                     reportError: { [weak self] message in self?.errorMessage = message },
                     performStructuralAction: { [weak self, weak workspace] action in
-                        let result = try await workspace?.perform(action)
-                        if let receipt = workspace?.latestStructuralReceipt {
-                            await self?.reconcile(receipt)
-                        }
-                        return result
+                        guard let receipt = try await workspace?.performWithReceipt(action) else { return nil }
+                        await self?.reconcile(receipt)
+                        return receipt.result
                     },
                     offerTrashAfterDeletingLink: { [weak self] target, source in
                         self?.offerToTrashLinkedPage(target, from: source)
@@ -2496,9 +2502,9 @@ final class ArborAppModel {
     func perform(_ action: WorkspaceStructuralAction, navigateToResult: Bool = true) async {
         await workspace.flush()
         do {
-            let result = try await workspace.perform(action)
-            if navigateToResult, let result { await navigate(to: result.reference) }
-            else if let receipt = workspace.latestStructuralReceipt { await reconcile(receipt) }
+            let receipt = try await workspace.performWithReceipt(action)
+            if navigateToResult, let result = receipt.result { await navigate(to: result.reference) }
+            else { await reconcile(receipt) }
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -2506,7 +2512,8 @@ final class ArborAppModel {
         let reference = currentReference
         await workspace.flush()
         do {
-            let renamed = try await workspace.perform(.rename(reference: reference, name: name))
+            let receipt = try await workspace.performWithReceipt(.rename(reference: reference, name: name))
+            let renamed = receipt.result
             manuallyNamedPageKeys.insert(manualPageNameKey(reference))
             if let renamed {
                 manuallyNamedPageKeys.insert(manualPageNameKey(renamed.reference))
@@ -2516,7 +2523,7 @@ final class ArborAppModel {
                 forKey: Self.manuallyNamedPagesDefaultsKey
             )
             titleRenameProposal = nil
-            if let receipt = workspace.latestStructuralReceipt { await reconcile(receipt) }
+            await reconcile(receipt)
         } catch {
             errorMessage = error.localizedDescription
         }
