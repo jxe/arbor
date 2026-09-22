@@ -983,15 +983,17 @@ struct ArborSyncStatusView: View {
 
     @ViewBuilder
     var sections: some View {
+        // One save diagnosis per render; every row below reads the same value.
+        let diagnostic = self.diagnostic
         Section {
             HStack(alignment: .center, spacing: 14) {
-                Image(systemName: overallStatusSymbol)
+                Image(systemName: overallStatusSymbol(diagnostic))
                     .font(.title2)
-                    .foregroundStyle(overallStatusTint)
+                    .foregroundStyle(overallStatusTint(diagnostic))
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(overallStatusTitle).font(.headline)
-                    Text(overallStatusDetail)
+                    Text(overallStatusTitle(diagnostic)).font(.headline)
+                    Text(overallStatusDetail(diagnostic))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1090,14 +1092,16 @@ struct ArborSyncStatusView: View {
         return binding.latestEditIsRetainedInRecovery ? .retained : .unavailable
     }
 
-    var overallStatusTitle: String {
+    var overallStatusTitle: String { overallStatusTitle(diagnostic) }
+
+    private func overallStatusTitle(_ diagnostic: ArborSaveDiagnostic?) -> String {
         if diagnostic != nil || binding?.conflict != nil { return "A document needs attention" }
-        if sync.state != .current { return synchronizationLabel }
+        if sync.state != .current { return diagnostic?.synchronizationOverride ?? sync.state.label }
         if binding?.isSaving == true { return "Retaining edit locally" }
         return "This Arbor client is up to date"
     }
 
-    private var overallStatusDetail: String {
+    private func overallStatusDetail(_ diagnostic: ArborSaveDiagnostic?) -> String {
         if let diagnostic { return diagnostic.bannerMessage }
         if binding?.conflict != nil { return "Resolve the current document conflict to continue." }
         if sync.state != .current { return sync.detail ?? synchronizationDetail }
@@ -1119,7 +1123,7 @@ struct ArborSyncStatusView: View {
         }
     }
 
-    private var overallStatusSymbol: String {
+    private func overallStatusSymbol(_ diagnostic: ArborSaveDiagnostic?) -> String {
         if diagnostic != nil || binding?.conflict != nil {
             return "exclamationmark.triangle"
         }
@@ -1127,14 +1131,10 @@ struct ArborSyncStatusView: View {
         return sync.state == .current ? "checkmark.circle.fill" : sync.state.symbol
     }
 
-    private var overallStatusTint: Color {
+    private func overallStatusTint(_ diagnostic: ArborSaveDiagnostic?) -> Color {
         if diagnostic != nil { return .red }
         if binding?.conflict != nil { return .orange }
         return sync.state == .current ? .green : .secondary
-    }
-
-    private var synchronizationLabel: String {
-        diagnostic?.synchronizationOverride ?? sync.state.label
     }
 }
 
