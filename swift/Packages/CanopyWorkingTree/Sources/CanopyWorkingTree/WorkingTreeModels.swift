@@ -178,13 +178,13 @@ public struct WorkingTreeSnapshot: Codable, Equatable, Sendable {
     }
 
     /// Objects carried with bytes.
-    public var inlineObjects: [WorkingTreeStoredObject] { objects.filter { $0.bytes != nil } }
+    var inlineObjects: [WorkingTreeStoredObject] { objects.filter { $0.bytes != nil } }
 
     /// Every hash in the graph, with or without bytes.
-    public var hashes: Set<String> { Set(objects.map(\.hash)) }
+    var hashes: Set<String> { Set(objects.map(\.hash)) }
 
     /// Hashes the snapshot carries without bytes.
-    public var sparseHashes: Set<String> { Set(objects.filter { $0.bytes == nil }.map(\.hash)) }
+    var sparseHashes: Set<String> { Set(objects.filter { $0.bytes == nil }.map(\.hash)) }
 
     var inlineObjectsByHash: [String: Data] {
         Dictionary(uniqueKeysWithValues: objects.compactMap { object in object.bytes.map { (object.hash, $0) } })

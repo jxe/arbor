@@ -207,7 +207,7 @@ public actor WorkingTree {
 
     /// The current graph with every object's bytes, fetching referenced file
     /// objects through the object store.
-    public func completeSnapshot() async throws -> WireSnapshot {
+    func completeSnapshot() async throws -> WireSnapshot {
         let sparse = try currentSnapshot()
         var objects: [WireObjectEnvelope] = []
         objects.reserveCapacity(sparse.objects.count)
@@ -375,7 +375,7 @@ public actor WorkingTree {
         return WorkingTreeState(tree: state.tree, nodes: nodes)
     }
 
-    public func deleteRebuildableIndexes() throws {
+    func deleteRebuildableIndexes() throws {
         try requireOpen()
         try store.removeIndexes()
         index = WorkingTreeSearchIndex(generation: -1, entries: [])
