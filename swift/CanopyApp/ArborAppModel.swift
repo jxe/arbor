@@ -1153,14 +1153,19 @@ final class ArborWorkspaceState {
     func restoreLocalWorkspaceIfAvailable() async {
         guard !attemptedWorkspaceRestore else { return }
         attemptedWorkspaceRestore = true
-        let record: NativePlacementRecord?
+        // An unreadable placement list or selection opens like a fresh
+        // installation; each is read, and may fail, on its own.
         do {
             nativePlacements = try await nativePlacementStore.loadAll()
-            record = try await nativePlacementStore.load()
         } catch {
-            // An unreadable placement store opens like a fresh installation.
             Self.recordDiagnostic("placement-restore", error)
             nativePlacements = []
+        }
+        let record: NativePlacementRecord?
+        do {
+            record = try await nativePlacementStore.load()
+        } catch {
+            Self.recordDiagnostic("placement-restore", error)
             record = nil
         }
         if let record, !launchPhase.isPreviewing, let osPath = record.osPath,
