@@ -264,11 +264,6 @@ final class ArborWorkspaceState {
         let root = ArborSupportDirectories.root
         let key = ArborSupportDirectories.workingTreeKey(tree.id)
         let replicaRoot = ArborSupportDirectories.workingTrees.appending(path: key, directoryHint: .isDirectory)
-        // A working tree records the wire format it was placed under. When the
-        // format changes (accepted-update ids, cursors, and request shapes are
-        // not continuous across such a change), the tree and its update state
-        // cannot resume against the server and are re-placed from a fresh
-        // snapshot.
         let syncStateRoot = root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
         let workingTree = try await Self.openOrPlaceWorkingTree(
             tree,
