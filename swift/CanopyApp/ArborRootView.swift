@@ -1126,7 +1126,7 @@ struct ArborRootView: View {
                 ArborLaunchEmptyView(
                     message: message,
                     trees: localTreeMenuItems,
-                    openTree: windowCommands.jumpToLocalTree,
+                    openTree: jumpToLocalTree,
                     openLocation: { presentedSheet = .openLocation },
                     showAccounts: showAccountsPanel,
                     retry: message == nil ? nil : { Task { await workspace.retryRestore() } }
@@ -1936,14 +1936,7 @@ struct ArborRootView: View {
 #endif
             },
             localTrees: localTreeMenuItems,
-            jumpToLocalTree: { tree in
-#if os(macOS)
-                Task {
-                    do { try await workspace.openPlacedTree(tree) }
-                    catch { workspace.errorMessage = ArborWorkspaceState.bootstrapFailureMessage(error, processKind: workspace.arborsyncProcessKind) }
-                }
-#endif
-            },
+            jumpToLocalTree: jumpToLocalTree,
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: showStatusPanel,
@@ -1974,6 +1967,15 @@ struct ArborRootView: View {
             canMovePageToTrash: currentPageIsMovable,
             canRestorePage: model.node?.isWritable == true && currentPageIsInTrash
         )
+    }
+
+    private func jumpToLocalTree(_ tree: String) {
+#if os(macOS)
+        Task {
+            do { try await workspace.openPlacedTree(tree) }
+            catch { workspace.errorMessage = ArborWorkspaceState.bootstrapFailureMessage(error, processKind: workspace.arborsyncProcessKind) }
+        }
+#endif
     }
 
     private var revealablePageURL: URL? {
