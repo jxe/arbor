@@ -1902,6 +1902,9 @@ final class ArborAppModel {
     private var pageIndexSyncBasis: [String?] = []
     private var pageIndexRequestID = 0
     private var dismissedTitleRenameProposals = Set<String>()
+    /// The last profile parsed, so a home page's body does not re-parse its
+    /// Markdown on every render.
+    @ObservationIgnored private var parsedProfile: (source: String, document: ArborProfileDocument?)?
     private var manuallyNamedPageKeys = Set(
         UserDefaults.standard.stringArray(forKey: manuallyNamedPagesDefaultsKey) ?? []
     )
@@ -2148,14 +2151,25 @@ final class ArborAppModel {
         await workspace.refreshDirectory(force: true)
     }
 
+    /// The profile frontmatter of a Markdown node, if it declares one.
+    func profileDocument(for node: WorkspaceNode) -> ArborProfileDocument? {
+        let source: String
+        switch node.surface {
+        case let .markdown(markdown, _), let .directoryDocument(markdown, _, _):
+            source = markdown
+        default:
+            return nil
+        }
+        if let parsedProfile, parsedProfile.source == source { return parsedProfile.document }
+        let document = ArborProfileDocument.parse(source)
+        parsedProfile = (source, document)
+        return document
+    }
+
     /// A mounted profile is authored under a filesystem name, but its stable
     /// person-facing identity is the handle advertised by the directory.
     private func nestedProfileTitles(in nodes: [WorkspaceNode], parent: WorkspaceNode) -> [WorkspaceNode] {
-        let source: String? = switch parent.surface {
-        case let .markdown(source, _), let .directoryDocument(source, _, _): source
-        default: nil
-        }
-        let group = source.flatMap(ArborProfileDocument.parse)
+        let group = profileDocument(for: parent)
         return nodes.map { node in
             guard node.reference.path == "/",
                   node.reference.tree != workspace.home.tree else { return node }

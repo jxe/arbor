@@ -2446,7 +2446,7 @@ struct ArborRootView: View {
                     VStack(spacing: 0) {
                         if location == model.currentLocation,
                            node.reference.path == "/",
-                           let profile = profileDocument(for: node) {
+                           let profile = model.profileDocument(for: node) {
                             ArborProfileWidget(
                                 profile: profile,
                                 pageTitle: node.title,
@@ -2497,15 +2497,6 @@ struct ArborRootView: View {
             ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else {
             ProgressView()
-        }
-    }
-
-    private func profileDocument(for node: WorkspaceNode) -> ArborProfileDocument? {
-        switch node.surface {
-        case let .markdown(source, _), let .directoryDocument(source, _, _):
-            ArborProfileDocument.parse(source)
-        default:
-            nil
         }
     }
 
