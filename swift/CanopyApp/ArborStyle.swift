@@ -41,6 +41,9 @@ enum ArborStyle {
         )
     }
 
+    /// Opacity of muted secondary toolbar glyphs, in SwiftUI and AppKit alike.
+    static let mutedToolbarOpacity: Double = 0.78
+
     static func shellFont(size: CGFloat = 13, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight)
     }

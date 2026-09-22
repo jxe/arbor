@@ -271,6 +271,15 @@ enum ArborPagePickerSelection {
 }
 
 #if os(macOS)
+/// Virtual key codes (Carbon's `kVK_*`) the sidebar search field intercepts.
+private enum MacKeyCode {
+    static let returnKey: UInt16 = 36
+    static let escape: UInt16 = 53
+    static let keypadEnter: UInt16 = 76
+    static let downArrow: UInt16 = 125
+    static let upArrow: UInt16 = 126
+}
+
 private enum MacSidebarSearchCommand {
     case previous
     case next
@@ -534,10 +543,10 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
                       self.searchFieldIsFirstResponder else { return event }
                 let command: MacSidebarSearchCommand
                 switch event.keyCode {
-                case 53: command = .escape
-                case 126: command = .previous
-                case 125: command = .next
-                case 36, 76: command = .open
+                case MacKeyCode.escape: command = .escape
+                case MacKeyCode.upArrow: command = .previous
+                case MacKeyCode.downArrow: command = .next
+                case MacKeyCode.returnKey, MacKeyCode.keypadEnter: command = .open
                 default: return event
                 }
                 self.handleSearchCommand(command)
@@ -624,7 +633,7 @@ private struct MacPageOrderPicker: NSViewRepresentable {
         if let index = orders.firstIndex(of: selection) {
             button.selectItem(at: index)
         }
-        button.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.78)
+        button.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(ArborStyle.mutedToolbarOpacity)
         button.setAccessibilityValue(selection.label)
     }
 
@@ -821,6 +830,7 @@ struct ArborRootView: View {
     @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
     @State private var sidebarSearchText = ""
     @State private var reviewingChoices = false
+    @State private var reviewAccessoryReveal: EditorAccessoryReveal?
     @State private var sidebarKeyboardSelection: WorkspaceIdentity?
     @State private var sidebarListSelection: WorkspaceIdentity?
     @State private var pageRenameLocation: WorkspaceLocation?
@@ -1155,6 +1165,16 @@ struct ArborRootView: View {
     }
 
 #if os(iOS)
+    /// Drag thresholds of the sidebar drawer, in points.
+    private enum SidebarDrawerGesture {
+        /// How near the leading edge a drag must start to open the drawer.
+        static let edgeWidth: CGFloat = 22
+        /// A drag this far, or projected this far, opens or closes the drawer.
+        static let commitDistance: CGFloat = 96
+        static let commitProjectedDistance: CGFloat = 170
+        static let settleDuration: TimeInterval = 0.28
+    }
+
     private var iosSidebarDrawer: some View {
         GeometryReader { geometry in
             let drawerWidth = min(430, max(280, geometry.size.width - 28))
@@ -1182,7 +1202,7 @@ struct ArborRootView: View {
     private var openSidebarEdgeGesture: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .global)
             .onChanged { value in
-                guard value.startLocation.x <= 22,
+                guard value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
                       value.translation.width > 0,
                       abs(value.translation.width) > abs(value.translation.height) else { return }
                 var transaction = Transaction()
@@ -1192,14 +1212,14 @@ struct ArborRootView: View {
                 }
             }
             .onEnded { value in
-                guard value.startLocation.x <= 22,
+                guard value.startLocation.x <= SidebarDrawerGesture.edgeWidth,
                       abs(value.translation.width) > abs(value.translation.height) else {
                     return
                 }
-                let shouldOpen = value.translation.width > 96
-                    || value.predictedEndTranslation.width > 170
+                let shouldOpen = value.translation.width > SidebarDrawerGesture.commitDistance
+                    || value.predictedEndTranslation.width > SidebarDrawerGesture.commitProjectedDistance
                 sidebarSearchFocused = false
-                withAnimation(.snappy(duration: 0.28)) {
+                withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
                     sidebarRevealProgress = shouldOpen ? 1 : 0
                 }
             }
@@ -1218,10 +1238,10 @@ struct ArborRootView: View {
                 }
             }
             .onEnded { value in
-                let shouldClose = value.translation.width < -96
-                    || value.predictedEndTranslation.width < -170
+                let shouldClose = value.translation.width < -SidebarDrawerGesture.commitDistance
+                    || value.predictedEndTranslation.width < -SidebarDrawerGesture.commitProjectedDistance
                 sidebarSearchFocused = false
-                withAnimation(.snappy(duration: 0.28)) {
+                withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
                     sidebarRevealProgress = shouldClose ? 0 : 1
                 }
                 Task { @MainActor in
@@ -1233,7 +1253,7 @@ struct ArborRootView: View {
 
     private func closeIOSSidebar() {
         sidebarSearchFocused = false
-        withAnimation(.snappy(duration: 0.28)) {
+        withAnimation(.snappy(duration: SidebarDrawerGesture.settleDuration)) {
             sidebarRevealProgress = 0
         }
     }
@@ -1469,8 +1489,6 @@ struct ArborRootView: View {
         }
         .onChange(of: workspace.generation) { _, _ in reviewingChoices = false }
     }
-
-    @State private var reviewAccessoryReveal: EditorAccessoryReveal?
 
     private func showChoiceReview() {
         guard let review = workspace.conflictReview else { return }
@@ -2394,7 +2412,7 @@ struct ArborRootView: View {
 
 #if os(macOS)
     private var mutedMacToolbarForeground: Color {
-        Color.secondary.opacity(0.78)
+        Color.secondary.opacity(ArborStyle.mutedToolbarOpacity)
     }
 
     private func mutedMacToolbarIcon(_ name: String) -> some View {
@@ -2703,7 +2721,7 @@ private struct ArborProfileSyncToolbarLabel: View {
         ZStack(alignment: .bottomTrailing) {
             Image(systemName: "person.crop.circle")
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color.secondary.opacity(0.78))
+                .foregroundStyle(Color.secondary.opacity(ArborStyle.mutedToolbarOpacity))
                 .frame(width: 32, height: 32)
 
             badge
@@ -3012,8 +3030,8 @@ private struct ArborSharePanel: View {
         switch entry.subject {
         case .everyone:
             accessIcon(systemName: "globe", tint: .blue)
-        case .profile:
-            if case let .profile(tree) = entry.subject, let person = workspace.directory.first(where: { $0.id == tree }) {
+        case let .profile(tree):
+            if let person = workspace.directory.first(where: { $0.id == tree }) {
                 ArborAvatarView(person: person, workspace: workspace)
             } else {
                 accessIcon(systemName: entry.isCurrentUser ? "person.crop.circle.fill" : "person.2.fill", tint: .indigo)
