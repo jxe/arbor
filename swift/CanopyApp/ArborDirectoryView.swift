@@ -102,6 +102,47 @@ struct ArborPeoplePicker: View {
     }
 }
 
+/// Shared identity presentation for the directory and account management.
+struct ArborProfileRow: View {
+    let workspace: ArborWorkspaceState
+    let person: DirectoryPerson?
+    let fallbackTitle: String
+    let fallbackSubtitle: String
+    var canOpen = true
+    var accessory = AnyView(EmptyView())
+    let open: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: open) {
+                HStack(spacing: 12) {
+                    ArborAvatarView(person: person, workspace: workspace)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(person?.title ?? fallbackTitle)
+                        Text(person?.subtitle ?? fallbackSubtitle)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canOpen)
+            accessory
+            Button(action: open) {
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 32)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canOpen)
+            .accessibilityLabel("Open profile")
+            .help(canOpen ? "Open profile" : "Not hosted")
+        }
+    }
+}
+
 struct ArborDirectoryView: View {
     let workspace: ArborWorkspaceState
     let openProfile: (DirectoryPerson) -> Void
@@ -127,26 +168,15 @@ struct ArborDirectoryView: View {
         if !values.isEmpty {
             Section(title) {
                 ForEach(values) { person in
-                    HStack(spacing: 12) {
-                        ArborAvatarView(person: person, workspace: workspace)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(person.title)
-                            Text(person.subtitle).font(.caption).foregroundStyle(.secondary)
-                            HStack { ForEach(person.entry.sources, id: \.self) { Text(sourceLabel($0)).font(.caption2).padding(.horizontal, 5).background(.quaternary, in: Capsule()) } }
-                        }
-                        Spacer()
-                        Button("Open profile") { openProfile(person) }
-                            .disabled(person.entry.locator == nil)
-                            .help(person.entry.locator == nil ? "Not hosted" : "Open profile")
-                    }
+                    ArborProfileRow(
+                        workspace: workspace, person: person,
+                        fallbackTitle: person.title, fallbackSubtitle: person.subtitle,
+                        canOpen: person.entry.locator != nil,
+                        open: { openProfile(person) }
+                    )
                 }
             }
         }
     }
 
-    private func sourceLabel(_ source: String) -> String {
-        if source == "community" { return "Community" }
-        if source == "access" { return "Shared" }
-        return "Group"
-    }
 }

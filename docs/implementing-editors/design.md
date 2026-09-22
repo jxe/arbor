@@ -63,6 +63,26 @@ remains host-controlled and durable, including recovery after failed delivery.
 
 ## Profile control and Claim
 
+The native sidebar's order picker offers **Alphabetical**, **Recent**, **Link
+Count**, and **Trees**. Trees replaces the current tree's page list with the local
+tree inventory; search filters tree names and account labels, and keyboard
+navigation opens the selected tree. The page-only pickers used for moving pages
+retain their three page orders. The sidebar footer opens **People** directly.
+
+The management modal is one scrolling pane ordered **profile, sync status,
+devices**. Profile and sync rows use grouped backgrounds; the working-tree detail
+is an unfilled footer attached to the sync row. Profile editing lives on the
+profile page. macOS retains device and pairing controls; iOS lists its accounts
+and current device information, with disconnect/pair-again for the active account.
+Sync status comes from the open client, not the tree inventory. The iOS pull-down
+opens the sidebar in Trees mode.
+
+**Add account…** is a discreet control at the right of the Devices heading. On Mac it offers community connection
+and device pairing without reopening the welcome screen; on iOS it opens pairing
+without restoring another tree. The Mac profile menu offers **Back up identity…**
+when the identity key is available, and **Recover identity…** is shown when it is
+missing. The welcome presentation remains part of first-launch setup.
+
 The persistent profile control shows the active safe community/profile identity, connected or credential-unavailable state, and every writable profile namespace (a tree whose root declares `type: person` or `type: group`). Selecting an unplaced namespace asks where it should live locally; selecting an existing placement opens it. The control never displays or copies stored credentials.
 
 An unresolved URL for a reserved canopyd account renders with a **Claim** action. Claim asks for the already-created local profile tree, previews the canopyd account address and local path, and links the reserved profile TreeID to the account after server success. It neither uploads nor places the profile; giving that tree a canonical URL uses the ordinary declaration/activation flow. Conflict and unavailable-credential states remain recoverable and explicit.

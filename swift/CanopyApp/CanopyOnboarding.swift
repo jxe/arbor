@@ -22,6 +22,7 @@ struct CanopyMacLaunchView: View {
 struct CanopyMacOnboarding: View {
     let workspace: ArborWorkspaceState
     var resumeExisting = false
+    var addingAccount = false
     let complete: () -> Void
     @State private var state: LocalCanopyAccountsEnvelope?
     @State private var client: ArborSyncRESTClient?
@@ -41,8 +42,12 @@ struct CanopyMacOnboarding: View {
     var body: some View {
         Form {
             Section {
-                Text("Welcome to Canopy").font(.largeTitle)
-                Text("Your identity connects you to your communities.")
+                HStack {
+                    Text(addingAccount ? "Add account" : "Welcome to Canopy").font(.largeTitle)
+                    Spacer()
+                    if addingAccount { Button("Done", action: complete) }
+                }
+                Text(addingAccount ? "Connect to a community or pair this Mac with an existing account." : "Your identity connects you to your communities.")
                     .foregroundStyle(.secondary)
             }
             if let state {
@@ -58,6 +63,7 @@ struct CanopyMacOnboarding: View {
                             .foregroundStyle(.secondary)
                     }
                 } else if let identity = state.identity {
+                    if !addingAccount {
                     Section("Your public identity") {
                         Text(identity.profileTree).font(.caption.monospaced()).textSelection(.enabled)
                         ShareLink("Share Public Identity", item: "arbor://\(identity.profileTree)/")
@@ -72,6 +78,7 @@ struct CanopyMacOnboarding: View {
                         } else {
                             Button("Back Up Identity…") { backup() }
                         }
+                    }
                     }
                     Section("Already joined on another device?") {
                         Text("Recovering your identity does not authorize this Mac on an existing account. Create a pairing code on an authorized device, then paste it here.")
@@ -99,6 +106,12 @@ struct CanopyMacOnboarding: View {
                                     }
                                 }
                             }.disabled(pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                    if addingAccount, !identity.keyAvailable {
+                        Section {
+                            Text("Recover your identity key to connect to a new community.")
+                            Button("Recover Identity…") { recover() }
                         }
                     }
                     if identity.keyAvailable {
@@ -130,7 +143,7 @@ struct CanopyMacOnboarding: View {
                             .disabled(state.pendingClaim == nil && community.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
-                    if !state.accounts.isEmpty {
+                    if !addingAccount, !state.accounts.isEmpty {
                         Section("Communities") {
                             ForEach(state.accounts) { account in
                                 Button(account.handle.map { "~\($0) · \(account.canopy ?? "")" } ?? account.configurationTree) {
@@ -155,7 +168,7 @@ struct CanopyMacOnboarding: View {
                             }
                         }
                     }
-                    Button("Continue with Local Files", action: complete)
+                    Button(addingAccount ? "Done" : "Continue with Local Files", action: complete)
                 } else {
                     Section("Set up your identity") {
                         Button("Create Identity") {
@@ -192,7 +205,7 @@ struct CanopyMacOnboarding: View {
                 keyAvailable: state?.identity?.keyAvailable == true,
                 native: legacy?.profileTree
             )
-            if reconciliation == .adoptNative, let client {
+            if !addingAccount, reconciliation == .adoptNative, let client {
                 try await client.restoreIdentity(backup: KeychainProfileIdentityStore().backupData(), path: profilePath)
                 try await reload()
             }

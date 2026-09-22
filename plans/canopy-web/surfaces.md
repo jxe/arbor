@@ -2,26 +2,27 @@
 
 The surface-by-surface inventory behind [Web 025](025-arbor-web.md). Each native surface is listed with its Swift source, what the web version keeps, which host it applies to, and the project (B1, B2, B3) that builds it. **Keep** means the same labels, states and actions; **adapt** means the same information in browser-idiomatic form; **not ported** is a decision, not a gap. Native polish (menu bar, sheets, gestures, sounds, camera, audio) is listed at the end so nobody reads its absence as an omission.
 
-Reference: `swift/ArborApp/*.swift` and `swift/Packages/CanopyEditor` at the commit the plan was written (2026-09-19). Quote the native strings when building; parity is in the vocabulary as much as the layout.
+Reference: `swift/CanopyApp/*.swift` and `swift/Packages/CanopyEditor`. Sidebar, directory, account, and sync surfaces were refreshed against the working tree on 2026-09-22. Older line-number references below are historical navigation hints; use the named types and current source. Quote the native strings when building; parity is in the vocabulary as much as the layout.
 
 | # | Surface | Native source | Web | Host | Project |
 |---|---|---|---|---|---|
 | 1 | Launch, empty and confirmation states | `ArborDailyDriverViews.swift:1576–1684`, `ArborAppModel.swift:2284` | keep | both | B1 |
-| 2 | Sidebar: page picker, orders, rows, context menu | `ArborRootView.swift:588–1400`, `ArborDailyDriverViews.swift:176` | keep | both | B1 |
+| 2 | Sidebar: pages/Trees modes, rows, People footer, context menu | `ArborRootView.swift` (`sidebarList`, `sidebarTreesList`, `sidebarFooter`), `ArborDailyDriverViews.swift` (`ArborSidebarSearchRow`) | keep | both | B1 |
 | 3 | Navigation: breadcrumb heading, back/forward/parent/home, Open Location, tabs | `ArborRootView.swift:1428, 1869, 2172`; `ArborDailyDriverViews.swift:1176` | keep; tabs adapt | both | B1 |
 | 4 | Editor pane and document footer | `ArborEditorSurface.swift`, `ArborEditorHost.swift`, `ArborDailyDriverViews.swift:936`; Quagmire | adapt on BlockNote | both | B1 / B3 |
 | 5 | Search Contents palette | `ArborDailyDriverViews.swift:277` | keep | both | B1 |
 | 6 | Share and app permissions | `ArborRootView.swift:2381, 3990` | keep | both | B2 |
-| 7 | Accounts, devices, pairing | `ArborRootView.swift:2817, 3139, 3804` | keep; pairing adapt | both | B2 |
-| 8 | Sync Status | `ArborDailyDriverViews.swift:992` | keep; no daemon actions | both | B2 |
+| 7 | Profile, sync, devices, account addition | `ArborRootView.swift` (`MacArborSyncAccountPanel`, `IOSAccountPanel`, `ArborDevicesHeader`), `CanopyOnboarding.swift` | keep; pairing adapt | both | B2 |
+| 8 | Sync Status within account management | `ArborDailyDriverViews.swift` (`ArborSyncStatusView.sections`) | keep; no daemon actions | both | B2 |
 | 9 | Keyboard map | `ArborApp.swift:34–305` | adapt | both | B1 (shell), B3 (editor) |
 | 10 | Attention banner | `ArborDailyDriverViews.swift:895`, `ArborRootView.swift:2217` | keep | both | B1 |
-| 11 | Home: trees and accounts chooser | `ArborRootView.swift:3540, 3670`; `ArborDailyDriverViews.swift:1600` | adapt per-host | both | B1 (local), B2 (canopy) |
+| 11 | Web Home; native sidebar Trees mode | `ArborRootView.swift` (`sidebarTreesList`, `IOSPlaceTreePanel`); `ArborDailyDriverViews.swift` | adapt per-host | both | B1 (local), B2 (canopy) |
 | 12 | Network log | `ArborNetworkLogView.swift` | keep | both | B2 |
 | 13 | Conflict and choice review | `ArborConflictReview.swift`, `ArborDailyDriverViews.swift:1325–1540` | keep | both | B3 |
 | 14 | Source and Properties, History/Recover | `ArborDailyDriverViews.swift:1219, 1250` | keep | both | B1 |
 | 15 | Move to (blocks), Move Page (structural) | `ArborDailyDriverViews.swift:445, 689` | keep | both | B3 / B1 |
 | 16 | Trash, restore, orphan prompt, title rename | `ArborRootView.swift:971–977`, `ArborAppModel.swift:2054` | keep | both | B1 |
+| 17 | People directory and shared profile rows | `ArborDirectoryView.swift` (`ArborDirectoryView`, `ArborProfileRow`) | keep | both | B2 |
 
 ## 1. Launch, empty and confirmation states
 
@@ -36,11 +37,13 @@ One `PagePicker` component serves the sidebar, Search Contents, Move to and Move
 
 - **Heading**: the current location; the parent portion is a quiet link (`Go to Parent`), then a spaced slash and the final segment. No brand row, no separate Parent row.
 - **Search field**: prompt `Search pages`, clear button `Clear Search`. ↑/↓/↩ move and open; Escape returns focus to the editor. Empty query lists every page so the sidebar is useful before typing.
-- **Order control** beside the field: `Alphabetical` / `Recent` / `Link Count`, persisted per surface (`pageOrder.sidebar`, `pageOrder.moveTo`, `pageOrder.movePage`) in `localStorage`.
+- **Order control** beside the field: `Alphabetical` / `Recent` / `Link Count`, plus `Trees` in the sidebar only. Page destination pickers retain the three page orders. Selection is persisted per surface (`pageOrder.sidebar`, `pageOrder.moveTo`, `pageOrder.movePage`) in `localStorage`.
   - Recent groups: `Today`, `This Week`, `This Month`, `Earlier`, `Unknown date`.
   - Link Count groups: `0 Links`, `1 Link`, `Multiple Links`; counts visible only in the last group.
   - Alphabetical: flat, leading emoji ignored for sorting.
 - **Rows**: leading emoji from the title or a document glyph; folder glyph for folders; title without its emoji; context path `/parent/dir` head-truncated; optional backlink count. Context menu: `Open`, `Open in New Tab` (web-native: ordinary link target), `Move Page…`, `Move to Trash`. Rows accept a dragged block (B3) and append it to that page.
+- **Trees mode** replaces pages with the available tree inventory, shows account/host context and a checkmark for the current tree, and changes the search prompt to `Search trees`. Search filters tree names and account labels; ↑/↓/↩ select and open trees, never stale page results. Native Mac lists local placements with `Open Tree…`; iOS lists native placements with `Add Tree…`. Web inventory and placement policy follow §11.
+- **People footer** is fixed below the scrolling rows, shares their text/icon alignment, and opens the directory (§17). Native uses `person.crop.square`, clear interactive glass, and a continuous right-hand hairline; web adapts the material while retaining hierarchy and alignment. It contains no My profile shortcut.
 - **Choices entry**: header button `Review choices` with a count badge when a review model has decisions or is pending (B3).
 - **Collapse**: subdued double-chevron with help `Show Sidebar` / `Hide Sidebar`; width min 180, ideal 260, max 500, persisted. Narrow layouts use an overlay drawer with backdrop and focus restoration; no edge gesture.
 - **Empty**: `No results for "<text>"`.
@@ -52,7 +55,7 @@ One `PagePicker` component serves the sidebar, Search Contents, Move to and Move
 - **Back / Forward** are the browser's history; the app pushes one canonical URL per location. **Go to Parent** ⌘↑ and **Home** ⇧⌘H.
 - **Open Location** (⌘⇧L on the web; ⌘L is the browser's): field `Location path`; `http(s)://` and `arbor://` open a visit (read-only working tree following the tree's watch); `~`/absolute paths open the enclosing placed tree (local host only) or fail with `… is not inside a placed tree. Place the folder with arbor place first.`; otherwise a path in the current tree. canopyd host also accepts canonical paths on that canopyd.
 - **Tabs**: the in-app tab strip is not ported; browser tabs are the tabs. `Open in New Tab` on rows and ⌘-click on links do the browser thing. See the plan's *Storage and tabs* for writability.
-- **Toolbar right side**: `Share` (when fully synced) or the sync indicator button (opens Sync Status), then the `Accounts` control with the sync badge (`Accounts — <status>`). Indicator states: `Fully synced`, `Syncing`, `Offline`, `Sync needs attention`.
+- **Toolbar right side**: `Share` (when fully synced) or the sync indicator button (opens Sync Status), then the `Accounts` control with the sync badge (`Accounts — <status>`). Both account and sync entry points open the same profile/sync/devices pane (§7), without tabs. Indicator states: `Fully synced`, `Syncing`, `Offline`, `Sync needs attention`.
 
 ## 4. Editor pane
 
@@ -98,10 +101,13 @@ Backed by BlockNote plus `@overstory/protocol`; each item names its project.
 
 ## 7. Accounts, devices, pairing
 
-One dialog with a persistent `Accounts` / `Sync Status` selector; the Accounts control opens Accounts, the sync chip opens Sync Status; switching is immediate and never re-shows a first-load spinner.
+One scrolling dialog, ordered **profile rows → current-client sync status → devices**. No Accounts/People/Sync tabs and no tree chooser. The account control and sync chip open this same pane. Profile and sync rows have grouped backgrounds; the working-tree/provider detail is a background-free footer belonging to the sync section.
 
 - Accounts, devices, share and app permissions are all edits to the account configuration tree through its own working-tree session, on both hosts, exactly as `ArborAppModel` edits `devices.yaml` and `trees.yaml`; only pairing offers and claims call canopyd directly.
-- Per account: `~handle`, host or `Account ABCD1234`, `Open profile`; `Devices` rows with label and tags `This browser` / `This Mac` / `Active` / `Administrator`; ellipsis menu `Make Administrator`, `Remove Administrator`, `Deauthorize Device` (destructive; disabled for the last administrator or a non-administrator caller); confirmation `Deauthorize <label>?`; results `<label> can now manage sharing.` / `<label> was deauthorized.`
+- Per account: the shared directory-style profile row (§17), with avatar, display name, account/host detail, and a far-right chevron opening the profile. No `Open profile` text button or duplicate `Edit name & photo…` action. `Devices` rows with label and tags `This browser` / `This Mac` / `Active` / `Administrator`; ellipsis menu `Make Administrator`, `Remove Administrator`, `Deauthorize Device` (destructive; disabled for the last administrator or a non-administrator caller); confirmation `Deauthorize <label>?`; results `<label> can now manage sharing.` / `<label> was deauthorized.`
+- **Add account** is a small `person.badge.plus` affordance at the right of the first Devices header (accessible name `Add account`, help `Add account…`), also present when no accounts exist. It is not a separate large form row. Mac opens a focused connect-community/pair-device flow; iOS opens pairing without restoring the existing placement. Web adapts this to its host's claim/pair capabilities.
+- The Mac profile ellipsis offers `Back up identity…` when the local identity key is available; `Recover identity…` appears when the key is missing. These are native identity operations, not browser credential exports. The Welcome flow is not reopened for ordinary account management.
+- Profile and device sections have separate identities even when they refer to the same account, so list reconciliation cannot merge them.
 - `Pair another device…` shows the QR (generated client-side) and the `Confirm on both devices` code, for a phone or another browser.
 - **Pair this browser** (canopyd host, and the local host when the daemon has no credential): paste the code (`Paste Pairing Code`, `The clipboard has no pairing code.`), show `Pairing with your Mac…`, then the account appears. No camera.
 - Identity: `Profile TreeID` (monospaced, selectable), `Copy Profile TreeID`, `Send this public ID to the canopyd administrator before claiming your account.`, URL field and `Claim Account` — local host only, with an existing identity; identity creation stays swift/CLI.
@@ -127,7 +133,7 @@ Same as native unless the browser owns the key. Reassignments:
 | ⌘[ / ⌘] Back / Forward | browser history | free |
 | ⌘W, ⌘T tabs | browser tabs | tab strip not ported |
 | ⌘F Find in Page | ⌘F intercepted when the editor has focus | otherwise browser find |
-| ⌥⌘1/2/3 sidebar order | same | none |
+| ⌥⌘1/2/3 page order; ⌥⌘4 Trees mode | same | none |
 | ⌘\ Toggle Sidebar, ⇧⌘F Search Contents, ⌘↑ Parent, ⇧⌘H Home, ⌥⌘P Move Page, ⇧⌘\ Recover, ⌘I Source and Properties, ⌥⌘S Share, ⌥⌘← / → fold all, ⌘Z / ⇧⌘Z, ⌘/ Block Actions, ⌘K, ⌘↩, ⇧⌘P, Tab / ⇧Tab, ⌥↑ / ⌥↓, ⌘B / ⌘I / ⌘E / ⇧⌘S, ⌥⌘↑ / ⌥⌘↓ choices | same | none |
 
 Every picker list (sidebar, Search Contents, Move to, Move Page) takes ↑ ↓ ↩ and Escape; block-menu one-key chips while open: `t * 1 [ > # 2 3 p - m c [ ]`. Publish the table in `docs/implementing-editors/design.md` in the phase that implements each surface.
@@ -137,6 +143,8 @@ Every picker list (sidebar, Search Contents, Move to, Move Page) takes ↑ ↓ �
 One floating capsule at the top of the page, max 560 px, chosen in priority order: document conflict (headline, `Review…` / `Hide`, `Merge` when an automatic merge source exists, tooltip with `Current revision: …`); title rename proposal (`Rename this page to "X" to match its title?`, `Rename` / `Not Now`, two seconds after the accepted title changes); save diagnostic (red, `Retry`, `Details…`); model or workspace error (red, `Dismiss`).
 
 ## 11. Home: trees and accounts
+
+Native no longer has a separate Trees & Accounts switcher sheet: Trees lives in the sidebar order picker. The web Home surface below remains a browser-specific entry point to the same inventory, not a native management tab.
 
 - **Local host**: placements from `/v1/trees` grouped per account (`~handle` and host; unmatched as `Other Trees`), current tree checked, recent visits with stale/offline state (there is no native visits view; the web adds one because Open Location is the only entry today), `Open Location…`, `Accounts`. `Place Another Tree` is not offered: placing stays `arbor place` and native.
 - **canopyd host**: the paired account's trees from `/.arbor/trees` with `Can edit` / `Can view`; opening one bootstraps it in the browser. No placement concept.
@@ -169,6 +177,20 @@ One floating capsule at the top of the page, max 560 px, chosen in priority orde
 - After a document-link row is deleted: `Move linked page to Trash?` with `"<title>" no longer has any links pointing to it.`, `Move to Trash` / `Keep Page`.
 - Title rename proposal as in §10; `New Document` (`Name`, `Initial Markdown`, `Cancel` / `Create`) and `New Folder` forms.
 
+## 17. People directory
+
+Opened from the sidebar's **People** footer or the People command. Search prompt
+`Search people and groups`; separate **People** and **Groups** sections. Do not add
+a second prominent People heading above the section header. Rows use avatar,
+display name, account/host detail, and a trailing chevron; both the name/avatar area
+and chevron open the hosted profile. Unhosted profiles are disabled with `Not hosted`.
+The account modal reuses this row, adding its identity menu before the chevron.
+
+Keep `Refresh`, `Done`, the directory error, and `No people found` empty state.
+Do not display `Community`, `Group`, or `Shared` source badges: those indicate
+how the profile was discovered, not the person's type or role. Retain source
+provenance in the underlying directory data.
+
 ## Not ported (by decision)
 
 | Native affordance | Where | Web replacement |
@@ -176,7 +198,7 @@ One floating capsule at the top of the page, max 560 px, chosen in priority orde
 | Menu bar, `@FocusedValue` command routing | `ArborApp.swift` | keyboard map and in-page menus |
 | Sheets and popovers as a concept, the Mac dismiss-handoff dance | `ArborRootView.swift:1687–1740` | ordinary modal stack |
 | Titlebar-accessory search, `NSPopUpButton` order picker, `NSEvent` key monitor, hover washes | `ArborRootView.swift:274, 525, 466, 501` | a field above the list, a native `<select>`-style menu |
-| iOS edge-drawer gestures, top-overscroll `Pull for Trees & Accounts` | `ArborRootView.swift:1058–1113, 1999, 3498` | sidebar toggle, Home link |
+| iOS edge-drawer gestures, top-overscroll `Pull for Trees` (opens sidebar Trees mode) | `ArborRootView.swift:1058–1113, 1999, 3498` | sidebar toggle, Home link |
 | Pinch-to-insert, three-finger cycling, swipe-to-extend selection | Quagmire | keyboard structural editing |
 | Voice recording, transcription, pending-recording recovery, Siri and App Intents | `ArborRootView.swift:52`, `VoiceRecordingIntents.swift` | none; the `🎙` heading convention still renders |
 | Sounds and haptics | `ArborStyle.swift`, Quagmire | none |

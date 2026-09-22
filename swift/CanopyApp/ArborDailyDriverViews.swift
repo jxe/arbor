@@ -965,87 +965,7 @@ struct ArborSyncStatusView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack(alignment: .center, spacing: 14) {
-                        Image(systemName: overallStatusSymbol)
-                            .font(.title2)
-                            .foregroundStyle(overallStatusTint)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(overallStatusTitle).font(.headline)
-                            Text(overallStatusDetail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 16)
-                        if binding?.conflict != nil {
-                            Button("Review Edit Conflict", systemImage: "exclamationmark.triangle", action: reviewDocumentConflict)
-                        } else if diagnostic != nil {
-                            Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
-                        } else {
-                            Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
-                                .disabled(sync.state == .offline)
-                        }
-                        Button("Network Log…", systemImage: "waveform.path.ecg", action: showNetworkLog)
-                            .help("Timings for updates, watch frames, and reads")
-#if os(macOS)
-                        Menu {
-                            Button("Reconnect to arborsync", systemImage: "arrow.clockwise", action: reconnectArborSync)
-                            Button("View arborsync Logs…", systemImage: "doc.text.magnifyingglass", action: showArborSyncLogs)
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .help("Arbor Sync options")
-#endif
-                    }
-                    .padding(.vertical, 4)
-                }
-                if binding?.isSaving == true || binding?.conflict != nil || diagnostic != nil {
-                    Section("Current document") {
-                        LabeledContent("Save status", value: saveStatus)
-                        if binding?.conflict != nil {
-                            Text("Your latest edits are still in this editor. Review the conflict to save them and resume synchronization.")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                        if let diagnostic {
-                            Text(diagnostic.editSafetyDetail)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                            LabeledContent("Cause", value: diagnostic.conditionLabel)
-                            Text(diagnostic.explanation)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(diagnostic.recovery)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(diagnostic.technicalDetail)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-#if os(macOS)
-                Section {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(provider)
-                        if diagnostic?.synchronizationOverride != nil {
-                            Text("Last reported: \(sync.state.label). Arbor cannot verify that state while the provider connection is unavailable.")
-                        } else if let detail = sync.detail {
-                            Text(detail)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                .listRowBackground(Color.clear)
-#endif
-            }
+            Form { sections }
             .formStyle(.grouped)
 #if os(iOS)
             .navigationTitle("Sync Status")
@@ -1058,6 +978,89 @@ struct ArborSyncStatusView: View {
         .frame(minWidth: 560, minHeight: 430)
 #endif
     }
+
+    @ViewBuilder
+    var sections: some View {
+        Section {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: overallStatusSymbol)
+                    .font(.title2)
+                    .foregroundStyle(overallStatusTint)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(overallStatusTitle).font(.headline)
+                    Text(overallStatusDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 16)
+                if binding?.conflict != nil {
+                    Button("Review Edit Conflict", systemImage: "exclamationmark.triangle", action: reviewDocumentConflict)
+                } else if diagnostic != nil {
+                    Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
+                } else {
+                    Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
+                        .disabled(sync.state == .offline)
+                }
+                Button("Network Log…", systemImage: "waveform.path.ecg", action: showNetworkLog)
+                    .help("Timings for updates, watch frames, and reads")
+#if os(macOS)
+                Menu {
+                    Button("Reconnect to arborsync", systemImage: "arrow.clockwise", action: reconnectArborSync)
+                    Button("View arborsync Logs…", systemImage: "doc.text.magnifyingglass", action: showArborSyncLogs)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Arbor Sync options")
+#endif
+            }
+            .padding(.vertical, 4)
+        } footer: {
+#if os(macOS)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(provider)
+                if diagnostic?.synchronizationOverride != nil {
+                    Text("Last reported: \(sync.state.label). Arbor cannot verify that state while the provider connection is unavailable.")
+                } else if let detail = sync.detail {
+                    Text(detail)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+#endif
+        }
+        if binding?.isSaving == true || binding?.conflict != nil || diagnostic != nil {
+            Section("Current document") {
+                LabeledContent("Save status", value: saveStatus)
+                if binding?.conflict != nil {
+                    Text("Your latest edits are still in this editor. Review the conflict to save them and resume synchronization.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                if let diagnostic {
+                    Text(diagnostic.editSafetyDetail)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    LabeledContent("Cause", value: diagnostic.conditionLabel)
+                    Text(diagnostic.explanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(diagnostic.recovery)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(diagnostic.technicalDetail)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+
+    }
+
 
     var saveStatus: String {
         if binding?.isSaving == true { return "Retaining edit locally" }

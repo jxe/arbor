@@ -43,7 +43,7 @@ private struct ArborNavigationCommands: Commands {
     var body: some Commands {
 #if os(macOS)
         CommandGroup(after: .appSettings) {
-            Button("Accounts…") { commands?.showAccounts() }
+            Button("Sync & Accounts…") { commands?.showAccounts() }
                 .disabled(commands == nil)
             Button("People…") { commands?.showPeople() }
                 .disabled(commands == nil)
@@ -146,6 +146,9 @@ private struct ArborNavigationCommands: Commands {
                 .disabled(commands == nil)
             Toggle("Pages by Link Count", isOn: sidebarPageOrderBinding(.linkCount))
                 .keyboardShortcut("3", modifiers: [.command, .option])
+                .disabled(commands == nil)
+            Toggle("Trees", isOn: sidebarPageOrderBinding(.trees))
+                .keyboardShortcut("4", modifiers: [.command, .option])
                 .disabled(commands == nil)
             Divider()
 #endif
