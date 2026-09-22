@@ -59,4 +59,15 @@ Then serve the migrated copy with the new build, confirm it opens, read
 
 ## Rehearsal log
 
-Pending.
+2026-09-22, backup `.backups/railway/20260922T190204Z/volume.tar` (sha256 f49146fb…,
+matches the volume; live and vacuumed copy both 2,515 accepted updates, 5 trees,
+1,533 merge rows, schema 15), restored to `before/` and `migrated/`:
+
+- Report: 2,515 updates replayed, 113 entry rows, 2,569 document versions over 90
+  documents, `prunedHistory` 0. Replay 1.3 s, commit 49 ms.
+- `compare-canopy-roots`: all five roots unchanged.
+- The new `canopyd` opened the schema-16 copy and warmed (5.1 s, 51,107 reads on the
+  Console tree); `/entry-metadata` answers 200 for public trees and 404 without
+  credentials for private ones; `verify.ts --no-sync` ok.
+- Console tree dates: 97 of 106 entries sit at its history boundary (2026-09-13), the
+  rest on the days they were last edited.
