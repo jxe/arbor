@@ -45,6 +45,9 @@ public actor UpdateCoordinator {
     private var preparedStructures: [Data: (record: SourceAdmissionRecord, node: WorkspaceNode)] = [:]
     private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
     private var localView: (key: LocalViewKey, tree: WorkingTree)?
+    /// The conflict-review journal as last read or written by this coordinator,
+    /// its only writer; nil until first read or after an uncertain write.
+    private var reviewJournal: ConflictReviewJournal?
 
     public init(
         workingTree: WorkingTree,
@@ -244,7 +247,7 @@ public actor UpdateCoordinator {
     public func recoverWatchGap() async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         let heads = try await workingTree.heads()
-        let reviewPending = try files.loadReview().attempt != nil
+        let reviewPending = try loadReview().attempt != nil
         if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil || reviewPending {
             return try await synchronize(admission: nil)
         }
@@ -276,7 +279,7 @@ public actor UpdateCoordinator {
             try await recordObservedCursor(event)
             return try await presentation()
         }
-        let reviewPending = try files.loadReview().attempt != nil
+        let reviewPending = try loadReview().attempt != nil
         if (try await hasSourceWork()) || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil || reviewPending {
             return try await synchronize(admission: nil)
         }
@@ -625,7 +628,7 @@ public actor UpdateCoordinator {
         admission: WorkingTreePatchAdmission?,
         extendExistingAttempt: Bool = false
     ) async throws -> WorkspaceSyncPresentation {
-        if let review = try files.loadReview().attempt { return try await syncReviewAttempt(review) }
+        if let review = try loadReview().attempt { return try await syncReviewAttempt(review) }
         let sourcePending = try await hasSourceWork()
         if sourceOperationEmission, control.sourceAttemptChange != nil || (control.attempt == nil && sourcePending) {
             return try await syncSourcePass()
@@ -1570,22 +1573,35 @@ extension UpdateCoordinator {
         return snapshot
     }
 
-    public func reviewDrafts() throws -> [ConflictReviewDraft] { try files.loadReview().drafts }
-    public func reviewSubmissionPending() throws -> Bool { try files.loadReview().attempt != nil }
+    private func loadReview() throws -> ConflictReviewJournal {
+        if let reviewJournal { return reviewJournal }
+        let journal = try files.loadReview()
+        reviewJournal = journal
+        return journal
+    }
+
+    private func writeReview(_ journal: ConflictReviewJournal) throws {
+        reviewJournal = nil
+        try files.writeReview(journal)
+        reviewJournal = journal
+    }
+
+    public func reviewDrafts() throws -> [ConflictReviewDraft] { try loadReview().drafts }
+    public func reviewSubmissionPending() throws -> Bool { try loadReview().attempt != nil }
 
     public func retainReviewDraft(_ draft: ConflictReviewDraft) async throws {
         guard draft.snapshot.tree.utf8.elementsEqual((await workingTree.treeID().rawValue).utf8) else { throw ConflictReviewError.unavailable }
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         journal.drafts.removeAll { $0.id == draft.id }
         journal.drafts.append(draft)
-        try files.writeReview(journal)
+        try writeReview(journal)
     }
 
     public func discardReviewDraft(_ id: String) throws {
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         guard journal.attempt?.draft.id != id else { throw ConflictReviewError.publicationPending }
         journal.drafts.removeAll { $0.id == id }
-        try files.writeReview(journal)
+        try writeReview(journal)
     }
 
     public func reviewContent(_ alternative: ConflictReviewAlternative) async throws -> Data? {
@@ -1613,13 +1629,13 @@ extension UpdateCoordinator {
         try requireOpen()
         try await retainReviewDraft(draft)
         guard sourceOperationEmission, !syncActive, control.attempt == nil,
-              try files.loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
+              try loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
         let fresh = try await inspectChoices()
         guard draft.isCurrent(in: fresh) else { throw ConflictReviewError.changed }
         let preview = try await prepareReviewPreview(draft, current: fresh)
         // New editor admissions can arrive during material loading.
         guard !(try await hasSourceWork()), !syncActive, control.attempt == nil,
-              try files.loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
+              try loadReview().attempt == nil else { throw ConflictReviewError.publicationPending }
         let chosen = preview.operations ?? []
         let update = WireCandidateUpdate(candidate: preview.candidate.root,
             trace: chosen.isEmpty ? nil : [WireTraceFrame(before: fresh.root, after: preview.candidate.root, operations: chosen)],
@@ -1628,9 +1644,9 @@ extension UpdateCoordinator {
         let base = WireUpdateBase(root: fresh.root, update: fresh.state)
         let request = WireUpdateRequest(base: base.update, updates: [update])
         let attempt = try Self.attempt(tree: fresh.tree, base: base, generation: 0, request: request)
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         journal.attempt = .init(draft: draft, request: attempt)
-        try files.writeReview(journal)
+        try writeReview(journal)
         _ = try await synchronize(admission: nil)
     }
 
@@ -1685,15 +1701,15 @@ extension UpdateCoordinator {
             throw ArborWireValidationError.invalidValue("Retained review request does not match its evidence")
         }
         // Reestablish durability if an earlier atomic write returned an uncertain error.
-        try files.writeReview(files.loadReview())
+        try writeReview(loadReview())
         let response: WireUpdateResponse
         do {
             response = try await transport.submit(.init(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests))
         } catch is WireUpdateConflictError {
             // A definite rejection cannot have applied. Preserve the authored
             // draft, retire only this request, and let ordinary publication run.
-            var journal = try files.loadReview(); journal.attempt = nil
-            try files.writeReview(journal)
+            var journal = try loadReview(); journal.attempt = nil
+            try writeReview(journal)
             Task { [weak self] in
                 do { _ = try await self?.syncOnce() }
                 catch { Self.syncLog.error("publication after review rejection failed: \(String(describing: error), privacy: .public)") }
@@ -1713,12 +1729,12 @@ extension UpdateCoordinator {
         let heads = try await workingTree.heads()
         _ = try await pullCurrentSnapshot(treeID: attempt.tree, priorHeads: heads)
         await workingTree.invalidateDocumentViews()
-        var journal = try files.loadReview()
+        var journal = try loadReview()
         journal.attempt = nil
         // A later edited draft is never retired by an earlier submission.
         let submittedFingerprint = try retained.draft.fingerprint()
         journal.drafts = try journal.drafts.filter { try $0.fingerprint() != submittedFingerprint }
-        try files.writeReview(journal)
+        try writeReview(journal)
         syncAgain = try await hasSourceWork()
         return try await presentation()
     }
