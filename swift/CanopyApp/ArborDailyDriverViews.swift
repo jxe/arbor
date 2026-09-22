@@ -1366,6 +1366,8 @@ struct ArborDocumentConflictView: View {
     let conflict: WorkspaceDocumentConflict
     let resolve: (String) -> Void
     let close: () -> Void
+    /// Derived from `conflict` once, not on every keystroke in the merge editor.
+    private let analysis: ArborDocumentConflictAnalysis
     @State private var mergedSource: String
     @State private var choice: ArborConflictReviewChoice?
 
@@ -1378,12 +1380,12 @@ struct ArborDocumentConflictView: View {
         self.resolve = resolve
         self.close = close
         let analysis = ArborDocumentConflictAnalysis(conflict)
+        self.analysis = analysis
         _mergedSource = State(initialValue: analysis.automaticMergeSource ?? conflict.submittedSource)
         _choice = State(initialValue: analysis.automaticMergeSource == nil ? .mine : .both)
     }
 
     var body: some View {
-        let analysis = ArborDocumentConflictAnalysis(conflict)
         VStack(spacing: 0) {
             HStack {
                 Label("Resolve Document Conflict", systemImage: "exclamationmark.triangle")
@@ -1442,7 +1444,7 @@ struct ArborDocumentConflictView: View {
         switch choice {
         case .current: resolve(conflict.current.source)
         case .mine: resolve(conflict.submittedSource)
-        case .both: resolve(ArborDocumentConflictAnalysis(conflict).automaticMergeSource ?? conflict.submittedSource)
+        case .both: resolve(analysis.automaticMergeSource ?? conflict.submittedSource)
         case .edit: resolve(mergedSource)
         case nil: break
         }
