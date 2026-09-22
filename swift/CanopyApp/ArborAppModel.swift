@@ -2164,11 +2164,14 @@ final class ArborAppModel {
             let locator = "arbor://\(node.reference.tree.rawValue)/"
             let authoredHandle = group?.memberHandlesByProfile[locator]
             let person = workspace.directory.first { $0.entry.profile == node.reference.tree.rawValue }
-            guard authoredHandle != nil || person != nil else { return node }
             var presented = node
-            presented.title = authoredHandle.map { "~\($0)" }
-                ?? person?.entry.handle.map { "~\($0)" }
-                ?? person!.title
+            if let authoredHandle {
+                presented.title = "~\(authoredHandle)"
+            } else if let person {
+                presented.title = person.entry.handle.map { "~\($0)" } ?? person.title
+            } else {
+                return node
+            }
             return presented
         }
     }
