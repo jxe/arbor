@@ -803,10 +803,9 @@ public actor UpdateCoordinator {
         candidate: (root: String, objects: [WireObjectEnvelope])
     ) async throws -> WireObjectDelta? {
         func skip(_ reason: String) -> WireObjectDelta? {
-            var entry = WireNetworkLogEntry(kind: .note, name: "delta-skipped", tree: base.root.isEmpty ? nil : nil)
+            var entry = WireNetworkLogEntry(kind: .note, name: "delta-skipped")
             entry.error = reason
             entry.bytesOut = candidate.objects.reduce(0) { $0 + $1.bytes.count }
-            entry.bytesIn = candidate.objects.count
             WireNetworkLog.current?.record(entry)
             return nil
         }
@@ -1378,7 +1377,6 @@ public actor UpdateCoordinator {
         // The journal rewrite is client-side latency the editor waits on; report
         // it beside the network events so it can be weighed against them.
         var note = WireNetworkLogEntry(kind: .note, name: "admission-retain")
-        note.bytesIn = intent.patch.edits.count
         do {
             let result = try await task.value
             note.durationMs = Date().timeIntervalSince(note.at) * 1000
