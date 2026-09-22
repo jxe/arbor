@@ -320,6 +320,14 @@ struct UpdateProtocolTests {
         }
     }
 
+    @Test("A declared collection length larger than the input is rejected without preallocating it")
+    func oversizedCollectionHeaders() {
+        let maximum: [UInt8] = [0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
+        for major: UInt8 in [0x9b, 0xbb, 0x5b, 0x7b] {
+            #expect(throws: ArborWireValidationError.self) { try CanonicalCBOR.decode(Data([major] + maximum + [0xf6])) }
+        }
+    }
+
     /// Maps a JSONSerialization value onto Arbor's canonical CBOR subset.
     private func cborValue(_ value: Any) throws -> CanonicalCBORValue {
         if value is NSNull { return .null }
