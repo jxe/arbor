@@ -260,6 +260,15 @@ public enum ArborMarkdownCodec {
             }
             return nil
         }
+        // A byte-preserved final block may end in a single newline. Keep no-op
+        // source exact, but separate a newly emitted top-level block so
+        // Markdown does not fold its text into the preceding paragraph.
+        func separator(before raw: String, containerDepth: Int) -> String {
+            guard containerDepth == 0, !emittedTail.isEmpty,
+                  !emittedTail.hasSuffix(ledger.newline + ledger.newline),
+                  !raw.hasPrefix(ledger.newline) else { return "" }
+            return emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline
+        }
         func append(_ block: Block, depth: Int, containerDepth: Int) {
             guard !isProjectedChild(block) else { return }
             let emptyParagraph = isEmptyParagraph(block)
@@ -282,23 +291,10 @@ public enum ArborMarkdownCodec {
                     hasChildren: !block.children.isEmpty,
                     explicitEmptyMarker: needsExplicitEmptyMarker
                 )
-                if containerDepth == 0,
-                   !emittedTail.isEmpty,
-                   !emittedTail.hasSuffix(ledger.newline + ledger.newline),
-                   !raw.hasPrefix(ledger.newline) {
-                    // A byte-preserved final block may end in a single newline.
-                    // Keep no-op source exact, but separate a newly appended
-                    // non-list block so Markdown does not fold its text into
-                    // the preceding paragraph.
-                    raw = (emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline) + raw
-                }
+                raw = separator(before: raw, containerDepth: containerDepth) + raw
             }
             if let copied {
-                var prefix = ""
-                if containerDepth == 0, !emittedTail.isEmpty,
-                   !emittedTail.hasSuffix(ledger.newline + ledger.newline), !raw.hasPrefix(ledger.newline) {
-                    prefix = emittedTail.hasSuffix(ledger.newline) ? ledger.newline : ledger.newline + ledger.newline
-                }
+                let prefix = separator(before: raw, containerDepth: containerDepth)
                 copiedSpans[block.id] = (copied, prefix.utf8.count)
                 raw = prefix + raw
                 // A copied unterminated block must remain distinct from the
@@ -318,11 +314,7 @@ public enum ArborMarkdownCodec {
             )
             position += raw.utf8.count
             emittedAuthoredBlock = true
-            let addsContainerDepth: Bool
-            switch block.kind {
-            case .bullet, .numbered, .todo, .toggle: addsContainerDepth = true
-            default: addsContainerDepth = false
-            }
+            let addsContainerDepth = isIndentContainer(block)
             for child in block.children {
                 append(
                     child,
@@ -636,13 +628,7 @@ public enum ArborMarkdownCodec {
         case let .image(source, alt): line = prefix + "![\(alt)](\(source))"
         case let .unsupported(payload, _): return payload
         }
-        let compactContainer: Bool
-        switch block.kind {
-        case .bullet, .numbered, .todo, .toggle:
-            compactContainer = hasChildren
-        default:
-            compactContainer = false
-        }
+        let compactContainer = hasChildren && isIndentContainer(block)
         return line + newline + (compactContainer ? "" : newline)
     }
 
@@ -775,18 +761,16 @@ public enum ArborMarkdownCodec {
     }
 
     private static func stableID(seed: String, ordinal: Int) -> BlockID {
-        let digest = Array(SHA256.hash(data: Data("\(seed):\(ordinal)".utf8)).prefix(16))
-        let uuid = UUID(uuid: (
-            digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
-            digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]
-        ))
-        return BlockID(uuid)
+        digestID("\(seed):\(ordinal)")
     }
 
     private static func projectedChildID(_ reference: WorkspaceReference) -> BlockID {
-        let digest = Array(SHA256.hash(
-            data: Data("arbor-child:\(String(describing: reference.identity))".utf8)
-        ).prefix(16))
+        digestID("arbor-child:\(String(describing: reference.identity))")
+    }
+
+    /// A deterministic BlockID from the first 16 bytes of the value's SHA-256.
+    private static func digestID(_ value: String) -> BlockID {
+        let digest = Array(SHA256.hash(data: Data(value.utf8)).prefix(16))
         return BlockID(UUID(uuid: (
             digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
             digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]
