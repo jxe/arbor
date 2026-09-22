@@ -1874,7 +1874,6 @@ final class ArborAppModel {
     private(set) var backlinks: [WorkspaceSearchResult] = []
     private(set) var history: [WorkspaceHistoryEntry] = []
     private(set) var sourceSnapshot: WorkspaceDocumentSnapshot?
-    private(set) var tabVersion = 0
     private(set) var isLoading = false
     private(set) var titleRenameProposal: TitleRenameProposal?
     private(set) var linkedPageTrashPrompt: LinkedPageTrashPrompt?
@@ -1938,14 +1937,8 @@ final class ArborAppModel {
     var selectedTabID: UUID { tabs.selectedTabID }
     var tabItems: [BrowserTab] { tabs.tabs }
     var binding: ArborDocumentBinding? { editorLease?.binding }
-    var navigationRoot: WorkspaceLocation {
-        _ = tabVersion
-        return tabs.navigationRoot
-    }
-    var navigationPath: [WorkspaceLocation] {
-        _ = tabVersion
-        return tabs.navigationPath
-    }
+    var navigationRoot: WorkspaceLocation { tabs.navigationRoot }
+    var navigationPath: [WorkspaceLocation] { tabs.navigationPath }
 
     func pagePresentation(for location: WorkspaceLocation) -> PagePresentation? {
         if !isLoading, let node, node.location == location {
@@ -1983,7 +1976,6 @@ final class ArborAppModel {
         lastSearchQuery = ""
         pageIndexTree = nil
         pageIndexResults = []
-        tabVersion += 1
         await load()
     }
 
@@ -2029,7 +2021,6 @@ final class ArborAppModel {
             )
             guard requestID == loadRequestID, observedWorkspaceGeneration == workspace.generation else { return }
             tabs.replaceCurrent(with: resolved.location)
-            tabVersion += 1
             node = resolved
             children = loadedChildren
             if searchResults.isEmpty {
@@ -2096,7 +2087,6 @@ final class ArborAppModel {
         guard await prepareWorkspace(for: location) else { return }
         retainCurrentPagePresentation()
         tabs.navigate(to: location)
-        tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
 
@@ -2172,7 +2162,6 @@ final class ArborAppModel {
         guard await prepareWorkspace(for: destination) else { return }
         retainCurrentPagePresentation()
         tabs.goBack()
-        tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
     func goForward() async {
@@ -2181,10 +2170,9 @@ final class ArborAppModel {
         guard await prepareWorkspace(for: destination) else { return }
         retainCurrentPagePresentation()
         tabs.goForward()
-        tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
-    func goParent() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goParent(); tabVersion += 1; await loadOrRestoreCurrentPage() }
+    func goParent() async { await binding?.flush(); retainCurrentPagePresentation(); tabs.goParent(); await loadOrRestoreCurrentPage() }
     func goHome() async {
         guard let home = treeHomeLocation else { return }
         await returnTo(home)
@@ -2195,7 +2183,6 @@ final class ArborAppModel {
         await binding?.flush()
         retainCurrentPagePresentation()
         tabs.returnTo(location)
-        tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
 
@@ -2208,14 +2195,12 @@ final class ArborAppModel {
                 guard await prepareWorkspace(for: destination) else { return }
                 retainCurrentPagePresentation()
                 tabs.setNavigationPath(path)
-                tabVersion += 1
                 await loadOrRestoreCurrentPage()
             }
             return
         }
         retainCurrentPagePresentation()
         tabs.setNavigationPath(path)
-        tabVersion += 1
         if !restoreCurrentPagePresentation() {
             isLoading = true
             Task {
@@ -2233,7 +2218,6 @@ final class ArborAppModel {
         await binding?.flush()
         retainCurrentPagePresentation()
         tabs.newTab()
-        tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
 
@@ -2241,7 +2225,6 @@ final class ArborAppModel {
         await binding?.flush()
         retainCurrentPagePresentation()
         tabs.newTab(at: location)
-        tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
 
@@ -2250,7 +2233,6 @@ final class ArborAppModel {
         let closedTabID = selectedTabID
         retainCurrentPagePresentation()
         tabs.closeTab(selectedTabID)
-        tabVersion += 1
         await releaseRetainedPagePresentations(for: closedTabID)
         await loadOrRestoreCurrentPage()
     }
@@ -2260,7 +2242,6 @@ final class ArborAppModel {
         await binding?.flush()
         retainCurrentPagePresentation()
         tabs.selectTab(id)
-        tabVersion += 1
         await loadOrRestoreCurrentPage()
     }
 
@@ -2537,7 +2518,6 @@ final class ArborAppModel {
             )) else { return }
             binding.reconcileReference(renamed.reference)
             tabs.reconcileReference(renamed.reference)
-            tabVersion += 1
             node = renamed
             let renamedLocation = location(for: renamed.reference)
             tabs.replaceCurrent(with: renamedLocation)
@@ -2640,7 +2620,6 @@ final class ArborAppModel {
             node = result
             binding?.reconcileReference(result.reference)
             tabs.reconcileReference(result.reference)
-            tabVersion += 1
             switch result.surface {
             case .directory, .directoryDocument, .collection:
                 sidebarLocation = result.location
