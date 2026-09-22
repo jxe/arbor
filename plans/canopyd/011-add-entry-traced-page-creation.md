@@ -1,4 +1,4 @@
-# canopyd 010: Traced page creation with an `addEntry` authored operation
+# canopyd 011: Traced page creation with an `addEntry` authored operation
 
 Status: PLANNED. Written 2026-09-22 after f83194c8 made snapshot checkpoints cheap again;
 the remaining cost of a snapshot is the evidence it does not carry.

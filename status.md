@@ -312,6 +312,15 @@ Production behavior is accepted; storage packing/accounting remains canopyd 001.
 Undo is an ordinary edit; the retired causal-undo journal had reached 432 records,
 75 MB and 7.2 seconds per admission. Retained history remains unbounded.
 
+Gap closed 2026-09-22 (`f83194c8`): `checkpointIntent` never enabled the lazy
+path, so a snapshot candidate (a page created beside a traced edit) loaded the
+whole history DAG, 12.7k reads on `/~joe/todos`, and hit the 5 s budget on every
+retry; the worker's error was then hidden behind a response-schema complaint
+returned as a 400. Checkpoints now detect an editable state as `run()` does, and
+worker failures surface as `merge-failed`. Follow-ups are canopyd
+[011](plans/canopyd/011-add-entry-traced-page-creation.md) (traced page creation)
+and [012](plans/canopyd/012-effect-record-piece-deltas.md) (effect-record size).
+
 ### V1 account and local-state cutoff — 2026-09-21
 
 Implemented locally; no deployment or app installation performed for this cutoff.

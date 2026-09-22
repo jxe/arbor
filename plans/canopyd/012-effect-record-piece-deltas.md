@@ -1,7 +1,7 @@
-# canopyd 011: Effect records store piece deltas, not whole node copies
+# canopyd 012: Effect records store piece deltas, not whole node copies
 
 Status: PLANNED. Written 2026-09-22 from measurements on the 2026-09-19 Railway backup.
-Independent of canopyd 010; both reduce what a checkpoint or retention walk reads.
+Independent of canopyd 011; both reduce what a checkpoint or retention walk reads.
 
 
 ## Context
