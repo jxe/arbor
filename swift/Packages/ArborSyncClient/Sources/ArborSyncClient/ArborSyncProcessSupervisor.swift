@@ -51,14 +51,10 @@ public actor ArborSyncProcessSupervisor {
     private static let serviceLabel = "org.nxhx.Arbor.arborsync"
     private static let servicePlist = "org.nxhx.Arbor.arborsync.plist"
 
-    /// How the daemon is launched: `arborsync --control`, no session, no folder of its own.
-    private enum Mode: Sendable {
-        case control
-    }
-
     private let launchPolicy: ArborSyncLaunchPolicy
     private var process: Process?
-    private var mode: Mode?
+    /// Whether `start` has run, so `restartControl` knows what to restart.
+    private var started = false
     private var executable: URL?
     private var preferredPort: Int = 4317
     private var logURL: URL?
@@ -79,15 +75,9 @@ public actor ArborSyncProcessSupervisor {
         preferredPort: Int = 4317
     ) async throws -> ArborSyncControlRuntime {
         if let controlRuntime { return controlRuntime }
-        self.mode = .control
+        started = true
         self.preferredPort = preferredPort
-        let runtime = try await connect(
-            mode: .control,
-            explicitExecutable: explicitExecutable,
-            preferredPort: preferredPort
-        ) { client, origin, status, attached in
-            ArborSyncControlRuntime(origin: origin, client: client, status: status, attachedToExistingProcess: attached)
-        }
+        let runtime = try await connect(explicitExecutable: explicitExecutable, preferredPort: preferredPort)
         controlRuntime = runtime
         return runtime
     }
@@ -109,7 +99,7 @@ public actor ArborSyncProcessSupervisor {
 
     /// Stop and reconnect the control-mode daemon.
     public func restartControl() async throws -> ArborSyncControlRuntime {
-        guard case .control? = mode else {
+        guard started else {
             throw ArborSyncSupervisorError.launchFailed("Arbor Sync has not been started in control mode")
         }
         let executable = process?.executableURL ?? self.executable
@@ -130,20 +120,8 @@ public actor ArborSyncProcessSupervisor {
 
     // MARK: Shared attach-or-launch path
 
-    private typealias MakeRuntime<R> = @Sendable (
-        _ client: ArborSyncRESTClient,
-        _ origin: URL,
-        _ status: ArborSyncStatus,
-        _ attached: Bool
-    ) async throws -> R
-
-    private func connect<R: Sendable>(
-        mode: Mode,
-        explicitExecutable: URL?,
-        preferredPort: Int,
-        make: MakeRuntime<R>
-    ) async throws -> R {
-        if let attached = try await attachIfCompatible(port: preferredPort, make: make) {
+    private func connect(explicitExecutable: URL?, preferredPort: Int) async throws -> ArborSyncControlRuntime {
+        if let attached = try await attachIfCompatible(port: preferredPort) {
             return attached
         }
 
@@ -152,18 +130,18 @@ public actor ArborSyncProcessSupervisor {
         }
 
         if explicitExecutable == nil, preferredPort == 4317, shouldUsePersistentService {
-            if kickstartInstalledService() {
-                if let attached = try await waitForService(port: preferredPort, make: make) { return attached }
+            if await kickstartInstalledService() {
+                if let attached = try await waitForService(port: preferredPort) { return attached }
                 throw ArborSyncSupervisorError.readinessTimedOut(canonicalServiceLog())
             }
             do {
                 if try registerBundledService() {
-                    if let attached = try await waitForService(port: preferredPort, make: make) { return attached }
+                    if let attached = try await waitForService(port: preferredPort) { return attached }
                     throw ArborSyncSupervisorError.readinessTimedOut(canonicalServiceLog())
                 }
             } catch {
                 serviceRegistrationFailure = String(describing: error)
-                if installedServiceExists() { throw error }
+                if await installedServiceExists() { throw error }
             }
         }
 
@@ -172,9 +150,9 @@ public actor ArborSyncProcessSupervisor {
         var lastFailure = "No available loopback port"
 
         for port in preferredPort..<(preferredPort + 20) {
-            if let attached = try await attachIfCompatible(port: port, make: make) { return attached }
+            if let attached = try await attachIfCompatible(port: port) { return attached }
             do {
-                let launched = try launch(executable: executable, mode: mode, port: port)
+                let launched = try launch(executable: executable, port: port)
                 process = launched
                 let origin = URL(string: "http://127.0.0.1:\(port)")!
                 let client = ArborSyncRESTClient(baseURL: origin)
@@ -185,7 +163,7 @@ public actor ArborSyncProcessSupervisor {
                     }
                     if let status = try? await client.status() {
                         try validate(status)
-                        return try await make(client, origin, status, false)
+                        return ArborSyncControlRuntime(origin: origin, client: client, status: status, attachedToExistingProcess: false)
                     }
                     try await Task.sleep(for: .milliseconds(100))
                 }
@@ -200,17 +178,17 @@ public actor ArborSyncProcessSupervisor {
         throw ArborSyncSupervisorError.readinessTimedOut(lastFailure)
     }
 
-    private func attachIfCompatible<R: Sendable>(port: Int, make: MakeRuntime<R>) async throws -> R? {
+    private func attachIfCompatible(port: Int) async throws -> ArborSyncControlRuntime? {
         let origin = URL(string: "http://127.0.0.1:\(port)")!
         let client = ArborSyncRESTClient(baseURL: origin)
         guard let status = try? await client.status() else { return nil }
         try validate(status)
-        return try await make(client, origin, status, true)
+        return ArborSyncControlRuntime(origin: origin, client: client, status: status, attachedToExistingProcess: true)
     }
 
-    private func waitForService<R: Sendable>(port: Int, make: MakeRuntime<R>) async throws -> R? {
+    private func waitForService(port: Int) async throws -> ArborSyncControlRuntime? {
         for _ in 0..<100 {
-            if let attached = try await attachIfCompatible(port: port, make: make) { return attached }
+            if let attached = try await attachIfCompatible(port: port) { return attached }
             try await Task.sleep(for: .milliseconds(100))
         }
         return nil
@@ -248,13 +226,13 @@ public actor ArborSyncProcessSupervisor {
         }
     }
 
-    private func installedServiceExists() -> Bool {
-        launchctl(["print", serviceTarget()]) == 0
+    private func installedServiceExists() async -> Bool {
+        await launchctl(["print", serviceTarget()]) == 0
     }
 
-    private func kickstartInstalledService() -> Bool {
-        guard installedServiceExists() else { return false }
-        _ = launchctl(["kickstart", serviceTarget()])
+    private func kickstartInstalledService() async -> Bool {
+        guard await installedServiceExists() else { return false }
+        _ = await launchctl(["kickstart", serviceTarget()])
         return true
     }
 
@@ -262,18 +240,21 @@ public actor ArborSyncProcessSupervisor {
         "gui/\(getuid())/\(Self.serviceLabel)"
     }
 
-    private func launchctl(_ arguments: [String]) -> Int32 {
+    /// Run `launchctl`, awaiting its exit instead of blocking the actor's thread.
+    private func launchctl(_ arguments: [String]) async -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        } catch {
-            return -1
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(returning: -1)
+            }
         }
     }
 
@@ -292,17 +273,15 @@ public actor ArborSyncProcessSupervisor {
         }
     }
 
-    private func launch(executable: URL, mode: Mode, port: Int) throws -> Process {
+    /// Launch `arborsync --control`: no session and no folder of its own.
+    private func launch(executable: URL, port: Int) throws -> Process {
         let logs = FileManager.default.temporaryDirectory
             .appending(path: "Arbor-arborsync-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: logs.path, contents: nil)
         let handle = try FileHandle(forWritingTo: logs)
         let process = Process()
         process.executableURL = executable
-        let command: [String]
-        switch mode {
-        case .control: command = ["--control", "--port", String(port)]
-        }
+        let command = ["--control", "--port", String(port)]
         if let script = bundledScript(for: executable) {
             process.arguments = [script.path] + command
         } else {
