@@ -239,11 +239,12 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let value=try WireAcceptedStateContract(from:decoder)
         let f=value.fields
-        id=f["id"]!.text!; tree=f["tree"]!.text!; root=f["root"]!.text!
-        previous=f["previous"]?.fields.map { WireAcceptedLink(id:$0["id"]!.text!,root:$0["root"]!.text!) }
-        if case .number(let time)=f["acceptedAt"]! { acceptedAt=time } else { throw ArborWireValidationError.invalidValue("Invalid accepted time") }
+        typealias Read = AcceptedReadValidation
+        id=try Read.string(f["id"]); tree=try Read.string(f["tree"]); root=try Read.string(f["root"])
+        previous=try f["previous"]?.fields.map { WireAcceptedLink(id:try Read.string($0["id"]),root:try Read.string($0["root"])) }
+        if case .number(let time)?=f["acceptedAt"] { acceptedAt=time } else { throw ArborWireValidationError.invalidValue("Invalid accepted time") }
         subject=f["subject"]?.text
-        if case .bool(let flag)=f["conflicted"]! { conflicted=flag } else { throw ArborWireValidationError.invalidValue("Missing conflict signal") }
+        if case .bool(let flag)?=f["conflicted"] { conflicted=flag } else { throw ArborWireValidationError.invalidValue("Missing conflict signal") }
     }
     public func encode(to encoder: Encoder) throws {
         var c=encoder.container(keyedBy:CodingKeys.self)
@@ -522,7 +523,7 @@ public struct WireTraceFrame: Sendable, Equatable {
               let ops = f["operations"]?.items else {
             throw ArborWireValidationError.invalidValue("Expected trace frame")
         }
-        self.init(before: before, after: after, operations: try ops.map { try WireSourceOperation($0.fields!) })
+        self.init(before: before, after: after, operations: try ops.map { try WireSourceOperation(WireSemanticValue.fields($0)) })
     }
 }
 
@@ -555,11 +556,14 @@ public struct WireCandidateUpdate: Codable, Sendable, Equatable {
     }
     init(_ decoded: WireAuthoredCandidate) throws {
         let fields = decoded.intentFields
-        self.init(candidate: fields["candidate"]!.text!, change: fields["change"]!.text!,
-            trace: try fields["trace"]!.items.map { try $0.map(WireTraceFrame.init) },
-            resolves: fields["resolves"]!.items!.map { raw in
-                let r = raw.fields!
-                return WireResolutionDeclaration(state: r["state"]!.text!, conflict: r["conflict"]!.text!, alternatives: r["alternatives"]!.items!.map { $0.text! })
+        typealias Value = WireSemanticValue
+        guard let trace = fields["trace"] else { throw ArborWireValidationError.invalidValue("Missing trace") }
+        self.init(candidate: try Value.text(fields["candidate"]), change: try Value.text(fields["change"]),
+            trace: try trace.items.map { try $0.map(WireTraceFrame.init) },
+            resolves: try Value.items(fields["resolves"]).map { raw in
+                let r = try Value.fields(raw)
+                return WireResolutionDeclaration(state: try Value.text(r["state"]), conflict: try Value.text(r["conflict"]),
+                    alternatives: try Value.items(r["alternatives"]).map(Value.text))
             }, ifCurrent: fields["ifCurrent"]?.text, objects: decoded.payload.objects, deltas: decoded.payload.deltas)
     }
     public init(from decoder: Decoder) throws { try self.init(WireAuthoredCandidate(from: decoder)) }
