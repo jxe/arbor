@@ -19,8 +19,6 @@ public final class ArborEditorWorkspace {
     public let provider: any WorkspaceProvider
     private let recoveryRoot: URL?
     private let coordinator: WorkspaceCoordinator
-    /// A Markdown link that is not an image; capture group 1 is its href.
-    private static let markdownLinkExpression = try? NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#)
     private var entries: [WorkspaceIdentity: Entry] = [:]
 
     public init(provider: any WorkspaceProvider, recoveryRoot: URL? = nil) {
@@ -151,11 +149,8 @@ public final class ArborEditorWorkspace {
         movedFrom oldPath: String,
         to moved: WorkspaceReference
     ) async -> String {
-        guard let regex = Self.markdownLinkExpression else { return source }
-        let matches = regex.matches(in: source, range: NSRange(source.startIndex..., in: source))
         var replacements: [(Range<String.Index>, String)] = []
-        for match in matches {
-            guard let hrefRange = Range(match.range(at: 1), in: source) else { continue }
+        for hrefRange in markdownLinkHrefRanges(in: source) {
             let href = String(source[hrefRange])
             guard let target = resolveNodeTarget(base: base, href: href),
                   target.tree == nil || target.tree == tree.rawValue else { continue }

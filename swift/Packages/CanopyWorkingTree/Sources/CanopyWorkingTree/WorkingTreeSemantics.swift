@@ -5,8 +5,6 @@ import Foundation
 enum WorkingTreeSemantics {
     private static let pageIDLine = try? NSRegularExpression(pattern: #"(?m)^id:[ \t]*(.*?)[ \t]*\r?$"#)
     private static let pageIDReplacement = try? NSRegularExpression(pattern: #"(?m)^(id:)[ \t]*(.*?)[ \t]*(\r?)$"#)
-    /// The `(?<!!)` guard keeps `![alt](/Page)` from counting as a link to `/Page`.
-    private static let link = try? NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#)
 
     static func normalizePath(_ value: String) throws -> String {
         guard value.hasPrefix("/"), !value.contains("\0"), !value.contains("\\") else {
@@ -130,11 +128,7 @@ enum WorkingTreeSemantics {
     }
 
     static func linkTargets(in source: String, relativeTo directory: String) -> [ResolvedNodeTarget] {
-        guard let regex = link else { return [] }
-        return regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
-            guard let range = Range(match.range(at: 1), in: source) else { return nil }
-            return resolveNodeTarget(base: directory, href: String(source[range]))
-        }
+        markdownLinkHrefRanges(in: source).compactMap { resolveNodeTarget(base: directory, href: String(source[$0])) }
     }
 
     static func isStoreFile(_ node: WorkingTreeNode) -> Bool {
