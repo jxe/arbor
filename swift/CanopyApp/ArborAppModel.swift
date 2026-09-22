@@ -1678,9 +1678,7 @@ final class ArborWorkspaceState {
     /// machinery; lifecycle catch-up must not also turn them into red banners.
     static func isTransientNetworkError(_ error: Error) -> Bool {
         if error is CancellationError { return true }
-        let value = error as NSError
-        guard value.domain == NSURLErrorDomain else { return false }
-        let code = URLError.Code(rawValue: value.code)
+        guard let code = ArborSaveDiagnostic.urlErrorCode(error) else { return false }
         return switch code {
         case .cancelled,
              .timedOut,
