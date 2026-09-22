@@ -87,6 +87,22 @@ struct CanopyEditorTests {
         #expect(ArborMarkdownCodec.patch(from: decomposed, to: decomposed, revision: "r1").edits.isEmpty)
     }
 
+    @Test("The leading H1 scan reads the first parsed block's title")
+    func leadingH1Text() {
+        let sources = [
+            "", "\n\n", "# Title\n\nBody\n", "  # *Styled* \\_title\\_\r\nBody\r\n", "#\n", "## Second\n# Title\n",
+            "Paragraph\n# Title\n", "---\nid: pg\n---\n\n# Front\n", "---\nunterminated\n# Title\n",
+            "\t \n# After blanks\n", "```\n# not a heading\n```\n", "#Hashtag\n", "- # item\n",
+        ]
+        for source in sources {
+            let parsed: String? = ArborMarkdownCodec.parseBlocks(source).first.flatMap { block in
+                guard case let .heading(level, text) = block.kind, level == .h1 else { return nil }
+                return String(text.characters)
+            }
+            #expect(ArborMarkdownCodec.leadingH1Text(source) == parsed, "\(source.debugDescription)")
+        }
+    }
+
     @Test("First edit after frontmatter keeps one envelope and unique rebased BlockIDs")
     func firstEditAfterFrontmatter() throws {
         let source = """

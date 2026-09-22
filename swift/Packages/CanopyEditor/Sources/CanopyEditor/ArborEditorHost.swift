@@ -545,11 +545,7 @@ public final class ArborEditorHost: EditorHost {
         default:
             return node.title == title
         }
-        if let first = ArborMarkdownCodec.parseBlocks(source).first,
-           case let .heading(level, text) = first.kind,
-           level == .h1 {
-            return String(text.characters) == title
-        }
+        if let heading = ArborMarkdownCodec.leadingH1Text(source) { return heading == title }
         return node.title == title
     }
 

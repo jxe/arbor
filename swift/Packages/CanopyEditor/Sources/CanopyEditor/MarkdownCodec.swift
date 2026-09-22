@@ -439,8 +439,13 @@ public enum ArborMarkdownCodec {
     }
 
     private static func sourceLines(_ source: String) -> [SourceLine] {
-        guard !source.isEmpty else { return [] }
         var result: [SourceLine] = []
+        forEachSourceLine(source) { result.append($0); return true }
+        return result
+    }
+
+    /// Visits the source's lines in order until `body` returns false.
+    private static func forEachSourceLine(_ source: String, _ body: (SourceLine) -> Bool) {
         var raw = ""
         for character in source {
             raw.append(character)
@@ -449,13 +454,33 @@ public enum ArborMarkdownCodec {
             if contentScalars.last?.value == 0x0A { contentScalars.removeLast() }
             if contentScalars.last?.value == 0x0D { contentScalars.removeLast() }
             let content = String(String.UnicodeScalarView(contentScalars))
-            result.append(SourceLine(content: content, raw: raw))
+            guard body(SourceLine(content: content, raw: raw)) else { return }
             raw = ""
         }
         if !raw.isEmpty {
-            result.append(SourceLine(content: raw, raw: raw))
+            _ = body(SourceLine(content: raw, raw: raw))
         }
-        return result
+    }
+
+    /// The text of the first block when it is an H1, exactly as
+    /// `parseBlocks(source).first` reads it, without parsing the rest of the
+    /// document. A heading is always a single-line block, so the first
+    /// nonblank line after the frontmatter envelope decides it.
+    static func leadingH1Text(_ source: String) -> String? {
+        var index = 0
+        var inFrontmatter = false
+        var text: String?
+        forEachSourceLine(source) { line in
+            defer { index += 1 }
+            if index == 0, line.content == "---" { inFrontmatter = true; return true }
+            if inFrontmatter { inFrontmatter = line.content != "---"; return true }
+            if isBlankLine(line.content) { return true }
+            if case let .heading(level, heading) = parseBlock([line], id: BlockID()).kind, level == .h1 {
+                text = String(heading.characters)
+            }
+            return false
+        }
+        return text
     }
 
     private static func structuralLine(_ value: String) -> Bool {
