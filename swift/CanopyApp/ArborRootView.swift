@@ -137,7 +137,7 @@ enum ArborSidebarPages {
         by order: ArborSidebarPageOrder
     ) -> [WorkspaceSearchResult] {
         // Derive each title's sort key once, not once per comparison.
-        let keyed = results.map { (result: $0, title: alphabeticalTitle($0.title)) }
+        let keyed = results.map { (result: $0, title: arborSidebarTitleParts($0.title).text) }
         return keyed.sorted { lhs, rhs in
             if order == .recent, lhs.result.modifiedAt != rhs.result.modifiedAt {
                 return (lhs.result.modifiedAt ?? .distantPast) > (rhs.result.modifiedAt ?? .distantPast)
@@ -149,12 +149,6 @@ enum ArborSidebarPages {
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
             return lhs.result.reference.path.localizedStandardCompare(rhs.result.reference.path) == .orderedAscending
         }.map { $0.result }
-    }
-
-    private static func alphabeticalTitle(_ title: String) -> String {
-        guard let first = title.first, WorkspaceDisplayTitle.isEmoji(first) else { return title }
-        let remainder = title.dropFirst().trimmingCharacters(in: .whitespaces)
-        return remainder.isEmpty ? title : remainder
     }
 
     static func recentGroups(

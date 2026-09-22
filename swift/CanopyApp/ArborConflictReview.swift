@@ -428,14 +428,7 @@ struct ArborChoiceReviewPanel: View {
                     }.frame(maxHeight: 200)
                 }
                 if let source = review.selectedText {
-                    Button("Copy exact source") {
-#if os(macOS)
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(source, forType: .string)
-#else
-                        UIPasteboard.general.string = source
-#endif
-                    }
+                    Button("Copy exact source") { arborCopyToPasteboard(source) }
                 }
                 HStack {
                     Button(review.previewing ? "Preparing preview…" : "Preview combined result") { Task { await review.previewResult() } }

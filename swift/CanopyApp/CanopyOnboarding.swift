@@ -67,10 +67,7 @@ struct CanopyMacOnboarding: View {
                     Section("Your public identity") {
                         Text(identity.profileTree).font(.caption.monospaced()).textSelection(.enabled)
                         ShareLink("Share Public Identity", item: "arbor://\(identity.profileTree)/")
-                        Button("Copy Public Identity") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("arbor://\(identity.profileTree)/", forType: .string)
-                        }
+                        Button("Copy Public Identity") { arborCopyToPasteboard("arbor://\(identity.profileTree)/") }
                         Text("Send this public ID to a community administrator. Once they add you, enter the community address below.")
                         if !identity.keyAvailable {
                             Text("The private key is unavailable. Recover this identity from its backup to claim new accounts.").foregroundStyle(.red)

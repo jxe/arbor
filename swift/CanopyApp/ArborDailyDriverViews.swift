@@ -226,7 +226,8 @@ func arborSidebarContextPath(_ path: String) -> String? {
     return "/" + components.dropLast().joined(separator: "/")
 }
 
-private func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: String) {
+/// A title's leading emoji apart from its text; the text alone is also its alphabetical sort key.
+func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: String) {
     guard let first = title.first, WorkspaceDisplayTitle.isEmoji(first) else {
         return (nil, title)
     }
