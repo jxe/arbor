@@ -1096,11 +1096,13 @@ public actor WorkingTree {
         }
         let pageIDs = state.nodes.compactMap(\.pageID)
         guard Set(pageIDs).count == pageIDs.count else { throw WorkingTreeError.corruptState("Duplicate PageID") }
+        let directories = Set(state.nodes.lazy.filter { $0.kind == .directory }.map(\.path))
+        let parents = Set(state.nodes.lazy.compactMap { WorkingTreeSemantics.parent(of: $0.path) })
         for node in state.nodes {
             guard try WorkingTreeSemantics.normalizePath(node.path) == node.path else { throw WorkingTreeError.corruptState("Noncanonical path") }
             if node.path != "/" { try WorkingTreeSemantics.validateName(WorkingTreeSemantics.name(of: node.path)) }
             if node.path != "/", let parent = WorkingTreeSemantics.parent(of: node.path) {
-                guard state.nodes.contains(where: { $0.path == parent && $0.kind == .directory }) else {
+                guard directories.contains(parent) else {
                     throw WorkingTreeError.corruptState("Missing parent directory for \(node.path)")
                 }
             }
@@ -1141,7 +1143,7 @@ public actor WorkingTree {
                 guard node.boundaryTree?.isEmpty == false, node.source == nil, node.ref == nil else {
                     throw WorkingTreeError.corruptState("Malformed nested tree boundary")
                 }
-                guard !state.nodes.contains(where: { WorkingTreeSemantics.parent(of: $0.path) == node.path }) else {
+                guard !parents.contains(node.path) else {
                     throw WorkingTreeError.corruptState("Nested tree boundary has local children")
                 }
             }

@@ -67,6 +67,10 @@ enum WorkingTreeWireCodec {
             throw WorkingTreeError.corruptState("Duplicate logical path")
         }
         let byPath = Dictionary(uniqueKeysWithValues: active.map { ($0.path, $0) })
+        var childrenByParent: [String: [WorkingTreeNode]] = [:]
+        for node in active {
+            if let parent = WorkingTreeSemantics.parent(of: node.path) { childrenByParent[parent, default: []].append(node) }
+        }
         var objects: [String: Data?] = [:]
 
         func store(_ bytes: Data) -> String {
@@ -103,7 +107,7 @@ enum WorkingTreeWireCodec {
             if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
                 entries.append(("_index.md", store(Data(source.utf8)), nil, nil))
             }
-            let children = active.filter { WorkingTreeSemantics.parent(of: $0.path) == path }
+            let children = (childrenByParent[path] ?? [])
                 .sorted { WorkingTreeSemantics.compareUTF8(WorkingTreeSemantics.name(of: $0.path), WorkingTreeSemantics.name(of: $1.path)) }
             for child in children {
                 let name = WorkingTreeSemantics.name(of: child.path)

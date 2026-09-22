@@ -3,6 +3,11 @@ import Overstory
 import Foundation
 
 enum WorkingTreeSemantics {
+    private static let pageIDLine = try? NSRegularExpression(pattern: #"(?m)^id:[ \t]*(.*?)[ \t]*\r?$"#)
+    private static let pageIDReplacement = try? NSRegularExpression(pattern: #"(?m)^(id:)[ \t]*(.*?)[ \t]*(\r?)$"#)
+    /// The `(?<!!)` guard keeps `![alt](/Page)` from counting as a link to `/Page`.
+    private static let link = try? NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#)
+
     static func normalizePath(_ value: String) throws -> String {
         guard value.hasPrefix("/"), !value.contains("\0"), !value.contains("\\") else {
             throw WorkingTreeError.invalidPath(value)
@@ -54,8 +59,7 @@ enum WorkingTreeSemantics {
     static func pageIDValues(in source: String) -> [String] {
         guard let bodyStart = frontmatterRange(in: source) else { return [] }
         let frontmatter = String(source[bodyStart])
-        let pattern = #"(?m)^id:[ \t]*(.*?)[ \t]*\r?$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = pageIDLine else { return [] }
         return regex.matches(in: frontmatter, range: NSRange(frontmatter.startIndex..., in: frontmatter)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: frontmatter) else { return nil }
             var value = String(frontmatter[range]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -78,8 +82,7 @@ enum WorkingTreeSemantics {
 
     static func replacingPageID(in source: String, with id: String) -> String {
         guard let frontmatter = frontmatterRange(in: source) else { return ensuringPageID(in: source, id: id) }
-        let pattern = #"(?m)^(id:)[ \t]*(.*?)[ \t]*(\r?)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
+        guard let regex = pageIDReplacement,
               regex.firstMatch(in: source, range: NSRange(frontmatter, in: source)) != nil else {
             return ensuringPageID(in: source, id: id)
         }
@@ -125,10 +128,8 @@ enum WorkingTreeSemantics {
         node.kind == .directory ? node.path : (parent(of: node.path) ?? "/")
     }
 
-    /// The `(?<!!)` guard keeps `![alt](/Page)` from counting as a link to `/Page`.
     static func linkTargets(in source: String, relativeTo directory: String) -> [ResolvedNodeTarget] {
-        let pattern = #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = link else { return [] }
         return regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: source) else { return nil }
             return resolveNodeTarget(base: directory, href: String(source[range]))
