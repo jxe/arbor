@@ -65,25 +65,30 @@ private struct ArborVoiceRecordingToolbarButton: View {
 
     var body: some View {
         VoiceRecordingButton(session: session) {
-            await startRecording()
+            await startArborVoiceRecording(session, model: model, workspace: workspace, editorCommands: editorCommands)
         }
     }
+}
 
-    /// Editing at the moment recording starts takes precedence over the page's
-    /// ordinary voice destination. Capture both the command bridge and block id
-    /// now so delayed transcription cannot drift into a different row.
-    private func startRecording() async {
-        let commands = editorCommands
-        let target = commands?.activeEditingBlock()
-        var inlineDelivery: VoiceTranscriptDelivery<String>?
-        if let target {
-            inlineDelivery = { transcript, destination in
-                if commands?.insertText(transcript, target) == true { return }
-                try await workspace.deliverVoiceTranscript(transcript, to: destination)
-            }
+/// Editing at the moment recording starts takes precedence over the page's
+/// ordinary voice destination. Capture both the command bridge and block id
+/// now so delayed transcription cannot drift into a different row.
+@MainActor
+private func startArborVoiceRecording(
+    _ session: VoiceRecordingSession<String>,
+    model: ArborAppModel,
+    workspace: ArborWorkspaceState,
+    editorCommands commands: EditorCommands?
+) async {
+    let target = commands?.activeEditingBlock()
+    var inlineDelivery: VoiceTranscriptDelivery<String>?
+    if let target {
+        inlineDelivery = { transcript, destination in
+            if commands?.insertText(transcript, target) == true { return }
+            try await workspace.deliverVoiceTranscript(transcript, to: destination)
         }
-        await model.startVoiceRecording(session, delivery: inlineDelivery)
     }
+    await model.startVoiceRecording(session, delivery: inlineDelivery)
 }
 
 enum ArborSidebarPageOrder: String, CaseIterable, Identifiable {
@@ -1994,15 +1999,7 @@ struct ArborRootView: View {
     private func toggleVoiceRecording(editorCommands: EditorCommands?) async {
         switch recordingSession.state {
         case .idle:
-            let target = editorCommands?.activeEditingBlock()
-            var inlineDelivery: VoiceTranscriptDelivery<String>?
-            if let target {
-                inlineDelivery = { transcript, destination in
-                    if editorCommands?.insertText(transcript, target) == true { return }
-                    try await workspace.deliverVoiceTranscript(transcript, to: destination)
-                }
-            }
-            await model.startVoiceRecording(recordingSession, delivery: inlineDelivery)
+            await startArborVoiceRecording(recordingSession, model: model, workspace: workspace, editorCommands: editorCommands)
         case .recording:
             await recordingSession.stopAndDeliver()
         case .transcribing:
