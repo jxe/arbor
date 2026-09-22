@@ -33,6 +33,9 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Canopy editor recovery: saves wait for durable coordinator heads; committed generations keep exact-source local recovery copies with Local History restore; reconnection retries pending work; restart, divergent-draft review, disk-failure retry, and keystroke races have regressions | installed, verified | [local system](docs/architecture/canopy-browser/local-state.md#editor-recovery-store) |
 | Canopy operation capture: ordinary and compound sibling-body entry moves and copies, explicit current-page path rename with subtree relocation and proactive link healing, post-copy page-ID edits, explicit removals for private Trash, same-document and cross-document copies, page-conversion undo and redo, durable undo-horizon collection, exact CRLF and BOM preservation | installed | [client design](docs/implementing-editors/design.md#labels-and-actions), [Native 008](plans/swift/008-complete-native-move-copy-undo-capture.md) |
 | Canopy conflict review: sidebar navigation, page markers, exact-source comparison and composition, durable grouped drafts, recursive previews, guarded source-range and structural resolution | implemented | [Native 010](plans/swift/010-client-conflict-review.md) |
+| Entry dates and document versions: each file entry's last accepted change and each Markdown document's accepted content versions, kept beside the hashes (schema 16) and served by `/entry-metadata`; Mac and iOS date pages from it and date incoming changes with Canopy's accepted time | server deployed; clients implemented, not installed | [tree reads §1.1.2a](docs/overstory-spec/01-tree-operations.md#112a-reading-entry-metadata), [migration 014](packages/canopyd/migrations/014-entry-metadata/README.md) |
+| Traced entry creation: the `addEntry` authored operation takes the fast path; page creation and a directory's first body no longer publish snapshots | server deployed; clients implemented, not installed | [source intent](docs/overstory-spec/10-source-intent.md) |
+| Effect records as piece deltas: `editSource` effects store each edit's range and removed/inserted pieces instead of two whole piece copies; older records are read by recomputation | deployed | [merge tool](docs/architecture/canopyd/merge-tool.md#retained-state-and-lazy-history) |
 | Communities, accounts, and directory: a host serves community plus person/group profile trees, derives an authorization-preserving user directory with names and avatars, reserves account paths, and reconciles synchronized account configuration; native People and Share surfaces cache and search that directory; `arbor me create` / `me set` manage the local profile | directory implemented, account core deployed and installed | [accounts and devices](docs/overstory-spec/04-accounts-and-devices.md), [client design](docs/implementing-editors/design.md#profile-control-and-claim), [deployment](packages/canopyd/deploy/README.md) |
 | Native sidebar Trees mode, People footer, and single-pane profile/sync/devices management with focused account and identity actions on Mac and iOS | implemented, not installed; macOS and iOS builds passed, manual UI verification pending | [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/arborsync/data-home.md#data-home) |
@@ -317,9 +320,35 @@ path, so a snapshot candidate (a page created beside a traced edit) loaded the
 whole history DAG, 12.7k reads on `/~joe/todos`, and hit the 5 s budget on every
 retry; the worker's error was then hidden behind a response-schema complaint
 returned as a 400. Checkpoints now detect an editable state as `run()` does, and
-worker failures surface as `merge-failed`. Follow-ups are canopyd
-[011](plans/canopyd/011-add-entry-traced-page-creation.md) (traced page creation)
-and [012](plans/canopyd/012-effect-record-piece-deltas.md) (effect-record size).
+worker failures surface as `merge-failed`. Follow-ups were canopyd 011 (traced
+page creation) and 012 (effect-record size), both closed out below.
+
+### canopyd 011, 012 and 013 closeout — 2026-09-22
+
+Retired all three after checking implementation, tests and the live cutover
+(migration 014, deployed at `5ef1fe20`; client dates in `7e018693`).
+
+- **012 effect piece deltas.** Only `editSource` effects carry the delta; move,
+  copy and entry effects keep their pieces because the competing-move check
+  reads `moveSource` before-pieces. Tests check that the stored delta equals the
+  legacy recomputation, that record size stays flat as piece counts grow
+  (21.9 KB → under 9 KB at 60 edits), and that the retained object set is
+  unchanged. No stored history was migrated.
+- **011 `addEntry`.** Clients emit it from the creation record and for a
+  directory's first body. Sidebar `createMarkdown`/`createDirectory` actions
+  still publish snapshots (open follow-up). A concurrent same-name addition
+  leaves the existing whole-directory choice, as two moves into one name do.
+- **013 entry metadata.** `entry_metadata` and `document_versions` (canopyd
+  007's storage half; its routes, access rule, restore and UI remain in
+  [canopyd 007](plans/canopyd/007-canopy-document-history.md)) are written
+  inside every accepted transaction and were backfilled by migration 014: 2,515
+  updates, 113 entries, 2,569 versions over 90 documents, all roots unchanged.
+  Every client reads `/entry-metadata` directly; the Arbor Sync bootstrap no
+  longer carries file mtimes. Nodes still decode the old `modifiedAt` key, so
+  no replica is re-placed. The todos tree's 97 entries dated at its history
+  boundary (2026-09-13) were seeded once from the Mac folder's file dates.
+  `document_versions` keeps a rowid for accepted order and is unique on
+  `(tree, key, update, entry path)`.
 
 ### V1 account and local-state cutoff — 2026-09-21
 

@@ -38,7 +38,7 @@ Historical identifier: **Smaller project 007**. The filename number is preserved
 - **Effort:** XL
 - **Risk:** HIGH — this adds an authenticated canopyd protocol and changes the
   authority and meaning of a visible restore action
-- **State:** PLANNED. Storage moved to [canopyd 013](013-entry-metadata.md) (2026-09-22):
+- **State:** PLANNED. Storage shipped with canopyd 013 ([closeout](../../status.md#canopyd-011-012-and-013-closeout--2026-09-22), 2026-09-22):
   the `document_versions` index, its identity rules and its backfill ship there.
   What remains here is the contract, routes, access rule, restore and UI.
 - **Depends on:** no implementation milestone; execute before
@@ -161,7 +161,7 @@ changing it.
 
 ## Storage and indexing design
 
-Implemented by [canopyd 013](013-entry-metadata.md#document-versions-the-storage-half-of-canopyd-007),
+Implemented by canopyd 013 ([closeout](../../status.md#canopyd-011-012-and-013-closeout--2026-09-22), [migration 014](../../packages/canopyd/migrations/014-entry-metadata/README.md)),
 which owns the `document_versions` table, its identity rules (`id:<PageID>` or
 `path:<entry path>`, a row per content change, and none for a pure move of an
 identified page), the write seam inside the accepted-update transaction, and
