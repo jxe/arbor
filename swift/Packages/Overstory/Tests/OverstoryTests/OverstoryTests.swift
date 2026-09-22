@@ -611,6 +611,22 @@ struct UpdateProtocolTests {
         #expect(await WireURLProtocolStub.state.snapshot().count == 1)
     }
 
+    @Test("A rejected credential is invalidated so the next request reads it again")
+    func unauthorizedInvalidatesCredential() async throws {
+        actor CountingProvider: WireCredentialProvider {
+            var invalidations = 0
+            func credential() -> String? { "device-token" }
+            func invalidate() { invalidations += 1 }
+        }
+        let provider = CountingProvider()
+        await WireURLProtocolStub.state.install { _, _ in
+            (401, Data(#"{"error":"unauthenticated","message":"Authentication is required","retryable":false}"#.utf8))
+        }
+        let client = ArborWireClient(origin: URL(string: "https://canopy.test")!, credentialProvider: provider, session: wireStubSession())
+        await #expect(throws: WireHTTPError.self) { _ = try await client.trees() }
+        #expect(await provider.invalidations == 1)
+    }
+
     @Test("A conflict decodes completely and is not retried")
     func typedConflict() async throws {
         let local = try wireTestSnapshot("local")

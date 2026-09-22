@@ -379,18 +379,35 @@ public actor StoredDeviceCredentialProvider: WireCredentialProvider {
     }
 
     public func credential() async throws -> String? { try await store.load(origin: origin) }
+    public func invalidate() {}
 }
 
+/// Reads the account credential from the store once and reuses it until Canopy
+/// rejects it, rather than querying the Keychain for every request.
 public actor AccountStoredCredentialProvider: WireCredentialProvider {
     private let configurationTree: String
     private let store: any AccountCredentialStore
+    private var cached: String?
+    private var generation = 0
 
     public init(configurationTree: String, store: any AccountCredentialStore) {
         self.configurationTree = configurationTree
         self.store = store
     }
 
-    public func credential() async throws -> String? { try await store.load(configurationTree: configurationTree) }
+    public func credential() async throws -> String? {
+        if let cached { return cached }
+        let loadedGeneration = generation
+        let value = try await store.load(configurationTree: configurationTree)
+        // A rejection while the store was being read makes this value suspect.
+        if generation == loadedGeneration { cached = value }
+        return value
+    }
+
+    public func invalidate() {
+        cached = nil
+        generation += 1
+    }
 }
 
 /// Generate a 128-bit lowercase base32 Arbor identity with the supplied stable prefix

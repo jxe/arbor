@@ -3,6 +3,9 @@ import Foundation
 
 public protocol WireCredentialProvider: Sendable {
     func credential() async throws -> String?
+    /// Called when Canopy rejects the credential (401), so a provider that
+    /// caches it reads it again for the next request.
+    func invalidate() async
 }
 
 public struct StaticWireCredential: WireCredentialProvider, Sendable {
@@ -10,6 +13,7 @@ public struct StaticWireCredential: WireCredentialProvider, Sendable {
 
     public init(_ value: String?) { self.value = value }
     public func credential() async throws -> String? { value }
+    public func invalidate() {}
 }
 
 public actor ArborWireClient {
@@ -273,6 +277,7 @@ public actor ArborWireClient {
         request.setValue("1", forHTTPHeaderField: "Arbor-Watch-Keepalive")
         if let lastEventID { request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID") }
         let session = session
+        let credentialProvider = credentialProvider
         let finalRequest = request
         let log = WireNetworkLog.current
         return AsyncThrowingStream { continuation in
@@ -295,6 +300,7 @@ public actor ArborWireClient {
                     connect.durationMs = Date().timeIntervalSince(connectedAt) * 1000
                     log?.record(connect)
                     guard http.statusCode < 400 else {
+                        if http.statusCode == 401 { await credentialProvider.invalidate() }
                         var body = Data()
                         for try await byte in bytes { body.append(byte) }
                         throw Self.httpError(data: body, status: http.statusCode)
@@ -476,6 +482,7 @@ public actor ArborWireClient {
             entry.durationMs = Date().timeIntervalSince(started) * 1000
             entry.bytesIn = data.count
             if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 { await credentialProvider.invalidate() }
                 entry.status = http.statusCode
                 entry.serverTiming = WireNetworkLog.parseServerTiming(http.value(forHTTPHeaderField: "Server-Timing"))
             }
