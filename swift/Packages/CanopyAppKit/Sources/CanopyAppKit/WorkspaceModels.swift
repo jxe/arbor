@@ -5,6 +5,13 @@ public struct TreeID: RawRepresentable, Hashable, Codable, Sendable, Expressible
 
     public init(rawValue: String) { self.rawValue = rawValue }
     public init(stringLiteral value: String) { self.rawValue = value }
+
+    /// Whether `rawValue` has TreeID syntax: `tr_` followed by lowercase base32.
+    public static func isWellFormed(_ rawValue: String) -> Bool {
+        let digits = rawValue.utf8.dropFirst(3)
+        return rawValue.hasPrefix("tr_") && !digits.isEmpty
+            && digits.allSatisfy { (UInt8(ascii: "a")...UInt8(ascii: "z")).contains($0) || (UInt8(ascii: "2")...UInt8(ascii: "7")).contains($0) }
+    }
 }
 
 public struct WorkspaceReference: Hashable, Codable, Sendable {

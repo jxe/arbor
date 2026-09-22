@@ -162,6 +162,15 @@ final class LogicalURLTests: XCTestCase {
         XCTAssertThrowsError(try canonicalStableKey([("n", .null)]))
     }
 
+    func testMarkdownLinkHrefsSkipImagesAndTreeIDsAreBase32() {
+        let source = "See [one](a.md), ![img](b.png) and [two](../c#arbor-key=x)."
+        XCTAssertEqual(markdownLinkHrefRanges(in: source).map { String(source[$0]) }, ["a.md", "../c#arbor-key=x"])
+        XCTAssertTrue(TreeID.isWellFormed("tr_abc27"))
+        for invalid in ["tr_", "tr_ABC", "tr_ab1", "tr_abc\n", "xtr_abc", "dv_abc"] {
+            XCTAssertFalse(TreeID.isWellFormed(invalid), invalid)
+        }
+    }
+
     private func assertLocator(_ locator: ResolvedLocatorState, equals expected: URLFixture.Expected, label: String) {
         XCTAssertEqual(locator.stableKey, expected.stableKey, label)
         XCTAssertEqual(locator.revision, expected.revision, label)

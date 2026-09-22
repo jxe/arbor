@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 public protocol WireCredentialProvider: Sendable {
@@ -591,7 +590,7 @@ func updateRequestIdentities(tree: String, base: String?, updates: [WireCandidat
             resolves: update.resolves,
             ifCurrent: update.ifCurrent
         )
-        let digest = canonicalCBORHash(bytes)
+        let digest = WireObjectCodec.hash(bytes)
         result.append((bytes, digest))
         basis = .map([
             ("requestDigest", .text(digest)),
@@ -599,11 +598,6 @@ func updateRequestIdentities(tree: String, base: String?, updates: [WireCandidat
         ])
     }
     return result
-}
-
-/// `sha256:<hex>` of already canonical CBOR bytes.
-func canonicalCBORHash(_ encoded: Data) -> String {
-    "sha256:" + SHA256.hash(data: encoded).map { String(format: "%02x", $0) }.joined()
 }
 
 private struct EmptyBody: Encodable {}

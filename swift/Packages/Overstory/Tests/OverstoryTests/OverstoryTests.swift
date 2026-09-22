@@ -315,7 +315,7 @@ struct UpdateProtocolTests {
             let expected = try #require(Data(base64Encoded: entry["canonicalCBORBase64"] as! String), "\(name)")
             let encoded = CanonicalCBOR.encode(try cborValue(entry["value"] ?? NSNull()))
             #expect(encoded == expected, "\(name)")
-            #expect(canonicalCBORHash(encoded) == entry["hash"] as? String, "\(name)")
+            #expect(WireObjectCodec.hash(encoded) == entry["hash"] as? String, "\(name)")
             #expect(CanonicalCBOR.encode(try CanonicalCBOR.decode(expected)) == expected, "\(name)")
         }
         for entry in try #require(fixture["invalid"] as? [[String: Any]]) {

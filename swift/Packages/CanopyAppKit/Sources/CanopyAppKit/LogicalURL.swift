@@ -24,9 +24,11 @@ public enum ArborAuthority: Sendable, Equatable {
 }
 
 private let schemeExpression = try! NSRegularExpression(pattern: "^([a-zA-Z][a-zA-Z0-9+.-]*):")
+/// An inline Markdown link, capturing its destination. The `(?<!!)` guard keeps
+/// `![alt](/Page)` from counting as a link to `/Page`.
+private let markdownLinkExpression = try! NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#)
 private let parameterMarker = ";arbor-"
 private let revisionPattern = #"^sha256:[a-f0-9]{64}$"#
-private let treeIDAuthorityPattern = #"^tr_[a-z2-7]+$"#
 private let markdownKeyPrefix = "arbor-key="
 
 private func splitOnce(_ value: String, separator: Character) -> (String, String?) {
@@ -212,11 +214,18 @@ private func parseArborURL(_ href: String) -> ResolvedLink? {
     guard let authorityPart = parts.first, !authorityPart.isEmpty else { return nil }
     parts.removeFirst()
     // `_` cannot occur in a DNS label, so a `tr_` authority is a TreeID and nothing else.
-    let isTreeID = authorityPart.range(of: treeIDAuthorityPattern, options: .regularExpression) != nil
+    let isTreeID = TreeID.isWellFormed(authorityPart)
     if authorityPart.hasPrefix("tr_"), !isTreeID { return nil }
     let authority: ArborAuthority = isTreeID ? .treeID(authorityPart) : .dns(authorityPart)
     guard let path = resolveTreePath(base: "/", rawDestination: parts.joined(separator: "/")) else { return nil }
     return .arbor(authority: authority, path: path, locator: parsed.locator)
+}
+
+/// The destination range of every inline Markdown link in `source`, in order. Images are not links.
+public func markdownLinkHrefRanges(in source: String) -> [Range<String.Index>] {
+    markdownLinkExpression.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
+        Range(match.range(at: 1), in: source)
+    }
 }
 
 public func resolveLogicalURL(base baseDocumentPath: String, href: String) -> ResolvedLink? {

@@ -1,3 +1,4 @@
+import CanopyAppKit
 import Overstory
 import CryptoKit
 import Foundation
@@ -160,15 +161,16 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
     private func accountKey(_ configurationTree: String) -> String { "account:\(configurationTree)" }
 
     private func pendingKey(origin: URL, pairingID: String) -> String {
-        let digest = SHA256.hash(data: Data("\(origin.absoluteString)\u{0}\(pairingID)".utf8))
-            .map { String(format: "%02x", $0) }.joined()
-        return "pending:\(digest)"
+        "pending:\(hexDigest("\(origin.absoluteString)\u{0}\(pairingID)"))"
     }
 
     private func pendingAccountKey(_ account: URL) -> String {
-        let digest = SHA256.hash(data: Data(account.absoluteString.utf8))
-            .map { String(format: "%02x", $0) }.joined()
-        return "pending-account:\(digest)"
+        "pending-account:\(hexDigest(account.absoluteString))"
+    }
+
+    /// Lowercase SHA-256 hex of `text`, without the `sha256:` prefix of an object hash.
+    private func hexDigest(_ text: String) -> String {
+        String(WireObjectCodec.hash(Data(text.utf8)).dropFirst("sha256:".count))
     }
 
     private func loadValue(account: String, service: String? = nil) throws -> String? {
@@ -490,7 +492,7 @@ public actor NativeAccountService {
                 deviceID: try generatedDeviceID(),
                 deviceLabel: cleanLabel,
                 credential: credential,
-                credentialDigest: "sha256:" + SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined(),
+                credentialDigest: WireObjectCodec.hash(Data(credential.utf8)),
                 stage: .prepared
             )
             try await credentials.savePending(pending)
@@ -564,7 +566,7 @@ public actor NativeAccountService {
             let configurationTree = try generatedID(prefix: "tr")
             let deviceID = try generatedID(prefix: "dv")
             let credential = try randomSecret()
-            let credentialDigest = "sha256:" + SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined()
+            let credentialDigest = WireObjectCodec.hash(Data(credential.utf8))
             let configuration = try initialAccountConfiguration(
                 profileTree: identity.profileTree,
                 configurationTree: configurationTree,
@@ -756,7 +758,7 @@ public actor NativeAccountService {
             throw ArborWireValidationError.invalidValue("An access link must allow viewing or editing")
         }
         let secret = try randomSecret()
-        let digest = "sha256:" + SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
+        let digest = WireObjectCodec.hash(Data(secret.utf8))
         let updated = try await setAccess(
             tree: tree,
             target: .existing(.link(digest: digest)),
@@ -807,10 +809,7 @@ public actor NativeAccountService {
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
             throw ArborWireValidationError.invalidValue("Could not generate device credential")
         }
-        return Data(bytes).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+        return Data(bytes).base64URLEncodedString()
     }
 
     private func generatedDeviceID() throws -> String { try generatedID(prefix: "dv") }
@@ -824,7 +823,7 @@ public actor NativeAccountService {
 
     private func resolveProfile(_ input: String, using client: ArborWireClient) async throws -> String {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil { return value }
+        if TreeID.isWellFormed(value) { return value }
         let path: String
         if value.hasPrefix("~") {
             path = "/\(value)"
