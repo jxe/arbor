@@ -62,35 +62,33 @@ private func canonicalStableKeyJSON(_ value: String) -> Bool {
     return canonicalString == value
 }
 
+/// Serialize `[field, value]` pairs with the same writer `canonicalStableKeyJSON` re-serializes
+/// with, so a key this writes is canonical by construction rather than by a second encoder agreeing.
+func stableKeyJSON(_ pairs: [[Any]]) throws -> String {
+    String(decoding: try JSONSerialization.data(withJSONObject: pairs, options: [.withoutEscapingSlashes]), as: UTF8.self)
+}
+
 public func canonicalStableKey(_ pairs: [(String, JSONValue)]) throws -> String {
     guard !pairs.isEmpty else { throw EncodingError.invalidValue(pairs, .init(codingPath: [], debugDescription: "stable key must be nonempty")) }
-    let encoder = JSONEncoder()
-    var encoded: [String] = []
+    var elements: [[Any]] = []
     for (property, value) in pairs {
         guard !property.isEmpty else {
             throw EncodingError.invalidValue(property, .init(codingPath: [], debugDescription: "stable-key property must be nonempty"))
         }
         switch value {
-        case .string, .bool, .number:
-            break
+        case let .string(string): elements.append([property, string])
+        case let .bool(bool): elements.append([property, bool])
+        case let .number(number) where number.isFinite: elements.append([property, number])
         default:
             throw EncodingError.invalidValue(value, .init(codingPath: [], debugDescription: "stable-key value must be a non-null scalar"))
         }
-        let propertyJSON = String(decoding: try encoder.encode(property), as: UTF8.self)
-        let valueJSON = String(decoding: try encoder.encode(value), as: UTF8.self)
-        encoded.append("[\(propertyJSON),\(valueJSON)]")
     }
-    let result = "[\(encoded.joined(separator: ","))]"
+    let result = try stableKeyJSON(elements)
     guard canonicalStableKeyJSON(result) else {
         throw EncodingError.invalidValue(pairs, .init(codingPath: [], debugDescription: "stable key is not canonical JSON"))
     }
     return result
 }
-
-public func pageIDStableKey(_ pageID: String) -> String {
-    try! canonicalStableKey([("id", .string(pageID))])
-}
-
 
 public func encodeStableKey(_ value: String) -> String? {
     guard canonicalStableKeyJSON(value) else { return nil }

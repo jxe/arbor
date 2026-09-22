@@ -162,7 +162,7 @@ public final class ArborEditorWorkspace {
             let newPath: String?
             if target.path == oldPath || target.path.hasPrefix(oldPath + "/") {
                 newPath = moved.path + target.path.dropFirst(oldPath.count)
-            } else if let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey),
+            } else if let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey),
                       let resolved = try? await provider.resolve(WorkspaceReference(
                         tree: tree,
                         path: target.path,

@@ -127,7 +127,7 @@ final class LogicalURLTests: XCTestCase {
     }
 
     func testArborLocatorRoundTripsThroughNodeTargetResolution() throws {
-        let key = pageIDStableKey("x6baw0")
+        let key = markdownStableKey("x6baw0")
         let locator = try XCTUnwrap(buildArborLocator(tree: "tr_sample", path: "/notes/deep", stableKey: key))
         XCTAssertEqual(locator, "arbor://tr_sample/notes/deep;arbor-key=\(try XCTUnwrap(encodeStableKey(key)))")
         XCTAssertEqual(
@@ -143,6 +143,23 @@ final class LogicalURLTests: XCTestCase {
             "arbor://tr_sample/new;arbor-key=W1siaWQiLCJ4NmJhdzAiXV0"
         )
         XCTAssertNil(rewriteLocalLinkPath(base: "/", href: "arbor://example.com/old", newPath: "/new"))
+    }
+
+    func testPageIDStableKeysAreCanonicalForEveryCharacter() throws {
+        XCTAssertEqual(markdownStableKey("a/b"), #"[["id","a/b"]]"#)
+        XCTAssertEqual(markdownStableKey("é\"q"), #"[["id","é\"q"]]"#)
+        for pageID in ["a/b", "é", "\u{2028}", "line\nbreak\u{1}", "\u{7f}", "tab\t\\"] {
+            let key = markdownStableKey(pageID)
+            XCTAssertEqual(try canonicalStableKey([("id", .string(pageID))]), key, pageID)
+            XCTAssertEqual(decodeStableKey(try XCTUnwrap(encodeStableKey(key), pageID)), key, pageID)
+            XCTAssertEqual(markdownID(fromStableKey: key), pageID)
+        }
+        XCTAssertEqual(
+            try canonicalStableKey([("n", .number(1)), ("b", .bool(true)), ("s", .string("/"))]),
+            #"[["n",1],["b",true],["s","/"]]"#
+        )
+        XCTAssertThrowsError(try canonicalStableKey([("n", .number(.infinity))]))
+        XCTAssertThrowsError(try canonicalStableKey([("n", .null)]))
     }
 
     private func assertLocator(_ locator: ResolvedLocatorState, equals expected: URLFixture.Expected, label: String) {

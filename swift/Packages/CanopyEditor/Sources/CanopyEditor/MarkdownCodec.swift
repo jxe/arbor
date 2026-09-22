@@ -75,7 +75,7 @@ public enum ArborMarkdownCodec {
                 if case let .documentLink(_, reference) = block.kind,
                    let target = resolveNodeTarget(base: directory.path, href: reference.rawValue) {
                     let tree = target.tree.map(TreeID.init(rawValue:)) ?? directory.tree
-                    let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+                    let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
                     if let stableKey {
                         mentionedIdentities.insert(.key(tree: tree, stableKey: stableKey))
                     }

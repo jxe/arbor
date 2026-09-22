@@ -118,7 +118,7 @@ public enum ArborDocumentReferenceCodec {
 
     public static func decode(_ value: DocumentReference) -> WorkspaceReference? {
         guard let target = resolveNodeTarget(base: "/", href: value.rawValue), let tree = target.tree else { return nil }
-        let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+        let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
         return WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: stableKey)
     }
 }
@@ -417,7 +417,7 @@ public final class ArborEditorHost: EditorHost {
             href: url.absoluteString
         ) else { return nil }
         let tree = target.tree.map(TreeID.init(rawValue:)) ?? binding.reference.tree
-        let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+        let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
         return WorkspaceReference(tree: tree, path: target.path, stableKey: stableKey)
     }
 

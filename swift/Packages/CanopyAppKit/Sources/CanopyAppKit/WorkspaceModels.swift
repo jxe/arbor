@@ -111,8 +111,8 @@ public enum WorkspaceIdentity: Hashable, Codable, Sendable {
 
 /// The current Markdown `id` representation projected into the generic node-key slot.
 public func markdownStableKey(_ id: String) -> String {
-    let data = try! JSONSerialization.data(withJSONObject: [["id", id]], options: [.sortedKeys])
-    return String(decoding: data, as: UTF8.self)
+    // A single string pair is always a valid JSON object, so this cannot throw.
+    try! stableKeyJSON([["id", id]])
 }
 
 /// Bounded bridge used only where the physical Markdown representation stores `id`.

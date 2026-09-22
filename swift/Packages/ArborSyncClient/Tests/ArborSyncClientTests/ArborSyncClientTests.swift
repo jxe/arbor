@@ -201,7 +201,7 @@ final class ArborSyncClientTests: XCTestCase {
 
         let resolved = try await client.resolve("arbor://example.test/~alice/notes/today")
 
-        XCTAssertEqual(resolved.ref.stableKey, pageIDStableKey("abc123"))
+        XCTAssertEqual(resolved.ref.stableKey, markdownStableKey("abc123"))
         XCTAssertEqual(resolved.ref.tree, "tr_notes7f3q2ab7c")
         let captured = await URLProtocolStub.state.snapshot()
         let request = try XCTUnwrap(captured.requests.first)
