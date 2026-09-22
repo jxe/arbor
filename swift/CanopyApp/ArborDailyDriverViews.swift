@@ -411,7 +411,8 @@ struct ArborMoveDestinationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var searchFocused: Bool
     @State private var query = ""
-    @State private var documents: [ArborMoveDocument] = []
+    /// Writable destination pages, decoded from their `arbor://` rows once per load.
+    @State private var documentResults: [WorkspaceSearchResult] = []
     @State private var isLoading = false
     @State private var showAllInDocument = false
     @AppStorage("pageOrder.moveTo") private var order = ArborSidebarPageOrder.alphabetical
@@ -429,18 +430,9 @@ struct ArborMoveDestinationSheet: View {
         let current = host.binding.reference.identity
         let indexed = stalePageResults
             .filter { $0.reference.identity != current }
-            .map {
-                ArborMoveDocument(
-                    reference: ArborDocumentReferenceCodec.encode($0.reference),
-                    title: $0.title,
-                    subtitle: $0.reference.path,
-                    isHome: $0.reference.path == "/",
-                    modifiedAt: $0.modifiedAt,
-                    backlinkCount: $0.backlinkCount
-                )
-            }
+            .map { ArborMoveDocument($0.reference, title: $0.title, modifiedAt: $0.modifiedAt, backlinkCount: $0.backlinkCount) }
         let cached = host.staleMoveDocuments(matching: "")
-        _documents = State(initialValue: cached.isEmpty ? indexed : cached)
+        _documentResults = State(initialValue: Self.searchResults(cached.isEmpty ? indexed : cached))
     }
 
     var body: some View {
@@ -482,9 +474,9 @@ struct ArborMoveDestinationSheet: View {
                         documentSections
                     }
                     .overlay {
-                        if isLoading, documents.isEmpty {
+                        if isLoading, documentResults.isEmpty {
                             ProgressView("Finding destinations")
-                        } else if visibleInDocument.isEmpty, documents.isEmpty {
+                        } else if visibleInDocument.isEmpty, documentResults.isEmpty {
                             ContentUnavailableView(
                                 "No matching destinations",
                                 systemImage: "arrow.turn.down.right"
@@ -513,12 +505,13 @@ struct ArborMoveDestinationSheet: View {
             }
             guard !Task.isCancelled else { return }
             isLoading = true
-            documents = await host.moveDocuments(matching: query)
+            let documents = await host.moveDocuments(matching: query)
+            documentResults = Self.searchResults(documents)
             isLoading = false
         }
         .onChange(of: query) { _, _ in keyboardSelection = nil }
         .onChange(of: order) { _, _ in keyboardSelection = nil }
-        .onChange(of: documents) { _, _ in keyboardSelection = nil }
+        .onChange(of: documentResults) { _, _ in keyboardSelection = nil }
         .onDisappear {
             if host.moveRequest?.id == request.id { host.resolveMoveRequest(with: nil) }
         }
@@ -536,7 +529,7 @@ struct ArborMoveDestinationSheet: View {
             : Array(visibleInDocument.prefix(Self.collapsedLimit))
     }
 
-    private var documentResults: [WorkspaceSearchResult] {
+    private static func searchResults(_ documents: [ArborMoveDocument]) -> [WorkspaceSearchResult] {
         documents.compactMap { document in
             guard let reference = ArborDocumentReferenceCodec.decode(document.reference) else { return nil }
             return WorkspaceSearchResult(
@@ -672,11 +665,7 @@ struct ArborStructuralMoveSheet: View {
             matching: ""
         )
         let indexed = stalePageResults.compactMap { result -> ArborStructuralDestination? in
-            let path = result.reference.path
-            let containsTarget = path == request.reference.path
-                || path.hasPrefix(request.reference.path + "/")
-            let sameParent = request.reference.parent?.path == path
-            guard !containsTarget, !sameParent else { return nil }
+            guard ArborStructuralDestination.canReceive(request.reference, at: result.reference.path) else { return nil }
             return ArborStructuralDestination(
                 reference: result.reference,
                 title: result.title,
@@ -755,29 +744,28 @@ struct ArborStructuralMoveSheet: View {
         }
     }
 
+    private var destinationsByIdentity: [WorkspaceIdentity: ArborStructuralDestination] {
+        Dictionary(destinations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     private var orderedDestinations: [ArborStructuralDestination] {
-        let byIdentity = Dictionary(
-            destinations.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let byIdentity = destinationsByIdentity
         return ArborSidebarPages.sorted(destinationResults, by: order).compactMap { byIdentity[$0.id] }
     }
 
     @ViewBuilder
     private var destinationSections: some View {
+        // One lookup table per render rather than a linear search per row.
+        let byIdentity = destinationsByIdentity
         ArborOrderedPageSections(
             results: destinationResults,
             order: order,
             alphabeticalSectionTitle: nil
         ) { result, showsBacklinkCount in
-            if let destination = destination(with: result.id) {
+            if let destination = byIdentity[result.id] {
                 destinationRow(destination, showsBacklinkCount: showsBacklinkCount)
             }
         }
-    }
-
-    private func destination(with identity: WorkspaceIdentity) -> ArborStructuralDestination? {
-        destinations.first { $0.id == identity }
     }
 
     private func destinationRow(
