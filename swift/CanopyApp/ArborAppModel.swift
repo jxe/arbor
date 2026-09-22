@@ -143,6 +143,9 @@ final class ArborWorkspaceState {
     private(set) var openVisitLocator: String?
     private var attemptedWorkspaceRestore = false
     private var overviewRefreshTask: Task<Void, Never>?
+    /// Identifies the refresh `overviewRefreshTask` holds, so a cancelled
+    /// refresh finishing late never clears its replacement.
+    private var overviewRefreshID = 0
     private var overviewWatchTask: Task<Void, Never>?
     private(set) var localArborSyncOverview: LocalArborSyncOverview?
     private(set) var localArborSyncOverviewIsRefreshing = false
@@ -1195,12 +1198,16 @@ final class ArborWorkspaceState {
             await overviewRefreshTask.value
             return
         }
+        overviewRefreshID += 1
+        let refreshID = overviewRefreshID
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             self.localArborSyncOverviewIsRefreshing = true
             defer {
-                self.localArborSyncOverviewIsRefreshing = false
-                self.overviewRefreshTask = nil
+                if self.overviewRefreshID == refreshID {
+                    self.localArborSyncOverviewIsRefreshing = false
+                    self.overviewRefreshTask = nil
+                }
             }
             do {
                 let overview = try await self.loadLocalArborSyncOverview()
