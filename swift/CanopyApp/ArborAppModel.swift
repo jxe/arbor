@@ -755,12 +755,6 @@ final class ArborWorkspaceState {
         return ArborWireClient(origin: origin)
     }
 
-    static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
-        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
-            && lhs.host()?.lowercased() == rhs.host()?.lowercased()
-            && lhs.port == rhs.port
-    }
-
     func promoteLocalFolder(
         path: String,
         account: ArborShareAccount,
@@ -770,9 +764,7 @@ final class ArborWorkspaceState {
         guard publicAccess == "none" || publicAccess == "read" || publicAccess == "write",
               let canonicalURL = URL(string: canonical),
               let accountOrigin = URL(string: account.origin),
-              canonicalURL.scheme == accountOrigin.scheme,
-              canonicalURL.host == accountOrigin.host,
-              canonicalURL.port == accountOrigin.port,
+              Self.sameOrigin(canonicalURL, accountOrigin),
               canonicalURL.query == nil,
               canonicalURL.fragment == nil else {
             throw ArborWireValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
@@ -1577,13 +1569,8 @@ final class ArborWorkspaceState {
         return try await wireClient(origin: person.origin, overview: localArborSyncOverview)
             .object(tree: avatar.tree, hash: avatar.hash)
 #else
-        let account = try await KeychainDeviceCredentialStore().accounts().first {
-            $0.origin.scheme?.lowercased() == person.origin.scheme?.lowercased()
-                && $0.origin.host()?.lowercased() == person.origin.host()?.lowercased()
-                && $0.origin.port == person.origin.port
-        }
-        guard let account else { throw ArborWireValidationError.invalidValue("No account is connected to this Canopy") }
-        return try await NativeAccountService(origin: person.origin, configurationTree: account.configurationTree)
+        let configurationTree = try await connectedConfigurationTree(for: person.origin)
+        return try await NativeAccountService(origin: person.origin, configurationTree: configurationTree)
             .object(tree: avatar.tree, hash: avatar.hash)
 #endif
     }
@@ -1595,19 +1582,25 @@ final class ArborWorkspaceState {
         }
         try await openRemoteLocator(locator)
 #else
-        let account = try await KeychainDeviceCredentialStore().accounts().first {
-            $0.origin.scheme?.lowercased() == person.origin.scheme?.lowercased()
-                && $0.origin.host()?.lowercased() == person.origin.host()?.lowercased()
-                && $0.origin.port == person.origin.port
-        }
-        guard let account else { throw ArborWireValidationError.invalidValue("No account is connected to this Canopy") }
-        let service = NativeAccountService(origin: person.origin, configurationTree: account.configurationTree)
+        let configurationTree = try await connectedConfigurationTree(for: person.origin)
+        let service = NativeAccountService(origin: person.origin, configurationTree: configurationTree)
         guard let tree = try await service.trees().snapshot.first(where: { $0.id == person.entry.profile }) else {
             throw ArborWireValidationError.invalidValue("Profile is not hosted on this Canopy")
         }
-        try await place(tree: tree, from: person.origin, configurationTree: account.configurationTree)
+        try await place(tree: tree, from: person.origin, configurationTree: configurationTree)
 #endif
     }
+
+#if os(iOS)
+    /// The configuration tree of the account this iPhone holds at `origin`.
+    private func connectedConfigurationTree(for origin: URL) async throws -> String {
+        let account = try await KeychainDeviceCredentialStore().accounts().first {
+            Self.sameOrigin($0.origin, origin)
+        }
+        guard let account else { throw ArborWireValidationError.invalidValue("No account is connected to this Canopy") }
+        return account.configurationTree
+    }
+#endif
 
     /// Follow a nested-tree boundary through the same account-aware paths used
     /// by People. Prefer an existing Mac placement, then the hosted profile
@@ -1821,6 +1814,12 @@ final class ArborWorkspaceState {
         serverWatchTask = CanopyWatchRunner(client: client, tree: tree.id, coordinator: coordinator) { [weak self] in
             await self?.refreshSyncPresentation(from: coordinator)
         }.start()
+    }
+
+    static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host()?.lowercased() == rhs.host()?.lowercased()
+            && lhs.port == rhs.port
     }
 
     /// Record a failure that no banner reports as a network-log note, where
