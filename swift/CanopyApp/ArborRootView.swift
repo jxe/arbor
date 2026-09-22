@@ -1517,6 +1517,7 @@ struct ArborRootView: View {
 
     private var sidebarPagesContent: some View {
         ScrollViewReader { proxy in
+            let reviewChoices = reviewChoicesByPage
             sidebarPagesList {
                 ArborOrderedPageSections(
                     results: model.searchResults,
@@ -1524,7 +1525,13 @@ struct ArborRootView: View {
                     alphabeticalSectionTitle: nil,
                     topSpacing: 8
                 ) { result, showsBacklinkCount in
-                    sidebarSearchRow(result, showsBacklinkCount: showsBacklinkCount)
+                    sidebarSearchRow(
+                        result,
+                        showsBacklinkCount: showsBacklinkCount,
+                        reviewChoice: result.reference.tree == workspace.home.tree
+                            ? reviewChoices[result.reference.path]
+                            : nil
+                    )
                 }
             }
             .listStyle(.sidebar)
@@ -1603,9 +1610,21 @@ struct ArborRootView: View {
         }
     }
 
+    /// The first review choice on each page of the open tree, by logical path.
+    private var reviewChoicesByPage: [String: ConflictReviewDecision] {
+        var choices: [String: ConflictReviewDecision] = [:]
+        for decision in workspace.conflictReview?.decisions ?? [] {
+            guard let path = decision.path else { continue }
+            let page = reviewLogicalPath(path)
+            if choices[page] == nil { choices[page] = decision }
+        }
+        return choices
+    }
+
     private func sidebarSearchRow(
         _ result: WorkspaceSearchResult,
-        showsBacklinkCount: Bool
+        showsBacklinkCount: Bool,
+        reviewChoice choice: ConflictReviewDecision?
     ) -> some View {
         HStack(spacing: 4) {
             ArborSidebarSearchRow(
@@ -1618,9 +1637,7 @@ struct ArborRootView: View {
             ) {
                 openFromSidebar(.reference(result.reference))
             }
-            if let review = workspace.conflictReview,
-               result.reference.tree == workspace.home.tree,
-               let choice = review.decisions.first(where: { $0.path.map { reviewLogicalPath($0) == result.reference.path } ?? false }) {
+            if let choice {
                 Button { openReviewChoice(choice) } label: { Image(systemName: "arrow.triangle.branch") }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
                     .accessibilityLabel("Review choices on \(result.title)")
