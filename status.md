@@ -72,7 +72,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - **Cross-account rehome of resource policy** fails before mutation until a policy-transfer contract is reviewed.
 - **Cross-process ownership of a client state directory** is not enforced; one process must own it by convention.
 - **Latency.** The target is under 100 ms of server processing for a small fast-forward; divergent-merge and live latency are not established, and the first edit after a restart is measured in seconds unless warm-up ran.
-- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. [canopyd 007](plans/canopyd/007-canopy-document-history.md) owns it.
+- **No accepted-history listing.** Known retained roots are readable as immutable snapshots by callers who can read the tree; there is no history or metadata route. [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md) owns it.
 - **Compatibility cutoff.** Account configuration is v2-only and workspace registries require complete object records; scalar group-member entries are a separate legacy input format.
 - **Production recovery, dispute handling, and high availability** are not productized; the deployment guide documents backup, restore, and coordinated upgrades only.
 
@@ -340,7 +340,7 @@ Retired all three after checking implementation, tests and the live cutover
   leaves the existing whole-directory choice, as two moves into one name do.
 - **013 entry metadata.** `entry_metadata` and `document_versions` (canopyd
   007's storage half; its routes, access rule, restore and UI remain in
-  [canopyd 007](plans/canopyd/007-canopy-document-history.md)) are written
+  [canopyd 007](plans/canopyd/007-document-history-routes-and-restore.md)) are written
   inside every accepted transaction and were backfilled by migration 014: 2,515
   updates, 113 entries, 2,569 versions over 90 documents, all roots unchanged.
   Every client reads `/entry-metadata` directly; the Arbor Sync bootstrap no

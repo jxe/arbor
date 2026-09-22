@@ -1,7 +1,7 @@
 # Migration 014: entry metadata and the document-version index (15 → 16)
 
 Carries canopyd 013 ([closeout](../../../../status.md#canopyd-011-012-and-013-closeout--2026-09-22)) and the
-storage half of [canopyd 007](../../../../plans/canopyd/007-canopy-document-history.md).
+storage half of [canopyd 007](../../../../plans/canopyd/007-document-history-routes-and-restore.md).
 Additive: two new tables, nothing rewritten. Tree roots, accepted updates,
 objects, observations, merge states and conflicts are untouched, so the
 report's roots equal the backup's.
