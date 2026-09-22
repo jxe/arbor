@@ -260,3 +260,25 @@ test("a checkpoint of an editable state reads active material, not its history",
   expect(reads[1]! / reads[0]!).toBeLessThan(2.5);
   expect(results[0]).not.toBe(results[1]);
 });
+
+test("a checkpoint of an editable state is editable, so the next edit fast-forwards", async () => {
+  const { isEditableState } = await import("../../../packages/canopyd-merge/src/state-storage.ts");
+  const f = preparedFixture();
+  const head = preparedSteps.slice(0, 30).at(-1)!;
+  const objects = {
+    read: async (hash: string) => f.objects.get(hash)!,
+    store: async (values: Array<{ hash: string; bytes: Uint8Array }>) => {
+      for (const value of values) f.objects.set(value.hash, value.bytes);
+    },
+  };
+  expect(await isEditableState(head.result.state, objects.read)).toBe(true);
+  const checkpoint = await checkpointIntent(
+    { kind: "checkpoint", tree: "tree", current: head.result, projection: f.tree({ "a.md": head.text, "b.md": "new page\n" }), change: "page", decisions: [] },
+    objects,
+  );
+  if (!("result" in checkpoint)) throw Error(JSON.stringify(checkpoint));
+  expect(await isEditableState(checkpoint.result.state, objects.read)).toBe(true);
+  const { op, next } = edit(f, head.text, [0, 0], "AFTER ");
+  const evaluated = await differential(f, f.request(checkpoint.result, f.tree({ "a.md": next, "b.md": "new page\n" }), [op], "after-page"));
+  expect(f.content(evaluated.result.object, "a.md")).toBe(next);
+});

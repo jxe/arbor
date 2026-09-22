@@ -2761,7 +2761,7 @@ export async function checkpointIntent(
   // A checkpoint of an editable state needs its active material and the
   // records it writes, never the whole history: the trusted projection seeds
   // per-file objects from the accepted root, and lazy views path-copy on store.
-  await engine.detectLazy(request.current);
+  const editable = await engine.detectLazy(request.current);
   const previous = await engine.load(request.current),
     state = cloneState(previous);
   const previousRecord = await engine.record(previous);
@@ -3025,7 +3025,12 @@ export async function checkpointIntent(
       reason: "Snapshot changes unresolved material",
     });
   }
-  const result = await engine.record(state);
+  // An editable input already reflects every deletion in its effects, and the
+  // snapshot adds no effects: unchanged files keep their enforced pieces and
+  // replaced files get fresh origins no recorded deletion names. The result is
+  // therefore editable too, so the next edit fast-forwards instead of taking
+  // the complete scan an imported or transported state needs.
+  const result = await engine.record(state, editable);
   await objects.store(
     [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
   );

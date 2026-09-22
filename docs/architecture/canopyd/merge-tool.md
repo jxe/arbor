@@ -278,8 +278,10 @@ Retained state has active material (nodes, decisions) and five history maps
 hash-partitioned map of immutable records. A state is `editable` when the
 evaluation that recorded it enforced every deletion in its effects map on its
 nodes. Transported results, results kept under `conflictProjection:
-"current"`, and checkpoint or imported states are not editable and take one
-complete scan, after which their result is editable. Reading a record that was
+"current"`, and imported states are not editable and take one complete scan,
+after which their result is editable. A checkpoint (snapshot candidate) of an
+editable state inherits editability: it adds no effects, unchanged files keep
+their enforced pieces, and replaced files get fresh origins. Reading a record that was
 not loaded is an evaluator error, never "absent".
 
 ### Limits
