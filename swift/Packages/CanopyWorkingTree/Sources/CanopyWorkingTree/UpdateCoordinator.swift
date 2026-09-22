@@ -40,6 +40,7 @@ public actor UpdateCoordinator {
     private var admissionTail: Task<Void, Never>?
     private var preparedStructures: [Data: (record: SourceAdmissionRecord, node: WorkspaceNode)] = [:]
     private var preparedSourceIntents: [Data: SourceAdmissionRecord] = [:]
+    private var localView: (key: LocalViewKey, tree: WorkingTree)?
 
     public init(
         workingTree: WorkingTree,
@@ -695,6 +696,7 @@ public actor UpdateCoordinator {
 
     public func close() {
         terminal = true
+        localView = nil
         run(.cancelTimers)
     }
 
@@ -1052,7 +1054,7 @@ public actor UpdateCoordinator {
                 let captured = try await workingTree.captureAdmissionGraph()
                 graph = captured.graph; basis = .accepted(captured.base)
             }
-            let staging = try await candidateTree(graph)
+            let staging = try await projectedTree(graph, from: currentLocalView(admissions().retained()) ?? workingTree)
             let provider = WorkingTreeProvider(workingTree: staging)
             do {
                 var transferred: WorkingTreeNode?
@@ -1205,42 +1207,73 @@ public actor UpdateCoordinator {
         var reference: WorkspaceReference
     }
 
-    private func candidateTree(_ graph: WireSnapshot, includeTrash: Bool = true) async throws -> WorkingTree {
-        let tree = try await WorkingTree.inMemory(tree: await workingTree.treeID(), platform: workingTree)
-        try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: graph, tree: await workingTree.treeID(),
-            update: "local-candidate", mode: .sparseFiles))
+    private struct LocalViewKey: Equatable {
+        var generation: Int
+        var candidate: String?
+        var trash: String?
+    }
+
+    /// Bring `tree`, a fork, to `graph` (its own graph when nil) and, when asked,
+    /// install the retained local trash. Node metadata outside the hashes, such
+    /// as modification dates, carries over from what `tree` held before.
+    private func prepare(_ tree: WorkingTree, at graph: WireSnapshot?, includeTrash: Bool) async throws {
+        let heads = try await tree.heads()
+        let target = graph?.root ?? heads.materializedRoot
+        if heads.materializedRoot != target || heads.acceptedRoot != target {
+            let snapshot: WireSnapshot
+            if let graph { snapshot = graph } else { snapshot = try await tree.localSnapshot() }
+            try await tree.project(SnapshotBridge.replacement(snapshot: snapshot, tree: await workingTree.treeID(),
+                update: "local-candidate", mode: .sparseFiles))
+        }
         if includeTrash {
             let trash: WorkingTreeLocalTrash
             if let retained = try await admissions().retained().last(where: { $0.localTrash != nil })?.localTrash { trash = retained }
             else { trash = try await workingTree.captureLocalTrash() }
             if !trash.nodes.isEmpty { try await tree.installLocalTrash(trash) }
         }
+    }
+
+    /// A disposable fork of `base` at `graph`. The caller closes it.
+    private func projectedTree(_ graph: WireSnapshot, from base: WorkingTree, includeTrash: Bool = true) async throws -> WorkingTree {
+        let tree = try await base.fork()
+        do { try await prepare(tree, at: graph, includeTrash: includeTrash) }
+        catch { await tree.close(); throw error }
         return tree
     }
 
-    /// A disposable view of the retained candidate, never a replacement of the
-    /// accepted working tree. Provider reads see locally created/moved entries.
+    /// The tree reads show while source work is retained: the navigation
+    /// candidate plus retained local trash, as a fork of the accepted working
+    /// tree. It is kept between reads and projected forward in place as the
+    /// candidate changes; nil means reads use the working tree itself.
+    private func currentLocalView(_ retained: [SourceAdmissionRecord]) async throws -> WorkingTree? {
+        let navigation = try await sourceLocalViewState(retained).navigation
+        let trashRecord = retained.last(where: { $0.localTrash != nil })
+        guard navigation != nil || trashRecord?.localTrash?.nodes.isEmpty == false else {
+            localView = nil
+            return nil
+        }
+        let key = LocalViewKey(generation: try await workingTree.heads().generation,
+                               candidate: navigation?.candidate.root, trash: trashRecord?.change)
+        if let localView, localView.key == key { return localView.tree }
+        // A new accepted state starts again from the working tree; otherwise the
+        // previous view moves forward, keeping dates stamped for earlier edits.
+        let tree: WorkingTree
+        if let localView, localView.key.generation == key.generation { tree = localView.tree }
+        else { tree = try await workingTree.fork() }
+        localView = nil
+        try await prepare(tree, at: navigation?.candidate, includeTrash: true)
+        localView = (key, tree)
+        return tree
+    }
+
+    /// Provider reads see locally created/moved entries through the local view,
+    /// never a replacement of the accepted working tree.
     func sourceReadProvider(
         readOnly: Bool = false,
         materializedRoot: URL? = nil
     ) async throws -> WorkingTreeProvider {
-        let retained = try await admissions().retained()
-        if let record = try await sourceLocalViewState(retained).navigation {
-            return WorkingTreeProvider(
-                workingTree: try await candidateTree(record.candidate),
-                readOnly: readOnly,
-                materializedRoot: materializedRoot
-            )
-        }
-        if retained.last(where: { $0.localTrash != nil })?.localTrash?.nodes.isEmpty == false {
-            return WorkingTreeProvider(
-                workingTree: try await candidateTree(workingTree.localSnapshot()),
-                readOnly: readOnly,
-                materializedRoot: materializedRoot
-            )
-        }
-        return WorkingTreeProvider(
-            workingTree: workingTree,
+        WorkingTreeProvider(
+            workingTree: try await currentLocalView(admissions().retained()) ?? workingTree,
             readOnly: readOnly,
             materializedRoot: materializedRoot
         )
@@ -1250,11 +1283,16 @@ public actor UpdateCoordinator {
         guard let reference = reference ?? record.document?.reference else {
             throw ArborWireValidationError.invalidValue("A structural candidate requires a document reference")
         }
-        let tree = try await candidateTree(record.candidate, includeTrash: false)
+        let base = try await currentLocalView(admissions().retained()) ?? workingTree
         let captured: CapturedSourceAdmissionBasis
-        do { captured = try await tree.captureSourceAdmissionBasis(reference) }
-        catch { await tree.close(); throw error }
-        await tree.close()
+        if try await base.heads().materializedRoot == record.candidate.root {
+            captured = try await base.captureSourceAdmissionBasis(reference)
+        } else {
+            let tree = try await projectedTree(record.candidate, from: base, includeTrash: false)
+            do { captured = try await tree.captureSourceAdmissionBasis(reference) }
+            catch { await tree.close(); throw error }
+            await tree.close()
+        }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         var document = captured.document
         document.contentRevision = "source-candidate:" + (try encoder.encode(LocalSourceToken(change: record.change, reference: captured.document.reference))).base64EncodedString()

@@ -2201,3 +2201,43 @@ extension SourceSessionPublicationTests {
         }
     }
 }
+
+extension SourceSessionPublicationTests {
+    @Test("Pending source work keeps accepted modification dates in provider reads")
+    func pendingReadsKeepDates() async throws {
+        try await withTemporaryRoot { root in
+            let initial = try snapshot(files: ["a.md": "A\n", "b.md": "---\nid: pg_b\n---\nB\n"])
+            let aDate = Date(timeIntervalSince1970: 1_789_000_000), bDate = Date(timeIntervalSince1970: 1_788_000_000)
+            let tree = try await WorkingTree.inMemory(tree: treeID)
+            try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: initial, tree: treeID,
+                update: "up_initial", modifiedAtByPath: ["/a": aDate, "/b": bDate]))
+            let coordinator = try UpdateCoordinator(workingTree: tree, transport: SourceModeTransport(initial: initial, peer: initial),
+                stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
+            let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)
+            func dates() async throws -> [String: Date] {
+                Dictionary(uniqueKeysWithValues: try await provider.search("", in: treeID).compactMap { result in
+                    result.modifiedAt.map { (result.reference.path, $0) }
+                })
+            }
+            let started = Date()
+            let session = try await provider.openDocument(.init(tree: treeID, path: "/a"))
+            _ = try await replace("A edited\n", session: session, basis: try await session.snapshot())
+            var pending = try await dates()
+            #expect(pending["/b"] == bDate)
+            #expect(try #require(pending["/a"]) >= started)
+
+            // Reads between edits reuse one view instead of rebuilding it.
+            #expect(try await coordinator.sourceReadProvider().workingTree === coordinator.sourceReadProvider().workingTree)
+
+            let parent = WorkspaceReference(tree: treeID, path: "/")
+            let group = try #require(try await provider.perform(.createDirectory(parent: parent, name: "group")))
+            _ = try #require(try await provider.perform(.move(reference: .init(tree: treeID, path: "/b"), destination: group.reference)))
+            pending = try await dates()
+            // A move is a modification here, exactly as on the live working tree.
+            #expect(try #require(pending["/group/b"]) >= started)
+            #expect(try #require(pending["/a"]) >= started)
+            #expect(try await tree.heads().acceptedRoot == initial.root)
+            await coordinator.close(); await session.close(); await tree.close()
+        }
+    }
+}

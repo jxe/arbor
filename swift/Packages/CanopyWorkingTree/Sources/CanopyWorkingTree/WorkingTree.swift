@@ -318,6 +318,32 @@ public actor WorkingTree {
         }
     }
 
+    /// An in-memory copy of this tree that keeps every node's metadata outside
+    /// the hashes (modification dates, file sizes). It reads objects through
+    /// this tree's overlay and then this tree, and never writes back to it.
+    func fork() throws -> WorkingTree {
+        try requireOpen()
+        return WorkingTree(
+            store: InMemoryWorkingTreeStore(),
+            overlay: ForkedObjectOverlay(parent: overlay),
+            platform: self,
+            faultInjector: NoReplicaFaults(),
+            clock: clock,
+            state: state,
+            control: control,
+            index: index
+        )
+    }
+
+    /// Replace a fork's nodes with a local candidate. Unlike an accepted
+    /// replacement this ignores pending work: a fork is a disposable view.
+    /// Modification dates carry over by page ID and path, and changed or new
+    /// pages are stamped now.
+    func project(_ replacement: WorkingTreeSystemReplacement) throws {
+        try requireOpen()
+        try replaceWithAccepted(replacement, mutation: "local-projection")
+    }
+
     func state(from replacement: WorkingTreeSystemReplacement) throws -> WorkingTreeState {
         guard !replacement.update.isEmpty else { throw WorkingTreeError.corruptState("System update ID is empty") }
         let nodes = replacement.nodes.map { node -> WorkingTreeNode in
