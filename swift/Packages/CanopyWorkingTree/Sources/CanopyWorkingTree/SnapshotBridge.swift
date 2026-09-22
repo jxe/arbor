@@ -76,17 +76,7 @@ public enum SnapshotBridge {
             try appendNode(WorkingTreeSystemNode(
                 path: path,
                 content: .directory(source: source),
-                childrenSource: childrenSource.map {
-                    WorkingTreeCollectionFileDescriptor(
-                        version: $0.version,
-                        type: $0.type,
-                        format: $0.format,
-                        source: $0.source,
-                        schemaSource: $0.schemaSource,
-                        schemaFingerprint: $0.schemaFingerprint,
-                        childSetHash: $0.childSetHash
-                    )
-                },
+                childrenSource: childrenSource,
                 directoryBodyPlacement: indexSource == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
                 shadowedSiblingMarkdownSource: indexSource != nil ? siblingMarkdownSource : nil
             ))

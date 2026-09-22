@@ -1,4 +1,5 @@
 import CanopyAppKit
+import Overstory
 import Foundation
 
 public enum WorkingTreeError: Error, Equatable, Sendable {
@@ -100,7 +101,7 @@ public enum ContentRef: Codable, Equatable, Sendable {
     /// The wire object hash: computed for inline bytes, carried for a hash ref.
     public var objectHash: String {
         switch self {
-        case let .inline(bytes): WorkingTreeWireCodec.hash(WorkingTreeWireCodec.file(bytes))
+        case let .inline(bytes): WireObjectCodec.hash(bytes)
         case let .hash(hash, _, _): hash
         }
     }
@@ -135,34 +136,6 @@ public struct WorkingTreeStoredObject: Codable, Equatable, Sendable {
     public init(hash: String, bytes: Data?) {
         self.hash = hash
         self.bytes = bytes
-    }
-}
-
-public struct WorkingTreeCollectionFileDescriptor: Codable, Equatable, Sendable {
-    public var version: Int
-    public var type: String
-    public var format: String
-    public var source: String
-    public var schemaSource: String
-    public var schemaFingerprint: String
-    public var childSetHash: String
-
-    public init(
-        version: Int = 1,
-        type: String = "collection-file",
-        format: String,
-        source: String,
-        schemaSource: String,
-        schemaFingerprint: String,
-        childSetHash: String
-    ) {
-        self.version = version
-        self.type = type
-        self.format = format
-        self.source = source
-        self.schemaSource = schemaSource
-        self.schemaFingerprint = schemaFingerprint
-        self.childSetHash = childSetHash
     }
 }
 
@@ -252,7 +225,7 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
     public var path: String
     public var pageID: String?
     public var content: WorkingTreeSystemNodeContent
-    public var childrenSource: WorkingTreeCollectionFileDescriptor?
+    public var childrenSource: WireCollectionFileDescriptor?
     public var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
     public var shadowedSiblingMarkdownSource: String?
 
@@ -261,7 +234,7 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
         modifiedAt: Date? = nil,
         pageID: String? = nil,
         content: WorkingTreeSystemNodeContent,
-        childrenSource: WorkingTreeCollectionFileDescriptor? = nil,
+        childrenSource: WireCollectionFileDescriptor? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil
     ) {
@@ -306,7 +279,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     var mediaType: String?
     var trashedFrom: String?
     var boundaryTree: String?
-    var childrenSource: WorkingTreeCollectionFileDescriptor?
+    var childrenSource: WireCollectionFileDescriptor?
     // `nil` preserves the original encoding: a directory source is `_index.md`.
     // Contentless legacy directory records also decode unchanged.
     var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
@@ -325,7 +298,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         mediaType: String? = nil,
         trashedFrom: String? = nil,
         boundaryTree: String? = nil,
-        childrenSource: WorkingTreeCollectionFileDescriptor? = nil,
+        childrenSource: WireCollectionFileDescriptor? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
         modifiedAt: Date? = nil

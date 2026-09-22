@@ -594,7 +594,7 @@ public actor WorkingTree {
         try WorkingTreeSemantics.validateName(asset.name)
         let parentNode = try resolve(parent)
         guard parentNode.kind == .directory || parentNode.kind == .markdown else { throw WorkingTreeError.notDirectory(parent) }
-        let digest = String(WorkingTreeSemantics.sha256(asset.bytes).dropFirst("sha256:".count))
+        let digest = String(WireObjectCodec.hash(asset.bytes).dropFirst("sha256:".count))
         let uniqueName = "\(digest.prefix(16))-\(asset.name)"
         let path = WorkingTreeSemantics.child(uniqueName, of: parentNode.path)
         if let existing = state.nodes.first(where: { $0.path == path }) {
@@ -846,8 +846,6 @@ public actor WorkingTree {
             source: submitted,
             baseRevision: patch.baseContentRevision
         )
-        let baseObject = WorkingTreeWireCodec.file(Data(current.source.utf8))
-        let resultObject = WorkingTreeWireCodec.file(Data(snapshot.source.utf8))
         return (
             snapshot,
             WorkingTreePatchAdmission(
@@ -855,8 +853,8 @@ public actor WorkingTree {
                 baseRoot: before.materializedRoot,
                 candidateRoot: control.materializedRoot,
                 generation: control.generation,
-                baseFile: WorkingTreeWireCodec.hash(baseObject),
-                resultFile: WorkingTreeWireCodec.hash(resultObject),
+                baseFile: WireObjectCodec.hash(Data(current.source.utf8)),
+                resultFile: WireObjectCodec.hash(Data(snapshot.source.utf8)),
                 patch: patch,
                 baseWasAccepted: before.pendingRoot == nil && before.acceptedRoot == before.materializedRoot
             )

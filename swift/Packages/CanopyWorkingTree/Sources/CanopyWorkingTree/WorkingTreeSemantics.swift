@@ -1,5 +1,5 @@
 import CanopyAppKit
-import CryptoKit
+import Overstory
 import Foundation
 
 enum WorkingTreeSemantics {
@@ -44,10 +44,6 @@ enum WorkingTreeSemantics {
 
     static func compareUTF8(_ left: String, _ right: String) -> Bool {
         left.utf8.lexicographicallyPrecedes(right.utf8)
-    }
-
-    static func sha256(_ data: Data) -> String {
-        "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     static func pageID(in source: String) -> String? {
@@ -104,11 +100,11 @@ enum WorkingTreeSemantics {
     static func documentRevision(node: WorkingTreeNode, state: WorkingTreeState) -> String {
         switch node.kind {
         case .markdown:
-            return sha256(Data((node.source ?? "").utf8))
+            return WireObjectCodec.hash(Data((node.source ?? "").utf8))
         case .file:
-            return node.ref?.objectHash ?? sha256(Data())
+            return node.ref?.objectHash ?? WireObjectCodec.hash(Data())
         case .boundary:
-            return sha256(Data((node.boundaryTree ?? "").utf8))
+            return WireObjectCodec.hash(Data((node.boundaryTree ?? "").utf8))
         case .directory:
             let descriptors = state.nodes
                 .filter { parent(of: $0.path) == node.path && !$0.path.hasPrefix("/Trash/") && $0.path != "/Trash" }
@@ -118,7 +114,7 @@ enum WorkingTreeSemantics {
             var data = Data((node.source ?? "").utf8)
             data.append(0)
             data.append(Data(descriptors.utf8))
-            return sha256(data)
+            return WireObjectCodec.hash(data)
         }
     }
 

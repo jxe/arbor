@@ -1,4 +1,4 @@
-import CryptoKit
+import Overstory
 import Foundation
 
 enum WorkingTreeWireValue {
@@ -26,13 +26,9 @@ enum WorkingTreeWireCodec {
         }
     }
 
-    static func file(_ bytes: Data) -> Data {
-        bytes
-    }
-
     static func directory(
         _ entries: [(name: String, file: String?, directory: String?, tree: String?)],
-        childrenSource: WorkingTreeCollectionFileDescriptor? = nil
+        childrenSource: WireCollectionFileDescriptor? = nil
     ) -> Data {
         var fields: [(String, WorkingTreeWireValue)] = [
             ("type", .text("directory")),
@@ -49,7 +45,7 @@ enum WorkingTreeWireCodec {
         return encode(.map(fields))
     }
 
-    private static func collectionFile(_ value: WorkingTreeCollectionFileDescriptor) -> WorkingTreeWireValue {
+    private static func collectionFile(_ value: WireCollectionFileDescriptor) -> WorkingTreeWireValue {
         .map([
             ("version", .unsigned(value.version)),
             ("type", .text(value.type)),
@@ -60,8 +56,6 @@ enum WorkingTreeWireCodec {
             ("childSetHash", .text(value.childSetHash)),
         ])
     }
-
-    static func hash(_ bytes: Data) -> String { WorkingTreeSemantics.sha256(bytes) }
 
     static func snapshot(for state: WorkingTreeState) throws -> WorkingTreeSnapshot {
         let active = state.nodes.filter { $0.path != "/Trash" && !$0.path.hasPrefix("/Trash/") }
@@ -76,18 +70,18 @@ enum WorkingTreeWireCodec {
         var objects: [String: Data?] = [:]
 
         func store(_ bytes: Data) -> String {
-            let hash = hash(bytes)
+            let hash = WireObjectCodec.hash(bytes)
             objects[hash] = bytes
             return hash
         }
 
         func reference(_ ref: ContentRef?) -> String {
             switch ref {
-            case let .inline(bytes)?: return store(file(bytes))
+            case let .inline(bytes)?: return store(bytes)
             case let .hash(hash, _, _)?:
                 if objects[hash] == nil { objects[hash] = .some(nil) }
                 return hash
-            case nil: return store(file(Data()))
+            case nil: return store(Data())
             }
         }
 
@@ -107,7 +101,7 @@ enum WorkingTreeWireCodec {
             }
             var entries: [(name: String, file: String?, directory: String?, tree: String?)] = []
             if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
-                entries.append(("_index.md", store(file(Data(source.utf8))), nil, nil))
+                entries.append(("_index.md", store(Data(source.utf8)), nil, nil))
             }
             let children = active.filter { WorkingTreeSemantics.parent(of: $0.path) == path }
                 .sorted { WorkingTreeSemantics.compareUTF8(WorkingTreeSemantics.name(of: $0.path), WorkingTreeSemantics.name(of: $1.path)) }
@@ -117,12 +111,12 @@ enum WorkingTreeWireCodec {
                 case .directory:
                     entries.append((name, nil, try buildDirectory(at: child.path), nil))
                     if child.directoryBodyPlacement == .siblingMarkdown, let source = child.source {
-                        entries.append((name + ".md", store(file(Data(source.utf8))), nil, nil))
+                        entries.append((name + ".md", store(Data(source.utf8)), nil, nil))
                     } else if let shadowed = child.shadowedSiblingMarkdownSource {
-                        entries.append((name + ".md", store(file(Data(shadowed.utf8))), nil, nil))
+                        entries.append((name + ".md", store(Data(shadowed.utf8)), nil, nil))
                     }
                 case .markdown:
-                    entries.append((name + ".md", store(file(Data((child.source ?? "").utf8))), nil, nil))
+                    entries.append((name + ".md", store(Data((child.source ?? "").utf8)), nil, nil))
                 case .file:
                     entries.append((name, reference(child.ref), nil, nil))
                 case .boundary:
