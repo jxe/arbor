@@ -1003,8 +1003,6 @@ public actor UpdateCoordinator {
             guard next.isDirectory else { continue }
             let bytes = try await workingTree.objectBytes(hash: next.hash)
             guard case let .directory(entries, _) = try WireObjectCodec.decode(bytes, kind: .directory) else { continue }
-            // An entry's kind is unknown until its object is seen; peek the
-            // overlay-held prefix rather than fetching a file to learn it is one.
             for entry in entries {
                 guard let hash = entry.hash else { continue }
                 pending.append((hash, entry.directory != nil))
