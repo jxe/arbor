@@ -80,11 +80,7 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
 
     public func save(_ credential: String, origin: URL) throws {
         guard !credential.isEmpty else { throw ArborWireValidationError.invalidValue("Credential is empty") }
-        try forget(origin: origin)
-        var query = baseQuery(origin: origin)
-        query[kSecValueData as String] = Data(credential.utf8)
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw OSStatusError(status) }
+        try store(Data(credential.utf8), query: baseQuery(origin: origin))
     }
 
     public func forget(origin: URL) throws {
@@ -189,10 +185,21 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
     }
 
     private func saveValue(_ value: String, account: String, service: String? = nil) throws {
-        try forgetValue(account: account, service: service)
-        var query = baseQuery(account: account, service: service)
-        query[kSecValueData as String] = Data(value.utf8)
-        let status = SecItemAdd(query as CFDictionary, nil)
+        try store(Data(value.utf8), query: baseQuery(account: account, service: service))
+    }
+
+    /// Add the item, or replace an existing item's data in place, so a failed
+    /// write never leaves the previous value deleted.
+    private func store(_ data: Data, query: [String: Any]) throws {
+        var item = query
+        item[kSecValueData as String] = data
+        var status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            var match = query
+            var attributes: [String: Any] = [kSecValueData as String: data]
+            attributes[kSecAttrAccessible as String] = match.removeValue(forKey: kSecAttrAccessible as String)
+            status = SecItemUpdate(match as CFDictionary, attributes as CFDictionary)
+        }
         guard status == errSecSuccess else { throw OSStatusError(status) }
     }
 

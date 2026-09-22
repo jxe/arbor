@@ -565,3 +565,18 @@ func emptyPolicyEditing() throws {
     #expect(review.after.contains("tr_notes:"))
     #expect(!review.after.contains("canonical:"))
 }
+
+@Test("Keychain saves replace an existing credential in place")
+func keychainSavesReplaceInPlace() async throws {
+    let store = KeychainDeviceCredentialStore(service: "org.nxhx.Arbor.test.\(UUID().uuidString)")
+    let origin = URL(string: "https://canopy.test")!
+    try await store.save("first", configurationTree: "tr_config")
+    try await store.save("second", configurationTree: "tr_config")
+    #expect(try await store.load(configurationTree: "tr_config") == "second")
+    try await store.save("first", origin: origin)
+    try await store.save("second", origin: origin)
+    #expect(try await store.load(origin: origin) == "second")
+    try await store.forget(configurationTree: "tr_config")
+    try await store.forget(origin: origin)
+    #expect(try await store.load(configurationTree: "tr_config") == nil)
+}
