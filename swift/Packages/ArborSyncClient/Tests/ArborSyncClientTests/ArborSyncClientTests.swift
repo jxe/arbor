@@ -209,6 +209,30 @@ final class ArborSyncClientTests: XCTestCase {
         XCTAssertEqual(request.query, "locator=arbor://example.test/~alice/notes/today")
     }
 
+    func testObservationStreamWaitsBeforeReconnectingAfterACleanClose() async throws {
+        let source = try Data(contentsOf: fixtures.appending(path: "events.sse"))
+        await URLProtocolStub.state.install { request, _ in
+            request.url?.path == "/v1/events" ? (200, source) : (404, Data(#"{"error":"not-found"}"#.utf8))
+        }
+        let client = ArborSyncRESTClient(
+            baseURL: URL(string: "http://127.0.0.1:4317")!,
+            session: stubSession()
+        )
+
+        // Dropping the stream at the end of this scope cancels its reconnect loop.
+        let snapshot = try await {
+            var observations = await client.observations(after: "start").makeAsyncIterator()
+            let event = try await observations.next()
+            XCTAssertEqual(event?.cursor, "11111111-1111-1111-1111-111111111111:5")
+            try await Task.sleep(for: .milliseconds(600))
+            return await URLProtocolStub.state.snapshot()
+        }()
+        XCTAssertGreaterThanOrEqual(snapshot.count, 2)
+        XCTAssertLessThanOrEqual(snapshot.count, 4)
+        XCTAssertEqual(snapshot.requests.first?.query, "after=start")
+        XCTAssertEqual(snapshot.requests.last?.query, "after=11111111-1111-1111-1111-111111111111:5")
+    }
+
     private func stubSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
