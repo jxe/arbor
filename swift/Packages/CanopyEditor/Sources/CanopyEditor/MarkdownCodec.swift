@@ -738,25 +738,40 @@ public enum ArborMarkdownCodec {
         return result
     }
 
+    /// The single replacement that turns `old` into exactly `new`. The common
+    /// prefix and suffix are found on UTF-8 bytes, then each split point backs
+    /// up to an offset that is a Character boundary in both strings, so an edit
+    /// never divides a grapheme cluster.
     private static func minimalEdit(from old: String, to new: String) -> WorkspaceSourceEdit? {
-        guard old != new else { return nil }
-        let oldCharacters = Array(old)
-        let newCharacters = Array(new)
+        let oldBytes = old.utf8, newBytes = new.utf8
+        guard !oldBytes.elementsEqual(newBytes) else { return nil }
+        let oldCount = oldBytes.count, newCount = newBytes.count
         var prefix = 0
-        while prefix < oldCharacters.count, prefix < newCharacters.count, oldCharacters[prefix] == newCharacters[prefix] { prefix += 1 }
+        for (lhs, rhs) in zip(oldBytes, newBytes) {
+            guard lhs == rhs else { break }
+            prefix += 1
+        }
+        while !isCharacterBoundary(prefix, in: old) || !isCharacterBoundary(prefix, in: new) { prefix -= 1 }
+        let suffixLimit = min(oldCount, newCount) - prefix
         var suffix = 0
-        while suffix < oldCharacters.count - prefix,
-              suffix < newCharacters.count - prefix,
-              oldCharacters[oldCharacters.count - suffix - 1] == newCharacters[newCharacters.count - suffix - 1] { suffix += 1 }
-        let oldPrefix = String(oldCharacters[..<prefix])
-        let oldMiddle = String(oldCharacters[prefix..<(oldCharacters.count - suffix)])
-        let newMiddle = String(newCharacters[prefix..<(newCharacters.count - suffix)])
-        let start = oldPrefix.utf8.count
+        for (lhs, rhs) in zip(oldBytes.reversed(), newBytes.reversed()) {
+            guard suffix < suffixLimit, lhs == rhs else { break }
+            suffix += 1
+        }
+        while !isCharacterBoundary(oldCount - suffix, in: old) || !isCharacterBoundary(newCount - suffix, in: new) { suffix -= 1 }
+        let oldStart = oldBytes.index(oldBytes.startIndex, offsetBy: prefix)
+        let oldEnd = oldBytes.index(oldBytes.startIndex, offsetBy: oldCount - suffix)
+        let newStart = newBytes.index(newBytes.startIndex, offsetBy: prefix)
+        let newEnd = newBytes.index(newBytes.startIndex, offsetBy: newCount - suffix)
         return WorkspaceSourceEdit(
-            utf8Range: start..<(start + oldMiddle.utf8.count),
-            replacement: newMiddle,
-            expected: oldMiddle
+            utf8Range: prefix..<(oldCount - suffix),
+            replacement: String(new[newStart..<newEnd]),
+            expected: String(old[oldStart..<oldEnd])
         )
+    }
+
+    private static func isCharacterBoundary(_ utf8Offset: Int, in value: String) -> Bool {
+        value.utf8.index(value.utf8.startIndex, offsetBy: utf8Offset).samePosition(in: value) != nil
     }
 
     private static func stableID(seed: String, ordinal: Int) -> BlockID {

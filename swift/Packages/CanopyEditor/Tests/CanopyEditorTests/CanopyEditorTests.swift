@@ -68,6 +68,25 @@ struct CanopyEditorTests {
         #expect(try admission.patch.applying(to: source) == admission.source)
     }
 
+    @Test("Source patches are byte-exact and never split a grapheme cluster")
+    func graphemeSafePatch() throws {
+        // Adding a combining accent or a skin-tone modifier changes the last
+        // shared cluster, so the edit starts at that cluster, not mid-way.
+        let accent = ArborMarkdownCodec.patch(from: "cafe\n", to: "cafe\u{301}\n", revision: "r1")
+        #expect(accent.edits.map(\.utf8Range) == [3..<4])
+        #expect(accent.edits.map(\.expected) == ["e"])
+        #expect(accent.edits.map(\.replacement) == ["e\u{301}"])
+        let emoji = ArborMarkdownCodec.patch(from: "👍 ok 👍\n", to: "👍 ok 👍🏽\n", revision: "r1")
+        #expect(emoji.edits.map(\.utf8Range) == [8..<12])
+        #expect(try emoji.applying(to: "👍 ok 👍\n") == "👍 ok 👍🏽\n")
+        // Canonically equivalent spellings are still different bytes.
+        let precomposed = "caf\u{E9}\n", decomposed = "cafe\u{301}\n"
+        let respelled = ArborMarkdownCodec.patch(from: precomposed, to: decomposed, revision: "r1")
+        #expect(respelled.edits.count == 1)
+        #expect(try respelled.applying(to: precomposed).utf8.elementsEqual(decomposed.utf8))
+        #expect(ArborMarkdownCodec.patch(from: decomposed, to: decomposed, revision: "r1").edits.isEmpty)
+    }
+
     @Test("First edit after frontmatter keeps one envelope and unique rebased BlockIDs")
     func firstEditAfterFrontmatter() throws {
         let source = """
