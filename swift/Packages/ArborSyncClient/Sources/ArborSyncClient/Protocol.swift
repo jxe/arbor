@@ -180,6 +180,7 @@ public struct WorkspaceEvent: Codable, Sendable, Equatable {
     public var change: WorkspaceChange
 }
 
+/// A daemon error body. The wire names the code `error`.
 public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
     public var code: String
     public var message: String
@@ -187,6 +188,10 @@ public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
     public var tree: String?
     public var path: String?
     public var details: JSONValue?
+
+    private enum CodingKeys: String, CodingKey {
+        case code = "error", message, retryable, tree, path, details
+    }
 
     public init(
         code: String,
@@ -202,26 +207,6 @@ public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
         self.tree = tree
         self.path = path
         self.details = details
-    }
-}
-
-public struct ArborSyncErrorEnvelope: Codable, Sendable, Equatable {
-    public var error: String
-    public var message: String
-    public var retryable: Bool
-    public var tree: String? = nil
-    public var path: String? = nil
-    public var details: JSONValue? = nil
-
-    public var value: ArborSyncErrorValue {
-        ArborSyncErrorValue(
-            code: error,
-            message: message,
-            retryable: retryable,
-            tree: tree,
-            path: path,
-            details: details
-        )
     }
 }
 

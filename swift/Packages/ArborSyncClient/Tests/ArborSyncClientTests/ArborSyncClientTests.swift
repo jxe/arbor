@@ -33,8 +33,8 @@ final class ArborSyncClientTests: XCTestCase {
 
     func testSharedFixturesDecodeWithoutAppDependencies() throws {
         let status = try decode(ArborSyncStatus.self, "status.json")
-        let error = try decode(ArborSyncErrorEnvelope.self, "error.json")
-        let errors = try decode([ArborSyncErrorEnvelope].self, "errors.json")
+        let error = try decode(ArborSyncErrorValue.self, "error.json")
+        let errors = try decode([ArborSyncErrorValue].self, "errors.json")
         let conflict = try decode(ArborSyncConflictWorkspace.self, "conflict-workspace.json")
         let credential = try decode(TreeCredential.self, "credential.json")
         let cursors = try XCTUnwrap(JSONSerialization.jsonObject(
@@ -49,8 +49,8 @@ final class ArborSyncClientTests: XCTestCase {
 
         XCTAssertEqual(status.instanceID, "instance-fixture-01")
         XCTAssertEqual(status.runtimeKind, "cloud")
-        XCTAssertEqual(error.error, "future-error-code")
-        XCTAssertEqual(errors.last?.error, "future-error-code")
+        XCTAssertEqual(error.code, "future-error-code")
+        XCTAssertEqual(errors.last?.code, "future-error-code")
         XCTAssertEqual(conflict.items.first?.draft.text, "both\n")
         XCTAssertEqual(conflict.items.first?.offersBoth, true)
         XCTAssertFalse(credential.token.isEmpty)

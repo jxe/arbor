@@ -257,8 +257,7 @@ public actor ArborSyncRESTClient {
                         if status >= 400 {
                             var data = Data()
                             for try await byte in bytes { data.append(byte) }
-                            let envelope = try decoder.decode(ArborSyncErrorEnvelope.self, from: data)
-                            throw ArborSyncServerError(status: status, value: envelope.value)
+                            throw ArborSyncServerError(status: status, value: try decoder.decode(ArborSyncErrorValue.self, from: data))
                         }
                         reconnectAttempt = 0
                         var parser = ArborSSEParser()
@@ -331,13 +330,13 @@ public actor ArborSyncRESTClient {
 
     private func validate(data: Data, status: Int) throws {
         guard status >= 400 else { return }
-        let envelope = (try? decoder.decode(ArborSyncErrorEnvelope.self, from: data))
-            ?? ArborSyncErrorEnvelope(
-                error: "internal-error",
+        let value = (try? decoder.decode(ArborSyncErrorValue.self, from: data))
+            ?? ArborSyncErrorValue(
+                code: "internal-error",
                 message: HTTPURLResponse.localizedString(forStatusCode: status),
                 retryable: false
             )
-        throw ArborSyncServerError(status: status, value: envelope.value)
+        throw ArborSyncServerError(status: status, value: value)
     }
 
     private func statusCode(_ response: URLResponse) throws -> Int {
