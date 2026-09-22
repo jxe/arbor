@@ -472,29 +472,35 @@ public actor UpdateCoordinator {
     }
 
     private func persistHead() async throws {
-        let heads = try await workingTree.heads()
-        guard heads.pendingRoot != nil else { return }
-        let base = try currentBase(heads: heads)
-        let candidate = try await candidateObjects(base: base.root)
-        // Another page can advance the shared tree while its objects are read.
-        // Persist the latest complete generation rather than acknowledging an
-        // older callback without retaining either generation.
-        guard candidate.root == heads.materializedRoot,
-              try await workingTree.heads().generation == heads.generation,
-              try currentBase(heads: heads) == base else {
-            try await persistHead()
-            return
+        var heads = try await workingTree.heads()
+        var base: WireUpdateBase
+        var candidate: (root: String, objects: [WireObjectEnvelope])
+        while true {
+            guard heads.pendingRoot != nil else { return }
+            base = try currentBase(heads: heads)
+            candidate = try await candidateObjects(base: base.root)
+            // Another page can advance the shared tree while its objects are read.
+            // Persist the latest complete generation rather than acknowledging an
+            // older callback without retaining either generation.
+            let latest = try await workingTree.heads()
+            if candidate.root == heads.materializedRoot, latest.generation == heads.generation,
+               try currentBase(heads: heads) == base { break }
+            heads = latest
         }
         let root = candidate.root
         var envelopes = candidate.objects
         guard control.head?.root != root || control.head?.base != base else { return }
+        // Spill the largest objects beside the control file until the rest fit inline.
         var spilled: [String] = []
-        if envelopes.reduce(0, { $0 + $1.bytes.count }) > UpdateHead.inlineByteCap {
-            for envelope in envelopes.sorted(by: { $0.bytes.count > $1.bytes.count }) {
+        var inlineBytes = envelopes.reduce(0) { $0 + $1.bytes.count }
+        if inlineBytes > UpdateHead.inlineByteCap {
+            for envelope in envelopes.sorted(by: { $0.bytes.count > $1.bytes.count }) where inlineBytes > UpdateHead.inlineByteCap {
                 try files.writeObject(envelope)
                 spilled.append(envelope.hash)
+                inlineBytes -= envelope.bytes.count
             }
-            envelopes.removeAll { spilled.contains($0.hash) }
+            let spilledHashes = Set(spilled)
+            envelopes.removeAll { spilledHashes.contains($0.hash) }
         }
         var retained = control
         retained.head = UpdateHead(
