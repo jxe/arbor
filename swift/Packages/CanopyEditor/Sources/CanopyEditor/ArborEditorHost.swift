@@ -96,6 +96,29 @@ public enum ArborDocumentReferenceCodec {
     }
 }
 
+/// Parse the session's current source, let `change` rewrite its blocks, and
+/// admit and flush the result against that exact snapshot.
+@MainActor
+@discardableResult
+func admitBlockEdit(
+    in session: any WorkspaceDocumentSession,
+    foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:],
+    _ change: (inout [Block]) -> Void
+) async throws -> WorkspaceDocumentSnapshot {
+    let snapshot = try await session.snapshot()
+    let opened = ArborMarkdownCodec.open(
+        source: snapshot.source,
+        revision: snapshot.contentRevision,
+        identitySeed: String(describing: snapshot.reference.identity)
+    )
+    var blocks = opened.blocks
+    change(&blocks)
+    let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger, foreignCopies: foreignCopies)
+    let confirmed = try await session.admit(patch: admission.patch)
+    try await session.flush()
+    return confirmed
+}
+
 @MainActor
 @Observable
 public final class ArborEditorHost: EditorHost {
@@ -261,36 +284,23 @@ public final class ArborEditorHost: EditorHost {
         do {
             let node = try await provider.resolve(decoded)
             guard node.isWritable, node.surface.supportsDocumentSession else { return false }
-            let session = try await provider.openDocument(node.reference)
-            do {
-                let snapshot = try await session.snapshot()
-                let opened = ArborMarkdownCodec.open(
-                    source: snapshot.source,
-                    revision: snapshot.contentRevision,
-                    identitySeed: String(describing: snapshot.reference.identity)
-                )
-                var blocks = opened.blocks
-                let title: String
-                if let titleIndex = blocks.firstIndex(where: { block in
-                    if case .heading(.h1, _) = block.kind { return true }
-                    return false
-                }), case .heading(.h1, let titleText) = blocks[titleIndex].kind {
-                    title = pageTitle(String(titleText.characters), settingEmoji: emoji)
-                    blocks[titleIndex].kind = .heading(level: .h1, text: AttributedString(title))
-                } else {
-                    title = pageTitle(node.title, settingEmoji: emoji)
-                    blocks = [.heading(level: .h1, text: AttributedString(title), children: blocks)]
+            var title = ""
+            _ = try await withDocumentSession(node.reference) { session in
+                try await admitBlockEdit(in: session) { blocks in
+                    if let titleIndex = blocks.firstIndex(where: { block in
+                        if case .heading(.h1, _) = block.kind { return true }
+                        return false
+                    }), case .heading(.h1, let titleText) = blocks[titleIndex].kind {
+                        title = pageTitle(String(titleText.characters), settingEmoji: emoji)
+                        blocks[titleIndex].kind = .heading(level: .h1, text: AttributedString(title))
+                    } else {
+                        title = pageTitle(node.title, settingEmoji: emoji)
+                        blocks = [.heading(level: .h1, text: AttributedString(title), children: blocks)]
+                    }
                 }
-                let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
-                _ = try await session.admit(patch: admission.patch)
-                try await session.flush()
-                await session.close()
-                lookups[reference] = .present(.init(title: title, capabilities: documentCapabilities(for: node)))
-                return true
-            } catch {
-                await session.close()
-                throw error
             }
+            lookups[reference] = .present(.init(title: title, capabilities: documentCapabilities(for: node)))
+            return true
         } catch {
             errorAction("Couldn't set the page icon: \(error.localizedDescription)")
             return false
@@ -512,19 +522,12 @@ public final class ArborEditorHost: EditorHost {
             return ArborDocumentReferenceCodec.encode(node.reference)
         }
         do {
-            let session = try await provider.openDocument(node.reference)
-            do {
-                let snapshot = try await session.snapshot()
-                await session.close()
-                guard snapshot.reference.stableKey != nil else {
-                    errorAction("Failed to create a durable page link: the workspace returned no identity")
-                    return nil
-                }
-                return ArborDocumentReferenceCodec.encode(snapshot.reference)
-            } catch {
-                await session.close()
-                throw error
+            let snapshot = try await withDocumentSession(node.reference) { try await $0.snapshot() }
+            guard snapshot.reference.stableKey != nil else {
+                errorAction("Failed to create a durable page link: the workspace returned no identity")
+                return nil
             }
+            return ArborDocumentReferenceCodec.encode(snapshot.reference)
         } catch {
             errorAction("Failed to create a durable page link: \(error.localizedDescription)")
             return nil
@@ -561,9 +564,7 @@ public final class ArborEditorHost: EditorHost {
 
     public func loadDocumentBlocks(_ reference: DocumentReference) async -> [Block]? {
         guard let decoded = workspaceReference(for: reference),
-              let session = try? await provider.openDocument(decoded),
-              let snapshot = try? await session.snapshot() else { return nil }
-        await session.close()
+              let snapshot = try? await withDocumentSession(decoded, { try await $0.snapshot() }) else { return nil }
         return ArborMarkdownCodec.parseBlocks(snapshot.source, identitySeed: String(describing: snapshot.reference.identity))
     }
 
@@ -588,28 +589,21 @@ public final class ArborEditorHost: EditorHost {
                 return await appendToDocument(reference, blocks.map { $0.withFreshIDs() })
             }
             guard origin.source == ledger.source else { return false }
-            let session = try await provider.openDocument(destination)
-            do {
-                let snapshot = try await session.snapshot()
-                let opened = ArborMarkdownCodec.open(source: snapshot.source, revision: snapshot.contentRevision, identitySeed: String(describing: snapshot.reference.identity))
-                let copies = blocks.map { $0.withFreshIDs() }
-                var mapping: [BlockID: BlockID] = [:]
-                func map(_ source: Block, _ copy: Block) {
-                    mapping[copy.id] = source.id
-                    for (a, b) in zip(source.children, copy.children) { map(a, b) }
-                }
-                for (a, b) in zip(blocks, copies) { map(a, b) }
-                var foreign: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]
-                for (id, sourceID) in mapping {
-                    if let record = ledger.records[sourceID] { foreign[id] = (record, origin) }
-                }
-                let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks + copies,
-                    ledger: opened.ledger, foreignCopies: foreign)
-                _ = try await session.admit(patch: admission.patch)
-                try await session.flush()
-                await session.close()
-                return true
-            } catch { await session.close(); throw error }
+            let copies = blocks.map { $0.withFreshIDs() }
+            var mapping: [BlockID: BlockID] = [:]
+            func map(_ source: Block, _ copy: Block) {
+                mapping[copy.id] = source.id
+                for (a, b) in zip(source.children, copy.children) { map(a, b) }
+            }
+            for (a, b) in zip(blocks, copies) { map(a, b) }
+            var foreign: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]
+            for (id, sourceID) in mapping {
+                if let record = ledger.records[sourceID] { foreign[id] = (record, origin) }
+            }
+            _ = try await withDocumentSession(destination) { session in
+                try await admitBlockEdit(in: session, foreignCopies: foreign) { $0 += copies }
+            }
+            return true
         } catch {
             errorAction("Couldn't copy blocks: \(error.localizedDescription)")
             return false
@@ -617,23 +611,30 @@ public final class ArborEditorHost: EditorHost {
     }
 
     public func appendToDocument(_ reference: DocumentReference, _ blocks: [Block]) async -> Bool {
-        guard let decoded = workspaceReference(for: reference),
-              let session = try? await provider.openDocument(decoded),
-              let snapshot = try? await session.snapshot() else { return false }
-        let opened = ArborMarkdownCodec.open(
-            source: snapshot.source,
-            revision: snapshot.contentRevision,
-            identitySeed: String(describing: snapshot.reference.identity)
-        )
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks + blocks, ledger: opened.ledger)
+        guard let decoded = workspaceReference(for: reference) else { return false }
         do {
-            _ = try await session.admit(patch: admission.patch)
-            try await session.flush()
-            await session.close()
+            _ = try await withDocumentSession(decoded) { session in
+                try await admitBlockEdit(in: session) { $0 += blocks }
+            }
             return true
         } catch {
-            await session.close()
             return false
+        }
+    }
+
+    /// Open a provider session for one operation and always close it.
+    private func withDocumentSession<T>(
+        _ reference: WorkspaceReference,
+        _ body: (any WorkspaceDocumentSession) async throws -> T
+    ) async throws -> T {
+        let session = try await provider.openDocument(reference)
+        do {
+            let value = try await body(session)
+            await session.close()
+            return value
+        } catch {
+            await session.close()
+            throw error
         }
     }
 

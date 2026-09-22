@@ -217,17 +217,7 @@ public final class ArborEditorWorkspace {
         let reference = WorkspaceReference(tree: tree, path: "/", stableKey: stableKey)
         let lease = try await coordinator.leaseDocument(reference)
         do {
-            let snapshot = try await lease.session.snapshot()
-            let opened = ArborMarkdownCodec.open(
-                source: snapshot.source,
-                revision: snapshot.contentRevision,
-                identitySeed: String(describing: snapshot.reference.identity)
-            )
-            var blocks = opened.blocks
-            Self.appendTranscript(block, to: &blocks)
-            let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
-            let confirmed = try await lease.session.admit(patch: admission.patch)
-            try await lease.session.flush()
+            let confirmed = try await admitBlockEdit(in: lease.session) { Self.appendTranscript(block, to: &$0) }
             if let binding = entries.values.lazy.map(\.binding).first(where: {
                 $0.reference.tree == tree && $0.reference.stableKey == stableKey
             }) {
