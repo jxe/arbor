@@ -1793,12 +1793,22 @@ struct ArborRootView: View {
 
     private var canRenameCurrentPage: Bool {
 #if os(macOS)
-        model.node?.isWritable == true
-            && model.currentReference.path != "/"
-            && !model.currentReference.path.hasPrefix("/Trash/")
+        currentPageIsMovable
 #else
         false
 #endif
+    }
+
+    /// A writable page other than the tree root and outside Trash: one that
+    /// can be renamed, moved, or trashed.
+    private var currentPageIsMovable: Bool {
+        model.node?.isWritable == true
+            && model.currentReference.path != "/"
+            && !currentPageIsInTrash
+    }
+
+    private var currentPageIsInTrash: Bool {
+        model.currentReference.path.hasPrefix("/Trash/")
     }
 
     private var recordingErrorBinding: Binding<Bool> {
@@ -1959,16 +1969,10 @@ struct ArborRootView: View {
             ),
             canShare: model.node != nil,
             canRevealPageInFinder: revealablePageURL != nil,
-            canMovePage: model.node?.isWritable == true
-                && model.binding != nil
-                && model.currentReference.path != "/"
-                && !model.currentReference.path.hasPrefix("/Trash/"),
+            canMovePage: currentPageIsMovable && model.binding != nil,
             canRenamePage: canRenameCurrentPage,
-            canMovePageToTrash: model.node?.isWritable == true
-                && model.currentReference.path != "/"
-                && !model.currentReference.path.hasPrefix("/Trash/"),
-            canRestorePage: model.node?.isWritable == true
-                && model.currentReference.path.hasPrefix("/Trash/")
+            canMovePageToTrash: currentPageIsMovable,
+            canRestorePage: model.node?.isWritable == true && currentPageIsInTrash
         )
     }
 
