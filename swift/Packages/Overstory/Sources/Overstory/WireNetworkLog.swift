@@ -54,7 +54,7 @@ public struct WireNetworkLogEntry: Codable, Sendable, Identifiable, Equatable {
 
 /// Append-only client network log: a bounded in-memory window plus one JSON
 /// Lines file per day under `directory`. Recording never throws and never
-/// blocks callers on disk I/O beyond a serialized append.
+/// blocks callers on disk I/O: appends run in order on a private serial queue.
 public final class WireNetworkLog: @unchecked Sendable {
     /// The process-wide log the wire client records to when the host installs one.
     public static let shared = OSAllocatedUnfairLock<WireNetworkLog?>(initialState: nil)
@@ -73,14 +73,19 @@ public final class WireNetworkLog: @unchecked Sendable {
         encoder.dateEncodingStrategy = .iso8601
         return encoder
     }()
+    /// Serializes every file operation; `file` is only touched on this queue.
+    private let writer = DispatchQueue(label: "org.nxhx.Arbor.network-log")
+    private var file = FileState()
 
     private struct Sent { var sentAt: Date; var respondedAt: Date? }
     private struct State {
         var entries: [WireNetworkLogEntry] = []
         var sent: [String: Sent] = [:]
         var sentOrder: [String] = []
+    }
+    private struct FileState {
         var handle: FileHandle?
-        var handleDay: String?
+        var day: String?
         var writtenBytes = 0
     }
 
@@ -99,34 +104,44 @@ public final class WireNetworkLog: @unchecked Sendable {
     public func entries() -> [WireNetworkLogEntry] { state.withLock { $0.entries } }
 
     public func clear() {
-        state.withLock { state in
-            state.entries.removeAll()
-            state.handle?.closeFile()
-            state.handle = nil
-            state.handleDay = nil
-            state.writtenBytes = 0
+        state.withLock { $0.entries.removeAll() }
+        writer.sync {
+            try? file.handle?.close()
+            file = FileState()
+            try? FileManager.default.removeItem(at: fileURL)
         }
-        try? FileManager.default.removeItem(at: fileURL)
     }
 
     public func record(_ entry: WireNetworkLogEntry) {
-        let line = (try? encoder.encode(entry)).flatMap { String(data: $0, encoding: .utf8) }
         state.withLock { state in
             state.entries.append(entry)
             if state.entries.count > capacity { state.entries.removeFirst(state.entries.count - capacity) }
-            guard let line else { return }
-            let day = Self.day(entry.at)
-            if state.handleDay != day || state.handle == nil {
-                state.handle?.closeFile()
-                let url = Self.fileURL(directory: directory, day: day)
-                if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
-                state.handle = try? FileHandle(forWritingTo: url)
-                state.handleDay = day
-                state.writtenBytes = Int((try? state.handle?.seekToEnd()) ?? 0)
-            }
-            guard state.writtenBytes < maximumFileBytes, let data = (line + "\n").data(using: .utf8) else { return }
-            state.handle?.write(data)
-            state.writtenBytes += data.count
+        }
+        guard let line = try? encoder.encode(entry) else { return }
+        let day = Self.day(entry.at)
+        writer.async { self.append(line + Data("\n".utf8), day: day) }
+    }
+
+    /// Wait until every entry recorded so far has been written.
+    func flush() { writer.sync {} }
+
+    private func append(_ data: Data, day: String) {
+        if file.day != day || file.handle == nil {
+            try? file.handle?.close()
+            let url = Self.fileURL(directory: directory, day: day)
+            if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
+            file.handle = try? FileHandle(forWritingTo: url)
+            file.day = day
+            file.writtenBytes = Int((try? file.handle?.seekToEnd()) ?? 0)
+        }
+        guard let handle = file.handle, file.writtenBytes < maximumFileBytes else { return }
+        do {
+            try handle.write(contentsOf: data)
+            file.writtenBytes += data.count
+        } catch {
+            // A failed append (for example a full disk) drops this entry; the next reopens the file.
+            try? handle.close()
+            file.handle = nil
         }
     }
 
@@ -200,14 +215,9 @@ public final class WireNetworkLog: @unchecked Sendable {
         }.joined(separator: "\n")
     }
 
-    private static func day(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .iso8601)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
-    }
+    private static let dayFormat = Date.ISO8601FormatStyle(timeZone: .gmt).year().month().day()
+
+    private static func day(_ date: Date) -> String { date.formatted(dayFormat) }
 
     private static func fileURL(directory: URL, day: String) -> URL {
         directory.appending(path: "network-\(day).jsonl")
