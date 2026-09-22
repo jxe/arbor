@@ -18,9 +18,7 @@ actor DirectoryStore {
     init(url: URL = ArborSupportDirectories.directory) { self.url = url }
 
     nonisolated static func load(at url: URL = ArborSupportDirectories.directory) throws -> [DirectoryPerson] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        let document = try JSONDecoder.directory.decode(DirectoryCacheDocument.self, from: Data(contentsOf: url))
-        guard document.version == 1 else { throw ArborWireValidationError.invalidValue("Unsupported directory cache") }
+        let document = try Self.document(at: url)
         let people = document.origins.reduce(into: [DirectoryPerson]()) { result, pair in
             guard let origin = URL(string: pair.key) else { return }
             result.append(contentsOf: pair.value.entries.map { DirectoryPerson(origin: origin, entry: $0) })
@@ -42,6 +40,10 @@ actor DirectoryStore {
     func fetchedAt(origin: URL) throws -> Date? { try loadDocument().origins[origin.absoluteString]?.fetchedAt }
 
     private func loadDocument() throws -> DirectoryCacheDocument {
+        try Self.document(at: url)
+    }
+
+    private nonisolated static func document(at url: URL) throws -> DirectoryCacheDocument {
         guard FileManager.default.fileExists(atPath: url.path) else { return DirectoryCacheDocument(origins: [:]) }
         let document = try JSONDecoder.directory.decode(DirectoryCacheDocument.self, from: Data(contentsOf: url))
         guard document.version == 1 else { throw ArborWireValidationError.invalidValue("Unsupported directory cache") }
@@ -285,12 +287,17 @@ struct ArborProfileDocument: Equatable {
             guard matches.count <= 1 else {
                 throw ArborWireValidationError.invalidValue("The profile contains more than one \(name) field")
             }
+            var line: String?
+            if let value {
+                let quotedValue = try Self.quoted(value)
+                line = "\(name): \(quotedValue)"
+            }
             if let index = matches.first {
-                if let value { lines[index] = "\(name): \(Self.quoted(value))" }
+                if let line { lines[index] = line }
                 else { lines.remove(at: index) }
-            } else if let value {
+            } else if let line {
                 let insertion = (lines.firstIndex { $0.hasPrefix("type:") } ?? -1) + 1
-                lines.insert("\(name): \(Self.quoted(value))", at: insertion)
+                lines.insert(line, at: insertion)
             }
         }
 
@@ -302,7 +309,7 @@ struct ArborProfileDocument: Equatable {
             guard matches.count <= 1 else {
                 throw ArborWireValidationError.invalidValue("The profile contains more than one members field")
             }
-            let memberLines = Self.memberLines(profile: profile, handle: handle)
+            let memberLines = try Self.memberLines(profile: profile, handle: handle)
             guard let index = matches.first else {
                 lines.append("members:")
                 lines.append(contentsOf: memberLines)
@@ -325,17 +332,25 @@ struct ArborProfileDocument: Equatable {
             lines.insert(contentsOf: memberLines, at: insertion)
         }
 
-        private static func memberLines(profile: String, handle: String?) -> [String] {
-            var result = ["  - profile: \(quoted(profile))"]
-            if let handle, !handle.isEmpty { result.append("    handle: \(quoted(handle))") }
+        private static func memberLines(profile: String, handle: String?) throws -> [String] {
+            let quotedProfile = try quoted(profile)
+            var result = ["  - profile: \(quotedProfile)"]
+            if let handle, !handle.isEmpty {
+                let quotedHandle = try quoted(handle)
+                result.append("    handle: \(quotedHandle)")
+            }
             return result
         }
 
-        private static func quoted(_ value: String) -> String {
+        private static let scalarEncoder: JSONEncoder = {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.withoutEscapingSlashes]
-            let data = try! encoder.encode(value)
-            return String(data: data, encoding: .utf8)!
+            return encoder
+        }()
+
+        /// A double-quoted YAML scalar: JSON string syntax is valid YAML.
+        private static func quoted(_ value: String) throws -> String {
+            String(decoding: try scalarEncoder.encode(value), as: UTF8.self)
         }
     }
 }
