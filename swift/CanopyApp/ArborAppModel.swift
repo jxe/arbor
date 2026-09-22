@@ -1000,7 +1000,6 @@ final class ArborWorkspaceState {
         }
         let rootLocator = tree.canonicalPath.map { remote.locator(path: $0) } ?? remote.rootLocator
         try? await visitedTreeStore.record(VisitedTreeRecord(origin: remote.origin, tree: tree, locator: rootLocator))
-#if os(macOS)
         if tree.access == "write" {
             try await openWritableRemoteTree(
                 tree: tree,
@@ -1010,7 +1009,6 @@ final class ArborWorkspaceState {
             )
             return
         }
-#endif
         let snapshot = try await client.snapshot(tree: tree.id, root: tree.root)
         let workingTree = try await WorkingTree.inMemory(tree: treeID, platform: platform)
         try await workingTree.initializeFromSystem(try ArborVisitSnapshot.replacement(
@@ -1044,7 +1042,6 @@ final class ArborWorkspaceState {
         prefetchLocalArborSyncOverview()
     }
 
-#if os(macOS)
     private func openWritableRemoteTree(
         tree: WireTreeDescriptor,
         locator: String,
@@ -1082,7 +1079,6 @@ final class ArborWorkspaceState {
         startInitialSync(coordinator)
         prefetchLocalArborSyncOverview()
     }
-#endif
 
     private func noteVisitChanged(_ workingTree: WorkingTree) async {
         guard openVisitLocator != nil, let heads = try? await workingTree.heads() else { return }
@@ -1203,13 +1199,6 @@ final class ArborWorkspaceState {
             errorMessage = Self.bootstrapFailureMessage(error, processKind: arborsyncProcessKind)
             syncPresentation = WorkspaceSyncPresentation(state: .offline, detail: error.localizedDescription)
         }
-    }
-
-    static func bootstrapFailureMessage(_ error: Error, processKind: ArborSyncProcessKind?) -> String {
-        guard let diagnostic = ArborSaveDiagnostic.describe(error, processKind: processKind, context: .bootstrap) else {
-            return error.localizedDescription
-        }
-        return "\(diagnostic.bannerMessage) \(diagnostic.recovery)"
     }
 
     func arborsyncLogs() async -> String {
@@ -1404,14 +1393,6 @@ final class ArborWorkspaceState {
         }
     }
 
-    static func localOverviewEventRequiresRefresh(
-        tree: String,
-        origin: String,
-        configurationTree: String?
-    ) -> Bool {
-        tree == "system" || tree == configurationTree || origin == "sync"
-    }
-
     func createLocalArborSyncPairing(configurationTree: String? = nil) async throws -> LocalArborSyncPairingPresentation {
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
@@ -1485,7 +1466,6 @@ final class ArborWorkspaceState {
     }
 #endif
 
-#if os(iOS)
     static func bootstrapFailureMessage(_ error: Error, processKind: ArborSyncProcessKind?) -> String {
         guard let diagnostic = ArborSaveDiagnostic.describe(error, processKind: processKind, context: .bootstrap) else {
             return error.localizedDescription
@@ -1500,7 +1480,6 @@ final class ArborWorkspaceState {
     ) -> Bool {
         tree == "system" || tree == configurationTree || origin == "sync"
     }
-#endif
 
     func refreshDirectory(force: Bool = false) async {
         if let directoryRefreshTask {
