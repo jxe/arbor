@@ -48,6 +48,9 @@ public actor UpdateCoordinator {
     /// The conflict-review journal as last read or written by this coordinator,
     /// its only writer; nil until first read or after an uncertain write.
     private var reviewJournal: ConflictReviewJournal?
+    /// The latest base walked by `retainedObjectHashes`. A root names an
+    /// immutable graph, so its hash set never goes stale.
+    private var retainedByBase: (root: String, hashes: Set<String>)?
 
     public init(
         workingTree: WorkingTree,
@@ -992,6 +995,7 @@ public actor UpdateCoordinator {
     /// hashes are collected from directory entries without fetching file bytes;
     /// directories are always materialized locally, so this never fetches.
     private func retainedObjectHashes(root: String) async throws -> Set<String> {
+        if let retainedByBase, retainedByBase.root == root { return retainedByBase.hashes }
         var pending = [(hash: root, isDirectory: true)]
         var visited = Set<String>()
         while let next = pending.popLast() {
@@ -1006,6 +1010,7 @@ public actor UpdateCoordinator {
                 pending.append((hash, entry.directory != nil))
             }
         }
+        retainedByBase = (root, visited)
         return visited
     }
 
