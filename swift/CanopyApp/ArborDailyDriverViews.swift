@@ -13,7 +13,6 @@ enum ArborPresentedSheet: String, Identifiable {
     case history
     case arborsyncLogs
     case networkLog
-    case syncStatus
 
     var id: String { rawValue }
 }

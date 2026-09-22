@@ -2525,8 +2525,6 @@ struct ArborRootView: View {
             .frame(minWidth: 560, minHeight: 420)
         case .networkLog:
             ArborNetworkLogView()
-        case .syncStatus:
-            syncStatusPanel
         default:
             ArborMutationForm(mode: sheet, submit: submitMutation)
         }
