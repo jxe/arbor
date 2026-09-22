@@ -52,8 +52,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
 
     /// Digest of a captured intent, for exact-retry recognition without sources.
     public static func intentDigest(_ intent: WorkspaceDocumentIntent) -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return WireObjectCodec.hash((try? encoder.encode(intent)) ?? Data())
+        WireObjectCodec.hash((try? sortedKeysJSON(intent)) ?? Data())
     }
 
     /// The wire allows this many frames per element and this many operations
@@ -371,8 +370,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         if suffix > 0 { instructions.append(.copy(offset: base.count - suffix, length: suffix)) }
         guard !instructions.isEmpty, let delta = try? WireObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
               (try? delta.apply(to: base)) == target else { return nil }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        guard let encodedDelta = try? encoder.encode(delta), let encodedResult = try? encoder.encode(result), encodedDelta.count < encodedResult.count else { return nil }
+        guard let encodedDelta = try? sortedKeysJSON(delta), let encodedResult = try? sortedKeysJSON(result), encodedDelta.count < encodedResult.count else { return nil }
         return delta
     }
 
@@ -394,8 +392,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
         guard !instructions.isEmpty, let delta = try? WireObjectDelta(base: baseHash, result: result.hash, instructions: instructions).validated(),
               let baseObject = try? WireObjectCodec.encode(.file(base)),
               (try? delta.apply(to: baseObject)) == result.bytes else { return nil }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        guard let encodedDelta = try? encoder.encode(delta), let encodedResult = try? encoder.encode(result), encodedDelta.count < encodedResult.count else { return nil }
+        guard let encodedDelta = try? sortedKeysJSON(delta), let encodedResult = try? sortedKeysJSON(result), encodedDelta.count < encodedResult.count else { return nil }
         return delta
     }
 

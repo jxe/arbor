@@ -144,14 +144,12 @@ public actor UpdateCoordinator {
     ) throws -> UpdateAttempt {
         guard let last = request.updates.last else { throw UpdateError.requestEmpty }
         let digests = updateRequestDigests(tree: tree, base: base, updates: request.updates)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
         return UpdateAttempt(
             tree: tree,
             base: base,
             candidate: last.candidate,
             generation: generation,
-            body: try encoder.encode(request),
+            body: try sortedKeysJSON(request),
             requestDigests: digests,
             digest: digests.last!
         )
@@ -866,9 +864,7 @@ public actor UpdateCoordinator {
             delta = try WireObjectDelta(base: admission.baseFile, result: admission.resultFile, instructions: instructions).validated()
             guard try delta.apply(to: baseBytes) == reconstructed else { return skip("delta does not reproduce the result") }
         } catch { return skip("delta is invalid: \(error)") }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard try encoder.encode(delta).count < encoder.encode(resultEnvelope).count else { return skip("delta is not smaller than the file") }
+        guard try sortedKeysJSON(delta).count < sortedKeysJSON(resultEnvelope).count else { return skip("delta is not smaller than the file") }
         return delta
     }
 
@@ -1060,8 +1056,7 @@ public actor UpdateCoordinator {
 
     private func retainStructure(_ admission: StructuralAdmission) async throws -> WorkspaceNode {
         try requireOpen()
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let key = try encoder.encode(admission)
+        let key = try sortedKeysJSON(admission)
         guard try await sourceStructuralActionsAvailable() else { throw UpdateError.awaitingCanopyReconciliation }
         let prepared: (record: SourceAdmissionRecord, node: WorkspaceNode)
         if let previous = preparedStructures[key] { prepared = previous }
@@ -1311,9 +1306,8 @@ public actor UpdateCoordinator {
             catch { await tree.close(); throw error }
             await tree.close()
         }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         var document = captured.document
-        document.contentRevision = "source-candidate:" + (try encoder.encode(LocalSourceToken(change: record.change, reference: captured.document.reference))).base64EncodedString()
+        document.contentRevision = "source-candidate:" + (try sortedKeysJSON(LocalSourceToken(change: record.change, reference: captured.document.reference))).base64EncodedString()
         return CapturedSourceAdmissionBasis(document: document, graph: record.candidate, accepted: nil, sourcePath: captured.sourcePath)
     }
 
@@ -1332,8 +1326,7 @@ public actor UpdateCoordinator {
             return view.document
         }
         guard let accepted = captured.accepted else { throw ArborWireValidationError.invalidValue("Legacy local work has no source admission dependency") }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let token = "source-accepted:" + (try encoder.encode(SourceViewToken(base: accepted, reference: captured.document.reference, path: captured.sourcePath))).base64EncodedString()
+        let token = "source-accepted:" + (try sortedKeysJSON(SourceViewToken(base: accepted, reference: captured.document.reference, path: captured.sourcePath))).base64EncodedString()
         var document = captured.document; document.contentRevision = token
         sourceViews[token] = CapturedSourceAdmissionBasis(document: document, graph: captured.graph, accepted: accepted, sourcePath: captured.sourcePath)
         return document
@@ -1413,8 +1406,7 @@ public actor UpdateCoordinator {
         try requireOpen()
         try intent.validate()
         let queue = try await admissions()
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let intentBytes = try encoder.encode(intent)
+        let intentBytes = try sortedKeysJSON(intent)
         // Exact retries reuse the retained identity: the record remembers a
         // digest of the captured intent rather than the intent's sources.
         let digest = SourceAdmissionRecord.intentDigest(intent)

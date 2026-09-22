@@ -42,9 +42,7 @@ struct UpdateControlFiles: Sendable {
     }
 
     func writeSourceAdmissions<T: Encodable>(_ value: T) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        try atomicWrite(try encoder.encode(value), to: sourceAdmissionsURL)
+        try atomicWrite(try sortedKeysJSON(value), to: sourceAdmissionsURL)
         // Persist a newly created sync directory as well as its journal entry.
         let parent = Darwin.open(directory.deletingLastPathComponent().path, O_RDONLY)
         guard parent >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
@@ -64,11 +62,9 @@ struct UpdateControlFiles: Sendable {
     }
 
     func write(_ control: UpdateControl) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
         var value = control
         value.schema = UpdateControl.currentSchema
-        try atomicWrite(try encoder.encode(value), to: controlURL)
+        try atomicWrite(try sortedKeysJSON(value), to: controlURL)
         // Retain scheduling/persistence evidence after successful requests have
         // cleared the live control. Never put authored source or credentials in
         // this diagnostic stream; editor recovery holds the exact source.

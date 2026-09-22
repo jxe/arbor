@@ -178,8 +178,7 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
         return issues
     }
     public func fingerprint() throws -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return WireObjectCodec.hash(try encoder.encode(self))
+        WireObjectCodec.hash(try sortedKeysJSON(self))
     }
     /// The same draft pinned to `current`, when the accepted state moved but
     /// the draft's group and every decision in it (alternatives, hashes,
@@ -254,9 +253,8 @@ extension UpdateControlFiles {
         return journal
     }
     func writeReview(_ journal: ConflictReviewJournal) throws {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         var next = journal; next.schema = 2
-        try atomicWrite(encoder.encode(next), to: directory.appending(path: "conflict-review.json"))
+        try atomicWrite(sortedKeysJSON(next), to: directory.appending(path: "conflict-review.json"))
     }
 }
 
