@@ -20,7 +20,7 @@ enum ConflictReviewCompiler {
         }
         func parts(_ path: String) throws -> [String] {
             let parts = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard path.hasPrefix("/"), path != "/", parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") }) else {
+            guard path.hasPrefix("/"), path != "/", parts.allSatisfy(WireGraph.isPathComponent) else {
                 throw ConflictReviewProposalError("Choose a valid absolute destination within this tree.")
             }
             return parts
@@ -197,16 +197,7 @@ enum ConflictReviewCompiler {
             }
         }
         try compare(.init(name: "", directory: base.root), .init(name: "", directory: root), path: "/")
-        var reachable = Set<String>()
-        func visit(_ hash: String, kind: WireEntryKind) throws {
-            guard reachable.insert(hash).inserted else { return }
-            guard let bytes = objects[hash] else { throw ConflictReviewError.unavailable }
-            if kind == .directory, case let .directory(children, _) = try WireObjectCodec.decode(bytes, kind: kind) {
-                for child in children { if let hash = child.hash, let kind = child.kind { try visit(hash, kind: kind) } }
-            }
-        }
-        try visit(root, kind: .directory)
-        let candidate = WireSnapshot(root: root, objects: reachable.sorted().map { .init(hash: $0, bytes: objects[$0]!) })
+        let candidate = try WireGraph.reachable(from: root, in: objects) { _, _ in throw ConflictReviewError.unavailable }
         _ = try WireObjectGraph.validate(candidate)
         return .init(fingerprint: try draft.fingerprint(), changes: changes, candidate: candidate, operations: onlyRanges ? rangeOperations : nil)
     }

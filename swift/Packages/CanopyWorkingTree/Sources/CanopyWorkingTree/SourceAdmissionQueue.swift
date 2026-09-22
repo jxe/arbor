@@ -104,7 +104,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             }
         }
         guard sourcePath.hasPrefix("/"), !parts.isEmpty,
-              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") && Data($0.utf8) == Data($0.precomposedStringWithCanonicalMapping.utf8) }),
+              parts.allSatisfy(WireGraph.isPathComponent),
               !generations.isEmpty else { throw Self.invalid("Invalid source path or empty intent") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw Self.invalid("Duplicate basis object") }
         var decoded = try WireObjectGraph.validate(graph, mode: .sparseFiles)
@@ -154,7 +154,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
                 return .object(["kind":.string("basis"),"path":.string(sourcePath),"object":.string(file)])
             }
             let parts = document.path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard document.path.hasPrefix("/"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { throw Self.invalid("Invalid copy path") }
+            guard document.path.hasPrefix("/"), parts.allSatisfy(WireGraph.isPathComponent) else { throw Self.invalid("Invalid copy path") }
             // Other documents are untouched by this record, so their basis
             // object is the same in every frame's `before` tree.
             var hash = graph.root
@@ -236,15 +236,7 @@ public struct SourceAdmissionRecord: Codable, Equatable, Sendable {
             previousRoot = root; previousSource = generation.source
         }
         let root = previousRoot
-        var reachable = Set<String>()
-        func visit(_ hash: String, _ kind: WireEntryKind) throws {
-            guard reachable.insert(hash).inserted, let value = bytes[hash] else { return }
-            if case let .directory(entries, _) = try WireObjectCodec.decode(value, kind: kind) {
-                for entry in entries { if let child = entry.hash, let kind = entry.kind { try visit(child, kind) } }
-            }
-        }
-        try visit(root, .directory)
-        let candidate = WireSnapshot(root: root, objects: reachable.sorted().compactMap { hash in bytes[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } })
+        let candidate = try WireGraph.reachable(from: root, in: bytes)
         _ = try WireObjectGraph.validate(candidate, mode: .sparseFiles)
         if evidence, compact {
             // A compacted frame is proven against the generation sources it
