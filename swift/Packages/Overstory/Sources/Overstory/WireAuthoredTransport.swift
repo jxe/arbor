@@ -19,9 +19,6 @@ public struct WireAuthoredUpdateRequest: Codable, Sendable, Equatable {
             "updates": .array(updates.map { .object($0.intentFields) })
         ])
     }
-    public func identities(tree: String) throws -> [(bytes: Data, digest: String)] {
-        try intent().identities(tree: tree)
-    }
     private enum CodingKeys: String, CodingKey { case base, updates }
     public init(from decoder: Decoder) throws {
         try validateSemanticFields(decoder, allowed: ["base", "updates"])

@@ -567,10 +567,16 @@ public func updateRequestDigests(
 }
 
 public func updateRequestDigests(tree: String, base: String?, updates: [WireCandidateUpdate]) -> [String] {
+    updateRequestIdentities(tree: tree, base: base, updates: updates).map(\.digest)
+}
+
+/// Each update's canonical intent bytes and digest; every update after the
+/// first is based on its predecessor's digest and candidate.
+func updateRequestIdentities(tree: String, base: String?, updates: [WireCandidateUpdate]) -> [(bytes: Data, digest: String)] {
     var basis: CanonicalCBORValue = base.map(CanonicalCBORValue.text) ?? .null
-    var result: [String] = []
+    var result: [(bytes: Data, digest: String)] = []
     for update in updates {
-        let digest = canonicalCBORHash(canonicalUpdateIntent(
+        let bytes = canonicalUpdateIntent(
             tree: tree,
             base: basis,
             candidate: update.candidate,
@@ -578,8 +584,9 @@ public func updateRequestDigests(tree: String, base: String?, updates: [WireCand
             trace: update.trace,
             resolves: update.resolves,
             ifCurrent: update.ifCurrent
-        ))
-        result.append(digest)
+        )
+        let digest = canonicalCBORHash(bytes)
+        result.append((bytes, digest))
         basis = .map([
             ("requestDigest", .text(digest)),
             ("candidate", .text(update.candidate)),
