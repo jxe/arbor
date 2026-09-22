@@ -3937,7 +3937,7 @@ struct ArborIOSLaunchView: View {
             await loadAccounts()
             phase = .accounts
         } catch {
-            scanError = String(describing: error)
+            scanError = error.localizedDescription
             phase = .scanning
         }
     }
@@ -3947,7 +3947,7 @@ struct ArborIOSLaunchView: View {
             accounts = try await KeychainDeviceCredentialStore().accounts()
             scanError = nil
         } catch {
-            scanError = String(describing: error)
+            scanError = error.localizedDescription
         }
     }
 
@@ -3967,7 +3967,7 @@ struct ArborIOSLaunchView: View {
                 ($0.canonicalPath ?? $0.id) < ($1.canonicalPath ?? $1.id)
             }
         } catch {
-            treeError = String(describing: error)
+            treeError = error.localizedDescription
         }
     }
 
@@ -3980,7 +3980,7 @@ struct ArborIOSLaunchView: View {
             try await workspace.place(tree: tree, from: origin, configurationTree: selectedConfigurationTree)
             ready = true
         } catch {
-            treeError = String(describing: error)
+            treeError = error.localizedDescription
             phase = .choosing
         }
     }
@@ -4279,7 +4279,7 @@ private struct IOSAccountPanel: View {
             try await workspace.disconnectNativeAccount()
             dismiss()
             onDisconnect()
-        } catch { message = String(describing: error) }
+        } catch { message = error.localizedDescription }
     }
 }
 #endif
