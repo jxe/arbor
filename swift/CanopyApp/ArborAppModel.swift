@@ -148,6 +148,10 @@ final class ArborWorkspaceState {
     /// refresh finishing late never clears its replacement.
     private var overviewRefreshID = 0
     private var overviewWatchTask: Task<Void, Never>?
+    /// A refresh waiting out `overviewEventCoalescing`; events arriving
+    /// meanwhile share it.
+    private var overviewEventRefreshTask: Task<Void, Never>?
+    private static let overviewEventCoalescing: Duration = .milliseconds(150)
     private(set) var localArborSyncOverview: LocalArborSyncOverview?
     private(set) var localArborSyncOverviewIsRefreshing = false
     private(set) var localArborSyncOverviewError: String?
@@ -1179,6 +1183,8 @@ final class ArborWorkspaceState {
             overviewRefreshTask = nil
             overviewWatchTask?.cancel()
             overviewWatchTask = nil
+            overviewEventRefreshTask?.cancel()
+            overviewEventRefreshTask = nil
             if arborsyncClient != nil {
                 let runtime = try await supervisor.restartControl()
                 arborsyncClient = runtime.client
@@ -1373,9 +1379,7 @@ final class ArborWorkspaceState {
                         origin: event.change.origin,
                         configurationTree: self?.localArborSyncOverview?.configurationTree
                     ) else { continue }
-                    try await Task.sleep(for: .milliseconds(150))
-                    guard !Task.isCancelled else { return }
-                    await self?.refreshLocalArborSyncOverview()
+                    self?.scheduleLocalOverviewRefresh()
                 }
             } catch is CancellationError {
                 return
@@ -1390,6 +1394,16 @@ final class ArborWorkspaceState {
                 self?.localArborSyncOverviewError = error.localizedDescription
             }
             self?.overviewWatchTask = nil
+        }
+    }
+
+    private func scheduleLocalOverviewRefresh() {
+        guard overviewEventRefreshTask == nil else { return }
+        overviewEventRefreshTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: Self.overviewEventCoalescing) } catch { return }
+            guard let self else { return }
+            self.overviewEventRefreshTask = nil
+            await self.refreshLocalArborSyncOverview()
         }
     }
 
@@ -1709,6 +1723,8 @@ final class ArborWorkspaceState {
         overviewWatchTask?.cancel()
         overviewRefreshTask = nil
         overviewWatchTask = nil
+        overviewEventRefreshTask?.cancel()
+        overviewEventRefreshTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
         conflictReview = nil
