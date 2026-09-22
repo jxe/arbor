@@ -4401,7 +4401,7 @@ private struct ArborProfileWidget: View {
         if !isWritable { return "You can view this profile, but only an editor can change it." }
         if profile.kind == .person {
             if let description = profile.description, !description.isEmpty { return description }
-            return hasPersonalDetails
+            return profile.hasPersonalDetails
                 ? "Personal profile"
                 : "Add a display name, photo, and short description."
         }
@@ -4411,7 +4411,7 @@ private struct ArborProfileWidget: View {
     }
 
     private var actionTitle: String {
-        guard profile.kind == .group else { return hasPersonalDetails ? "Edit Profile…" : "Fill Out Profile…" }
+        guard profile.kind == .group else { return profile.hasPersonalDetails ? "Edit Profile…" : "Fill Out Profile…" }
         return workspace.isCommunityMembershipTree ? "Add Person…" : "Add Member…"
     }
 
@@ -4419,12 +4419,6 @@ private struct ArborProfileWidget: View {
         if profile.kind == .person, let name = profile.displayName, !name.isEmpty { return name }
         if profile.kind == .group, !pageTitle.isEmpty { return pageTitle }
         return profile.kind == .group ? "Group profile" : "Personal profile"
-    }
-
-    private var hasPersonalDetails: Bool {
-        profile.displayName?.isEmpty == false
-            || profile.description?.isEmpty == false
-            || profile.avatarPath != nil
     }
 }
 
@@ -4451,12 +4445,7 @@ private struct ArborProfileBannerAvatar: View {
             guard let avatarPath = profile.avatarPath else { image = nil; return }
             let path = "/" + avatarPath
             guard let data = try? await workspace.provider.readFile(.init(tree: reference.tree, path: path)),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 184,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                  ] as CFDictionary) else {
+                  let thumbnail = ArborAvatarImage.thumbnail(data, maxPixelSize: 184) else {
                 image = nil
                 return
             }
@@ -4500,7 +4489,7 @@ private struct ArborPersonalProfileSheet: View {
                 }
                 if let message { Section { Text(message).foregroundStyle(.red) } }
             }
-            .navigationTitle(hasExistingDetails ? "Edit Profile" : "Fill Out Profile")
+            .navigationTitle(profile.hasPersonalDetails ? "Edit Profile" : "Fill Out Profile")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -4534,12 +4523,6 @@ private struct ArborPersonalProfileSheet: View {
             message = error.localizedDescription
         }
     }
-
-    private var hasExistingDetails: Bool {
-        profile.displayName?.isEmpty == false
-            || profile.description?.isEmpty == false
-            || profile.avatarPath != nil
-    }
 }
 
 enum ArborProfilePhotoImport {
@@ -4551,12 +4534,7 @@ enum ArborProfilePhotoImport {
     }
 
     static func normalized(_ data: Data) throws -> WorkspaceAsset {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 1024,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-              ] as CFDictionary) else {
+        guard let image = ArborAvatarImage.thumbnail(data, maxPixelSize: 1024) else {
             throw ArborWireValidationError.invalidValue("The selected file is not a readable image")
         }
         for quality in [0.86, 0.72, 0.58] {
@@ -4576,7 +4554,7 @@ enum ArborProfilePhotoImport {
                 return WorkspaceAsset(name: "profile-photo.jpg", mediaType: "image/jpeg", bytes: bytes)
             }
         }
-        throw ArborWireValidationError.invalidValue("The selected photo could not be reduced below 2 MB")
+        throw ArborWireValidationError.invalidValue("The selected photo could not be reduced below \(AvatarCache.maximumSizeDescription)")
     }
 }
 

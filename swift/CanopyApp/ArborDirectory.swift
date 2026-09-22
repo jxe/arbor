@@ -51,6 +51,7 @@ actor DirectoryStore {
 
 actor AvatarCache {
     static let maximumBytes = 2 * 1024 * 1024
+    static let maximumSizeDescription = "\(maximumBytes / (1024 * 1024)) MB"
     private let directory: URL
 
     init(directory: URL = ArborSupportDirectories.avatars) { self.directory = directory }
@@ -66,7 +67,7 @@ actor AvatarCache {
         let url = directory.appending(path: try Self.fileName(for: avatar.hash))
         if let data = try? Data(contentsOf: url), data.count <= Self.maximumBytes { return data }
         let data = try await fetch()
-        guard data.count <= Self.maximumBytes else { throw ArborWireValidationError.invalidValue("Avatar is larger than 2 MB") }
+        guard data.count <= Self.maximumBytes else { throw ArborWireValidationError.invalidValue("Avatar is larger than \(Self.maximumSizeDescription)") }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
         return data
@@ -102,6 +103,11 @@ struct ArborProfileDocument: Equatable {
     let memberProfiles: Set<String>
     let memberHandles: Set<String>
     let memberHandlesByProfile: [String: String]
+
+    /// Whether a person has filled out any of their profile.
+    var hasPersonalDetails: Bool {
+        displayName?.isEmpty == false || description?.isEmpty == false || avatarPath != nil
+    }
 
     static func parse(_ source: String) -> ArborProfileDocument? {
         guard let envelope = Frontmatter(source) else { return nil }

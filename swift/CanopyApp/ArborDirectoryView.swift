@@ -2,6 +2,19 @@ import SwiftUI
 import OverstoryClient
 import ImageIO
 
+enum ArborAvatarImage {
+    /// An upright thumbnail of image `data`, at most `maxPixelSize` on its long side.
+    static func thumbnail(_ data: Data, maxPixelSize: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+}
+
 struct ArborAvatarView: View {
     let person: DirectoryPerson?
     let workspace: ArborWorkspaceState
@@ -23,15 +36,10 @@ struct ArborAvatarView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .task(id: person?.entry.avatar?.hash) {
-            guard let avatar = person?.entry.avatar else { image = nil; return }
+            guard let person, let avatar = person.entry.avatar else { image = nil; return }
             guard let data = try? await AvatarCache().data(for: avatar, fetch: {
-                try await workspace.avatarData(for: person!)
-            }), let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 256,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                  ] as CFDictionary) else { return }
+                try await workspace.avatarData(for: person)
+            }), let thumbnail = ArborAvatarImage.thumbnail(data, maxPixelSize: 256) else { return }
             image = Image(decorative: thumbnail, scale: 2)
         }
     }
