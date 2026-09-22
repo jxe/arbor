@@ -71,3 +71,11 @@ matches the volume; live and vacuumed copy both 2,515 accepted updates, 5 trees,
   credentials for private ones; `verify.ts --no-sync` ok.
 - Console tree dates: 97 of 106 entries sit at its history boundary (2026-09-13), the
   rest on the days they were last edited.
+
+## Live cutover
+
+2026-09-22, deployed at 5ef1fe20 (with canopyd 011 and 012). The live report matched the
+rehearsal exactly: five roots unchanged, 2,515 updates, 113 entries, 2,569 versions over 90
+documents (replay 7.6 s on Railway). `verify.ts` ok, authored manifest unchanged, all three
+Mac placements idle, and a round-trip edit on the Console tree landed in `/entry-metadata`
+with its accepted time.

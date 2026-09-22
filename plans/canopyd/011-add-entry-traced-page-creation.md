@@ -1,6 +1,6 @@
 # canopyd 011: Traced page creation with an `addEntry` authored operation
 
-Status: IMPLEMENTED 2026-09-22 (deploy with the canopyd 013 cutover). Written the same day
+Status: DEPLOYED 2026-09-22 with the migration 014 cutover (server; new Mac/iPhone builds emit it). Written the same day
 after f83194c8 made snapshot checkpoints cheap again; the remaining cost of a snapshot is the
 evidence it does not carry.
 

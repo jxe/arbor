@@ -1,6 +1,6 @@
 # canopyd 013: Entry metadata and the document-version index
 
-Status: SERVER IMPLEMENTED 2026-09-22 (steps 1–3: tables, write seam, route, migration 014);
+Status: SERVER DEPLOYED 2026-09-22 (steps 1–3: tables, write seam, route, migration 014 live);
 Arbor Sync and client steps 4–5 remain. Written the same day after ccaeb760 fixed pending-view
 dates on the Mac.
 
