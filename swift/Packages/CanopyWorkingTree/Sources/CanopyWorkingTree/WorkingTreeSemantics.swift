@@ -100,7 +100,8 @@ enum WorkingTreeSemantics {
         )
     }
 
-    static func documentRevision(node: WorkingTreeNode, state: WorkingTreeState) -> String {
+    /// `children` are the nodes whose parent is `node`, in any order.
+    static func documentRevision(node: WorkingTreeNode, children: [WorkingTreeNode]) -> String {
         switch node.kind {
         case .markdown:
             return WireObjectCodec.hash(Data((node.source ?? "").utf8))
@@ -109,8 +110,8 @@ enum WorkingTreeSemantics {
         case .boundary:
             return WireObjectCodec.hash(Data((node.boundaryTree ?? "").utf8))
         case .directory:
-            let descriptors = state.nodes
-                .filter { parent(of: $0.path) == node.path && !$0.path.hasPrefix("/Trash/") && $0.path != "/Trash" }
+            let descriptors = children
+                .filter { !$0.path.hasPrefix("/Trash/") && $0.path != "/Trash" }
                 .sorted { compareUTF8($0.path, $1.path) }
                 .map { "\($0.pageID ?? "-")\u{001f}\($0.path)\u{001f}\($0.kind.rawValue)" }
                 .joined(separator: "\u{001e}")

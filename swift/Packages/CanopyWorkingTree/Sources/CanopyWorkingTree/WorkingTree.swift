@@ -17,6 +17,9 @@ public actor WorkingTree {
     private let faultInjector: any WorkingTreeFaultInjector
     private let clock: Clock
     private var state: WorkingTreeState
+    /// Positions in `state.nodes` by parent path, built on first use after a
+    /// transaction. Derived metadata written in place keeps positions valid.
+    private var childPositions: [String: [Int]]?
     private var control: WorkingTreeControl
     private var index: WorkingTreeSearchIndex
     private var terminal = false
@@ -436,9 +439,21 @@ public actor WorkingTree {
     func children(of reference: WorkspaceReference) throws -> [WorkingTreeNode] {
         let parent = try resolve(reference)
         guard parent.kind == .directory else { throw WorkingTreeError.notDirectory(reference) }
-        return state.nodes.filter {
-            WorkingTreeSemantics.parent(of: $0.path) == parent.path && !WorkingTreeSemantics.isStoreFile($0)
-        }.sorted { WorkingTreeSemantics.compareUTF8($0.path, $1.path) }
+        return childNodes(of: parent.path).filter { !WorkingTreeSemantics.isStoreFile($0) }
+            .sorted { WorkingTreeSemantics.compareUTF8($0.path, $1.path) }
+    }
+
+    private func childNodes(of path: String) -> [WorkingTreeNode] {
+        let positions: [String: [Int]]
+        if let childPositions { positions = childPositions } else {
+            var built: [String: [Int]] = [:]
+            for (position, node) in state.nodes.enumerated() {
+                if let parent = WorkingTreeSemantics.parent(of: node.path) { built[parent, default: []].append(position) }
+            }
+            childPositions = built
+            positions = built
+        }
+        return (positions[path] ?? []).map { state.nodes[$0] }
     }
 
     func completeSource(for node: WorkingTreeNode) -> String? {
@@ -450,14 +465,12 @@ public actor WorkingTree {
     }
 
     func revision(for node: WorkingTreeNode) -> String {
-        WorkingTreeSemantics.documentRevision(node: node, state: state)
+        WorkingTreeSemantics.documentRevision(node: node, children: node.kind == .directory ? childNodes(of: node.path) : [])
     }
 
     func collection(for directory: WorkingTreeNode) async -> (kind: String, rows: Int?)? {
         guard directory.kind == .directory else { return nil }
-        guard let storeFile = state.nodes.first(where: {
-            WorkingTreeSemantics.parent(of: $0.path) == directory.path && WorkingTreeSemantics.isStoreFile($0)
-        }) else { return nil }
+        guard let storeFile = childNodes(of: directory.path).first(where: WorkingTreeSemantics.isStoreFile) else { return nil }
         let name = WorkingTreeSemantics.name(of: storeFile.path)
         switch name {
         case "_store.sqlite3": return ("SQLite", nil)
@@ -1013,6 +1026,7 @@ public actor WorkingTree {
         try store.writeIndex(try Self.encode(nextIndex))
         try store.removeJournal(token: journalToken)
         state = nextState
+        childPositions = nil
         control = nextControl
         index = nextIndex
         if intent.acceptedRoot != nil { retainOverlay(nextControl, state: nextState) }
