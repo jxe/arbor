@@ -3,7 +3,6 @@ import Overstory
 import Foundation
 import Observation
 import OSLog
-import CryptoKit
 import Quagmire
 
 /// Editor adapter for the Arbor Sync document admission machine.
@@ -19,8 +18,9 @@ public final class ArborDocumentBinding {
     private func trace(_ message: String) {
         Self.diagnosticLog.notice("tree=\(self.reference.tree.rawValue, privacy: .public) generation=\(self.machine.generation) phase=\(self.machine.kind, privacy: .public) \(message, privacy: .public)")
     }
+    /// The digest the recovery journal names this exact source by.
     private static func sourceID(_ source: String) -> String {
-        SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
+        EditorRecoveryStore.hash(Data(source.utf8))
     }
 
     public let document: Document
@@ -129,12 +129,25 @@ public final class ArborDocumentBinding {
     /// reproduces `source` from the accepted bytes; nil when a generation has
     /// no captured patch or the chain no longer starts at the accepted source.
     private func capturedGenerations(ending source: String) -> [WorkspaceDocumentGeneration]? {
+        Self.capturedChain(machine.pendingGenerations, from: accepted.source, revision: accepted.contentRevision, ending: source)
+    }
+
+    /// Each generation's patch was captured against its predecessor's source,
+    /// so the chain is replayed as captured, one frame per nonempty patch,
+    /// each restated against `baseRevision`. Nil when a generation has no
+    /// captured patch or the replay does not reproduce `source` from `baseSource`.
+    private static func capturedChain(
+        _ generations: [DocumentAdmissionMachine.Generation],
+        from baseSource: String,
+        revision baseRevision: String,
+        ending source: String
+    ) -> [WorkspaceDocumentGeneration]? {
         var chain: [WorkspaceDocumentGeneration] = []
-        var previous = accepted.source
-        for generation in machine.pendingGenerations {
+        var previous = baseSource
+        for generation in generations {
             guard var patch = generation.patch, let produced = try? patch.applying(to: previous),
                   produced.utf8.elementsEqual(generation.source.utf8) else { return nil }
-            patch.baseContentRevision = accepted.contentRevision
+            patch.baseContentRevision = baseRevision
             if !patch.edits.isEmpty { chain.append(.init(patch: patch, source: generation.source)) }
             previous = generation.source
         }
@@ -148,7 +161,9 @@ public final class ArborDocumentBinding {
             // The journal retains the generations as captured, so recovery
             // replays them as frames rather than re-deriving one claim.
             let captured = capturedGenerations(ending: source)
-            if let recoveryRevision, try recoveryStore.source(recoveryRevision) == source,
+            // `recoverySource` is the source last recorded or restored for
+            // `recoveryRevision`; only an unchanged source needs the journal read.
+            if let recoveryRevision, recoverySource == source, try recoveryStore.source(recoveryRevision) == source,
                recoveryRevision.baseRevision == accepted.contentRevision,
                try recoveryStore.base(recoveryRevision) == accepted.source,
                try (captured == nil || recoveryStore.intent(recoveryRevision)?.generations == captured),
@@ -162,7 +177,7 @@ public final class ArborDocumentBinding {
     private func markRecoverySaved(source: String) {
         guard let recoveryStore, let recoveryRevision else { return }
         do {
-            guard try recoveryStore.source(recoveryRevision) == source else { return }
+            guard recoverySource == source, try recoveryStore.source(recoveryRevision) == source else { return }
             try recoveryStore.markSaved(recoveryRevision)
             recoveryError = nil
         } catch { recoveryError = error }
@@ -503,7 +518,13 @@ public final class ArborDocumentBinding {
     }
 
     private func observeAuthoritativeUpdates() async {
-        guard let updates = try? await session.updates() else { return }
+        let updates: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
+        do {
+            updates = try await session.updates()
+        } catch {
+            trace("live updates unavailable: \(String(describing: error))")
+            return
+        }
         updatesTask = Task { @MainActor [weak self] in
             do {
                 for try await snapshot in updates {
@@ -515,6 +536,7 @@ public final class ArborDocumentBinding {
                 // Observation reconnect and resync belong to the provider. A
                 // failed live view must not turn an otherwise durable editor
                 // session into a save failure.
+                self?.trace("live updates ended: \(String(describing: error))")
             }
         }
     }
@@ -533,7 +555,13 @@ public final class ArborDocumentBinding {
         let anchor = machine.anchor
         // Read through the provider so read-your-writes holds; suspending
         // here is safe because the anchor discards a stale result.
-        guard let current = try? await session.snapshot() else { return }
+        let current: WorkspaceDocumentSnapshot
+        do {
+            current = try await session.snapshot()
+        } catch {
+            trace("authoritative update not read: \(String(describing: error))")
+            return
+        }
         snapshots[current.contentRevision] = current
         dispatch(.observed(observation: Self.observation(current), anchor: anchor))
     }
@@ -545,23 +573,18 @@ public final class ArborDocumentBinding {
     // MARK: Admission transport
 
     private func persist(generations: [DocumentAdmissionMachine.Generation], baseRevision: String, baseSource: String) async {
-        let generation = generations.last!.generation, source = generations.last!.source
+        guard let latest = generations.last else {
+            trace("persist requested without a generation")
+            return
+        }
+        let generation = latest.generation, source = latest.source
         trace("persist generation=\(generation) generations=\(generations.count) base=\(Self.sourceID(baseSource)) source=\(Self.sourceID(source)) bytes=\(source.utf8.count)")
         // Each generation's patch was captured against its predecessor's
         // ledger, so the chain is stated as it was captured: one frame per
         // generation, nothing re-derived against the oldest basis. A chain that
         // does not start at this base (a conflict resolved onto other bytes, a
         // draft recovered without its capture) is a plain byte edit.
-        var chain: [WorkspaceDocumentGeneration] = []
-        var previous = baseSource
-        for step in generations {
-            guard var patch = step.patch, let produced = try? patch.applying(to: previous),
-                  produced.utf8.elementsEqual(step.source.utf8) else { chain = []; break }
-            patch.baseContentRevision = baseRevision
-            if !patch.edits.isEmpty { chain.append(.init(patch: patch, source: step.source)) }
-            previous = step.source
-        }
-        if !previous.utf8.elementsEqual(source.utf8) { chain = [] }
+        var chain = Self.capturedChain(generations, from: baseSource, revision: baseRevision, ending: source) ?? []
         var patch = ArborMarkdownCodec.patch(from: baseSource, to: source, revision: baseRevision)
         if chain.count == 1 { patch = chain[0].patch; chain = [] }
         trace("captured frames=\(max(chain.count, patch.edits.isEmpty ? 0 : 1)) edits=\(patch.edits.count)")
