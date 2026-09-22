@@ -18,7 +18,7 @@ struct UpdateControlFiles: Sendable {
         controlURL = directory.appending(path: "update-control.json")
         objectsDirectory = directory.appending(path: "objects", directoryHint: .isDirectory)
         sourceAdmissionsURL = directory.appending(path: "source-admissions.json")
-        try Self.createPrivateDirectory(directory)
+        try DurableFile.createPrivateDirectory(directory)
     }
 
     func lockSourceAdmissions() throws -> Int32 {
@@ -44,10 +44,7 @@ struct UpdateControlFiles: Sendable {
     func writeSourceAdmissions<T: Encodable>(_ value: T) throws {
         try atomicWrite(try sortedKeysJSON(value), to: sourceAdmissionsURL)
         // Persist a newly created sync directory as well as its journal entry.
-        let parent = Darwin.open(directory.deletingLastPathComponent().path, O_RDONLY)
-        guard parent >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        defer { Darwin.close(parent) }
-        guard Darwin.fsync(parent) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        try DurableFile.syncDirectory(directory.deletingLastPathComponent())
     }
 
     func load() throws -> UpdateControl {
@@ -89,10 +86,10 @@ struct UpdateControlFiles: Sendable {
     }
 
     func writeObject(_ envelope: WireObjectEnvelope) throws {
-        try Self.createPrivateDirectory(objectsDirectory)
+        try DurableFile.createPrivateDirectory(objectsDirectory)
         let destination = objectsDirectory.appending(path: Self.fileName(envelope.hash))
         if FileManager.default.fileExists(atPath: destination.path) { return }
-        try atomicWrite(envelope.bytes, to: destination, in: objectsDirectory)
+        try atomicWrite(envelope.bytes, to: destination)
     }
 
     func readObject(_ hash: String) throws -> WireObjectEnvelope {
@@ -123,34 +120,6 @@ struct UpdateControlFiles: Sendable {
     }
 
     func atomicWrite(_ data: Data, to destination: URL) throws {
-        try atomicWrite(data, to: destination, in: directory)
-    }
-
-    private func atomicWrite(_ data: Data, to destination: URL, in directory: URL) throws {
-        let temporary = directory.appending(path: ".\(UUID().uuidString).tmp")
-        guard FileManager.default.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        do {
-            let handle = try FileHandle(forWritingTo: temporary)
-            try handle.write(contentsOf: data)
-            try handle.synchronize()
-            try handle.close()
-            if Darwin.rename(temporary.path, destination.path) != 0 {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-            let descriptor = Darwin.open(directory.path, O_RDONLY)
-            guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-            defer { Darwin.close(descriptor) }
-            guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        } catch {
-            try? FileManager.default.removeItem(at: temporary)
-            throw error
-        }
-    }
-
-    private static func createPrivateDirectory(_ url: URL) throws {
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        try DurableFile.atomicWrite(data, to: destination)
     }
 }
