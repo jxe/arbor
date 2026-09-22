@@ -1239,7 +1239,24 @@ struct ArborRootView: View {
     }
 #endif
 
+    /// The sidebar column. Its search reactions live here, not on
+    /// `sidebarPagesHeader`, which macOS may mount both inline and in the
+    /// titlebar accessory.
     private var sidebarContent: some View {
+        sidebarColumn
+            .onChange(of: sidebarSearchText) { _, query in
+                sidebarKeyboardSelection = nil
+                sidebarTreeSelection = nil
+                if sidebarPageOrder != .trees { Task { await model.search(query) } }
+            }
+            .task(id: sidebarPageOrder) {
+                sidebarKeyboardSelection = nil
+                if sidebarPageOrder == .trees { await refreshSidebarAccounts() }
+                else { await model.search(sidebarSearchText) }
+            }
+    }
+
+    private var sidebarColumn: some View {
 #if os(macOS)
         VStack(spacing: 0) {
             if !sidebarTitlebarAccessoryInstalled {
@@ -1598,16 +1615,6 @@ struct ArborRootView: View {
         .padding(.vertical, 10)
 #endif
         .modifier(ArborSidebarSurface())
-        .onChange(of: sidebarSearchText) { _, query in
-            sidebarKeyboardSelection = nil
-            sidebarTreeSelection = nil
-            if sidebarPageOrder != .trees { Task { await model.search(query) } }
-        }
-        .task(id: sidebarPageOrder) {
-            sidebarKeyboardSelection = nil
-            if sidebarPageOrder == .trees { await refreshSidebarAccounts() }
-            else { await model.search(sidebarSearchText) }
-        }
     }
 
     /// The first review choice on each page of the open tree, by logical path.
