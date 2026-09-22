@@ -3825,7 +3825,7 @@ struct ArborIOSLaunchView: View {
     @ViewBuilder
     private var scanner: some View {
         if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
-            PairingQRScanner { payload in
+            PairingQRScanner(onScanFailure: { scanError = $0 }) { payload in
                 guard phase == .scanning else { return }
                 phase = .claiming
                 Task { await claim(payload) }
@@ -4286,9 +4286,10 @@ private struct IOSAccountPanel: View {
 
 #if os(iOS)
 private struct PairingQRScanner: UIViewControllerRepresentable {
+    let onScanFailure: @MainActor (String) -> Void
     let onPayload: @MainActor (String) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onPayload: onPayload) }
+    func makeCoordinator() -> Coordinator { Coordinator(onScanFailure: onScanFailure, onPayload: onPayload) }
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let scanner = DataScannerViewController(
@@ -4301,12 +4302,12 @@ private struct PairingQRScanner: UIViewControllerRepresentable {
             isHighlightingEnabled: true
         )
         scanner.delegate = context.coordinator
-        try? scanner.startScanning()
+        context.coordinator.startScanning(scanner)
         return scanner
     }
 
-    func updateUIViewController(_ scanner: DataScannerViewController, context _: Context) {
-        if !scanner.isScanning { try? scanner.startScanning() }
+    func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {
+        if !scanner.isScanning { context.coordinator.startScanning(scanner) }
     }
 
     static func dismantleUIViewController(_ scanner: DataScannerViewController, coordinator _: Coordinator) {
@@ -4315,10 +4316,32 @@ private struct PairingQRScanner: UIViewControllerRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        let onScanFailure: @MainActor (String) -> Void
         let onPayload: @MainActor (String) -> Void
         private var completed = false
+        private var reportedScanFailure = false
 
-        init(onPayload: @escaping @MainActor (String) -> Void) { self.onPayload = onPayload }
+        init(
+            onScanFailure: @escaping @MainActor (String) -> Void,
+            onPayload: @escaping @MainActor (String) -> Void
+        ) {
+            self.onScanFailure = onScanFailure
+            self.onPayload = onPayload
+        }
+
+        /// Start the camera scanner, reporting the first failure outside the
+        /// view update that attempted it; later retries fail the same way.
+        func startScanning(_ scanner: DataScannerViewController) {
+            do {
+                try scanner.startScanning()
+            } catch {
+                guard !reportedScanFailure else { return }
+                reportedScanFailure = true
+                let report = onScanFailure
+                let message = error.localizedDescription
+                Task { @MainActor in report(message) }
+            }
+        }
 
         func dataScanner(
             _ dataScanner: DataScannerViewController,
