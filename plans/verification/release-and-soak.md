@@ -24,7 +24,7 @@ Passing builds and automated tests do not establish interactive acceptance.
 
 ## Server refinements
 
-Owner: canopyd [014](../canopyd/014-source-transfer-proofs.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.
+Owner: canopyd [014](../canopyd/014-merge-moved-text.md). Deployed with `5ef1fe20` (2026-09-22); hand verification not yet recorded.
 
 - [ ] Rehearse, deploy and verify independent source-range inspection and the subsequent Markdown
   transfer/list-insertion refinements. Record the exact revision and packaged worker together.

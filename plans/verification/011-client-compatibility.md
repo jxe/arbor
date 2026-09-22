@@ -63,7 +63,7 @@ have passing evidence or an explicitly accepted scope decision.
 [Filesystem 011](../filesystem/011-independent-writes-after-rejection.md) separately owns
 scheduling independent work after rejection. Capture, server policy and Native review remain
 in [Native 008](../swift/008-complete-native-move-copy-undo-capture.md),
-[canopyd 014](../canopyd/014-source-transfer-proofs.md) and
+[canopyd 014](../canopyd/014-merge-moved-text.md) and
 [Native 010](../swift/010-client-conflict-review.md).
 
 ## Checkpoint record

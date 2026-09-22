@@ -1,4 +1,4 @@
-# canopyd 014: Proofs for moved and copied text beyond prose
+# canopyd 014: Merge moved and copied text beyond paragraphs
 
 Split from canopyd 009 on 2026-09-22. (Plan numbers are separate from
 migration numbers: this is not migration 014.)

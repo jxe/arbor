@@ -48,7 +48,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Area | State | Remaining | Owning plan |
 |---|---|---|---|
 | Canopy editing and review | implemented, not installed | Richer review previews, precise inline markers, transformed copies and other compound editor commands, interactive accessibility gates | [Native 008](plans/swift/008-complete-native-move-copy-undo-capture.md), [010](plans/swift/010-client-conflict-review.md) |
-| Markdown source-transfer policy | deployed, not hand-verified | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order; structured formats and protected structure still require review | [canopyd 014](plans/canopyd/014-source-transfer-proofs.md) |
+| Markdown source-transfer policy | deployed, not hand-verified | Identity-verified paragraph copies and moves reconcile with independent prose edits in either arrival order; structured formats and protected structure still require review | [canopyd 014](plans/canopyd/014-merge-moved-text.md) |
 | Resource policy providers | deployed | Provider-specific enforcement, source resolution, activation consent, the execution sidecar, observation and soak | [Apps 004](plans/apps/004-mutation-permissions.md), [005](plans/apps/005-source-resolution-and-sidecar.md) |
 | Working-tree client transition | installed | The explicit soak closeout | [release and soak](plans/verification/release-and-soak.md#observation-and-soak-closeout) |
 | Canopy for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/canopy-web/025-arbor-web.md) |

@@ -24,7 +24,7 @@ continuation, restart, exact retry and transaction faults. Identify a concrete u
 measured representation cost before proposing a storage change. User deferral is not automatically
 revoked because the former client prerequisites have landed.
 
-- If the gap is transfer or format policy, use [canopyd 014](014-source-transfer-proofs.md); if it is rule choice, [canopyd 009](009-merge-rule-selection.md).
+- If the gap is transfer or format policy, use [canopyd 014](014-merge-moved-text.md); if it is rule choice, [canopyd 009](009-merge-rule-selection.md).
 - If it is client capture or review, use Native [008](../swift/008-complete-native-move-copy-undo-capture.md)
   or Native [010](../swift/010-client-conflict-review.md).
 - If it is retention, packing or garbage collection, use [Storage 001](001-pack-object-storage.md),

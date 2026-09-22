@@ -3,7 +3,7 @@
 Historical identifier: **Reliability 009**, formerly "Remaining canopyd provenance and
 policy work". The provenance-merge authority it built is deployed (see
 [the merge tool](../../docs/architecture/canopyd/merge-tool.md)); its source-transfer
-policy work moved to [canopyd 014](014-source-transfer-proofs.md), and its
+policy work moved to [canopyd 014](014-merge-moved-text.md), and its
 garbage-collection pinning requirement to [canopyd 001](001-pack-object-storage.md).
 
 ## Status
