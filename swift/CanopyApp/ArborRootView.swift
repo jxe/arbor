@@ -1323,7 +1323,7 @@ struct ArborRootView: View {
             (overview?.accounts ?? []).map { ($0.configurationTree, $0.arborDisplayLabel) },
             uniquingKeysWith: { first, _ in first }
         )
-        let values = (overview?.trees ?? []).filter { $0.kind != "account-configuration" && $0.path != nil }.map { tree in
+        let values = (overview?.trees ?? []).filter { $0.kind != ArborTreeKind.accountConfiguration && $0.path != nil }.map { tree in
             SidebarTree(id: tree.id, title: tree.canonicalPath ?? tree.name,
                 account: tree.configurationTree.flatMap { accountLabels[$0] } ?? "Other Trees")
         }
@@ -2104,7 +2104,7 @@ struct ArborRootView: View {
 
 #if os(macOS)
     private func localTreeTitle(_ tree: LocalArborSyncTreePresentation) -> String {
-        guard tree.kind == "account-configuration" else {
+        guard tree.kind == ArborTreeKind.accountConfiguration else {
             return tree.canonicalPath ?? tree.name
         }
         let account = workspace.localArborSyncOverview?.accounts.first {
@@ -2833,7 +2833,7 @@ private struct ArborSharePanel: View {
     @State private var profileLocator = ""
     @State private var selectedAccountID = ""
     @State private var canonicalURL = ""
-    @State private var promotionAccess = "none"
+    @State private var promotionAccess = ArborTreeAccess.noAccess
     @State private var permissionEditor = false
 
     var body: some View {
@@ -2993,7 +2993,7 @@ private struct ArborSharePanel: View {
                 .help("Your access cannot be removed")
             } else if access.canEdit {
                 accessMenu(
-                    current: entry.access,
+                    current: ArborTreeAccess(rawValue: entry.access),
                     set: { permission in
                         Task { await change(access, target: .existing(entry.subject), permission: permission) }
                     }
@@ -3018,9 +3018,9 @@ private struct ArborSharePanel: View {
             Spacer(minLength: 8)
             if access.canEdit {
                 accessMenu(
-                    current: "none",
+                    current: .noAccess,
                     set: { permission in
-                        guard permission != "none" else { return }
+                        guard permission != .noAccess else { return }
                         Task { await change(access, target: .everyone, permission: permission) }
                     }
                 )
@@ -3054,27 +3054,24 @@ private struct ArborSharePanel: View {
             .background(tint.opacity(0.12), in: Circle())
     }
 
-    private func accessMenu(current: String, set: @escaping (String) -> Void) -> some View {
+    /// `current` is nil for an access level this app does not recognize.
+    private func accessMenu(current: ArborTreeAccess?, set: @escaping (ArborTreeAccess) -> Void) -> some View {
         Menu {
-            Button {
-                set("read")
-            } label: {
-                if current == "read" { Label("Can view", systemImage: "checkmark") }
-                else { Text("Can view") }
+            ForEach([ArborTreeAccess.read, .write], id: \.self) { access in
+                Button {
+                    set(access)
+                } label: {
+                    if current == access { Label(access.label, systemImage: "checkmark") }
+                    else { Text(access.label) }
+                }
             }
-            Button {
-                set("write")
-            } label: {
-                if current == "write" { Label("Can edit", systemImage: "checkmark") }
-                else { Text("Can edit") }
-            }
-            if current != "none" {
+            if current != .noAccess {
                 Divider()
-                Button("Remove access", role: .destructive) { set("none") }
+                Button("Remove access", role: .destructive) { set(.noAccess) }
             }
         } label: {
             HStack(spacing: 5) {
-                Text(permissionLabel(current))
+                Text((current ?? .noAccess).label)
                 Image(systemName: "chevron.down").font(.caption)
             }
             .foregroundStyle(.secondary)
@@ -3109,9 +3106,9 @@ private struct ArborSharePanel: View {
                 }
                 TextField("Canonical URL", text: $canonicalURL)
                 Picker("Initial access", selection: $promotionAccess) {
-                    Text("Private").tag("none")
-                    Text("Everyone can view").tag("read")
-                    Text("Everyone can edit").tag("write")
+                    Text("Private").tag(ArborTreeAccess.noAccess)
+                    Text("Everyone can view").tag(ArborTreeAccess.read)
+                    Text("Everyone can edit").tag(ArborTreeAccess.write)
                 }
                 Button("Make This an Arbor Tree", systemImage: "tree") {
                     guard let account = accounts.first(where: { $0.id == selectedAccountID }) else { return }
@@ -3140,11 +3137,7 @@ private struct ArborSharePanel: View {
     }
 
     private func permissionLabel(_ permission: String) -> String {
-        switch permission {
-        case "read": "Can view"
-        case "write": "Can edit"
-        default: "No access"
-        }
+        (ArborTreeAccess(rawValue: permission) ?? .noAccess).label
     }
 
     private var inviteLocators: [String] {
@@ -3180,7 +3173,7 @@ private struct ArborSharePanel: View {
     private func change(
         _ current: NativeTreeAccessPresentation,
         target: NativeTreeAccessTarget,
-        permission: String
+        permission: ArborTreeAccess
     ) async {
         busy = true
         defer { busy = false }
@@ -3205,7 +3198,7 @@ private struct ArborSharePanel: View {
                 latest = try await workspace.setShareAccess(
                     tree: latest.tree,
                     target: .profile(locator: locator),
-                    access: "read"
+                    access: .read
                 )
             }
             presentation = .tracked(latest)
@@ -3904,7 +3897,7 @@ struct ArborIOSLaunchView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(tree.canonicalPath ?? tree.id)
-                                    Text(tree.access == "write" ? "Ready to sync" : "Read only")
+                                    Text(tree.grantsWrite ? "Ready to sync" : "Read only")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -3912,7 +3905,7 @@ struct ArborIOSLaunchView: View {
                                 Image(systemName: "arrow.down.circle")
                             }
                         }
-                        .disabled(tree.access != "write")
+                        .disabled(!tree.grantsWrite)
                     }
                     if trees.isEmpty, treeError == nil {
                         ProgressView("Loading folders…")
@@ -4052,7 +4045,7 @@ private struct IOSPlaceTreePanel: View {
 
     private var unplacedTrees: [WireTreeDescriptor] {
         let placed = Set(workspace.nativePlacements.map(\.tree.id))
-        return trees.filter { $0.kind == "ordinary" && !placed.contains($0.id) }
+        return trees.filter { $0.kind == ArborTreeKind.ordinary && !placed.contains($0.id) }
     }
 
     var body: some View {
@@ -4092,7 +4085,7 @@ private struct IOSPlaceTreePanel: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(tree.canonicalPath ?? tree.id)
-                                        Text(tree.access == "write" ? "Can edit" : "Can view")
+                                        Text(tree.grantsWrite ? "Can edit" : "Can view")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }

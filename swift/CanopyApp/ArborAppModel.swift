@@ -23,6 +23,31 @@ enum ArborSharePresentation: Hashable, Sendable {
     case promotable(path: String, accounts: [ArborShareAccount])
 }
 
+/// A tree access level, spelled as account configuration and the Wire spell it.
+enum ArborTreeAccess: String, CaseIterable, Sendable {
+    case noAccess = "none"
+    case read
+    case write
+
+    var label: String {
+        switch self {
+        case .noAccess: "No access"
+        case .read: "Can view"
+        case .write: "Can edit"
+        }
+    }
+}
+
+/// Tree kinds the app treats specially.
+enum ArborTreeKind {
+    static let ordinary = "ordinary"
+    static let accountConfiguration = "account-configuration"
+}
+
+extension WireTreeDescriptor {
+    var grantsWrite: Bool { access == ArborTreeAccess.write.rawValue }
+}
+
 enum ArborShareInvite {
     static func locators(in input: String) -> [String] {
         input
@@ -258,7 +283,7 @@ final class ArborWorkspaceState {
             transport: transport,
             stateRoot: syncStateRoot,
             sourceObjectStore: workingTree,
-            readOnly: tree.access != "write"
+            readOnly: !tree.grantsWrite
         )
         if remember {
             try await nativePlacementStore.save(NativePlacementRecord(origin: origin, configurationTree: configurationTree, tree: tree))
@@ -452,7 +477,7 @@ final class ArborWorkspaceState {
     func setShareAccess(
         tree: String,
         target: NativeTreeAccessTarget,
-        access: String
+        access: ArborTreeAccess
     ) async throws -> NativeTreeAccessPresentation {
 #if os(iOS)
         guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else {
@@ -461,10 +486,9 @@ final class ArborWorkspaceState {
         return try await NativeAccountService(
             origin: placement.origin,
             configurationTree: placement.configurationTree
-        ).setAccess(tree: tree, target: target, access: access)
+        ).setAccess(tree: tree, target: target, access: access.rawValue)
 #else
-        guard access == "none" || access == "read" || access == "write",
-              let overview = localArborSyncOverview,
+        guard let overview = localArborSyncOverview,
               let placedTree = overview.trees.first(where: { $0.id == tree }),
               let configurationTree = placedTree.configurationTree else {
             throw ArborWireValidationError.invalidValue("The current tree has no editable account configuration")
@@ -477,7 +501,7 @@ final class ArborWorkspaceState {
         let account = overview.accounts.first { $0.configurationTree == configurationTree }
         try ArborAccountConfigurationYAML.validateAccessChange(
             subject: subject,
-            access: access,
+            access: access.rawValue,
             currentProfileTree: account?.profileTree
         )
         try await editAccountConfigurationFile(configurationTree, named: "trees.yaml") { source in
@@ -486,8 +510,8 @@ final class ArborWorkspaceState {
                     throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
                 }
                 declaration.access.removeAll { $0.subject == subject }
-                if access != "none" {
-                    declaration.access.append(ArborAccountAccessRule(subject: subject, access: access))
+                if access != .noAccess {
+                    declaration.access.append(ArborAccountAccessRule(subject: subject, access: access.rawValue))
                 }
                 trees[tree] = declaration
             }
@@ -759,10 +783,9 @@ final class ArborWorkspaceState {
         path: String,
         account: ArborShareAccount,
         canonical: String,
-        publicAccess: String
+        publicAccess: ArborTreeAccess
     ) async throws {
-        guard publicAccess == "none" || publicAccess == "read" || publicAccess == "write",
-              let canonicalURL = URL(string: canonical),
+        guard let canonicalURL = URL(string: canonical),
               let accountOrigin = URL(string: account.origin),
               Self.sameOrigin(canonicalURL, accountOrigin),
               canonicalURL.query == nil,
@@ -770,8 +793,8 @@ final class ArborWorkspaceState {
             throw ArborWireValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
         }
         let tree = try generateArborID(prefix: "tr")
-        let rules = publicAccess == "none" ? [] : [
-            ArborAccountAccessRule(subject: .everyone, access: publicAccess)
+        let rules = publicAccess == .noAccess ? [] : [
+            ArborAccountAccessRule(subject: .everyone, access: publicAccess.rawValue)
         ]
         let folder = URL(fileURLWithPath: path).standardizedFileURL.path
         // The placement first: a declared tree without a placement is only an
@@ -1018,7 +1041,7 @@ final class ArborWorkspaceState {
         } catch {
             Self.recordDiagnostic("visit-record", error)
         }
-        if tree.access == "write" {
+        if tree.grantsWrite {
             try await openWritableRemoteTree(
                 tree: tree,
                 locator: rootLocator,
@@ -1279,7 +1302,7 @@ final class ArborWorkspaceState {
         async let accountsRequest = client.accounts()
         let (treeList, accounts) = try await (treeListRequest, accountsRequest)
         let localConfiguration = accounts.isEmpty ? try? loadLocalAccountConfiguration() : nil
-        let configurationTree = treeList.snapshot.first { $0.kind == "account-configuration" }?.id
+        let configurationTree = treeList.snapshot.first { $0.kind == ArborTreeKind.accountConfiguration }?.id
         let trees = treeList.snapshot.map {
             LocalArborSyncTreePresentation(
                 id: $0.id,
