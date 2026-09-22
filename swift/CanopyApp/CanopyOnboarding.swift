@@ -132,9 +132,9 @@ struct CanopyMacOnboarding: View {
                             Button(state.pendingClaim == nil ? "Connect" : "Resume Connection") {
                                 run { client in
                                     let target = state.pendingClaim?.account ?? community.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let known = Set(state.accounts.filter(\.credentialAvailable).map(\.configurationTree))
                                     try await client.claimAccount(account: target, path: state.pendingClaim?.path ?? profilePath)
                                     try await reload()
-                                    let known = Set(state.accounts.filter(\.credentialAvailable).map(\.configurationTree))
                                     if let account = self.state?.accounts.first(where: { !known.contains($0.configurationTree) && $0.credentialAvailable }) {
                                         try await chooseTrees(account)
                                     }
