@@ -1220,15 +1220,30 @@ public actor UpdateCoordinator {
 
     /// A disposable view of the retained candidate, never a replacement of the
     /// accepted working tree. Provider reads see locally created/moved entries.
-    func sourceReadProvider(readOnly: Bool = false) async throws -> WorkingTreeProvider {
+    func sourceReadProvider(
+        readOnly: Bool = false,
+        materializedRoot: URL? = nil
+    ) async throws -> WorkingTreeProvider {
         let retained = try await admissions().retained()
         if let record = try await sourceLocalViewState(retained).navigation {
-            return WorkingTreeProvider(workingTree: try await candidateTree(record.candidate), readOnly: readOnly)
+            return WorkingTreeProvider(
+                workingTree: try await candidateTree(record.candidate),
+                readOnly: readOnly,
+                materializedRoot: materializedRoot
+            )
         }
         if retained.last(where: { $0.localTrash != nil })?.localTrash?.nodes.isEmpty == false {
-            return WorkingTreeProvider(workingTree: try await candidateTree(workingTree.localSnapshot()), readOnly: readOnly)
+            return WorkingTreeProvider(
+                workingTree: try await candidateTree(workingTree.localSnapshot()),
+                readOnly: readOnly,
+                materializedRoot: materializedRoot
+            )
         }
-        return WorkingTreeProvider(workingTree: workingTree, readOnly: readOnly)
+        return WorkingTreeProvider(
+            workingTree: workingTree,
+            readOnly: readOnly,
+            materializedRoot: materializedRoot
+        )
     }
 
     private func localSourceView(_ record: SourceAdmissionRecord, reference: WorkspaceReference? = nil) async throws -> CapturedSourceAdmissionBasis {

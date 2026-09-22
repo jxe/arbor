@@ -863,7 +863,11 @@ final class ArborWorkspaceState {
             sourceOperationEmission: true,
             sourceObjectStore: platform)
 
-        let nextProvider = WorkingTreeProvider(workingTree: workingTree, sourceCoordinator: coordinator) { [weak self] admission in
+        let nextProvider = WorkingTreeProvider(
+            workingTree: workingTree,
+            materializedRoot: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) },
+            sourceCoordinator: coordinator
+        ) { [weak self] admission in
             try await coordinator.syncImmediately(admission)
             await self?.refreshSyncPresentation(from: coordinator)
         }
@@ -1098,7 +1102,11 @@ final class ArborWorkspaceState {
             let tree = TreeID(rawValue: record.tree.id)
             if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath)) {
                 await switchProvider(
-                    WorkingTreeProvider(workingTree: preview, readOnly: true),
+                    WorkingTreeProvider(
+                        workingTree: preview,
+                        readOnly: true,
+                        materializedRoot: URL(filePath: osPath, directoryHint: .isDirectory)
+                    ),
                     home: WorkspaceReference(tree: tree, path: "/"),
                     detail: "Connecting · \(record.displayName) · \(osPath)",
                     canonicalPath: record.tree.canonicalPath,

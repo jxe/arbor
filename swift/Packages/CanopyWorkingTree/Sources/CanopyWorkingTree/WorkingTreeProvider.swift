@@ -7,16 +7,21 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     /// structural actions, assets, imports, and document admissions: a visit,
     /// or a placed tree opened while its folder's daemon holds a conflict.
     public let readOnly: Bool
+    /// The daemon-owned folder this working tree projects onto, when it has
+    /// one. Remote replicas and iOS working trees deliberately leave this nil.
+    public let materializedRoot: URL?
     private let sourceCoordinator: UpdateCoordinator?
     private let onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)?
 
     public init(
         workingTree: WorkingTree,
         readOnly: Bool = false,
+        materializedRoot: URL? = nil,
         sourceCoordinator: UpdateCoordinator? = nil,
         onPatchAdmission: (@Sendable (WorkingTreePatchAdmission) async throws -> Void)? = nil
     ) {
         self.workingTree = workingTree
+        self.materializedRoot = materializedRoot?.standardizedFileURL
         self.sourceCoordinator = sourceCoordinator?.sourceOperationEmission == true ? sourceCoordinator : nil
         self.readOnly = readOnly
         self.onPatchAdmission = onPatchAdmission
@@ -32,14 +37,22 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
     }
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
-        if let sourceCoordinator { return try await sourceCoordinator.sourceReadProvider(readOnly: readOnly).resolve(reference) }
+        if let sourceCoordinator {
+            return try await sourceCoordinator
+                .sourceReadProvider(readOnly: readOnly, materializedRoot: materializedRoot)
+                .resolve(reference)
+        }
         if let diagnostic = try await diagnostic(for: reference) { return diagnostic }
         let record = try await workingTree.resolve(reference)
         return try await workspaceNode(record)
     }
 
     public func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] {
-        if let sourceCoordinator { return try await sourceCoordinator.sourceReadProvider(readOnly: readOnly).children(of: reference) }
+        if let sourceCoordinator {
+            return try await sourceCoordinator
+                .sourceReadProvider(readOnly: readOnly, materializedRoot: materializedRoot)
+                .children(of: reference)
+        }
         var nodes = try await workingTree.children(of: reference).asyncMap { try await workspaceNode($0) }
         if reference.path == "/" {
             nodes.append(contentsOf: try await workingTree.diagnostics().asyncMap { await diagnosticNode($0) })
@@ -197,11 +210,39 @@ public struct WorkingTreeProvider: WorkspaceProvider, Sendable {
             provenance: WorkspaceProvenance(
                 authority: .local,
                 sourceDescription: "Working tree",
+                physicalURL: physicalURL(for: record),
+                treeRootURL: materializedRoot,
                 contentRevision: revision
             ),
             materialization: knownMissing ? .placeholder : .available,
             isWritable: !readOnly && record.kind != .boundary
         )
+    }
+
+    /// Resolve the authored filesystem representation, not merely the logical
+    /// page path. Directory documents can be backed by either `_index.md` or a
+    /// sibling Markdown file; only the selected, currently materialized source
+    /// is exposed to callers such as Reveal Page in Finder.
+    private func physicalURL(for record: WorkingTreeNode) -> URL? {
+        guard let materializedRoot else { return nil }
+        let sourcePath: String
+        switch record.kind {
+        case .markdown:
+            sourcePath = record.path + ".md"
+        case .directory:
+            guard record.source != nil else { return nil }
+            sourcePath = record.directoryBodyPlacement == .siblingMarkdown
+                ? record.path + ".md"
+                : (record.path == "/" ? "/_index.md" : record.path + "/_index.md")
+        case .file, .boundary:
+            return nil
+        }
+        let url = sourcePath.split(separator: "/").reduce(materializedRoot) {
+            $0.appending(path: String($1))
+        }.standardizedFileURL
+        guard url.path.hasPrefix(materializedRoot.path + "/"),
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
     }
 
     private func diagnostic(for reference: WorkspaceReference) async throws -> WorkspaceNode? {

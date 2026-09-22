@@ -73,6 +73,8 @@ private struct ArborNavigationCommands: Commands {
             Button("Search Contents…") { commands?.showSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(commands == nil)
+            Button("Reveal Page in Finder") { commands?.revealPageInFinder() }
+                .disabled(commands?.canRevealPageInFinder != true)
             Divider()
             Button("Back") { commands?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)

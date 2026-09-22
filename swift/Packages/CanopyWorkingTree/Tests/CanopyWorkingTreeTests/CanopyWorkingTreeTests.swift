@@ -70,6 +70,56 @@ struct WorkingTreeProviderTests {
         #expect(WorkingTreeError.pendingLocalChanges.localizedDescription == "Local changes must finish before this operation can continue.")
     }
 
+    @Test("Placed Markdown provenance names the materialized authored file")
+    func physicalMarkdownURLs() async throws {
+        try await withTemporaryReplica { root in
+            let physicalRoot = root.appending(path: "Placed", directoryHint: .isDirectory)
+            let indexedDirectory = physicalRoot.appending(path: "indexed", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: indexedDirectory, withIntermediateDirectories: true)
+            try "# Root\n".write(to: physicalRoot.appending(path: "_index.md"), atomically: true, encoding: .utf8)
+            try "# Note\n".write(to: physicalRoot.appending(path: "note.md"), atomically: true, encoding: .utf8)
+            try "# Folder\n".write(to: physicalRoot.appending(path: "folder.md"), atomically: true, encoding: .utf8)
+            try "# Indexed\n".write(to: indexedDirectory.appending(path: "_index.md"), atomically: true, encoding: .utf8)
+            // Both representations may exist, but `_index.md` is authoritative
+            // when the sibling source is recorded as shadowed.
+            try "# Shadowed\n".write(to: physicalRoot.appending(path: "indexed.md"), atomically: true, encoding: .utf8)
+
+            let tree: TreeID = "tr_physical"
+            let workingTree = try await WorkingTree.inMemory(tree: tree)
+            try await workingTree.initializeFromPreview([
+                .init(path: "/", content: .directory(source: "# Root\n")),
+                .init(path: "/note", content: .markdown(source: "# Note\n")),
+                .init(
+                    path: "/folder",
+                    content: .directory(source: "# Folder\n"),
+                    directoryBodyPlacement: .siblingMarkdown
+                ),
+                .init(
+                    path: "/indexed",
+                    content: .directory(source: "# Indexed\n"),
+                    shadowedSiblingMarkdownSource: "# Shadowed\n"
+                ),
+                .init(path: "/missing", content: .markdown(source: "# Missing\n"))
+            ])
+            let provider = WorkingTreeProvider(workingTree: workingTree, materializedRoot: physicalRoot)
+
+            let expected: [String: String] = [
+                "/": "_index.md",
+                "/note": "note.md",
+                "/folder": "folder.md",
+                "/indexed": "indexed/_index.md"
+            ]
+            for (path, relative) in expected {
+                let node = try await provider.resolve(.init(tree: tree, path: path))
+                #expect(node.provenance.physicalURL == physicalRoot.appending(path: relative).standardizedFileURL)
+                #expect(node.provenance.treeRootURL == physicalRoot.standardizedFileURL)
+            }
+            let missing = try await provider.resolve(.init(tree: tree, path: "/missing"))
+            #expect(missing.provenance.physicalURL == nil)
+            #expect(missing.provenance.treeRootURL == physicalRoot.standardizedFileURL)
+        }
+    }
+
     @Test("Browsing, exact editing, structure, assets, collections, and indexes remain offline", arguments: StoreKind.allCases)
     func completeProvider(kind: StoreKind) async throws {
         try await withTemporaryReplica { root in

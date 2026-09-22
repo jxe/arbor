@@ -36,6 +36,7 @@ struct ArborWindowCommands {
     var recordAudio: (EditorCommands?) -> Void
     var recordAudioLabel: String
     var share: () -> Void
+    var revealPageInFinder: () -> Void
     var localTrees: [ArborLocalTreeMenuItem]
     var jumpToLocalTree: (String) -> Void
     var showHistory: () -> Void
@@ -59,6 +60,7 @@ struct ArborWindowCommands {
     var hasNode: Bool
     var canRecordAudio: Bool
     var canShare: Bool
+    var canRevealPageInFinder: Bool
     var canMovePage: Bool
     var canRenamePage: Bool
     var canMovePageToTrash: Bool

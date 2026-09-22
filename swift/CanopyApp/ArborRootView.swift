@@ -1914,6 +1914,12 @@ struct ArborRootView: View {
             },
             recordAudioLabel: voiceRecordingCommandLabel,
             share: { sharePresented = true },
+            revealPageInFinder: {
+#if os(macOS)
+                guard let url = revealablePageURL else { return }
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+#endif
+            },
             localTrees: localTreeMenuItems,
             jumpToLocalTree: { tree in
 #if os(macOS)
@@ -1947,6 +1953,7 @@ struct ArborRootView: View {
                 model.node?.isWritable == true && model.binding != nil
             ),
             canShare: model.node != nil,
+            canRevealPageInFinder: revealablePageURL != nil,
             canMovePage: model.node?.isWritable == true
                 && model.binding != nil
                 && model.currentReference.path != "/"
@@ -1958,6 +1965,22 @@ struct ArborRootView: View {
             canRestorePage: model.node?.isWritable == true
                 && model.currentReference.path.hasPrefix("/Trash/")
         )
+    }
+
+    private var revealablePageURL: URL? {
+#if os(macOS)
+        guard let node = model.node else { return nil }
+        switch node.surface {
+        case .markdown, .directoryDocument:
+            guard let url = node.provenance.physicalURL,
+                  FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return url
+        default:
+            return nil
+        }
+#else
+        return nil
+#endif
     }
 
     private var voiceRecordingCommandLabel: String {
