@@ -1510,8 +1510,14 @@ struct ArborRootView: View {
             var page: WorkspaceReference?
             if let path = decision.path {
                 let reference = WorkspaceReference(tree: workspace.home.tree, path: reviewLogicalPath(path))
-                // Deleted entries still have a review even when no live page exists.
-                if (try? await workspace.provider.resolve(reference)) != nil { page = reference }
+                do {
+                    _ = try await workspace.provider.resolve(reference)
+                    page = reference
+                } catch WorkingTreeError.notFound, WorkspaceProviderError.notFound {
+                    // Deleted entries still have a review even when no live page exists.
+                } catch {
+                    workspace.errorMessage = error.localizedDescription
+                }
             }
             // Load the choice first, then switch page and selection in the same
             // main-actor turn, so the panel never renders against the wrong
