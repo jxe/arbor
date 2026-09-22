@@ -473,8 +473,6 @@ public actor WorkingTree {
         case "_store.jsonl":
             guard let bytes else { return ("JSONL", nil) }
             return ("JSONL", String(decoding: bytes, as: UTF8.self).split(whereSeparator: \.isNewline).count)
-        case "_store.sqlite3": return ("SQLite", nil)
-        case "_store.postgres": return ("Postgres", nil)
         default: return nil
         }
     }
