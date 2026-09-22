@@ -12,9 +12,10 @@ depends on it except tests and the deployment tooling.
   the [schema history](../../packages/canopyd/migrations/README.md#schema-history).
 - `updates/`: `decision.ts` (the identity-only current, accept, and merge
   table), `reconcile.ts` (invokes the merge sidecar only when both sides
-  changed), `transition.ts`, `store.ts` (private accepted history and the
-  ref, reflog, and accepted-row transaction), `observations.ts` (the ordered
-  observation log per tree, the only source of cursor order), `watch-frames.ts`
+  changed), `transition.ts`, `store.ts` (private accepted history, the
+  accepted-row transaction, and the only writer of `trees.ref`),
+  `observations.ts` (cursor order over accepted updates, the only source of
+  watch order), `watch-frames.ts`
   (net catch-up), `graph-validation.ts`, `source-edits.ts` (exact source
   execution and `composeFrames`), `conflict-store.ts`, `merge-state-store.ts`,
   `source-intent-store.ts`, `entry-ambiguity.ts`, `semantic-merge.ts`.

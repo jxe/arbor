@@ -165,7 +165,7 @@ Implemented by [canopyd 013](013-entry-metadata.md#document-versions-the-storage
 which owns the `document_versions` table, its identity rules (`id:<PageID>` or
 `path:<entry path>`, a row per content change, and none for a pure move of an
 identified page), the write seam inside the accepted-update transaction, and
-the backfill in migration 014. This plan's routes read that index, resolve
+the backfill in migration 015. This plan's routes read that index, resolve
 `content_hash` through the object store, and map `entry_path` to the logical
 path they return. They must not add a competing scan or schema. canopyd 006
 reuses the same index.

@@ -18,20 +18,17 @@ export interface StoredSourceIntent extends SourceIntent {
 
 /** Private retention of authored intent. Never translates snapshot correspondence
  * into asserted operations. AcceptedUpdateStore owns the enclosing transaction.
+ * The tree, change identity, basis and candidate are the owning accepted
+ * update's own columns; this table adds only the trace and its evidence.
  */
 export class SourceIntentStore {
   constructor(private readonly db: Database) {}
 
   static createSchema(db: Database): void {
     db.run(`CREATE TABLE IF NOT EXISTS authored_changes (
-      tree_id TEXT NOT NULL REFERENCES trees(id),
-      change_id TEXT NOT NULL,
-      accepted_id TEXT NOT NULL UNIQUE REFERENCES accepted_updates(id) ON DELETE RESTRICT,
-      basis_root TEXT NOT NULL,
-      candidate_root TEXT NOT NULL,
+      accepted_id TEXT PRIMARY KEY REFERENCES accepted_updates(id) ON DELETE RESTRICT,
       trace_json TEXT NOT NULL,
-      evidence_json TEXT NOT NULL,
-      PRIMARY KEY (tree_id, change_id)
+      evidence_json TEXT NOT NULL
     )`);
   }
 
@@ -39,20 +36,20 @@ export class SourceIntentStore {
    * Evidence must come from the source executor; this checks structural binding,
    * not source reachability or byte correspondence (those need object reads).
    */
-  insert(record: StoredSourceIntent): void {
+  insert(record: SourceIntent & { acceptedUpdate: string }): void {
     if (!this.db.inTransaction) throw new Error("Source intent requires an accepted-update transaction");
-    const owner = this.db.query("SELECT tree_id, base_root, candidate_root, request_digest, change_id FROM accepted_updates WHERE id = ?")
-      .get(record.acceptedUpdate) as { tree_id: string; base_root: string; candidate_root: string; request_digest: string | null; change_id: string | null } | null;
-    if (!owner || owner.tree_id !== record.tree || owner.change_id !== record.change || owner.base_root !== record.basisRoot || owner.candidate_root !== record.candidateRoot || !owner.request_digest) {
+    const owner = this.db.query("SELECT base_root, candidate_root, request_digest, change_id FROM accepted_updates WHERE id = ?")
+      .get(record.acceptedUpdate) as { base_root: string | null; candidate_root: string | null; request_digest: string | null; change_id: string | null } | null;
+    if (!owner || owner.change_id !== record.change || !owner.base_root || !owner.candidate_root || !owner.request_digest) {
       throw new Error("Source intent does not match its accepted update");
     }
     validateUpdateRequestIntent({ base: record.acceptedUpdate, updates: [{
-      change: record.change, candidate: record.candidateRoot, trace: record.trace,
+      change: record.change, candidate: owner.candidate_root, trace: record.trace,
       resolves: new ConflictStore(this.db).get(record.acceptedUpdate)?.resolutions ?? [], objects: [], deltas: [],
     }] });
     // The wire proves the chain is internally consistent and ends at the
     // candidate; only the store knows the basis the chain must start from.
-    if (record.trace.length && record.trace[0]!.before !== record.basisRoot) {
+    if (record.trace.length && record.trace[0]!.before !== owner.base_root) {
       throw new Error("Source trace does not start at the recorded basis");
     }
     const operations = record.trace.flatMap((frame) => frame.operations);
@@ -62,29 +59,37 @@ export class SourceIntentStore {
     }
     // Deliberately no upsert. Reusing a change identity must never replace its
     // old intent; exact retries use the retained accepted request receipt.
-    this.db.run(`INSERT INTO authored_changes
-      (tree_id, change_id, accepted_id, basis_root, candidate_root, trace_json, evidence_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`, [record.tree, record.change, record.acceptedUpdate,
-      record.basisRoot, record.candidateRoot, JSON.stringify(record.trace), JSON.stringify(record.evidence)]);
+    this.db.run("INSERT INTO authored_changes (accepted_id, trace_json, evidence_json) VALUES (?, ?, ?)",
+      [record.acceptedUpdate, JSON.stringify(record.trace), JSON.stringify(record.evidence)]);
   }
 
-  get(tree: string, change: string): StoredSourceIntent | null {
-    const row = this.db.query("SELECT * FROM authored_changes WHERE tree_id = ? AND change_id = ?").get(tree, change) as {
-      tree_id: string; change_id: string; accepted_id: string; basis_root: string; candidate_root: string;
+  private one(where: string, ...values: string[]): StoredSourceIntent | null {
+    const row = this.db.query(`
+      SELECT u.tree_id, u.change_id, a.accepted_id, u.base_root, u.candidate_root, a.trace_json, a.evidence_json
+      FROM authored_changes a JOIN accepted_updates u ON u.id = a.accepted_id
+      WHERE ${where}
+    `).get(...values) as {
+      tree_id: string; change_id: string; accepted_id: string; base_root: string; candidate_root: string;
       trace_json: string; evidence_json: string;
     } | null;
     return row ? { tree: row.tree_id, change: row.change_id, acceptedUpdate: row.accepted_id,
-      basisRoot: row.basis_root, candidateRoot: row.candidate_root,
+      basisRoot: row.base_root, candidateRoot: row.candidate_root,
       trace: JSON.parse(row.trace_json), evidence: JSON.parse(row.evidence_json) } : null;
   }
 
+  get(tree: string, change: string): StoredSourceIntent | null {
+    return this.one("u.tree_id = ? AND u.change_id = ?", tree, change);
+  }
+
   forAccepted(update: string): StoredSourceIntent | null {
-    const row = this.db.query("SELECT tree_id, change_id FROM authored_changes WHERE accepted_id = ?").get(update) as { tree_id: string; change_id: string } | null;
-    return row ? this.get(row.tree_id, row.change_id) : null;
+    return this.one("a.accepted_id = ?", update);
   }
 
   /** Additional retention dependencies, including candidates never chosen as projections. */
   roots(): string[] {
-    return (this.db.query("SELECT basis_root AS root FROM authored_changes UNION SELECT candidate_root AS root FROM authored_changes").all() as { root: string }[]).map(row => row.root);
+    return (this.db.query(`
+      SELECT u.base_root AS root FROM authored_changes a JOIN accepted_updates u ON u.id = a.accepted_id
+      UNION SELECT u.candidate_root AS root FROM authored_changes a JOIN accepted_updates u ON u.id = a.accepted_id
+    `).all() as { root: string }[]).map(row => row.root);
   }
 }

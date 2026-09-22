@@ -676,7 +676,6 @@ export class CanopyDaemon implements AsyncDisposable {
       tree: configTree.id,
       root: nextSnapshot.root,
       previousRoot: configTree.ref,
-      expectedRoot: configTree.ref,
       expectedUpdate,
       kind: "accepted",
       acceptedAt: now,
@@ -806,7 +805,6 @@ export class CanopyDaemon implements AsyncDisposable {
           "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
           [configID, snapshot.root, now, account.id],
         );
-        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [configID, snapshot.root, now]);
         this.insertAcceptedUpdate({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
       })();
@@ -1087,9 +1085,6 @@ export class CanopyDaemon implements AsyncDisposable {
         "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
         [input.configurationTree, input.configurationSnapshot.root, now, accountID],
       );
-      this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [
-        input.configurationTree, input.configurationSnapshot.root, now,
-      ]);
       this.insertAcceptedUpdate({
         tree: input.configurationTree,
         root: input.configurationSnapshot.root,
@@ -1501,7 +1496,7 @@ export class CanopyDaemon implements AsyncDisposable {
         authoredConflicts: authoredView(current.id),
       };
     }
-    if (this.acceptedStore.acceptedChange(treeID, request.change) || new SourceIntentStore(this.db).get(treeID, request.change)) {
+    if (this.acceptedStore.acceptedChange(treeID, request.change)) {
       throw new Error("Authored change identity is already bound to a different accepted request");
     }
     await this.validateGraph(request.candidate, proposed, tree.ref);
@@ -1768,7 +1763,6 @@ export class CanopyDaemon implements AsyncDisposable {
           tree: treeID,
           root: nextRoot,
           previousRoot: remoteTree.ref,
-          expectedRoot: remoteTree.ref,
           expectedUpdate: remoteUpdate.id,
           kind,
           acceptedAt: now,
@@ -1969,7 +1963,6 @@ export class CanopyDaemon implements AsyncDisposable {
           tree: tree.id,
           root: result.object,
           previousRoot: current.root,
-          expectedRoot: current.root,
           expectedUpdate: current.id,
           kind: "accepted",
           acceptedAt: now,
@@ -2141,14 +2134,7 @@ export class CanopyDaemon implements AsyncDisposable {
           withinTransaction: () => {
             this.applyAccountConfigDerived(account.id, currentGraph, nextGraph);
             for (const rewrite of rewrites) {
-              const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-                rewrite.nextRoot, now, rewrite.parent.id, rewrite.parent.ref,
-              ]);
-              if (result.changes !== 1) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
-              this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
-                rewrite.parent.id, rewrite.nextRoot, rewrite.parent.ref, now,
-              ]);
-              boundaryUpdates.push(this.insertAcceptedUpdate({
+              const accepted = this.acceptedStore.advance({
                 tree: rewrite.parent.id,
                 root: rewrite.nextRoot,
                 previousRoot: rewrite.parent.ref,
@@ -2157,7 +2143,9 @@ export class CanopyDaemon implements AsyncDisposable {
                 subject: credentialSubject,
                 transition: transitions.get(rewrite.parent.id),
                 entryChanges: rewriteChanges.get(rewrite.parent.id)!,
-              }));
+              });
+              if (!accepted) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
+              boundaryUpdates.push(accepted);
             }
           },
           afterCommit: () => {
@@ -2182,11 +2170,6 @@ export class CanopyDaemon implements AsyncDisposable {
 
   observationPosition(tree: string, cursor: string | null) { return this.observations.position(tree, cursor); }
   observationPage(tree: string, after: number) { return this.observations.page(tree, after); }
-
-  /** Retained observation records strictly after `cursor` for one tree. */
-  observationsAfter(tree: string, cursor: string | null) {
-    return this.observations.after(tree, cursor);
-  }
 
   private notifyObservation(record: ObservationRecord): void {
     for (const listener of this.observationListeners.get(record.tree) ?? []) listener(record);
@@ -2374,10 +2357,6 @@ export class CanopyDaemon implements AsyncDisposable {
         "INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)",
         [path, id, parentTree],
       );
-      this.db.run(
-        "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)",
-        [id, snapshot.root, now],
-      );
       this.insertAcceptedUpdate({
         tree: id,
         root: snapshot.root,
@@ -2393,18 +2372,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);
       if (attachment) {
-        const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-          attachment.nextRoot,
-          now,
-          attachment.parent.id,
-          attachment.parent.ref,
-        ]);
-        if (result.changes !== 1) throw new RefConflictError(this.get(attachment.parent.id)?.ref ?? null);
-        this.db.run(
-          "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)",
-          [attachment.parent.id, attachment.nextRoot, attachment.parent.ref, now],
-        );
-        this.insertAcceptedUpdate({
+        const accepted = this.acceptedStore.advance({
           tree: attachment.parent.id,
           root: attachment.nextRoot,
           previousRoot: attachment.parent.ref,
@@ -2414,6 +2382,7 @@ export class CanopyDaemon implements AsyncDisposable {
           ...(attachmentTransition ? { transition: attachmentTransition } : {}),
           entryChanges: attachmentChanges!,
         });
+        if (!accepted) throw new RefConflictError(this.get(attachment.parent.id)?.ref ?? null);
       }
     })();
     if (attachment) this.notifyAccepted(this.currentUpdate(attachment.parent.id)!);

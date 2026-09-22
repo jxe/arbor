@@ -1,6 +1,7 @@
 # canopyd 013: Entry metadata and the document-version index
 
-Status: SERVER IMPLEMENTED 2026-09-22 (steps 1–3: tables, write seam, route, migration 014);
+Status: SERVER IMPLEMENTED 2026-09-22 (steps 1–3: tables, write seam, route, and the migration, now carried by
+[migration 015](../../packages/canopyd/migrations/015-compact-history/README.md));
 Arbor Sync and client steps 4–5 remain. Written the same day after ccaeb760 fixed pending-view
 dates on the Mac.
 
@@ -234,7 +235,7 @@ anything is renamed (sole user).
   - rows always equal the file entries of the current root;
   - `modified_at` changes only on changed paths.
 
-### 2. Offline migration `packages/canopyd/migrations/014-entry-metadata/`
+### 2. Offline migration (carried by `packages/canopyd/migrations/015-compact-history/`)
 - Create both tables. Backfill each tree by replaying `accepted_updates` in
   order, running `entryChanges(previous_root, root)` with each row's
   `accepted_at`, then stamp the schema version.
