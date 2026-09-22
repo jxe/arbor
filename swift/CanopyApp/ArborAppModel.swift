@@ -830,6 +830,11 @@ final class ArborWorkspaceState {
 
     // MARK: Control-mode daemon
 
+    /// arborsync's well-known loopback port, and the isolated one a signed
+    /// test helper listens on instead.
+    private static let arborSyncPort = 4_317
+    private static let testHelperArborSyncPort = 45_190
+
     /// Connect to the installation's control-mode daemon, launching one when
     /// none is listening, and keep its loopback client.
     @discardableResult
@@ -837,7 +842,7 @@ final class ArborWorkspaceState {
         let usesTestHelper = ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1"
         // A signed test helper has an isolated data home and must never impersonate the
         // user's arborsync on its well-known port if the test host exits unexpectedly.
-        let preferredPort = usesTestHelper ? 45_190 : 4_317
+        let preferredPort = usesTestHelper ? Self.testHelperArborSyncPort : Self.arborSyncPort
         let supervisor = self.supervisor ?? ArborSyncProcessSupervisor(launchPolicy: .automatic)
         self.supervisor = supervisor
         do {
@@ -1448,6 +1453,11 @@ final class ArborWorkspaceState {
         )
     }
 
+    /// Pause between editing the legacy account files and re-reading them.
+    /// The reason is not recorded (the re-read is local); presumably it lets
+    /// arborsync observe the edit first. Kept unchanged with the legacy path.
+    private static let legacyDeviceRevocationSettleDelay: Duration = .milliseconds(250)
+
     func revokeLocalArborSyncDevice(_ id: String) async throws {
         let configuration = try loadLocalAccountConfiguration()
         guard let target = configuration.devices.first(where: { $0.id == id }) else {
@@ -1477,7 +1487,7 @@ final class ArborWorkspaceState {
         }
         let deviceURL = ArborSupportDirectories.dataHome.appending(path: "devices/\(id).yaml")
         try FileManager.default.removeItem(at: deviceURL)
-        try await Task.sleep(for: .milliseconds(250))
+        try await Task.sleep(for: Self.legacyDeviceRevocationSettleDelay)
         try await refreshLocalArborSyncDevices()
     }
 
