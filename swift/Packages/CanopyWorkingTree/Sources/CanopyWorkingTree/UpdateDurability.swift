@@ -1,10 +1,13 @@
 import Overstory
 import Darwin
 import Foundation
+import OSLog
 
 /// `<root>/sync/update-control.json` plus `<root>/sync/objects/<hash>` for head
 /// objects too large to carry inline in the control file.
 struct UpdateControlFiles: Sendable {
+    private static let log = Logger(subsystem: "org.arbor.native", category: "Sync")
+
     let directory: URL
     let controlURL: URL
     let objectsDirectory: URL
@@ -101,12 +104,21 @@ struct UpdateControlFiles: Sendable {
         return WireObjectEnvelope(hash: hash, bytes: bytes)
     }
 
-    /// Drop spilled objects no durable record references.
+    /// Drop spilled objects no durable record references. Collection is best
+    /// effort: a leftover object only costs space.
     func retainObjects(_ hashes: Set<String>) {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: objectsDirectory.path) else { return }
+        // The directory exists only once a head has spilled.
+        guard FileManager.default.fileExists(atPath: objectsDirectory.path) else { return }
+        let names: [String]
+        do { names = try FileManager.default.contentsOfDirectory(atPath: objectsDirectory.path) } catch {
+            Self.log.error("spilled objects unreadable: \(String(describing: error), privacy: .public)")
+            return
+        }
         let keep = Set(hashes.map(Self.fileName))
         for name in names where !keep.contains(name) {
-            try? FileManager.default.removeItem(at: objectsDirectory.appending(path: name))
+            do { try FileManager.default.removeItem(at: objectsDirectory.appending(path: name)) } catch {
+                Self.log.error("spilled object not removed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

@@ -16,6 +16,10 @@ import OSLog
 /// platform-served file. Resubmission reads envelopes only from the persisted
 /// attempt, never from a live object store.
 public actor UpdateCoordinator {
+    private static let syncLog = Logger(subsystem: "org.arbor.native", category: "Sync")
+    private static let admissionLog = Logger(subsystem: "org.arbor.native", category: "SourceAdmission")
+    private static let publicationLog = Logger(subsystem: "org.arbor.native", category: "SourcePublication")
+
     private let workingTree: WorkingTree
     private let transport: any UpdateTransport
     private let sourceObjectStore: (any ObjectStore)?
@@ -191,7 +195,8 @@ public actor UpdateCoordinator {
             let admission = latestAdmission
             Task { [weak self] in
                 guard let self else { return }
-                _ = try? await self.synchronize(admission: admission, extendExistingAttempt: extend)
+                do { _ = try await self.synchronize(admission: admission, extendExistingAttempt: extend) }
+                catch { Self.syncLog.error("scheduled publication failed: \(String(describing: error), privacy: .public)") }
             }
         case .submit, .apply, .catchUp, .stop:
             // Submission, materialization, and catch-up are performed inline by
@@ -530,7 +535,12 @@ public actor UpdateCoordinator {
     private func candidateObjects(base: String) async throws -> (root: String, objects: [WireObjectEnvelope]) {
         let local = try await workingTree.localSnapshot()
         _ = try WireObjectGraph.validate(local, mode: .sparseFiles)
-        let retained = (try? await retainedObjectHashes(root: base)) ?? []
+        let retained: Set<String>
+        do { retained = try await retainedObjectHashes(root: base) } catch {
+            // Sending objects the base already retains is redundant, not wrong.
+            Self.syncLog.error("base walk failed; sending the whole local graph: \(String(describing: error), privacy: .public)")
+            retained = []
+        }
         return (local.root, local.objects.filter { !retained.contains($0.hash) })
     }
 
@@ -559,17 +569,22 @@ public actor UpdateCoordinator {
                 _ = try await submit(attempt)
             } catch {
                 // The durable prefix and latest replica head remain retryable.
+                Self.syncLog.error("reconnection resend failed: \(String(describing: error), privacy: .public)")
             }
             return
         }
-        let heads = try? await workingTree.heads()
-        if ((try? await hasSourceWork()) ?? false) || control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil {
-            _ = try? await synchronize(admission: nil, extendExistingAttempt: true)
-        } else {
-            // A clean offline replica can still be behind Canopy. Reconnection
-            // is an authoritative catch-up boundary even when there is no local
-            // candidate to submit and no watch failure to trigger gap recovery.
-            _ = try? await recoverWatchGap()
+        do {
+            let heads = try await workingTree.heads()
+            if try await hasSourceWork() || control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+                _ = try await synchronize(admission: nil, extendExistingAttempt: true)
+            } else {
+                // A clean offline replica can still be behind Canopy. Reconnection
+                // is an authoritative catch-up boundary even when there is no local
+                // candidate to submit and no watch failure to trigger gap recovery.
+                _ = try await recoverWatchGap()
+            }
+        } catch {
+            Self.syncLog.error("reconnection sync failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -1370,7 +1385,7 @@ public actor UpdateCoordinator {
             return try await self.retainSourceIntent(intent)
         }
         admissionTail = Task { _ = try? await task.value }
-        let log = Logger(subsystem: "org.arbor.native", category: "SourceAdmission")
+        let log = Self.admissionLog
         log.notice("retain begin edits=\(intent.patch.edits.count) bytes=\(intent.source.utf8.count)")
         // The journal rewrite is client-side latency the editor waits on; report
         // it beside the network events so it can be weighed against them.
@@ -1449,7 +1464,7 @@ public actor UpdateCoordinator {
             if case .offline = machine.phase { dispatch(.transportAvailable(true)) }
             dispatch(.submitStarted(id: attempt.digest))
             try faultInjector.reached(.duringUpload)
-            let publicationLog = Logger(subsystem: "org.arbor.native", category: "SourcePublication")
+            let publicationLog = Self.publicationLog
             let started = Date()
             publicationLog.notice("submit begin base=\(attempt.base.update, privacy: .public) updates=\(attempt.allRequestDigests.count) bytes=\(attempt.body.count)")
             let response: WireUpdateResponse
@@ -1700,7 +1715,10 @@ extension UpdateCoordinator {
             // draft, retire only this request, and let ordinary publication run.
             var journal = try files.loadReview(); journal.attempt = nil
             try files.writeReview(journal)
-            Task { [weak self] in _ = try? await self?.syncOnce() }
+            Task { [weak self] in
+                do { _ = try await self?.syncOnce() }
+                catch { Self.syncLog.error("publication after review rejection failed: \(String(describing: error), privacy: .public)") }
+            }
             throw ConflictReviewError.changed
         }
         guard response.results.map(\.requestDigest) == attempt.allRequestDigests else {

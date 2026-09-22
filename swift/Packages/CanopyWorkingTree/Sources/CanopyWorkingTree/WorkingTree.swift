@@ -2,12 +2,14 @@ import CanopyAppKit
 import OverstoryObjectStore
 import Overstory
 import Foundation
+import OSLog
 
 /// The node index of one tree plus the local objects it has produced, over a
 /// state store (disk on iOS, memory on the Mac) and a layered object store
 /// (the tree's own overlay in front of the platform's accepted bytes).
 public actor WorkingTree {
     public typealias Clock = @Sendable () -> Date
+    private static let log = Logger(subsystem: "org.arbor.native", category: "WorkingTree")
 
     private let store: any WorkingTreeStateStore
     private let overlay: any ObjectOverlay
@@ -254,7 +256,10 @@ public actor WorkingTree {
         for node in state.nodes where node.kind == .file {
             if case let .hash(hash, _, _)? = node.ref { files.insert(hash) }
         }
-        try? overlay.retain(reachableFrom: roots, files: files)
+        do { try overlay.retain(reachableFrom: roots, files: files) } catch {
+            // Collection is best effort: unreachable bytes only cost space.
+            Self.log.error("overlay collection failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     public func recordAccepted(root: String, update: String, cursor: String? = nil) throws {
