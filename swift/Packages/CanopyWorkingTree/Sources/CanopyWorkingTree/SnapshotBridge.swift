@@ -12,7 +12,8 @@ public enum SnapshotBridge {
         update: String,
         cursor: String? = nil,
         mode: WireObjectGraph.ValidationMode = .complete,
-        modifiedAtByPath: [String: Date] = [:]
+        entryMetadata: [String: EntryMetadata] = [:],
+        acceptedAt: Date? = nil
     ) throws -> WorkingTreeSystemReplacement {
         let sparse = mode == .sparseFiles
         let objects = try WireObjectGraph.validate(snapshot, mode: mode)
@@ -43,7 +44,7 @@ public enum SnapshotBridge {
                 throw ArborWireValidationError.invalidValue("Duplicate logical path \(node.path)")
             }
             var node = node
-            node.modifiedAt = modifiedAtByPath[node.path]
+            if let entry = node.bodyEntryPath, let metadata = entryMetadata[entry] { node.metadata = metadata }
             nodes.append(node)
         }
 
@@ -146,7 +147,7 @@ public enum SnapshotBridge {
         }
 
         try visitDirectory(snapshot.root, path: "/")
-        return WorkingTreeSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes)
+        return WorkingTreeSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes, acceptedAt: acceptedAt)
     }
 
     public static func inferredMediaType(for name: String) -> String? {

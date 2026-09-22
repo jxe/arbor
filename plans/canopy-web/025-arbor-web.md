@@ -30,7 +30,7 @@ interface WebHost {
   kind: "local" | "canopy";
   /** Trees this host can open: placements (local) or the account's trees (canopy). */
   trees(): Promise<HostTree[]>;
-  /** Accepted-root bootstrap for one tree: spine, accepted {root, update, cursor}, modifiedAtByPath. */
+  /** Accepted-root bootstrap for one tree: spine, accepted {root, update, cursor}; page dates come from canopyd's entry-metadata read. */
   bootstrap(tree: TreeID): Promise<Bootstrap>;
   /** Content-addressed bytes, hash-verified by the caller. */
   objects: ObjectStore;

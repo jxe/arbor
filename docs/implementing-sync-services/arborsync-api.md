@@ -239,7 +239,6 @@ with `details.kind: "unsynchronized"`). The response is:
     "name" | "osPath" | "placement">,
   accepted: { root: Hash, update: string, cursor: string | null },   // independent observation boundary; null requires refresh
   spine: string,          // base64 sparse CBOR snapshot bundle
-  modifiedAtByPath: Record<string, number>, // logical page path -> Unix milliseconds
   observedThrough: string,
 }
 ```
@@ -263,19 +262,11 @@ resolved on demand through `/v1/objects`. Entries explicitly identify `file`,
 `directory`, or `tree`, so a missing directory is always an error. No file map,
 size lookup, or payload sniffing is needed.
 
-**Local modification dates.** `modifiedAtByPath` supplies filesystem body-file
-modification times for pages in the spine, scoped to this tree and keyed by
-logical path (`/` for the root page). A directory page uses `_index.md` when
-present, otherwise its sibling Markdown body; directory mtimes and shadowed
-bodies do not count. The daemon reads only filesystem metadata, so a cloud
-placeholder can contribute its modification date without downloading its body.
-The date describes the local replica and may therefore be newer than the
-accepted snapshot when the placed file has an unaccepted edit. It is not
-cross-device edit history or a timestamp attached to an accepted object.
-Modification dates remain presentation metadata outside Overstory objects, roots,
-and update digests. Clients preserve them when seeding a working tree and
-distinguish missing dates from old dates. Older daemons may omit this field;
-clients treat omission as an empty map.
+**Modification dates.** The bootstrap carries none. Page dates are Canopy's
+entry metadata, which every client reads from canopyd itself
+(`GET /.arbor/trees/{id}/entry-metadata`, [tree reads §1.1.2a](../overstory-spec/01-tree-operations.md#112a-reading-entry-metadata)):
+accepted change times keyed by body entry, the same on every device, and
+outside Overstory objects, roots and update digests.
 
 Every successful response is a
 clean installation boundary. Concurrent folder work is reconciled later by

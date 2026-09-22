@@ -199,7 +199,6 @@ public actor ArborSyncRESTClient {
             tree: envelope.tree,
             accepted: envelope.accepted,
             spine: spine,
-            modifiedAtByPath: envelope.modifiedAtByPath ?? [:],
             observedThrough: envelope.observedThrough
         )
     }
@@ -382,6 +381,5 @@ private struct TreeBootstrapEnvelope: Decodable {
     var tree: TreeBootstrapDescriptor
     var accepted: TreeBootstrapAccepted
     var spine: String
-    var modifiedAtByPath: [String: Double]?
     var observedThrough: String
 }

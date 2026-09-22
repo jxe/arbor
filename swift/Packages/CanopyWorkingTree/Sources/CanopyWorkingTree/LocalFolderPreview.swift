@@ -61,7 +61,6 @@ public enum LocalFolderPreview {
             let source = index ?? siblingMarkdownSource
             nodes.append(WorkingTreeSystemNode(
                 path: path,
-                modifiedAt: nil,
                 content: .directory(source: source),
                 directoryBodyPlacement: index == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
                 shadowedSiblingMarkdownSource: index != nil ? siblingMarkdownSource : nil
@@ -75,7 +74,7 @@ public enum LocalFolderPreview {
                     guard let source = markdown(url) else { continue }
                     nodes.append(WorkingTreeSystemNode(
                         path: childPath(logicalName, parent: path),
-                        modifiedAt: values?.contentModificationDate,
+                        metadata: EntryMetadata(modifiedAt: values?.contentModificationDate),
                         content: .markdown(source: source)
                     ))
                 } else {

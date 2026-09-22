@@ -1,7 +1,14 @@
 # canopyd 013: Entry metadata and the document-version index
 
-Status: SERVER DEPLOYED 2026-09-22 (steps 1–3: tables, write seam, route, migration 014 live);
-Arbor Sync and client steps 4–5 remain. Written the same day after ccaeb760 fixed pending-view
+Status: IMPLEMENTED 2026-09-22. Server deployed (steps 1–3, migration 014 live); Arbor Sync and
+client steps 4–5 built the same day, with two deliberate changes from the steps below:
+- The daemon does not forward metadata. Every client (Mac included) reads `/entry-metadata`
+  from canopyd itself, and the bootstrap simply drops `modifiedAtByPath`.
+- No schema or format bump. Nodes carry `metadata: EntryMetadata` and still decode the old
+  `modifiedAt` key; each open fetches Canopy's dates and applies them
+  (`WorkingTree.applyEntryDates`: authoritative for the accepted update, otherwise only
+  filling undated nodes), so an existing iPhone replica gains dates without being re-placed
+  and without archiving unsynced work. Written the same day after ccaeb760 fixed pending-view
 dates on the Mac.
 
 As built, `document_versions` keeps a rowid for accepted order (the newest version is the

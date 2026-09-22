@@ -43,8 +43,5 @@
     "requestDigests": [
       "sha256:87f03ecd401f9548efc3cb948c75fbce75b2163cae2e13a91a091b7e48536482"
     ]
-  },
-  "modifiedAtByPath": {
-    "/": 1789473600000
   }
 }

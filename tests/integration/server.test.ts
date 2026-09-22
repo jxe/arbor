@@ -1,7 +1,7 @@
 import { installAccountHome } from "../helpers/account-home.ts";
 import { encodeWireDirectory } from "@overstory/protocol";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
@@ -351,16 +351,11 @@ describe("arborsync bootstrap and credential routes", () => {
     return resolveSnapshot(await snapshotDirectory(treeDir));
   }
 
-  test("bootstraps a clean placed tree with a sparse spine and local page dates", async () => {
+  test("bootstraps a clean placed tree with a sparse spine", async () => {
     const { decodeSparseSnapshotBundle, decodeWireDirectory, hashObject } = await import("@overstory/protocol");
-    await utimes(join(treeDir, "note.md"), new Date("2026-09-15T10:00:00Z"), new Date("2026-09-15T10:00:00Z"));
-    await utimes(join(treeDir, "sub", "child.md"), new Date("2026-09-14T10:00:00Z"), new Date("2026-09-14T10:00:00Z"));
     const bootstrap = await placedClient.bootstrap(tree);
-    expect(bootstrap.modifiedAtByPath).toEqual({
-      "/": (await stat(join(treeDir, "_index.md"))).mtimeMs,
-      "/note": (await stat(join(treeDir, "note.md"))).mtimeMs,
-      "/sub/child": (await stat(join(treeDir, "sub", "child.md"))).mtimeMs,
-    });
+    // Page dates come from Canopy's entry metadata, never from the daemon's files.
+    expect("modifiedAtByPath" in bootstrap).toBe(false);
     const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree)!;
     expect(bootstrap.tree.id).toBe(tree);
     expect("sync" in bootstrap.tree).toBe(false);
@@ -388,59 +383,11 @@ describe("arborsync bootstrap and credential routes", () => {
     expect(hashObject(await placedClient.object(tree, photoHash))).toBe(photoHash);
   });
 
-  test("bootstrap dates use active directory bodies and keep identical files' dates separate", async () => {
-    const added = ["dated-one", "dated-two", "dated-shadow"];
-    const old = new Date("2026-08-01T10:00:00Z");
-    const recent = new Date("2026-09-15T10:00:00Z");
-    try {
-      for (const name of added) await mkdir(join(treeDir, name));
-      await writeFile(join(treeDir, "dated-one", "same.md"), "Same bytes\n");
-      await writeFile(join(treeDir, "dated-two", "same.md"), "Same bytes\n");
-      await writeFile(join(treeDir, "dated-one.md"), "Sibling body\n");
-      await writeFile(join(treeDir, "dated-shadow.md"), "Shadowed body\n");
-      await writeFile(join(treeDir, "dated-shadow", "_index.md"), "Active body\n");
-      await utimes(join(treeDir, "dated-one", "same.md"), old, old);
-      await utimes(join(treeDir, "dated-two", "same.md"), recent, recent);
-      await utimes(join(treeDir, "dated-one.md"), old, old);
-      await utimes(join(treeDir, "dated-shadow.md"), recent, recent);
-      await utimes(join(treeDir, "dated-shadow", "_index.md"), old, old);
-      await placedClient.synchronizeNow();
-      const { modifiedAtByPath: dates } = await placedClient.bootstrap(tree);
-      expect(dates["/dated-one/same"]).toBe(old.getTime());
-      expect(dates["/dated-two/same"]).toBe(recent.getTime());
-      expect(dates["/dated-one"]).toBe(old.getTime());
-      expect(dates["/dated-shadow"]).toBe(old.getTime());
-      expect(dates["/dated-two"]).toBeUndefined();
-    } finally {
-      for (const name of added) {
-        await rm(join(treeDir, name), { recursive: true, force: true });
-        await rm(join(treeDir, name + ".md"), { force: true });
-      }
-      await placedClient.synchronizeNow();
-    }
-  });
-
-  test("bootstrap reads recency metadata without requiring local file content", async () => {
-    const note = join(treeDir, "note.md");
-    const modifiedAt = (await stat(note)).mtimeMs;
-    await chmod(note, 0o000);
-    try {
-      const bootstrap = await placedClient.bootstrap(tree);
-      expect(bootstrap.modifiedAtByPath["/note"]).toBe(modifiedAt);
-      const descriptor = (await placedClient.trees()).snapshot.find((item) => item.id === tree);
-      if (!descriptor?.root) throw new Error("Placed tree lost its accepted root");
-      expect(bootstrap.accepted.root).toBe(descriptor.root);
-    } finally {
-      await chmod(note, 0o644);
-    }
-  });
-
   test("bootstraps the accepted Canopy root while the folder has a pending edit", async () => {
     const { pendingFromSnapshot, savePendingTreeUpdate, clearPendingTreeUpdate } = await import("@overstory/client");
     const { decodeSparseSnapshotBundle, decodeWireDirectory } = await import("@overstory/protocol");
     const accepted = (await placedClient.bootstrap(tree)).accepted;
     await writeFile(join(treeDir, "note.md"), "Daemon-only pending edit\n");
-    const localModifiedAt = (await stat(join(treeDir, "note.md"))).mtimeMs;
     await savePendingTreeUpdate(tree, pendingFromSnapshot(accepted.update, await folderSnapshot()));
     try {
       const bootstrap = await placedClient.bootstrap(tree);
@@ -451,7 +398,6 @@ describe("arborsync bootstrap and credential routes", () => {
       const root = decodeWireDirectory(spine.get(accepted.root as never)!);
       const note = root.entries.find((entry) => entry.name === "note.md")?.file;
       expect(new TextDecoder().decode(spine.get(note!)!)).toBe("A note\n");
-      expect(bootstrap.modifiedAtByPath["/note"]).toBe(localModifiedAt);
     } finally {
       await writeFile(join(treeDir, "note.md"), "A note\n");
       await clearPendingTreeUpdate(tree);
