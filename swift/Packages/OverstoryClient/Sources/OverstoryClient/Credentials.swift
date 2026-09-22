@@ -753,26 +753,6 @@ public actor NativeAccountService {
         return try await self.access(tree: tree)
     }
 
-    public func createAccessLink(tree: String, access: String) async throws -> NativeAccessLink {
-        guard access == "read" || access == "write" else {
-            throw ArborWireValidationError.invalidValue("An access link must allow viewing or editing")
-        }
-        let secret = try randomSecret()
-        let digest = WireObjectCodec.hash(Data(secret.utf8))
-        let updated = try await setAccess(
-            tree: tree,
-            target: .existing(.link(digest: digest)),
-            access: access
-        )
-        guard var components = URLComponents(string: updated.canonical) else {
-            throw ArborWireValidationError.invalidValue("The tree has no valid canonical URL")
-        }
-        components.fragment = "arbor-access=\(secret)"
-        guard let url = components.url else {
-            throw ArborWireValidationError.invalidValue("The access-link URL could not be created")
-        }
-        return NativeAccessLink(url: url)
-    }
     public func configurationID() -> String? { configurationTree }
     public func forget() async throws {
         if let configurationTree {

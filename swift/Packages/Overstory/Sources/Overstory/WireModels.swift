@@ -53,13 +53,13 @@ private func endpointOrigin(_ endpoint: String) -> (scheme: String, authority: S
 }
 
 /// The public HTTP URL of a canonical tree, derived from its endpoint and decoded path.
-public func canonicalHTTPURL(endpoint: String, path: String) -> String {
+private func canonicalHTTPURL(endpoint: String, path: String) -> String {
     guard let origin = endpointOrigin(endpoint) else { return endpoint + encodedCanonicalPath(path) }
     return "\(origin.scheme)://\(origin.authority)\(encodedCanonicalPath(path))"
 }
 
 /// The `arbor://` locator of a canonical tree, derived from its endpoint and decoded path.
-public func canonicalArborLocator(endpoint: String, path: String) -> String {
+private func canonicalArborLocator(endpoint: String, path: String) -> String {
     guard let origin = endpointOrigin(endpoint) else { return "arbor://" + encodedCanonicalPath(path) }
     return "arbor://\(origin.authority)\(encodedCanonicalPath(path))"
 }

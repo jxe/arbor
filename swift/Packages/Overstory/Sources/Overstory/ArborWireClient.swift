@@ -7,12 +7,12 @@ public protocol WireCredentialProvider: Sendable {
     func invalidate() async
 }
 
-public struct StaticWireCredential: WireCredentialProvider, Sendable {
+private struct StaticWireCredential: WireCredentialProvider, Sendable {
     private let value: String?
 
-    public init(_ value: String?) { self.value = value }
-    public func credential() async throws -> String? { value }
-    public func invalidate() {}
+    init(_ value: String?) { self.value = value }
+    func credential() async throws -> String? { value }
+    func invalidate() {}
 }
 
 public actor ArborWireClient {

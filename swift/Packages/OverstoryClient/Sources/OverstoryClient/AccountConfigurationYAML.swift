@@ -184,12 +184,6 @@ public enum NativeTreeAccessTarget: Hashable, Sendable {
     case existing(ArborAccountAccessSubject)
 }
 
-public struct NativeAccessLink: Hashable, Sendable {
-    public var url: URL
-
-    public init(url: URL) { self.url = url }
-}
-
 public enum ArborAccountConfigurationYAML {
     private enum TreesSource {
         case resources([String: ArborResourceDeclaration])
