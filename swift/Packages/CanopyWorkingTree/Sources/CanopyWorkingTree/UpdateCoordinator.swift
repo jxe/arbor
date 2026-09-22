@@ -1442,7 +1442,6 @@ public actor UpdateCoordinator {
                 control.sourceAttemptChange = pending.change
                 try files.write(control)
                 try faultInjector.reached(.afterRequestPersistence)
-                notePersisted(attempt)
             }
             notePersisted(attempt)
             if case .offline = machine.phase { dispatch(.transportAvailable(true)) }
