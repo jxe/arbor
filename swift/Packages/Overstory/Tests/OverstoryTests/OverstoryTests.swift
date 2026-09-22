@@ -37,18 +37,23 @@ struct WireObjectTests {
     func replacingRootFile() throws {
         let first = try WireObjectCodec.object(.file(Data("before".utf8)))
         let second = try WireObjectCodec.object(.file(Data("untouched".utf8)))
+        let inner = try WireObjectCodec.object(.file(Data("nested".utf8)))
+        let nested = try WireObjectCodec.object(.directory([WireDirectoryEntry(name: "inner.txt", file: inner.hash)]))
         let root = try WireObjectCodec.object(.directory([
             WireDirectoryEntry(name: "first.txt", file: first.hash),
+            WireDirectoryEntry(name: "nested", directory: nested.hash),
             WireDirectoryEntry(name: "second.txt", file: second.hash),
         ]))
-        let snapshot = WireSnapshot(root: root.hash, objects: [first, second, root].sorted { $0.hash < $1.hash })
+        let snapshot = WireSnapshot(root: root.hash, objects: [first, second, inner, nested, root].sorted { $0.hash < $1.hash })
 
         let changed = try snapshot.replacingRootFile(named: "first.txt", with: Data("after".utf8))
 
         #expect(try String(data: changed.rootFile(named: "first.txt"), encoding: .utf8) == "after")
         #expect(try String(data: changed.rootFile(named: "second.txt"), encoding: .utf8) == "untouched")
+        #expect(throws: ArborWireValidationError.incompleteGraph("nested")) { try changed.rootFile(named: "nested") }
         #expect(changed.root != snapshot.root)
-        #expect(try WireObjectGraph.validate(changed).count == 3)
+        #expect(try WireObjectGraph.validate(changed).count == 5)
+        #expect(!changed.objects.contains { $0.hash == first.hash || $0.hash == root.hash })
     }
 
     @Test("Swift reproduces every shared object byte and hash")

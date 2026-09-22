@@ -113,8 +113,9 @@ public enum WireObjectCodec {
         default:
             throw ArborWireValidationError.invalidCBOR("Unknown wire object type")
         }
+        // `CanonicalCBOR.decode` accepted only canonical bytes and every field above
+        // was matched exactly, so re-encoding `object` would reproduce `bytes`.
         try validate(object)
-        guard try encode(object) == bytes else { throw ArborWireValidationError.invalidCBOR("Wire object does not round-trip exactly") }
         return object
     }
 
@@ -332,14 +333,14 @@ public enum WireObjectGraph {
 }
 
 public extension WireSnapshot {
+    /// The bytes of the root directory's file entry `name`, verified against
+    /// their hashes along that path; the rest of the graph is not revisited.
     func rootFile(named name: String) throws -> Data {
-        let objects = try WireObjectGraph.validate(self)
-        guard case let .directory(entries, _)? = objects[root],
-              let hash = entries.first(where: { $0.name == name })?.hash,
-              case let .file(bytes)? = objects[hash] else {
+        guard case let .directory(entries, _) = try WireObjectCodec.decode(verifiedBytes(root), kind: .directory),
+              let hash = entries.first(where: { $0.name == name })?.file else {
             throw ArborWireValidationError.incompleteGraph(name)
         }
-        return bytes
+        return try verifiedBytes(hash)
     }
 
     func replacingRootFile(named name: String, with bytes: Data) throws -> WireSnapshot {
@@ -353,27 +354,31 @@ public extension WireSnapshot {
             entry.name == name ? WireDirectoryEntry(name: name, file: file.hash) : entry
         }
         let nextRoot = try WireObjectCodec.object(.directory(nextEntries, childrenSource: childrenSource))
-        var bytesByHash = Dictionary(uniqueKeysWithValues: self.objects.map { ($0.hash, $0.bytes) })
+        var bytesByHash = Dictionary(self.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })
         bytesByHash[file.hash] = file.bytes
         bytesByHash[nextRoot.hash] = nextRoot.bytes
-        var reachable = Set<String>()
-        func visit(_ hash: String, kind: WireEntryKind) throws {
+        // Every unchanged child was decoded by the validation above; walk those
+        // decodings to keep exactly the objects the new root still reaches.
+        var reachable: Set<String> = [nextRoot.hash, file.hash]
+        func visit(_ hash: String) {
             guard reachable.insert(hash).inserted else { return }
-            guard let encoded = bytesByHash[hash] else {
-                throw ArborWireValidationError.incompleteGraph(hash)
-            }
-            if case let .directory(children, _) = try WireObjectCodec.decode(encoded, kind: kind) {
-                for child in children {
-                    if let childHash = child.hash, let kind = child.kind { try visit(childHash, kind: kind) }
-                }
+            if case let .directory(children, _)? = objects[hash] {
+                for child in children { if let childHash = child.hash { visit(childHash) } }
             }
         }
-        try visit(nextRoot.hash, kind: .directory)
-        let result = WireSnapshot(
+        for entry in entries where entry.name != name { if let hash = entry.hash { visit(hash) } }
+        return WireSnapshot(
             root: nextRoot.hash,
-            objects: reachable.sorted().map { WireObjectEnvelope(hash: $0, bytes: bytesByHash[$0]!) }
+            objects: reachable.sorted().compactMap { hash in bytesByHash[hash].map { WireObjectEnvelope(hash: hash, bytes: $0) } }
         )
-        _ = try WireObjectGraph.validate(result)
-        return result
+    }
+
+    private func verifiedBytes(_ hash: String) throws -> Data {
+        guard let envelope = objects.first(where: { $0.hash == hash }) else {
+            throw ArborWireValidationError.incompleteGraph(hash)
+        }
+        let actual = WireObjectCodec.hash(envelope.bytes)
+        guard actual == hash else { throw ArborWireValidationError.objectHashMismatch(expected: hash, actual: actual) }
+        return envelope.bytes
     }
 }
