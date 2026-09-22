@@ -1699,6 +1699,7 @@ final class ArborWorkspaceState {
         await editorWorkspace.closeAll()
         serverWatchTask?.cancel()
         serverWatchTask = nil
+        nativePathMonitor.cancel()
 #if os(macOS)
         visitFollowTask?.cancel()
         visitFollowTask = nil
