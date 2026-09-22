@@ -1594,7 +1594,7 @@ extension UpdateCoordinator {
         try files.writeReview(journal)
     }
 
-    public func reviewContent(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> Data? {
+    public func reviewContent(_ alternative: ConflictReviewAlternative) async throws -> Data? {
         if let text = alternative.value.text { return Data(text.utf8) }
         guard let hash = alternative.value.file else { return nil }
         let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
@@ -1602,7 +1602,7 @@ extension UpdateCoordinator {
         return bytes
     }
 
-    public func reviewDirectory(_ alternative: ConflictReviewAlternative, decision: String, state: String) async throws -> [WireDirectoryEntry]? {
+    public func reviewDirectory(_ alternative: ConflictReviewAlternative) async throws -> [WireDirectoryEntry]? {
         guard let hash = alternative.value.directory else { return nil }
         let bytes = try await transport.object(tree: workingTree.treeID().rawValue, hash: hash)
         guard WireObjectCodec.hash(bytes) == hash,

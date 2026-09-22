@@ -390,7 +390,7 @@ extension LiveSourceAdmissionTests {
         #expect(decision.supportsIndependentResolution)
         var sourceBytes = Set<Data>()
         for alternative in decision.alternatives {
-            let content = try #require(try await coordinator.reviewContent(alternative, decision: decision.id, state: inspection.state))
+            let content = try #require(try await coordinator.reviewContent(alternative))
             sourceBytes.insert(content)
             if content == Data(hiddenFragment.utf8) { hiddenID = alternative.id }
         }
@@ -495,7 +495,7 @@ extension LiveSourceAdmissionTests {
             var preserved = try await session.snapshot().source == later
             for choice in latest.decisions {
                 for alternative in choice.alternatives {
-                    if let content = try await coordinator.reviewContent(alternative, decision: choice.id, state: latest.state),
+                    if let content = try await coordinator.reviewContent(alternative),
                        content == Data(later.utf8) || content == Data(later.dropLast().utf8) { preserved = true }
                     if let directory = alternative.value.directory {
                         var pending = [(directory, WireEntryKind.directory)], visited = Set<String>()
@@ -569,7 +569,7 @@ extension LiveSourceAdmissionTests {
         let second = try #require(inspection.decisions.first { $0.id != first.id })
         var hidden: String?
         for alternative in first.alternatives {
-            if try await coordinator.reviewContent(alternative, decision: first.id, state: inspection.state) == Data("X".utf8) { hidden = alternative.id }
+            if try await coordinator.reviewContent(alternative) == Data("X".utf8) { hidden = alternative.id }
         }
         let draft = ConflictReviewDraft(snapshot: inspection, decision: first, alternative: try #require(hidden))
         let preview = try await coordinator.previewReviewDraft(draft)

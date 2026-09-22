@@ -155,7 +155,7 @@ final class ArborConflictReviewModel {
         guard let decision = next.decisions.first(where: { $0.id == id }) else { return }
         selectionGeneration += 1
         let generation = selectionGeneration
-        let loaded = await fetchContents(of: decision, state: next.snapshot.state)
+        let loaded = await fetchContents(of: decision)
         guard generation == selectionGeneration else { return }
         selectedID = id; draft = next; completedID = nil; preview = nil
         contents = loaded.contents; directories = loaded.directories; message = loaded.message
@@ -165,25 +165,25 @@ final class ArborConflictReviewModel {
     private func loadContents() async {
         selectionGeneration += 1
         let generation = selectionGeneration
-        guard let draft, let decision = selectedDecision else { return }
-        let loaded = await fetchContents(of: decision, state: draft.snapshot.state)
+        guard let decision = selectedDecision else { return }
+        let loaded = await fetchContents(of: decision)
         guard generation == selectionGeneration else { return }
         contents = loaded.contents; directories = loaded.directories
         if let message = loaded.message { self.message = message }
     }
 
-    private func fetchContents(of decision: ConflictReviewDecision, state: String) async
+    private func fetchContents(of decision: ConflictReviewDecision) async
         -> (contents: [String: Data], directories: [String: [WireDirectoryEntry]], message: String?) {
         var contents: [String: Data] = [:]
         var directories: [String: [WireDirectoryEntry]] = [:]
         var message: String?
         for alternative in decision.alternatives {
             do {
-                if let bytes = try await coordinator.reviewContent(alternative, decision: decision.id, state: state) {
+                if let bytes = try await coordinator.reviewContent(alternative) {
                     contents[alternative.id] = bytes
                 }
                 if alternative.value.directory != nil {
-                    directories[alternative.id] = try await coordinator.reviewDirectory(alternative, decision: decision.id, state: state)
+                    directories[alternative.id] = try await coordinator.reviewDirectory(alternative)
                 }
             } catch {
                 message = "Some alternatives could not be loaded: \(error.localizedDescription)"
