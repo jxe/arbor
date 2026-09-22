@@ -278,6 +278,12 @@ private func returnFocusFromMacSearch(to commands: EditorCommands?) {
     }
 }
 
+// A decorative sibling of the accessory, so AppKit's accessory clipping does
+// not cut off the background extension. It never intercepts titlebar input.
+private final class MacSidebarTitlebarBackground: NSHostingView<AnyView> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
     let width: CGFloat
     let isVisible: Bool
@@ -347,6 +353,9 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
         private var windowObservers: [NSObjectProtocol] = []
         private let controller = NSTitlebarAccessoryViewController()
         private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
+        private let leadingBackground = MacSidebarTitlebarBackground(
+            rootView: AnyView(Color.clear.modifier(ArborSidebarSurface()))
+        )
         private lazy var widthConstraint = hostingView.widthAnchor.constraint(equalToConstant: sidebarWidth)
         private weak var window: NSWindow?
         private var sidebarWidth: CGFloat = 240
@@ -425,6 +434,7 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
         }
 
         func detach() {
+            leadingBackground.removeFromSuperview()
             windowObservers.forEach(NotificationCenter.default.removeObserver)
             windowObservers.removeAll()
             if let keyMonitor {
@@ -446,6 +456,31 @@ private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
             }
             let accessoryLeadingEdge = max(0, hostingView.convert(.zero, to: nil).x)
             setAccessoryWidth(max(0, sidebarWidth - accessoryLeadingEdge))
+            updateLeadingBackground()
+        }
+
+        private func updateLeadingBackground() {
+            // In fullscreen AppKit leaves an 18pt leading inset (measured in
+            // the view debugger). Derive it from coordinates rather than
+            // baking that system spacing into the layout.
+            guard window?.styleMask.contains(.fullScreen) == true,
+                  let container = hostingView.superview,
+                  let titlebar = container.superview else {
+                leadingBackground.removeFromSuperview()
+                return
+            }
+            if leadingBackground.superview !== titlebar {
+                leadingBackground.removeFromSuperview()
+                titlebar.addSubview(leadingBackground, positioned: .below, relativeTo: container)
+            }
+            let accessoryFrame = hostingView.convert(hostingView.bounds, to: titlebar)
+            let windowLeadingEdge = titlebar.convert(.zero, from: nil).x
+            leadingBackground.frame = NSRect(
+                x: windowLeadingEdge,
+                y: accessoryFrame.minY,
+                width: max(0, accessoryFrame.minX - windowLeadingEdge),
+                height: accessoryFrame.height
+            )
         }
 
         private func setAccessoryWidth(_ width: CGFloat) {
