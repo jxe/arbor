@@ -91,7 +91,43 @@ extension View {
     }
 }
 
+// Opaque warm neutrals keep the sidebar and its titlebar search surface identical.
+enum ArborSidebarPalette {
+    static func background(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.118, green: 0.114, blue: 0.106)
+            : Color(red: 0.973, green: 0.969, blue: 0.961)
+    }
+
+    static func foreground(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.72, green: 0.71, blue: 0.69)
+            : Color(red: 0.39, green: 0.38, blue: 0.36)
+    }
+}
+
+struct ArborSidebarSurface: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
+    var showsDivider = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(ArborSidebarPalette.background(colorScheme), ignoresSafeAreaEdges: .all)
+            .overlay(alignment: .trailing) {
+                if showsDivider {
+                    Rectangle()
+                        .fill(colorScheme == .dark ? Color.black.opacity(0.65) : Color.black.opacity(0.13))
+                        .frame(width: 1 / displayScale)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
 struct ArborSidebarSearchRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let result: WorkspaceSearchResult
     let showsBacklinkCount: Bool
     var acceptsBlockDrop = true
@@ -100,26 +136,31 @@ struct ArborSidebarSearchRow: View {
 
     var body: some View {
         let titleParts = arborSidebarTitleParts(result.title)
+        let contextPath = arborSidebarContextPath(result.reference.path)
 
         Button(action: open) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
                 if let emoji = titleParts.emoji {
                     Text(emoji)
-                        .frame(width: 16)
-                        .offset(y: -1)
+                        .font(.system(size: 18))
+                        // Emoji can draw wider than the alignment column. Keep their
+                        // intrinsic size without moving the title or widening its gap.
+                        .fixedSize()
+                        .frame(width: 20)
                 } else {
                     Image(systemName: "text.page")
-                        .frame(width: 16)
+                        .font(.system(size: 18))
+                        .frame(width: 20)
                         .foregroundStyle(.secondary)
-                        .offset(y: -1)
                 }
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(titleParts.text)
+                        .foregroundStyle(ArborSidebarPalette.foreground(colorScheme))
 #if os(macOS)
                         .font(.system(size: 14))
 #endif
                         .lineLimit(1)
-                    if let contextPath = arborSidebarContextPath(result.reference.path) {
+                    if let contextPath {
                         Text(contextPath)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -134,6 +175,7 @@ struct ArborSidebarSearchRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            .padding(.vertical, contextPath == nil ? 2.5 : 0)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

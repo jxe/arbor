@@ -1076,12 +1076,7 @@ struct ArborRootView: View {
                 }
                 .frame(width: drawerWidth)
                 .frame(maxHeight: .infinity)
-                .background {
-                    Rectangle()
-                        .fill(.regularMaterial)
-                        .ignoresSafeArea()
-                }
-                .overlay(alignment: .trailing) { Divider() }
+                .modifier(ArborSidebarSurface(showsDivider: true))
                 .offset(x: -drawerWidth * (1 - sidebarRevealProgress))
                 .simultaneousGesture(closeSidebarDragGesture)
             }
@@ -1159,6 +1154,7 @@ struct ArborRootView: View {
             }
             sidebarReviewContent
         }
+        .modifier(ArborSidebarSurface(showsDivider: true))
         .background {
             GeometryReader { geometry in
                 MacSidebarTitlebarAccessory(
@@ -1178,6 +1174,7 @@ struct ArborRootView: View {
             sidebarPagesHeader
             sidebarReviewContent
         }
+        .modifier(ArborSidebarSurface())
 #endif
     }
 
@@ -1283,6 +1280,7 @@ struct ArborRootView: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
 #if os(macOS)
             .onChange(of: sidebarListSelection) { _, selection in
                 // Arrow keys in the focused sidebar move the selection; follow it.
@@ -1339,6 +1337,7 @@ struct ArborRootView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
 #endif
+        .modifier(ArborSidebarSurface())
         .onChange(of: sidebarSearchText) { _, query in
             sidebarKeyboardSelection = nil
             Task { await model.search(query) }
