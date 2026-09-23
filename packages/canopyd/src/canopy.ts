@@ -1,4 +1,5 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
+import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError } from "./errors.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -912,7 +913,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     if (!authentication.device) throw new Error("An administrator device is required for activation");
     const config = await this.accountConfigGraph(authentication.account);
-    if (!graphAdministrators(config).includes(authentication.device)) throw new Error("Only an administrator device may initialize a tree");
+    if (!graphAdministrators(config).includes(authentication.device)) throw new PermissionDeniedError("Only an administrator device may initialize a tree");
     const declaration = graphTrees(config)[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
     const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
@@ -1123,7 +1124,7 @@ export class CanopyDaemon implements AsyncDisposable {
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
   ): Promise<UpdateResult> {
     if (result.update.root === candidate) return result;
-    if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new Error("Reconciliation disclosure is not allowed");
+    if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new PermissionDeniedError("Reconciliation disclosure is not allowed");
     const reconciliation = await buildAcceptedTransitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
     return { ...result, reconciliation };
   }
@@ -1189,7 +1190,7 @@ export class CanopyDaemon implements AsyncDisposable {
     authentication?: CanopyAuthentication
   ): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
-    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new Error("Execution update form is not allowed");
+    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
       if (
@@ -1232,7 +1233,7 @@ export class CanopyDaemon implements AsyncDisposable {
       request.base &&
       request.updates.some((update) => update.trace !== null)
     ) {
-      if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
+      if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
       if (recordedThrough === request.updates.length - 1) {
         const tree = this.get(treeID)!;
@@ -1472,8 +1473,8 @@ export class CanopyDaemon implements AsyncDisposable {
     authoredConflicts?: ConflictState;
   }> {
     const tree = this.get(treeID);
-    if (!tree) throw new Error(`Unknown tree: ${treeID}`);
-    if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
+    if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
+    if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
     const policy = tree.policy.startsWith("account-config-")
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
@@ -1482,10 +1483,10 @@ export class CanopyDaemon implements AsyncDisposable {
     const authoredView = (id: string) => authoredConflictBasis(new ConflictStore(this.db).get(id), baseConflicts, request);
     const execution = this.execution.current;
     if (execution) {
-      if (this.currentUpdate(treeID)?.conflicted) throw new Error("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
-      if (!request.ifCurrent || request.trace !== null || request.resolves.length) throw new Error("Execution update form is not allowed");
+      if (this.currentUpdate(treeID)?.conflicted) throw new PermissionDeniedError("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
+      if (!request.ifCurrent || request.trace !== null || request.resolves.length) throw new PermissionDeniedError("Execution update form is not allowed");
       const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
-      if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
+      if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     }
     const replay = this.acceptedRequest(treeID, subject, requestDigest);
     if (!replay && execution && request.ifCurrent !== this.currentUpdate(treeID)?.id) throw new UpdateProtocolError("base-not-retained", "Execution guard is stale; recompute against a current authorized basis");
@@ -2010,7 +2011,7 @@ export class CanopyDaemon implements AsyncDisposable {
     authentication: CanopyAuthentication | undefined,
     provenAcceptedPrefix = false,
   ): Promise<{ status: number; result: UpdateResult }> {
-    if (!authentication) throw new Error("Account authentication is required to activate a tree");
+    if (!authentication) throw new AuthenticationRequiredError("Account authentication is required to activate a tree");
     const replay = this.acceptedRequest(treeID, authentication.subject, requestDigest);
     if (replay) return replay;
     if (this.acceptedStore.acceptedChange(treeID, request.change)) throw new Error("Authored change identity is already bound to a different accepted request");
@@ -2041,9 +2042,9 @@ export class CanopyDaemon implements AsyncDisposable {
     let effects: ResourceEffect[] = [];
     const checkEffects = async (before: string, after: string, objects: ReadonlyMap<ObjectHash, Uint8Array>) => {
       if (!execution) return;
-      if (request.resolves.length || request.trace !== null) throw new Error("Scoped execution operations/resolutions are not allowed until effect validation is available");
+      if (request.resolves.length || request.trace !== null) throw new PermissionDeniedError("Scoped execution operations/resolutions are not allowed until effect validation is available");
       effects = await resourceEffects(before, after, hash => this.objects.load(hash, objects));
-      if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
+      if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     };
     return {
       subject: execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public"),
@@ -2062,7 +2063,7 @@ export class CanopyDaemon implements AsyncDisposable {
       },
       prepareCommit: async (remoteTree) => ({
         withinTransaction: () => {
-          if (execution && (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution)))) throw new Error("Execution permission is not allowed");
+          if (execution && (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution)))) throw new PermissionDeniedError("Execution permission is not allowed");
         },
         afterCommit: () => {
           if (remoteTree.canonicalPath === "/") this.reconcileCommunityAccounts();
@@ -2085,7 +2086,7 @@ export class CanopyDaemon implements AsyncDisposable {
     proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
   ): UpdatePolicy {
     if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
-      throw new Error("An active account device is required for configuration updates");
+      throw new PermissionDeniedError("An active account device is required for configuration updates");
     }
     const deviceID = credentialSubject.slice("device:".length);
     const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AccountConfigGraphV2> => {
@@ -2112,7 +2113,7 @@ export class CanopyDaemon implements AsyncDisposable {
         const current = this.currentUpdate(tree.id);
         if (!current) throw new Error("Account configuration has no accepted update");
         const acceptedGraph = await graphAt(current.root);
-        if (request.resolves.length && !acceptedGraph.devices[deviceID]?.administrator) throw new Error("Only an administrator may resolve policy conflicts");
+        if (request.resolves.length && !acceptedGraph.devices[deviceID]?.administrator) throw new PermissionDeniedError("Only an administrator may resolve policy conflicts");
         authorize(acceptedGraph, candidateGraph, baseGraph);
       },
       merge: (base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed,
