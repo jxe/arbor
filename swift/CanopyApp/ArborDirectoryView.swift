@@ -126,6 +126,8 @@ struct ArborProfileRow: View {
     let person: DirectoryPerson?
     let fallbackTitle: String
     let fallbackSubtitle: String
+    /// Replaces the directory subtitle when the row needs a plainer one.
+    var subtitle: String?
     var canOpen = true
     var accessory = AnyView(EmptyView())
     let open: () -> Void
@@ -137,7 +139,7 @@ struct ArborProfileRow: View {
                     ArborAvatarView(person: person, workspace: workspace)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(person?.title ?? fallbackTitle)
-                        Text(person?.subtitle ?? fallbackSubtitle)
+                        Text(subtitle ?? person?.subtitle ?? fallbackSubtitle)
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
@@ -173,10 +175,17 @@ struct ArborDirectoryView: View {
 
     var body: some View {
         let people = DirectoryMatcher.matches(query: query, in: workspace.directory)
-        let groups = people.filter { $0.entry.kind == "group" }
+        let communities = people.filter(isCommunity)
+        let groups = people.filter { $0.entry.kind == "group" && !isCommunity($0) }
         let individuals = people.filter { $0.entry.kind != "group" }
+        let members = individuals.filter { $0.entry.sources.contains("community") }
         List {
-            directorySection("On this Canopy", values: individuals.filter { $0.entry.sources.contains("community") })
+            if !communities.isEmpty || !members.isEmpty {
+                Section("On this Canopy") {
+                    ForEach(communities) { row($0) }
+                    ForEach(members) { row($0) }
+                }
+            }
             Section("Groups") {
                 ForEach(groups) { row($0) }
                 if groups.isEmpty, query.isEmpty {
@@ -229,12 +238,18 @@ struct ArborDirectoryView: View {
         }
     }
 
+    /// The Canopy's own membership profile: the group hosted at its root.
+    private func isCommunity(_ person: DirectoryPerson) -> Bool {
+        person.entry.kind == "group" && person.entry.locator.flatMap(URL.init(string:)).map { ["", "/"].contains($0.path) } == true
+    }
+
     private func row(_ person: DirectoryPerson) -> some View {
         let isGroup = person.entry.kind == "group"
         let memberCount = workspace.directory.filter { $0.entry.sources.contains("group:\(person.id)") && $0.id != person.id }.count
         return ArborProfileRow(
             workspace: workspace, person: person,
             fallbackTitle: person.title, fallbackSubtitle: person.subtitle,
+            subtitle: isCommunity(person) ? "Everyone on \(person.origin.host() ?? person.origin.absoluteString)" : nil,
             canOpen: person.entry.locator != nil,
             accessory: isGroup
                 ? AnyView(Text(memberCount == 1 ? "1 member" : "\(memberCount) members").font(.caption).foregroundStyle(.secondary))
@@ -243,10 +258,10 @@ struct ArborDirectoryView: View {
         )
         .contextMenu {
             if isGroup {
-                if writableGroups.contains(where: { $0.id == person.id }) {
+                if workspace.writableProfileTrees.contains(person.id) {
                     Button("Edit Members…", systemImage: "person.2") { editMembers(person.id, nil) }
                 }
-                Button("Open Group", systemImage: "arrow.right.circle") { openProfile(person) }
+                Button(isCommunity(person) ? "Open Member List" : "Open Group", systemImage: "arrow.right.circle") { openProfile(person) }
                     .disabled(person.entry.locator == nil)
             } else {
                 let candidates = writableGroups.filter { !person.entry.sources.contains("group:\($0.id)") }
@@ -268,10 +283,11 @@ struct ArborDirectoryView: View {
         }
     }
 
-    /// Directory groups this device can edit.
+    /// Directory groups this device can edit. The Canopy's member list is
+    /// left to Add Person to This Canopy, which also reserves a handle.
     private var writableGroups: [DirectoryPerson] {
         let writable = workspace.writableProfileTrees
-        return workspace.directory.filter { $0.entry.kind == "group" && writable.contains($0.id) }
+        return workspace.directory.filter { $0.entry.kind == "group" && !isCommunity($0) && writable.contains($0.id) }
     }
 }
 

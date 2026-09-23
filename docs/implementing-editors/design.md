@@ -97,8 +97,9 @@ native cache is derived state in `Directory.json`, with avatar bytes under
 `Avatars/`; either may be deleted and rebuilt. Share autocomplete uses this
 cache but still accepts a raw handle, profile URL, or Profile TreeID.
 
-People lists community members (**On this Canopy**), **Groups** with their
-visible member counts, and **Others**. Membership is edited where it is
+People lists **On this Canopy**, headed by the Canopy's own membership
+profile (the group at its root, shown as "Everyone on <host>") and followed by
+its members; **Groups** with their visible member counts; and **Others**. Membership is edited where it is
 authored: **Add Person to This Canopy…**, a group's **Edit Members…**, and a
 person's **Add to Group ▸** open that profile's home page with its Members
 sheet presented (and the person ready to add), so every membership change is

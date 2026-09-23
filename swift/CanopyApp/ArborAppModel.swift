@@ -1630,11 +1630,6 @@ final class ArborWorkspaceState {
             try await openRemoteLocator(locator)
             return
         }
-        // The community profile is not in the directory; open it at its root.
-        if let community = editableCommunity, community.tree == tree.rawValue {
-            try await openRemoteLocator(community.locator)
-            return
-        }
 #else
         if let placement = try await nativePlacementStore.loadAll().first(where: { $0.tree.id == tree.rawValue }) {
             try await place(tree: placement.tree, from: placement.origin, configurationTree: placement.configurationTree)
