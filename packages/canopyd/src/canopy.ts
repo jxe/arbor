@@ -96,6 +96,24 @@ export interface CanopyBootstrap {
 
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 
+/** The authorization-relevant profile facts of one immutable root. */
+interface RootProfile {
+  type: "person" | "group" | null;
+  members: Array<{ profile: string; handle?: string; legacy?: true }>;
+  handles: ReadonlySet<string>;
+}
+const ROOT_PROFILE_LIMIT = 1024;
+
+/** Structured handles, plus the handle of a legacy `/~handle` locator. */
+function memberHandles(members: RootProfile["members"]): ReadonlySet<string> {
+  return new Set(members.flatMap((member) => {
+    if (member.handle && HANDLE.test(member.handle)) return [member.handle];
+    if (!member.legacy) return [];
+    const match = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile);
+    return match ? [match[1]!] : [];
+  }));
+}
+
 function graphTrees(graph: AccountConfigGraphV2): Record<string, { canonicalPath: string; access: AccessRule[] }> {
   return Object.fromEntries(Object.entries(graph.trees).map(([id, declaration]) => [id, {
     canonicalPath: new URL(declaration.canonical).pathname,
@@ -201,6 +219,8 @@ export class ReservedBoundaryConflictError extends Error {
 export class CanopyDaemon implements AsyncDisposable {
   private readonly wireSchemas = new SchemaSandbox();
   private readonly validatedGraphs = new Map<string, ValidatedGraph>();
+  /** Parsed profile facts by immutable root hash (`rootProfile`). */
+  private readonly rootProfiles = new Map<ObjectHash, RootProfile>();
   private db: Database;
   private acceptedStore: AcceptedUpdateStore;
   private readonly observations: ObservationLog;
@@ -2510,12 +2530,12 @@ export class CanopyDaemon implements AsyncDisposable {
     return null;
   }
 
-  private profileMemberHandles(treeID: string): Set<string> {
+  private profileMemberHandles(treeID: string): ReadonlySet<string> {
     const tree = this.get(treeID);
     return tree ? this.memberHandlesFromRoot(tree.ref) : new Set();
   }
 
-  private communityMemberHandles(): Set<string> {
+  private communityMemberHandles(): ReadonlySet<string> {
     return this.memberHandlesFromRoot(this.community().ref);
   }
 
@@ -2525,14 +2545,14 @@ export class CanopyDaemon implements AsyncDisposable {
    * synchronous authorization never reparses mutable filesystem state or
    * treats display names as identity.
    */
-  private rootProfile(root: ObjectHash): {
-    type: "person" | "group" | null;
-    members: Array<{ profile: string; handle?: string; legacy?: true }>;
-  } {
+  private rootProfile(root: ObjectHash): RootProfile {
+    const cached = this.rootProfiles.get(root);
+    if (cached) return cached;
     const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
-    if (!row) return { type: null, members: [] };
+    // Not memoized: the facts of a root may be cached after it is first asked about.
+    if (!row) return { type: null, members: [], handles: new Set() };
     const value = JSON.parse(row.value) as { type?: unknown; members?: unknown };
-    return {
+    const profile: Omit<RootProfile, "handles"> = {
       type: value.type === "person" || value.type === "group" ? value.type : null,
       members: Array.isArray(value.members) ? value.members.flatMap((member) => {
         if (typeof member === "string") return [{ profile: member, legacy: true as const }];
@@ -2546,6 +2566,10 @@ export class CanopyDaemon implements AsyncDisposable {
         }];
       }) : [],
     };
+    const facts: RootProfile = { ...profile, handles: memberHandles(profile.members) };
+    if (this.rootProfiles.size >= ROOT_PROFILE_LIMIT) this.rootProfiles.delete(this.rootProfiles.keys().next().value!);
+    this.rootProfiles.set(root, facts);
+    return facts;
   }
 
   /** The root document's `type: person` or `type: group`, or null when it declares neither. */
@@ -2553,14 +2577,8 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.rootProfile(root).type;
   }
 
-  private memberHandlesFromRoot(root: ObjectHash): Set<string> {
-    const members = this.rootProfile(root).members;
-    return new Set(members.flatMap((member) => {
-      if (member.handle && HANDLE.test(member.handle)) return [member.handle];
-      if (!member.legacy) return [];
-      const match = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile);
-      return match ? [match[1]!] : [];
-    }));
+  private memberHandlesFromRoot(root: ObjectHash): ReadonlySet<string> {
+    return this.rootProfile(root).handles;
   }
 
   /** The current Canopy allocates all of one account's canonical paths below /~handle. */
