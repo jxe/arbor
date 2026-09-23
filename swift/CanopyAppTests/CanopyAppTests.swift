@@ -88,6 +88,70 @@ struct CanopyAppTests {
         }
     }
 
+    @Test("Group members list in authored order and remove one entry at a time")
+    func groupMemberRemoval() throws {
+        let source = """
+        ---
+        type: group
+        # founders first
+        members:
+          - profile: "arbor://tr_alice/"
+            handle: "alice"
+          -
+            profile: "arbor://tr_bob/"
+          - arbor://garden.example/~carol
+        displayName: Garden
+        ---
+
+        # Garden
+
+        """
+        let members = try #require(ArborProfileDocument.parse(source)).members
+        #expect(members.map(\.profile) == ["arbor://tr_alice/", "arbor://tr_bob/", "arbor://garden.example/~carol"])
+        #expect(members.map(\.handle) == ["alice", nil, nil])
+        #expect(members.map(\.treeID) == ["tr_alice", "tr_bob", nil])
+
+        let withoutAlice = try ArborProfileDocument.removingMember(profile: "arbor://tr_alice/", from: source)
+        #expect(!withoutAlice.contains("alice"))
+        #expect(withoutAlice.contains("# founders first\nmembers:\n  -\n    profile: \"arbor://tr_bob/\"\n"))
+        #expect(withoutAlice.hasSuffix("displayName: Garden\n---\n\n# Garden\n"))
+
+        let withoutBob = try ArborProfileDocument.removingMember(profile: "arbor://tr_bob/", from: withoutAlice)
+        let empty = try ArborProfileDocument.removingMember(profile: "arbor://garden.example/~carol", from: withoutBob)
+        #expect(empty.contains("members: []\ndisplayName: Garden\n"))
+        #expect(ArborProfileDocument.parse(empty)?.members.isEmpty == true)
+        let readded = try ArborProfileDocument.addingMember(profileTree: "tr_dave", handle: nil, to: empty)
+        #expect(ArborProfileDocument.parse(readded)?.members.map(\.treeID) == ["tr_dave"])
+        #expect(throws: (any Error).self) {
+            try ArborProfileDocument.removingMember(profile: "arbor://tr_alice/", from: withoutAlice)
+        }
+    }
+
+    @Test("A new group's root declares its name, description, and members")
+    func newGroupSource() throws {
+        let source = try ArborProfileDocument.newGroupSource(
+            displayName: " Garden Club ",
+            description: "Neighbors who grow things.",
+            memberTrees: ["tr_alice", "tr_bob", "tr_alice"]
+        )
+        let profile = try #require(ArborProfileDocument.parse(source))
+        #expect(profile.kind == .group)
+        #expect(profile.displayName == "Garden Club")
+        #expect(profile.description == "Neighbors who grow things.")
+        #expect(profile.members.map(\.treeID) == ["tr_alice", "tr_bob"])
+        #expect(source.hasSuffix("---\n\n# Garden Club\n"))
+        let empty = try ArborProfileDocument.newGroupSource(displayName: "Solo", description: "", memberTrees: [])
+        #expect(empty.contains("members: []\n"))
+        #expect(!empty.contains("description:"))
+        #expect(throws: (any Error).self) {
+            try ArborProfileDocument.newGroupSource(displayName: "  ", description: "", memberTrees: [])
+        }
+        #expect(ArborGroupSlug.make(from: "Café Club — 2026!") == "cafe-club-2026")
+        #expect(ArborGroupSlug.make(from: "!!!").isEmpty)
+        #expect(ArborGroupSlug.isValid("cafe-club-2026"))
+        #expect(!ArborGroupSlug.isValid("-cafe"))
+    }
+
     @Test("Profile photos are normalized to a directory-compatible asset")
     func profilePhotoNormalization() throws {
         let png = try #require(Data(base64Encoded:

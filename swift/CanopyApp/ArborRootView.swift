@@ -966,13 +966,21 @@ struct ArborRootView: View {
 #endif
         .sheet(isPresented: $peoplePresented) {
             NavigationStack {
-                ArborDirectoryView(workspace: workspace) { person in
-                    peoplePresented = false
-                    Task {
-                        do { try await workspace.openDirectoryProfile(person) }
-                        catch { workspace.errorMessage = error.localizedDescription }
+                ArborDirectoryView(
+                    workspace: workspace,
+                    openProfile: { person in
+                        peoplePresented = false
+                        Task { await model.openProfile(tree: person.id) }
+                    },
+                    editMembers: { tree, prefill in
+                        peoplePresented = false
+                        Task { await model.openProfile(tree: tree, membersSheet: true, prefill: prefill) }
+                    },
+                    openGroup: { tree in
+                        peoplePresented = false
+                        Task { await model.openProfile(tree: tree) }
                     }
-                }
+                )
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { peoplePresented = false } } }
                 .task { await workspace.refreshDirectory() }
             }
@@ -2716,6 +2724,9 @@ private struct ArborSharePanel: View {
     @State private var canonicalURL = ""
     @State private var promotionAccess = ArborTreeAccess.noAccess
     @State private var permissionEditor = false
+    @State private var newGroup: ArborNewGroupRequest?
+    /// The access a group made from this panel receives once it exists.
+    @State private var newGroupAccess = ArborTreeAccess.read
 
     var body: some View {
         NavigationStack {
@@ -2771,6 +2782,12 @@ private struct ArborSharePanel: View {
                 }
             }
         }
+        .sheet(item: $newGroup) { request in
+            ArborNewGroupSheet(workspace: workspace, request: request) { tree in
+                guard case let .tracked(access) = presentation else { return }
+                Task { await change(access, target: .profile(locator: tree), permission: newGroupAccess) }
+            }
+        }
         .task { await load() }
         .onChange(of: selectedAccountID) { _, id in
             guard case let .promotable(path, accounts) = presentation,
@@ -2810,7 +2827,12 @@ private struct ArborSharePanel: View {
                 excluding: Set(access.entries.compactMap { entry in if case .profile(let tree) = entry.subject { tree } else { nil } }),
                 disabled: busy || !access.canEdit,
                 onPick: { person in Task { await addProfiles([person.entry.profile], to: access) } },
-                onRawSubmit: { shareInvites(access) }
+                onRawSubmit: { shareInvites(access) },
+                onCreateGroup: canCreateGroup && access.canEdit ? { name in
+                    newGroupAccess = .read
+                    newGroup = ArborNewGroupRequest(name: name)
+                    profileLocator = ""
+                } : nil
             )
         } footer: {
             if !access.canEdit {
@@ -2835,6 +2857,18 @@ private struct ArborSharePanel: View {
         } footer: {
             if !access.canEdit {
                 Text("Only an administrator for this Canopy account can change access.")
+            } else if canCreateGroup, groupableEntries(access).count >= 2 {
+                Button("Make these people a group…") {
+                    let entries = groupableEntries(access)
+                    newGroupAccess = entries.allSatisfy { $0.access == ArborTreeAccess.write.rawValue } ? .write : .read
+                    newGroup = ArborNewGroupRequest(members: entries.compactMap { entry in
+                        if case .profile(let tree) = entry.subject { tree } else { nil }
+                    })
+                }
+#if os(macOS)
+                .buttonStyle(.link)
+#endif
+                .disabled(busy)
             }
         }
         Section {
@@ -2844,6 +2878,22 @@ private struct ArborSharePanel: View {
             Button("Manage app permissions…") { permissionEditor = true }
                 .disabled(busy || !access.canEdit)
         } header: { Text("Scoped and app permissions") }
+    }
+
+    private var canCreateGroup: Bool {
+#if os(macOS)
+        workspace.groupCreationAccount != nil
+#else
+        false
+#endif
+    }
+
+    /// People (not groups, not you) listed individually on this tree.
+    private func groupableEntries(_ access: NativeTreeAccessPresentation) -> [NativeTreeAccessEntry] {
+        access.entries.filter { entry in
+            guard case .profile(let tree) = entry.subject, !entry.isCurrentUser else { return false }
+            return workspace.directory.first { $0.id == tree }?.entry.kind != "group"
+        }
     }
 
     private func accessRow(
@@ -4268,6 +4318,7 @@ private struct ArborProfileWidget: View {
     let model: ArborAppModel
     @State private var presented = false
     @State private var reloadAfterDismiss = false
+    @State private var prefill: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -4296,18 +4347,26 @@ private struct ArborProfileWidget: View {
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(.quaternary.opacity(0.35))
+        .onAppear(perform: consumePendingAction)
+        .onChange(of: workspace.pendingProfileAction) { _, _ in consumePendingAction() }
         .sheet(isPresented: $presented, onDismiss: {
+            prefill = nil
             guard reloadAfterDismiss else { return }
             reloadAfterDismiss = false
             Task { await model.load() }
         }) {
             if profile.kind == .group {
-                ArborAddProfileMemberSheet(
+                ArborProfileMembersSheet(
                     profile: profile,
                     workspace: workspace,
                     reservesCanopyHandle: workspace.isCommunityMembershipTree,
+                    prefill: prefill,
                     add: {
                         try await model.addProfileMember(treeID: $0, handle: $1)
+                        reloadAfterDismiss = true
+                    },
+                    remove: {
+                        try await model.removeProfileMember(profile: $0)
                         reloadAfterDismiss = true
                     }
                 )
@@ -4323,6 +4382,19 @@ private struct ArborProfileWidget: View {
         }
     }
 
+    /// Present the Members sheet People asked this group page for.
+    private func consumePendingAction() {
+        guard let action = workspace.pendingProfileAction,
+              action.tree == model.currentReference.tree.rawValue else { return }
+        workspace.pendingProfileAction = nil
+        guard profile.kind == .group, isWritable else {
+            workspace.errorMessage = "You can view \(bannerTitle), but only an editor can change its members."
+            return
+        }
+        prefill = action.prefill
+        presented = true
+    }
+
     private var detail: String {
         if !isWritable { return "You can view this profile, but only an editor can change it." }
         if profile.kind == .person {
@@ -4331,14 +4403,16 @@ private struct ArborProfileWidget: View {
                 ? "Personal profile"
                 : "Add a display name, photo, and short description."
         }
+        let count = profile.members.count
+        let people = count == 1 ? "1 member" : "\(count) members"
         return workspace.isCommunityMembershipTree
-            ? "Add a person by Profile TreeID and reserve their handle on this Canopy."
-            : "Add a member by Profile TreeID."
+            ? "\(people) on this Canopy. Adding a person reserves their handle here."
+            : "\(people). Share a tree with this group to share it with all of them."
     }
 
     private var actionTitle: String {
         guard profile.kind == .group else { return profile.hasPersonalDetails ? "Edit Profile…" : "Fill Out Profile…" }
-        return workspace.isCommunityMembershipTree ? "Add Person…" : "Add Member…"
+        return workspace.isCommunityMembershipTree ? "People…" : "Members…"
     }
 
     private var bannerTitle: String {
@@ -4511,17 +4585,27 @@ private struct ArborSelectedProfilePhoto: View {
     }
 }
 
-private struct ArborAddProfileMemberSheet: View {
+/// A group's members, one row each, with removal and the add form. Edits
+/// go through the open page's editor, so they undo and sync like any edit.
+private struct ArborProfileMembersSheet: View {
     @Environment(\.dismiss) private var dismiss
     let profile: ArborProfileDocument
     let workspace: ArborWorkspaceState
     let reservesCanopyHandle: Bool
+    let prefill: String?
     let add: (String, String) async throws -> Void
+    let remove: (String) async throws -> Void
     @State private var treeID = ""
     @State private var handle = ""
     @State private var query = ""
     @State private var busy = false
     @State private var message: String?
+    @State private var removed: Set<String> = []
+    @State private var confirmingRemoval: ArborProfileDocument.Member?
+
+    private var members: [ArborProfileDocument.Member] {
+        profile.members.filter { !removed.contains($0.profile) }
+    }
 
     private var people: [DirectoryPerson] {
         DirectoryMatcher.matches(query: query, in: workspace.directory).filter {
@@ -4533,7 +4617,15 @@ private struct ArborAddProfileMemberSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Person") {
+                Section(reservesCanopyHandle ? "People on this Canopy" : "Members") {
+                    ForEach(members) { member in
+                        memberRow(member)
+                    }
+                    if members.isEmpty {
+                        Text("No members yet.").foregroundStyle(.secondary)
+                    }
+                }
+                Section(reservesCanopyHandle ? "Add a person" : "Add a member") {
                     TextField("TreeID (tr_…)", text: $treeID)
                     if reservesCanopyHandle {
                         HStack(spacing: 4) {
@@ -4546,14 +4638,14 @@ private struct ArborAddProfileMemberSheet: View {
                         : "The TreeID is the member’s stable profile identity.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Button(reservesCanopyHandle ? "Add Person" : "Add Member") { Task { await submit() } }
+                        .disabled(busy || treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || (reservesCanopyHandle
+                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                 }
-                Section("People on this Canopy") {
+                Section("Suggestions from People") {
                     ForEach(people) { person in
-                        Button {
-                            treeID = person.entry.profile
-                            if reservesCanopyHandle { handle = person.entry.handle ?? "" }
-                            message = nil
-                        } label: {
+                        Button { choose(person) } label: {
                             HStack(spacing: 12) {
                                 ArborAvatarView(person: person, workspace: workspace)
                                 VStack(alignment: .leading, spacing: 2) {
@@ -4561,9 +4653,14 @@ private struct ArborAddProfileMemberSheet: View {
                                     Text(person.subtitle).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
+                                if treeID == person.entry.profile {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                }
                             }
+                            .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(treeID == person.entry.profile ? Color.accentColor.opacity(0.12) : nil)
                         .disabled(busy)
                     }
                     if people.isEmpty {
@@ -4577,18 +4674,77 @@ private struct ArborAddProfileMemberSheet: View {
                 if let message { Section { Text(message).foregroundStyle(.red) } }
             }
             .searchable(text: $query, prompt: "Search people")
-            .navigationTitle("Add Person")
+            .navigationTitle(reservesCanopyHandle ? "People" : "Members")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") { Task { await submit() } }
-                        .disabled(busy || treeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || (reservesCanopyHandle
-                                && handle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
-                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .confirmationDialog(
+                "Remove \(confirmingRemoval.map(label) ?? "this person") from this Canopy?",
+                isPresented: Binding(get: { confirmingRemoval != nil }, set: { if !$0 { confirmingRemoval = nil } }),
+                presenting: confirmingRemoval
+            ) { member in
+                Button("Remove", role: .destructive) { Task { await removeNow(member) } }
+            } message: { _ in
+                Text("Removing a person from this community disables that account.")
             }
         }
-        .frame(minWidth: 440, minHeight: 360)
+        .frame(minWidth: 440, minHeight: 420)
+        .onAppear {
+            guard let prefill, let person = workspace.directory.first(where: { $0.entry.profile == prefill }) else {
+                if let prefill { treeID = prefill }
+                return
+            }
+            choose(person)
+        }
+    }
+
+    private func memberRow(_ member: ArborProfileDocument.Member) -> some View {
+        let person = member.treeID.flatMap { tree in workspace.directory.first { $0.entry.profile == tree } }
+        return HStack(spacing: 12) {
+            ArborAvatarView(person: person, workspace: workspace, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label(member))
+                Text(member.handle.map { "~\($0)" } ?? person?.subtitle ?? member.profile)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Button(role: .destructive) {
+                if reservesCanopyHandle { confirmingRemoval = member }
+                else { Task { await removeNow(member) } }
+            } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .disabled(busy)
+            .help("Remove")
+            .accessibilityLabel("Remove \(label(member))")
+        }
+    }
+
+    private func label(_ member: ArborProfileDocument.Member) -> String {
+        if let tree = member.treeID, let person = workspace.directory.first(where: { $0.entry.profile == tree }) {
+            return person.title
+        }
+        return member.handle.map { "~\($0)" } ?? member.treeID ?? member.profile
+    }
+
+    private func choose(_ person: DirectoryPerson) {
+        treeID = person.entry.profile
+        if reservesCanopyHandle { handle = person.entry.handle ?? "" }
+        message = nil
+    }
+
+    private func removeNow(_ member: ArborProfileDocument.Member) async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await remove(member.profile)
+            removed.insert(member.profile)
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
     }
 
     private func submit() async {

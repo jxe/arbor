@@ -104,6 +104,13 @@ struct LocalArborSyncPairingPresentation: Sendable, Equatable {
 }
 #endif
 
+/// A Members sheet the People view asks a group page to present once that
+/// page is open, optionally with a person ready to add.
+struct ArborProfileAction: Equatable {
+    let tree: String
+    var prefill: String?
+}
+
 struct WorkspaceStructuralReceipt: Identifiable {
     let id = UUID()
     let action: WorkspaceStructuralAction
@@ -179,6 +186,7 @@ final class ArborWorkspaceState {
     private(set) var directoryIsRefreshing = false
     private(set) var directoryError: String?
     private var directoryRefreshTask: Task<Void, Never>?
+    var pendingProfileAction: ArborProfileAction?
     private let editorRecoveryRoot: URL?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
@@ -783,6 +791,74 @@ final class ArborWorkspaceState {
         canonical: String,
         publicAccess: ArborTreeAccess
     ) async throws {
+        let rules = publicAccess == .noAccess ? [] : [
+            ArborAccountAccessRule(subject: .everyone, access: publicAccess.rawValue)
+        ]
+        _ = try await declareAndPlaceNewTree(
+            folder: URL(fileURLWithPath: path).standardizedFileURL.path,
+            account: account,
+            canonical: canonical,
+            rules: rules
+        )
+    }
+
+    /// The Canopy account a new group is created in: the first one this Mac
+    /// administers with a handle to allocate `/~handle/<slug>` under.
+    var groupCreationAccount: ArborShareAccount? {
+        for account in localArborSyncOverview?.accounts ?? [] {
+            guard account.credentialAvailable, let origin = account.canopy, let handle = account.handle,
+                  isLocalAccountAdministrator(account) else { continue }
+            return ArborShareAccount(configurationTree: account.configurationTree, origin: origin, handle: handle)
+        }
+        return nil
+    }
+
+    /// Create a group profile tree at `/~handle/<slug>`, readable by everyone
+    /// on the Canopy (the community `/` profile), and place it on this Mac.
+    /// Returns the new group's TreeID.
+    func createGroup(name: String, slug: String, description: String, memberTrees: [String]) async throws -> String {
+        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
+        guard let account = groupCreationAccount, let handle = account.handle,
+              let origin = URL(string: account.origin) else {
+            throw ArborWireValidationError.invalidValue("Connect this Mac as an administrator of a Canopy account first")
+        }
+        guard ArborGroupSlug.isValid(slug) else {
+            throw ArborWireValidationError.invalidValue("Use lowercase letters, numbers, and hyphens for the group address")
+        }
+        let canonical = origin.appending(path: "~\(handle)/\(slug)").absoluteString
+        if localArborSyncOverview?.trees.contains(where: { $0.canonicalPath == "/~\(handle)/\(slug)" }) == true {
+            throw ArborWireValidationError.invalidValue("/~\(handle)/\(slug) is already in use")
+        }
+        let source = try ArborProfileDocument.newGroupSource(displayName: name, description: description, memberTrees: memberTrees)
+        let community = try await wireClient(origin: origin, overview: localArborSyncOverview).resolve(path: "/").ref.tree
+        let folder = ArborSupportDirectories.dataHome.appending(path: "groups/\(slug)", directoryHint: .isDirectory)
+        guard !FileManager.default.fileExists(atPath: folder.path) else {
+            throw ArborWireValidationError.invalidValue("A group folder named \(slug) already exists on this Mac")
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        do {
+            try source.write(to: folder.appending(path: "_index.md"), atomically: true, encoding: .utf8)
+            let tree = try await declareAndPlaceNewTree(
+                folder: folder.standardizedFileURL.path,
+                account: account,
+                canonical: canonical,
+                rules: [ArborAccountAccessRule(subject: .profile(tree: community), access: ArborTreeAccess.read.rawValue)]
+            )
+            await refreshDirectory(force: true)
+            return tree
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+    }
+
+    /// Declare a new tree at `canonical` with `rules` and place it at `folder`.
+    private func declareAndPlaceNewTree(
+        folder: String,
+        account: ArborShareAccount,
+        canonical: String,
+        rules: [ArborAccountAccessRule]
+    ) async throws -> String {
         guard let canonicalURL = URL(string: canonical),
               let accountOrigin = URL(string: account.origin),
               Self.sameOrigin(canonicalURL, accountOrigin),
@@ -791,10 +867,6 @@ final class ArborWorkspaceState {
             throw ArborWireValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
         }
         let tree = try generateArborID(prefix: "tr")
-        let rules = publicAccess == .noAccess ? [] : [
-            ArborAccountAccessRule(subject: .everyone, access: publicAccess.rawValue)
-        ]
-        let folder = URL(fileURLWithPath: path).standardizedFileURL.path
         // The placement first: a declared tree without a placement is only an
         // empty hosted tree, while a placement for an undeclared tree is an
         // error the daemon reports. Both are written on disk; nothing is pushed
@@ -847,6 +919,7 @@ final class ArborWorkspaceState {
         try await client.synchronize(configurationTree: account.configurationTree)
         await refreshLocalArborSyncOverview()
         generation += 1
+        return tree
     }
 
     // MARK: Control-mode daemon
@@ -1476,6 +1549,31 @@ final class ArborWorkspaceState {
         await task.value
     }
 
+    /// Profile trees this device can edit, so People offers only groups a
+    /// member can actually be added to.
+    var writableProfileTrees: Set<String> {
+#if os(macOS)
+        Set((localArborSyncOverview?.trees ?? []).filter { $0.access == ArborTreeAccess.write.rawValue }.map(\.id))
+#else
+        Set(nativePlacements.filter { $0.tree.grantsWrite }.map(\.tree.id))
+#endif
+    }
+
+    /// The community `/` membership profile this device can edit: its
+    /// TreeID and root locator.
+    var editableCommunity: (tree: String, locator: String)? {
+#if os(macOS)
+        guard let overview = localArborSyncOverview,
+              let tree = overview.trees.first(where: { $0.canonicalPath == "/" && $0.access == ArborTreeAccess.write.rawValue }),
+              let origin = overview.accounts.first(where: { $0.configurationTree == tree.configurationTree })?.canopy else {
+            return nil
+        }
+        return (tree.id, origin.hasSuffix("/") ? origin : origin + "/")
+#else
+        return nil
+#endif
+    }
+
     func avatarData(for person: DirectoryPerson) async throws -> Data {
         guard let avatar = person.entry.avatar else {
             throw ArborWireValidationError.invalidValue("Directory entry has no avatar")
@@ -1530,6 +1628,11 @@ final class ArborWorkspaceState {
         }
         if let locator = navigationLocators[tree] {
             try await openRemoteLocator(locator)
+            return
+        }
+        // The community profile is not in the directory; open it at its root.
+        if let community = editableCommunity, community.tree == tree.rawValue {
+            try await openRemoteLocator(community.locator)
             return
         }
 #else
@@ -2017,6 +2120,15 @@ final class ArborAppModel {
         await navigate(to: location(for: reference))
     }
 
+    /// Push a profile tree's home page onto this tab's history, so Back
+    /// returns to the page it was opened from. With `membersSheet`, the page
+    /// presents its Members sheet, ready to add `prefill` when given.
+    func openProfile(tree: String, membersSheet: Bool = false, prefill: String? = nil) async {
+        if membersSheet { workspace.pendingProfileAction = ArborProfileAction(tree: tree, prefill: prefill) }
+        await navigate(to: WorkspaceReference(tree: TreeID(rawValue: tree), path: "/"))
+        if currentReference.tree.rawValue != tree { workspace.pendingProfileAction = nil }
+    }
+
     func updatePersonalProfile(
         displayName: String,
         description: String,
@@ -2053,6 +2165,15 @@ final class ArborAppModel {
             reservesCanopyHandle: workspace.isCommunityMembershipTree,
             to: snapshot.source
         ))
+        await workspace.refreshDirectory(force: true)
+    }
+
+    func removeProfileMember(profile: String) async throws {
+        guard currentReference.path == "/", let binding else {
+            throw ArborWireValidationError.invalidValue("Open the group home page before removing a member")
+        }
+        let snapshot = try await binding.snapshot()
+        try await binding.replaceSource(try ArborProfileDocument.removingMember(profile: profile, from: snapshot.source))
         await workspace.refreshDirectory(force: true)
     }
 

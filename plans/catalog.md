@@ -123,7 +123,6 @@ or a concrete implementation trigger; they are not new executor plans.
 
 - **Product gaps awaiting design** — These outcomes need interaction, ownership, recovery, and acceptance decisions before receiving numbered executor plans.
   - **Name-based sharing and profile avatars** — **NEEDS DESIGN.** Define user lookup, ambiguous-name selection, visibility and avatar ownership before writing an executor plan.
-  - **First-party group creation and membership management** — **NEEDS DESIGN.** Create, place, and own a group profile coherently; add and remove structured profile members without teaching users to edit YAML; preserve canopyd reservation and account-disable semantics.
   - **Profile/device recovery, claim disputes, and administrator reset** — **NEEDS DESIGN.** Preserve the same self-certifying Profile TreeID and provide auditable proof of control rather than raw-credential transfer.
   - **Claimed-member removal/restoration and access-history recovery** — **NEEDS DESIGN.** Define confirmation, revocation, historical visibility, and restoration without a parallel group database.
   - **Persistent-host administration** — **NEEDS DESIGN.** Productize permanent domains, graceful restart, replacement-host restore, and verification while keeping migration scripts procedural.

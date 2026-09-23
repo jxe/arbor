@@ -87,7 +87,7 @@ The persistent profile control shows the active safe community/profile identity,
 
 An unresolved URL for a reserved canopyd account renders with a **Claim** action. Claim asks for the already-created local profile tree, previews the canopyd account address and local path, and links the reserved profile TreeID to the account after server success. It neither uploads nor places the profile; giving that tree a canonical URL uses the ordinary declaration/activation flow. Conflict and unavailable-credential states remain recoverable and explicit.
 
-Community and group profiles remain authored trees rather than a separate account/group database. Each structured `members` entry requires `profile: arbor://<TreeID>/`; an optional bare `handle` is current-canopyd policy that also reserves `/~handle` for that identity. Overstory clients show one person per row and provide **Add person** or **Add member** without flattening the YAML array. Removing a community member disables any account allocated by that entry.
+Community and group profiles remain authored trees rather than a separate account/group database. Each structured `members` entry requires `profile: arbor://<TreeID>/`; an optional bare `handle` is current-canopyd policy that also reserves `/~handle` for that identity. Overstory clients show one person per row in a **Members** sheet (**People** on the community tree) that adds and removes entries without flattening the YAML array. Removing a community member asks first, because it disables any account allocated by that entry; removing an ordinary group member is an ordinary, undoable page edit.
 
 The **People** view is the account-scoped directory for name-based sharing. It
 combines community members, members of readable groups, and profiles already
@@ -96,6 +96,24 @@ opens hosted profiles. Refresh is explicit as well as foreground-driven. The
 native cache is derived state in `Directory.json`, with avatar bytes under
 `Avatars/`; either may be deleted and rebuilt. Share autocomplete uses this
 cache but still accepts a raw handle, profile URL, or Profile TreeID.
+
+People lists community members (**On this Canopy**), **Groups** with their
+visible member counts, and **Others**. Membership is edited where it is
+authored: **Add Person to This Canopy…**, a group's **Edit Members…**, and a
+person's **Add to Group ▸** open that profile's home page with its Members
+sheet presented (and the person ready to add), so every membership change is
+an ordinary page edit. **Add to Group** lists only groups this device can edit.
+
+**New Group…** creates a group profile tree at `/~handle/<slug>` under an
+account this Mac administers, placed at `groups/<slug>` in the Arbor data home,
+with a name, optional description, and first members. Its one access rule is
+read for the community `/` profile, so everyone on the Canopy can see the
+group and its roster while it stays private to the web. Share offers the same
+sheet as **New Group “…”** when the picker matches no one, and as **Make these
+people a group…** once two or more people are listed individually; the new
+group is then added to the tree at their shared access level, leaving the
+individual entries for the administrator to remove. Group creation is
+Mac-only for now.
 
 ## Overstory-tree promotion and Share
 
