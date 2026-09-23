@@ -316,10 +316,16 @@ test("a worker evaluation failure surfaces its own message, not a response-schem
   const {MergeWorkerError}=await import("../../../packages/canopyd/src/merge-tool.ts");
   const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));
   const fake=join(directory,"worker-error.ts");
-  await writeFile(fake,`console.log(${JSON.stringify(JSON.stringify({error:{message:"Evaluation time budget exceeded"}}))});`);
   const request={kind:"checkpoint" as const,tree:"tree",current:{object:base.root},projection:base.root,change:"change",decisions:[]};
-  const failure=await new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map()).then(()=>null,(error:unknown)=>error);
-  expect(failure).toBeInstanceOf(MergeWorkerError);
-  expect((failure as Error).message).toBe("Evaluation time budget exceeded");
-  expect((failure as InstanceType<typeof MergeWorkerError>).retryable).toBe(true);
+  const fail=async(error:{message:string;code?:string})=>{
+    await writeFile(fake,`console.log(${JSON.stringify(JSON.stringify({error}))});`);
+    return new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map()).then(()=>null,(error:unknown)=>error as InstanceType<typeof MergeWorkerError>);
+  };
+  const budget=await fail({message:"Evaluation time budget exceeded",code:"limit"});
+  expect(budget).toBeInstanceOf(MergeWorkerError);
+  expect(budget!.message).toBe("Evaluation time budget exceeded");
+  expect(budget!.retryable).toBe(true);
+  // Retrying is decided by the worker's code, never by the wording of its message.
+  expect((await fail({message:"Evaluation time budget exceeded"}))!.retryable).toBe(false);
+  expect((await fail({message:"Trace does not follow its basis",code:"invalid"}))!.retryable).toBe(false);
 });

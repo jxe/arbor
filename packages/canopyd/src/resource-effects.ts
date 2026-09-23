@@ -1,95 +1,64 @@
-import { decodeWireDirectory, type ObjectHash, canonicalNodePath, type AccessOperation } from "@overstory/protocol";
+import { canonicalNodePath, type AccessOperation, type ObjectHash } from "@overstory/protocol";
+import { treeReader, walkTreeDiff, type Load, type TreeReader } from "./updates/tree-diff.ts";
 export interface ResourceEffect {
   path: string;
   operation: AccessOperation;
 }
+const BUDGET = 100000, MAX_DEPTH = 256;
+/** Reserved formats can conceal row/property/schema effects. Never infer narrow authority. */
+const opaque = (name: string) => name.startsWith("_") || name === "schema.ts" || name === "schema.sql";
 /** Conservative physical tree diff. Boundaries and opaque property stores require broad write. */
 export async function resourceEffects(
   before: ObjectHash,
   after: ObjectHash,
-  load: (hash: ObjectHash) => Promise<Uint8Array>
+  load: Load | TreeReader
 ): Promise<ResourceEffect[]> {
+  const reader = treeReader(load);
   const result: ResourceEffect[] = [];
   let visited = 0;
-  async function walk(
-    left: string,
-    right: string,
-    path: string,
-    depth: number
-  ): Promise<void> {
-    if (left === right) return;
-    if (++visited > 100000 || depth > 256)
-      throw new Error("Scoped update exceeds validation budget");
-    const a = decodeWireDirectory(await load(left));
-    const b = decodeWireDirectory(await load(right));
-    if (a.type !== "directory" || b.type !== "directory")
-      throw new Error("Scoped update requires directory representation");
-    if (JSON.stringify(a.childrenSource) !== JSON.stringify(b.childrenSource))
-      result.push({ path, operation: "write" });
-    const old = new Map(a.entries.map((e) => [e.name, e]));
-    const next = new Map(b.entries.map((e) => [e.name, e]));
-    for (const name of new Set([...old.keys(), ...next.keys()])) {
-      if (++visited > 100000) throw new Error("Scoped update exceeds validation budget");
-      const x = old.get(name),
-        y = next.get(name),
-        child = path === "/" ? `/${name}` : `${path}/${name}`;
-      if (JSON.stringify(x) === JSON.stringify(y)) continue;
-      // Reserved formats can conceal row/property/schema effects. Never infer narrow authority.
-      if (
-        name.startsWith("_") ||
-        name === "schema.ts" ||
-        name === "schema.sql" ||
-        x?.tree ||
-        y?.tree
-      ) {
+  const spend = (depth: number) => {
+    if (++visited > BUDGET || depth > MAX_DEPTH) throw new Error("Scoped update exceeds validation budget");
+  };
+  /** A new directory may contain independent tree boundaries; do not treat it as opaque creation. */
+  const checkNew = (hash: ObjectHash, depth: number) => walkTreeDiff(null, hash, reader, {
+    directory: ({ depth: nested, after: created }) => {
+      spend(depth + nested);
+      if (created!.directory.childrenSource) throw new Error("Scoped creation cannot introduce opaque stores");
+    },
+    entry: ({ name, after: entry }) => {
+      spend(depth);
+      if (entry!.tree || opaque(name)) throw new Error("Scoped creation cannot introduce boundaries or opaque stores");
+      return true;
+    },
+  });
+  await walkTreeDiff(before, after, reader, {
+    directory: ({ path, depth, before: a, after: b }) => {
+      spend(depth);
+      if (JSON.stringify(a!.directory.childrenSource) !== JSON.stringify(b!.directory.childrenSource))
+        result.push({ path, operation: "write" });
+    },
+    entry: async ({ path: child, parent: path, name, depth, before: x, after: y }) => {
+      spend(0);
+      if (opaque(name) || x?.tree || y?.tree) {
         result.push({ path: child, operation: "write" });
-        continue;
+        return false;
       }
       if (!x) {
-        // A new directory may contain independent tree boundaries; do not treat it as opaque creation.
-        if (y?.directory) await checkNew(y.directory, child, depth + 1);
+        if (y?.directory) await checkNew(y.directory, depth + 1);
         result.push({ path, operation: "create-child" });
       } else if (!y) {
         if (x.directory) result.push({ path: child, operation: "write" });
         else result.push({ path: child, operation: "delete" });
-      } else if (x.directory && y.directory)
-        await walk(x.directory, y.directory, child, depth + 1);
+      } else if (x.directory && y.directory) return true;
       else if (x.file && y.file)
         result.push({
           path: child,
           operation: name.endsWith(".md") ? "write" : "update-content",
         });
       else result.push({ path: child, operation: "write" });
-    }
-  }
-  async function checkNew(
-    hash: string,
-    path: string,
-    depth: number
-  ): Promise<void> {
-    if (++visited > 100000 || depth > 256)
-      throw new Error("Scoped update exceeds validation budget");
-    const dir = decodeWireDirectory(await load(hash));
-    if (dir.type !== "directory")
-      throw new Error("Unsupported scoped creation");
-    if (dir.childrenSource)
-      throw new Error("Scoped creation cannot introduce opaque stores");
-    for (const e of dir.entries) {
-      if (++visited > 100000) throw new Error("Scoped update exceeds validation budget");
-      if (
-        e.tree ||
-        e.name.startsWith("_") ||
-        e.name === "schema.ts" ||
-        e.name === "schema.sql"
-      )
-        throw new Error(
-          "Scoped creation cannot introduce boundaries or opaque stores"
-        );
-      if (e.directory)
-        await checkNew(e.directory, `${path}/${e.name}`, depth + 1);
-    }
-  }
-  await walk(before, after, "/", 0);
+      return false;
+    },
+  });
   return result.map((effect) => ({
     ...effect,
     path: canonicalNodePath(effect.path),

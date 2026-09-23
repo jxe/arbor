@@ -66,9 +66,9 @@ export class MergeWorkerError extends Error {
     super(message);
     this.name = "MergeWorkerError";
   }
-  /** Budget failures may pass on a retry once the host is less loaded. */
+  /** Budget failures (the worker's `limit` code) may pass on a retry once the host is less loaded. */
   get retryable(): boolean {
-    return /budget exceeded/i.test(this.message);
+    return this.code === "limit";
   }
 }
 

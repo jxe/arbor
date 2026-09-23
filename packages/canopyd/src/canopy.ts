@@ -1,4 +1,5 @@
 import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
+import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError } from "./errors.ts";
 import { validateGraphChange, type ValidatedGraph } from "./updates/graph-validation.ts";
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
@@ -57,6 +58,7 @@ import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore, type AcceptedUpdateInput, type StoredAcceptedResponse } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
+import { TreeReader } from "./updates/tree-diff.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
@@ -93,6 +95,24 @@ export interface CanopyBootstrap {
 }
 
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
+
+/** The authorization-relevant profile facts of one immutable root. */
+interface RootProfile {
+  type: "person" | "group" | null;
+  members: Array<{ profile: string; handle?: string; legacy?: true }>;
+  handles: ReadonlySet<string>;
+}
+const ROOT_PROFILE_LIMIT = 1024;
+
+/** Structured handles, plus the handle of a legacy `/~handle` locator. */
+function memberHandles(members: RootProfile["members"]): ReadonlySet<string> {
+  return new Set(members.flatMap((member) => {
+    if (member.handle && HANDLE.test(member.handle)) return [member.handle];
+    if (!member.legacy) return [];
+    const match = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile);
+    return match ? [match[1]!] : [];
+  }));
+}
 
 function graphTrees(graph: AccountConfigGraphV2): Record<string, { canonicalPath: string; access: AccessRule[] }> {
   return Object.fromEntries(Object.entries(graph.trees).map(([id, declaration]) => [id, {
@@ -199,6 +219,8 @@ export class ReservedBoundaryConflictError extends Error {
 export class CanopyDaemon implements AsyncDisposable {
   private readonly wireSchemas = new SchemaSandbox();
   private readonly validatedGraphs = new Map<string, ValidatedGraph>();
+  /** Parsed profile facts by immutable root hash (`rootProfile`). */
+  private readonly rootProfiles = new Map<ObjectHash, RootProfile>();
   private db: Database;
   private acceptedStore: AcceptedUpdateStore;
   private readonly observations: ObservationLog;
@@ -302,8 +324,8 @@ export class CanopyDaemon implements AsyncDisposable {
       );
       const accountID = generateArborID("ac");
       this.db.run(
-        "INSERT INTO accounts (id, handle, profile_tree, token_digest, enabled) VALUES (?, ?, ?, ?, 1)",
-        [accountID, account.handle, profile.id, sha256(account.token)],
+        "INSERT INTO accounts (id, handle, profile_tree, enabled) VALUES (?, ?, ?, 1)",
+        [accountID, account.handle, profile.id],
       );
       this.db.run(
         "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Initial device', ?, ?)",
@@ -668,15 +690,13 @@ export class CanopyDaemon implements AsyncDisposable {
     readAccountConfigGraphV2(nextSnapshot, account.configTree!);
     await this.objects.store([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configTree = this.get(account.configTree!)!;
-    const transition = await this.acceptedTransitionPayload(configTree.ref, nextSnapshot.root);
-    const changes = await this.entryChanges(configTree.ref, nextSnapshot.root);
+    const { transition, changes } = await this.acceptedDiff(configTree.ref, nextSnapshot.root);
     const now = Date.now();
     const accepted = this.acceptedStore.commit({
       entryChanges: changes,
       tree: configTree.id,
       root: nextSnapshot.root,
       previousRoot: configTree.ref,
-      expectedRoot: configTree.ref,
       expectedUpdate,
       kind: "accepted",
       acceptedAt: now,
@@ -806,7 +826,6 @@ export class CanopyDaemon implements AsyncDisposable {
           "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
           [configID, snapshot.root, now, account.id],
         );
-        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [configID, snapshot.root, now]);
         this.insertAcceptedUpdate({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
       })();
@@ -914,7 +933,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     if (!authentication.device) throw new Error("An administrator device is required for activation");
     const config = await this.accountConfigGraph(authentication.account);
-    if (!graphAdministrators(config).includes(authentication.device)) throw new Error("Only an administrator device may initialize a tree");
+    if (!graphAdministrators(config).includes(authentication.device)) throw new PermissionDeniedError("Only an administrator device may initialize a tree");
     const declaration = graphTrees(config)[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
     const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
@@ -1076,8 +1095,8 @@ export class CanopyDaemon implements AsyncDisposable {
       );
       if (consumed.changes !== 1) throw new Error("Account challenge was already consumed or expired");
       this.db.run(
-        "INSERT INTO accounts (id, handle, profile_tree, config_tree, token_digest, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, ?, 1)",
-        [accountID, input.handle, input.profileTree, input.configurationTree, input.credentialDigest.slice("sha256:".length), claimDigest],
+        "INSERT INTO accounts (id, handle, profile_tree, config_tree, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, 1)",
+        [accountID, input.handle, input.profileTree, input.configurationTree, claimDigest],
       );
       this.db.run(
         "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -1087,9 +1106,6 @@ export class CanopyDaemon implements AsyncDisposable {
         "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
         [input.configurationTree, input.configurationSnapshot.root, now, accountID],
       );
-      this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [
-        input.configurationTree, input.configurationSnapshot.root, now,
-      ]);
       this.insertAcceptedUpdate({
         tree: input.configurationTree,
         root: input.configurationSnapshot.root,
@@ -1128,9 +1144,18 @@ export class CanopyDaemon implements AsyncDisposable {
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
   ): Promise<UpdateResult> {
     if (result.update.root === candidate) return result;
-    if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new Error("Reconciliation disclosure is not allowed");
+    if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new PermissionDeniedError("Reconciliation disclosure is not allowed");
     const reconciliation = await buildAcceptedTransitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
     return { ...result, reconciliation };
+  }
+
+  /** One accepted update's transition and entry changes, reading the two roots once. */
+  private async acceptedDiff(previousRoot: ObjectHash, root: ObjectHash): Promise<{ transition: AcceptedTransitionPayload; changes: EntryChanges }> {
+    const reader = new TreeReader((hash) => this.object(hash));
+    return {
+      transition: await buildAcceptedTransitionPayload(previousRoot, root, reader),
+      changes: await entryChanges(previousRoot, root, reader),
+    };
   }
 
   private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
@@ -1185,7 +1210,7 @@ export class CanopyDaemon implements AsyncDisposable {
     authentication?: CanopyAuthentication
   ): Promise<StoredUpdateResponse> {
     validateUpdateRequestIntent(request);
-    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new Error("Execution update form is not allowed");
+    if (this.execution.current && (request.base === null || request.updates.length !== 1 || request.updates.some(u => u.trace !== null || u.resolves.length))) throw new PermissionDeniedError("Execution update form is not allowed");
     // Preflight the whole batch: unsupported semantics must never accept a prefix.
     for (const [index, update] of request.updates.entries()) {
       if (
@@ -1228,7 +1253,7 @@ export class CanopyDaemon implements AsyncDisposable {
       request.base &&
       request.updates.some((update) => update.trace !== null)
     ) {
-      if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
+      if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
       // Receipts precede execution: a tool upgrade/outage cannot alter an exact retry.
       if (recordedThrough === request.updates.length - 1) {
         const tree = this.get(treeID)!;
@@ -1468,8 +1493,8 @@ export class CanopyDaemon implements AsyncDisposable {
     authoredConflicts?: ConflictState;
   }> {
     const tree = this.get(treeID);
-    if (!tree) throw new Error(`Unknown tree: ${treeID}`);
-    if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new Error("Write access is not allowed");
+    if (!tree) throw new NotFoundError(`Unknown tree: ${treeID}`);
+    if (!(this.canWrite(account, treeID, linkDigest) || this.execution.canSubmit(treeID))) throw new PermissionDeniedError("Write access is not allowed");
     const policy = tree.policy.startsWith("account-config-")
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject, proposed)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
@@ -1478,10 +1503,10 @@ export class CanopyDaemon implements AsyncDisposable {
     const authoredView = (id: string) => authoredConflictBasis(new ConflictStore(this.db).get(id), baseConflicts, request);
     const execution = this.execution.current;
     if (execution) {
-      if (this.currentUpdate(treeID)?.conflicted) throw new Error("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
-      if (!request.ifCurrent || request.trace !== null || request.resolves.length) throw new Error("Execution update form is not allowed");
+      if (this.currentUpdate(treeID)?.conflicted) throw new PermissionDeniedError("Execution updates of conflicted trees are not allowed until alternative scope validation is available");
+      if (!request.ifCurrent || request.trace !== null || request.resolves.length) throw new PermissionDeniedError("Execution update form is not allowed");
       const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
-      if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
+      if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     }
     const replay = this.acceptedRequest(treeID, subject, requestDigest);
     if (!replay && execution && request.ifCurrent !== this.currentUpdate(treeID)?.id) throw new UpdateProtocolError("base-not-retained", "Execution guard is stale; recompute against a current authorized basis");
@@ -1501,7 +1526,7 @@ export class CanopyDaemon implements AsyncDisposable {
         authoredConflicts: authoredView(current.id),
       };
     }
-    if (this.acceptedStore.acceptedChange(treeID, request.change) || new SourceIntentStore(this.db).get(treeID, request.change)) {
+    if (this.acceptedStore.acceptedChange(treeID, request.change)) {
       throw new Error("Authored change identity is already bound to a different accepted request");
     }
     await this.validateGraph(request.candidate, proposed, tree.ref);
@@ -1759,8 +1784,7 @@ export class CanopyDaemon implements AsyncDisposable {
       markPhase("accepted-store");
       const now = Date.now();
       const prepared = await policy.prepareCommit(remoteTree, nextRoot, now);
-      const transition = await this.acceptedTransitionPayload(remoteTree.ref, nextRoot);
-      const changes = await this.entryChanges(remoteTree.ref, nextRoot);
+      const { transition, changes } = await this.acceptedDiff(remoteTree.ref, nextRoot);
       markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
@@ -1768,7 +1792,6 @@ export class CanopyDaemon implements AsyncDisposable {
           tree: treeID,
           root: nextRoot,
           previousRoot: remoteTree.ref,
-          expectedRoot: remoteTree.ref,
           expectedUpdate: remoteUpdate.id,
           kind,
           acceptedAt: now,
@@ -1957,11 +1980,7 @@ export class CanopyDaemon implements AsyncDisposable {
           result.object,
           now
         );
-      const transition = await this.acceptedTransitionPayload(
-        current.root,
-        result.object
-      );
-      const changes = await this.entryChanges(current.root, result.object);
+      const { transition, changes } = await this.acceptedDiff(current.root, result.object);
       markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
@@ -1969,7 +1988,6 @@ export class CanopyDaemon implements AsyncDisposable {
           tree: tree.id,
           root: result.object,
           previousRoot: current.root,
-          expectedRoot: current.root,
           expectedUpdate: current.id,
           kind: "accepted",
           acceptedAt: now,
@@ -2013,7 +2031,7 @@ export class CanopyDaemon implements AsyncDisposable {
     authentication: CanopyAuthentication | undefined,
     provenAcceptedPrefix = false,
   ): Promise<{ status: number; result: UpdateResult }> {
-    if (!authentication) throw new Error("Account authentication is required to activate a tree");
+    if (!authentication) throw new AuthenticationRequiredError("Account authentication is required to activate a tree");
     const replay = this.acceptedRequest(treeID, authentication.subject, requestDigest);
     if (replay) return replay;
     if (this.acceptedStore.acceptedChange(treeID, request.change)) throw new Error("Authored change identity is already bound to a different accepted request");
@@ -2044,9 +2062,9 @@ export class CanopyDaemon implements AsyncDisposable {
     let effects: ResourceEffect[] = [];
     const checkEffects = async (before: string, after: string, objects: ReadonlyMap<ObjectHash, Uint8Array>) => {
       if (!execution) return;
-      if (request.resolves.length || request.trace !== null) throw new Error("Scoped execution operations/resolutions are not allowed until effect validation is available");
+      if (request.resolves.length || request.trace !== null) throw new PermissionDeniedError("Scoped execution operations/resolutions are not allowed until effect validation is available");
       effects = await resourceEffects(before, after, hash => this.objects.load(hash, objects));
-      if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
+      if (effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution))) throw new PermissionDeniedError("Execution effects are not allowed");
     };
     return {
       subject: execution?.code ? `execution:${execution.subject}:${execution.code}` : credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public"),
@@ -2065,7 +2083,7 @@ export class CanopyDaemon implements AsyncDisposable {
       },
       prepareCommit: async (remoteTree) => ({
         withinTransaction: () => {
-          if (execution && (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution)))) throw new Error("Execution permission is not allowed");
+          if (execution && (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(tree.id, e.path, e.operation, execution)))) throw new PermissionDeniedError("Execution permission is not allowed");
         },
         afterCommit: () => {
           if (remoteTree.canonicalPath === "/") this.reconcileCommunityAccounts();
@@ -2088,7 +2106,7 @@ export class CanopyDaemon implements AsyncDisposable {
     proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
   ): UpdatePolicy {
     if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
-      throw new Error("An active account device is required for configuration updates");
+      throw new PermissionDeniedError("An active account device is required for configuration updates");
     }
     const deviceID = credentialSubject.slice("device:".length);
     const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AccountConfigGraphV2> => {
@@ -2115,7 +2133,7 @@ export class CanopyDaemon implements AsyncDisposable {
         const current = this.currentUpdate(tree.id);
         if (!current) throw new Error("Account configuration has no accepted update");
         const acceptedGraph = await graphAt(current.root);
-        if (request.resolves.length && !acceptedGraph.devices[deviceID]?.administrator) throw new Error("Only an administrator may resolve policy conflicts");
+        if (request.resolves.length && !acceptedGraph.devices[deviceID]?.administrator) throw new PermissionDeniedError("Only an administrator may resolve policy conflicts");
         authorize(acceptedGraph, candidateGraph, baseGraph);
       },
       merge: (base, candidate, current) => this.mergeTool.tree(base, candidate, current, proposed,
@@ -2133,22 +2151,16 @@ export class CanopyDaemon implements AsyncDisposable {
         for (const rewrite of rewrites) {
           await this.cacheRootProfile(rewrite.nextRoot, rewrite.generated);
           await this.objects.store([...rewrite.generated].map(([hash, bytes]) => ({ hash, bytes })));
-          transitions.set(rewrite.parent.id, await this.acceptedTransitionPayload(rewrite.parent.ref, rewrite.nextRoot));
-          rewriteChanges.set(rewrite.parent.id, await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot));
+          const diff = await this.acceptedDiff(rewrite.parent.ref, rewrite.nextRoot);
+          transitions.set(rewrite.parent.id, diff.transition);
+          rewriteChanges.set(rewrite.parent.id, diff.changes);
         }
         const boundaryUpdates: AcceptedUpdate[] = [];
         return {
           withinTransaction: () => {
             this.applyAccountConfigDerived(account.id, currentGraph, nextGraph);
             for (const rewrite of rewrites) {
-              const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-                rewrite.nextRoot, now, rewrite.parent.id, rewrite.parent.ref,
-              ]);
-              if (result.changes !== 1) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
-              this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
-                rewrite.parent.id, rewrite.nextRoot, rewrite.parent.ref, now,
-              ]);
-              boundaryUpdates.push(this.insertAcceptedUpdate({
+              const accepted = this.acceptedStore.advance({
                 tree: rewrite.parent.id,
                 root: rewrite.nextRoot,
                 previousRoot: rewrite.parent.ref,
@@ -2157,7 +2169,9 @@ export class CanopyDaemon implements AsyncDisposable {
                 subject: credentialSubject,
                 transition: transitions.get(rewrite.parent.id),
                 entryChanges: rewriteChanges.get(rewrite.parent.id)!,
-              }));
+              });
+              if (!accepted) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
+              boundaryUpdates.push(accepted);
             }
           },
           afterCommit: () => {
@@ -2182,11 +2196,6 @@ export class CanopyDaemon implements AsyncDisposable {
 
   observationPosition(tree: string, cursor: string | null) { return this.observations.position(tree, cursor); }
   observationPage(tree: string, after: number) { return this.observations.page(tree, after); }
-
-  /** Retained observation records strictly after `cursor` for one tree. */
-  observationsAfter(tree: string, cursor: string | null) {
-    return this.observations.after(tree, cursor);
-  }
 
   private notifyObservation(record: ObservationRecord): void {
     for (const listener of this.observationListeners.get(record.tree) ?? []) listener(record);
@@ -2362,10 +2371,7 @@ export class CanopyDaemon implements AsyncDisposable {
       await this.cacheRootProfile(attachment.nextRoot, attachment.generated);
       await this.objects.store([...attachment.generated].map(([hash, bytes]) => ({ hash, bytes })));
     }
-    const attachmentTransition = attachment
-      ? await this.acceptedTransitionPayload(attachment.parent.ref, attachment.nextRoot)
-      : null;
-    const attachmentChanges = attachment ? await this.entryChanges(attachment.parent.ref, attachment.nextRoot) : null;
+    const attachmentDiff = attachment ? await this.acceptedDiff(attachment.parent.ref, attachment.nextRoot) : null;
     const initialChanges = await this.entryChanges(null, snapshot.root);
     const now = Date.now();
     this.db.transaction(() => {
@@ -2373,10 +2379,6 @@ export class CanopyDaemon implements AsyncDisposable {
       this.db.run(
         "INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)",
         [path, id, parentTree],
-      );
-      this.db.run(
-        "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)",
-        [id, snapshot.root, now],
       );
       this.insertAcceptedUpdate({
         tree: id,
@@ -2393,27 +2395,17 @@ export class CanopyDaemon implements AsyncDisposable {
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);
       if (attachment) {
-        const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-          attachment.nextRoot,
-          now,
-          attachment.parent.id,
-          attachment.parent.ref,
-        ]);
-        if (result.changes !== 1) throw new RefConflictError(this.get(attachment.parent.id)?.ref ?? null);
-        this.db.run(
-          "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)",
-          [attachment.parent.id, attachment.nextRoot, attachment.parent.ref, now],
-        );
-        this.insertAcceptedUpdate({
+        const accepted = this.acceptedStore.advance({
           tree: attachment.parent.id,
           root: attachment.nextRoot,
           previousRoot: attachment.parent.ref,
           kind: "accepted",
           acceptedAt: now,
           subject: credentialSubject ?? null,
-          ...(attachmentTransition ? { transition: attachmentTransition } : {}),
-          entryChanges: attachmentChanges!,
+          transition: attachmentDiff!.transition,
+          entryChanges: attachmentDiff!.changes,
         });
+        if (!accepted) throw new RefConflictError(this.get(attachment.parent.id)?.ref ?? null);
       }
     })();
     if (attachment) this.notifyAccepted(this.currentUpdate(attachment.parent.id)!);
@@ -2538,12 +2530,12 @@ export class CanopyDaemon implements AsyncDisposable {
     return null;
   }
 
-  private profileMemberHandles(treeID: string): Set<string> {
+  private profileMemberHandles(treeID: string): ReadonlySet<string> {
     const tree = this.get(treeID);
     return tree ? this.memberHandlesFromRoot(tree.ref) : new Set();
   }
 
-  private communityMemberHandles(): Set<string> {
+  private communityMemberHandles(): ReadonlySet<string> {
     return this.memberHandlesFromRoot(this.community().ref);
   }
 
@@ -2553,14 +2545,14 @@ export class CanopyDaemon implements AsyncDisposable {
    * synchronous authorization never reparses mutable filesystem state or
    * treats display names as identity.
    */
-  private rootProfile(root: ObjectHash): {
-    type: "person" | "group" | null;
-    members: Array<{ profile: string; handle?: string; legacy?: true }>;
-  } {
+  private rootProfile(root: ObjectHash): RootProfile {
+    const cached = this.rootProfiles.get(root);
+    if (cached) return cached;
     const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
-    if (!row) return { type: null, members: [] };
+    // Not memoized: the facts of a root may be cached after it is first asked about.
+    if (!row) return { type: null, members: [], handles: new Set() };
     const value = JSON.parse(row.value) as { type?: unknown; members?: unknown };
-    return {
+    const profile: Omit<RootProfile, "handles"> = {
       type: value.type === "person" || value.type === "group" ? value.type : null,
       members: Array.isArray(value.members) ? value.members.flatMap((member) => {
         if (typeof member === "string") return [{ profile: member, legacy: true as const }];
@@ -2574,6 +2566,10 @@ export class CanopyDaemon implements AsyncDisposable {
         }];
       }) : [],
     };
+    const facts: RootProfile = { ...profile, handles: memberHandles(profile.members) };
+    if (this.rootProfiles.size >= ROOT_PROFILE_LIMIT) this.rootProfiles.delete(this.rootProfiles.keys().next().value!);
+    this.rootProfiles.set(root, facts);
+    return facts;
   }
 
   /** The root document's `type: person` or `type: group`, or null when it declares neither. */
@@ -2581,14 +2577,8 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.rootProfile(root).type;
   }
 
-  private memberHandlesFromRoot(root: ObjectHash): Set<string> {
-    const members = this.rootProfile(root).members;
-    return new Set(members.flatMap((member) => {
-      if (member.handle && HANDLE.test(member.handle)) return [member.handle];
-      if (!member.legacy) return [];
-      const match = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile);
-      return match ? [match[1]!] : [];
-    }));
+  private memberHandlesFromRoot(root: ObjectHash): ReadonlySet<string> {
+    return this.rootProfile(root).handles;
   }
 
   /** The current Canopy allocates all of one account's canonical paths below /~handle. */

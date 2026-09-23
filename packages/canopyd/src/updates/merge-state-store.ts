@@ -20,7 +20,7 @@ export interface MergeStateRecord {
 export class MergeStateStore {
   constructor(private readonly db: Database) {}
   static createSchema(db: Database) {
-    db.run(`CREATE TABLE accepted_merge_states (
+    db.run(`CREATE TABLE IF NOT EXISTS accepted_merge_states (
  accepted_id TEXT PRIMARY KEY REFERENCES accepted_updates(id) ON DELETE RESTRICT,
  record_json TEXT NOT NULL)`);
   }
@@ -47,15 +47,5 @@ export class MergeStateStore {
       yield {accepted: row.accepted_id, record: JSON.parse(row.record_json)};
     }
   }
-  all(): Array<{ accepted: string; record: MergeStateRecord }> {
-    return (
-      this.db.query("SELECT * FROM accepted_merge_states").all() as Array<{
-        accepted_id: string;
-        record_json: string;
-      }>
-    ).map((r) => ({
-      accepted: r.accepted_id,
-      record: JSON.parse(r.record_json),
-    }));
-  }
+
 }

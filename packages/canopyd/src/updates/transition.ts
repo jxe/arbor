@@ -1,26 +1,17 @@
 import {
-  decodeWireDirectory,
   encodeTransitionPayloadJSON,
-  hashObject,
   objectDelta,
   type AcceptedTransitionPayload,
   type ObjectDelta,
   type ObjectHash,
-  type WireDirectoryEntry,
-  type WireDirectory,
 } from "@overstory/protocol";
-
-type Load = (hash: ObjectHash) => Promise<Uint8Array>;
+import { treeReader, walkTreeDiff, type Load, type TreeReader } from "./tree-diff.ts";
 
 /** Objects larger than this are always transferred complete rather than diffed. */
 const MAX_DELTA_SOURCE_BYTES = 64 * 1024 * 1024;
 
 function encodedSize(payload: AcceptedTransitionPayload): number {
   return Buffer.byteLength(JSON.stringify(encodeTransitionPayloadJSON(payload)));
-}
-
-function matchingEntry(entry: WireDirectoryEntry, entries: WireDirectoryEntry[]): WireDirectoryEntry | undefined {
-  return entries.find((candidate) => candidate.name === entry.name);
 }
 
 /**
@@ -33,54 +24,41 @@ function matchingEntry(entry: WireDirectoryEntry, entries: WireDirectoryEntry[])
 export async function buildAcceptedTransitionPayload(
   previousRoot: ObjectHash,
   targetRoot: ObjectHash,
-  load: Load,
+  load: Load | TreeReader,
 ): Promise<AcceptedTransitionPayload> {
-  const cache = new Map<ObjectHash, { bytes: Uint8Array; object?: WireDirectory }>();
+  const reader = treeReader(load);
   const provided = new Set<ObjectHash>();
   const objects: AcceptedTransitionPayload["objects"] = [];
   const deltas: ObjectDelta[] = [];
 
-  const loaded = async (hash: ObjectHash, kind: "file" | "directory") => {
-    const existing = cache.get(`${kind}:${hash}`);
-    if (existing) return existing;
-    const bytes = await load(hash);
-    if (hashObject(bytes) !== hash) throw new Error(`Transition object hash mismatch: ${hash}`);
-    const value = { bytes, object: kind === "directory" ? decodeWireDirectory(bytes) : undefined };
-    cache.set(`${kind}:${hash}`, value);
-    return value;
-  };
-
-  const visit = async (beforeHash: ObjectHash | undefined, afterHash: ObjectHash, afterKind: "file" | "directory", beforeKind: "file" | "directory" = afterKind): Promise<void> => {
+  const provide = async (beforeHash: ObjectHash | undefined, afterHash: ObjectHash): Promise<void> => {
     if (beforeHash === afterHash || provided.has(afterHash)) return;
     provided.add(afterHash);
-    const after = await loaded(afterHash, afterKind);
-    const before = beforeHash ? await loaded(beforeHash, beforeKind) : undefined;
-
-    let delta: ObjectDelta | undefined;
-    if (before && before.bytes.byteLength <= MAX_DELTA_SOURCE_BYTES && after.bytes.byteLength <= MAX_DELTA_SOURCE_BYTES) {
-      const candidate: ObjectDelta = { base: beforeHash!, result: afterHash, instructions: objectDelta(before.bytes, after.bytes) };
-      const complete = encodedSize({ objects: [{ hash: afterHash, bytes: after.bytes }], deltas: [] });
-      if (encodedSize({ objects: [], deltas: [candidate] }) < complete) delta = candidate;
+    const after = await reader.bytes(afterHash);
+    const before = beforeHash ? await reader.bytes(beforeHash) : undefined;
+    if (before && before.byteLength <= MAX_DELTA_SOURCE_BYTES && after.byteLength <= MAX_DELTA_SOURCE_BYTES) {
+      const candidate: ObjectDelta = { base: beforeHash!, result: afterHash, instructions: objectDelta(before, after) };
+      const complete = encodedSize({ objects: [{ hash: afterHash, bytes: after }], deltas: [] });
+      if (encodedSize({ objects: [], deltas: [candidate] }) < complete) { deltas.push(candidate); return; }
     }
-    if (delta) deltas.push(delta);
-    else objects.push({ hash: afterHash, bytes: after.bytes });
-
-    if (after.object) {
-      const beforeEntries = before?.object?.entries ?? [];
-      for (const entry of after.object.entries) {
-        const prior = matchingEntry(entry, beforeEntries);
-        if (entry.file || entry.directory) await visit(prior?.file ?? prior?.directory, (entry.file ?? entry.directory)!, entry.file ? "file" : "directory", prior?.file ? "file" : "directory");
-      }
-    }
+    objects.push({ hash: afterHash, bytes: after });
   };
 
-  await visit(previousRoot, targetRoot, "directory");
+  await walkTreeDiff(previousRoot, targetRoot, reader, {
+    directory: ({ before, after }) => after ? provide(before?.hash, after.hash) : undefined,
+    entry: async ({ before: prior, after: entry }) => {
+      if (entry?.file) await provide(prior?.file ?? prior?.directory, entry.file);
+      // A directory already provided at another path is not walked again;
+      // removed entries need nothing.
+      return !!entry?.directory && !provided.has(entry.directory);
+    },
+  });
   const payload: AcceptedTransitionPayload = {
     objects,
     deltas,
   };
-  // Exercise the exact persisted/wire encoding here; generated objects and
-  // delta results were already hash-checked while walking the canonical graph.
+  // Exercise the exact persisted/wire encoding here; every object was
+  // hash-checked by the reader while walking the canonical graph.
   encodeTransitionPayloadJSON(payload);
   return payload;
 }

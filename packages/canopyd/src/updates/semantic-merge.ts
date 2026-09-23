@@ -277,8 +277,7 @@ export class SemanticMerge {
     if (state.tree !== tree) throw new Error("Merge state tree mismatch");
     const legacy = new Map(
       (state.decisions.length ? new ConflictStore(this.db)
-        .all()
-        .filter((row) => this.updates.get(row.accepted)?.tree === tree)
+        .forTree(tree)
         .flatMap((row) => row.state.decisions.map((d) => [d.id, d] as const)) : [])
     );
     const decisionID = (key: string) =>

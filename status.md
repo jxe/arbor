@@ -83,6 +83,17 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 - [Release and verification](plans/verification/release-and-soak.md), outstanding installation, deployment, hands-on, and soak checks.
 - [Open questions](plans/open-questions.md).
 
+## Accepted-history compaction — 2026-09-22
+
+Implemented at schema 17 and rehearsed on production copies; not deployed.
+Migration 015 is the pending cutover from the live schema 16. It removes stored copies of accepted
+history: `observations` becomes `accepted_updates.ordinal` (unchanged cursors for every
+accepted update), `reflog` is dropped, `authored_changes` keeps only the trace and
+evidence, and the unread `accounts.token_digest` is dropped. `AcceptedUpdateStore.advance` is now the only writer of `trees.ref`. A merge
+that records decisions reads only its own tree's legacy conflict rows instead of every
+row in the database. See the
+[migration README](packages/canopyd/migrations/015-compact-history/README.md).
+
 ## 2026-09-21 onboarding and package verification
 
 Bun 1.3.14: typecheck, build, protocol, performance (50,000 files), and the

@@ -285,6 +285,8 @@ export interface Material {
   node: string;
   pieces?: Piece[];
   anchor?: { observed: Piece[]; offset: number };
+  /** An entry operation's result: `node` and its active descendants, rooted at
+   * `node`. Older records carry the whole state here; readers accept both. */
   view?: View;
 }
 export interface Effect {
