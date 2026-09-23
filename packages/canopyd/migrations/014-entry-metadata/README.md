@@ -1,7 +1,7 @@
 # Migration 014: entry metadata and the document-version index (15 → 16)
 
-Carries [canopyd 013](../../../../plans/canopyd/013-entry-metadata.md) and the
-storage half of [canopyd 007](../../../../plans/canopyd/007-canopy-document-history.md).
+Carries canopyd 013 ([closeout](../../../../status.md#canopyd-011-012-and-013-closeout--2026-09-22)) and the
+storage half of [canopyd 007](../../../../plans/canopyd/007-document-history-routes-and-restore.md).
 Additive: two new tables, nothing rewritten. Tree roots, accepted updates,
 objects, observations, merge states and conflicts are untouched, so the
 report's roots equal the backup's.
@@ -71,3 +71,11 @@ matches the volume; live and vacuumed copy both 2,515 accepted updates, 5 trees,
   credentials for private ones; `verify.ts --no-sync` ok.
 - Console tree dates: 97 of 106 entries sit at its history boundary (2026-09-13), the
   rest on the days they were last edited.
+
+## Live cutover
+
+2026-09-22, deployed at 5ef1fe20 (with canopyd 011 and 012). The live report matched the
+rehearsal exactly: five roots unchanged, 2,515 updates, 113 entries, 2,569 versions over 90
+documents (replay 7.6 s on Railway). `verify.ts` ok, authored manifest unchanged, all three
+Mac placements idle, and a round-trip edit on the Console tree landed in `/entry-metadata`
+with its accepted time.

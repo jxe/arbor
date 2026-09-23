@@ -19,7 +19,7 @@ specified in 004 (completed plan, deleted; see git history). Its old
 rejected-candidate workflow is not the implementation model. Preserve relevant
 source-fidelity and crash-safety scenarios, not its retired client conflict machine.
 [008](008-complete-native-move-copy-undo-capture.md) owns operation support and client emission;
-[009](../canopyd/009-canopy-provenance-merges.md) owns better server reconciliation.
+[canopyd 014](../canopyd/014-merge-moved-text.md) owns better server reconciliation.
 [011](../verification/011-client-compatibility.md) owns compatible adoption. Filesystem
 review remains separate from the Native working tree.
 

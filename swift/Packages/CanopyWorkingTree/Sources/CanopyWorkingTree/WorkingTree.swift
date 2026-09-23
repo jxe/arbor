@@ -320,7 +320,8 @@ public actor WorkingTree {
             mutation: mutation,
             pageKey: "_system",
             accepted: (replacement.root, replacement.update, replacement.cursor),
-            recordsModificationDates: mutation != "initialize-from-system"
+            recordsModificationDates: mutation != "initialize-from-system",
+            changedAt: replacement.acceptedAt
         ) { next in
             next = replacementState
         }
@@ -341,6 +342,24 @@ public actor WorkingTree {
             control: control,
             index: index
         )
+    }
+
+    /// Dates from Canopy's entry metadata, keyed by entry path. They describe
+    /// `update`: when that is this tree's accepted, materialized state they
+    /// are authoritative; otherwise they only date nodes that have no date.
+    /// Content and hashes are untouched.
+    public func applyEntryDates(_ dates: [String: Date], update: String) throws {
+        try requireOpen()
+        let exact = control.acceptedUpdate == update && control.acceptedRoot == control.materializedRoot
+        var next = state, changed = false
+        for index in next.nodes.indices {
+            guard let entry = next.nodes[index].bodyEntryPath, let date = dates[entry],
+                  exact || next.nodes[index].modifiedAt == nil, next.nodes[index].modifiedAt != date else { continue }
+            next.nodes[index].modifiedAt = date
+            changed = true
+        }
+        guard changed else { return }
+        try transact(mutation: "entry-metadata", pageKey: "_system", recordsModificationDates: false) { $0 = next }
     }
 
     /// Replace a fork's nodes with a local candidate. Unlike an accepted
@@ -365,17 +384,17 @@ public actor WorkingTree {
                     childrenSource: node.childrenSource,
                     directoryBodyPlacement: node.directoryBodyPlacement,
                     shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource,
-                    modifiedAt: node.modifiedAt
+                    metadata: node.metadata
                 )
             case let .markdown(source):
-                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, modifiedAt: node.modifiedAt)
+                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, metadata: node.metadata)
             case let .file(ref, mediaType):
                 var reference = ref
                 if case let .hash(hash, size, type) = ref, size == nil,
                    let previous = state.nodes.first(where: { $0.path == node.path && $0.ref?.objectHash == hash })?.ref {
                     reference = .hash(hash, size: previous.size, mediaType: type ?? previous.mediaType)
                 }
-                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType)
+                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType, metadata: node.metadata)
             case let .boundary(tree):
                 return WorkingTreeNode(path: node.path, kind: .boundary, boundaryTree: tree.rawValue)
             }
@@ -903,12 +922,13 @@ public actor WorkingTree {
         accepted: (root: String, update: String, cursor: String?)? = nil,
         retainsPendingAgainstAcceptedBase: Bool = false,
         recordsModificationDates: Bool = true,
+        changedAt: Date? = nil,
         change: (inout WorkingTreeState) throws -> Void
     ) throws {
         try requireOpen()
         var next = state
         try change(&next)
-        let changedAt = clock()
+        let changedAt = changedAt ?? clock()
         if recordsModificationDates {
             applyModificationDates(from: state, to: &next, changedAt: changedAt)
         }
@@ -950,17 +970,16 @@ public actor WorkingTree {
             let candidate = next.nodes[index]
             let old = candidate.pageID.flatMap { previousByPageID[$0] }
                 ?? previousByPath[candidate.path]
+            // A date the change itself carries (Canopy's accepted time) stands.
+            let stamp = candidate.modifiedAt ?? changedAt
             guard let old else {
-                next.nodes[index].modifiedAt = changedAt
+                next.nodes[index].modifiedAt = stamp
                 continue
             }
-            var oldContent = old
-            var candidateContent = candidate
-            oldContent.modifiedAt = nil
-            candidateContent.modifiedAt = nil
-            next.nodes[index].modifiedAt = oldContent == candidateContent
-                ? old.modifiedAt
-                : changedAt
+            // Unchanged content keeps all of its metadata; a change keeps the
+            // other descriptive fields and moves only the date.
+            next.nodes[index].metadata = old.metadata
+            if old.withoutMetadata != candidate.withoutMetadata { next.nodes[index].modifiedAt = stamp }
         }
     }
 

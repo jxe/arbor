@@ -41,7 +41,7 @@ Historical identifier: **Smaller project 006**. The filename number is preserved
   migration, bounded access to private history, and cross-language protocol
   surface
 - **State:** PLANNED
-- **Depends on:** [canopyd 007](007-canopy-document-history.md), whose
+- **Depends on:** [canopyd 007](007-document-history-routes-and-restore.md), whose
   accepted document-version index this plan reuses; coordinate retention with
   [canopyd 001](001-pack-object-storage.md), which must
   not prune history required by either feature without an equivalent checkpoint
@@ -104,7 +104,7 @@ while those rows retain their original meaning, but the accepted row itself
 does not freeze the Profile TreeID used at acceptance.
 
 Accepted document history is owned by
-[canopyd 007](007-canopy-document-history.md). It remains
+[canopyd 007](007-document-history-routes-and-restore.md). It remains
 document-scoped and write-credential-authorized rather than a generic accepted
 history collection. This plan computes provenance inside canopyd and returns
 only metadata for lines in the currently readable source; it reuses project
@@ -221,7 +221,7 @@ adding `actor`; otherwise an access-link writer's private digest or a device ID
 could be mistaken for safe attribution. Compatibility, TypeScript, Swift, and
 fixture changes must land atomically with the server change.
 
-Extend the schema established by canopyd 007 and create the next
+Extend the `document_versions` schema (shipped with canopyd 013 in migration 014) and create the next
 available disposable migration directory under `packages/canopyd/migrations/` following
 `migrations/001-if-match-and-model-hash/` and `packages/canopyd/migrations/README.md`. Do not
 rebuild or duplicate its `document_versions` index. At execution time take the

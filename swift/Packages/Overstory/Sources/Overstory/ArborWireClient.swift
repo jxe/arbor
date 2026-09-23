@@ -133,6 +133,17 @@ public actor ArborWireClient {
         return try WireSnapshotBundleCodec.decode(data, root: root)
     }
 
+    /// Descriptive metadata of the current root's file entries: never part of
+    /// any hash, and describing `update`, which may be newer than a snapshot
+    /// just installed (the watch corrects that).
+    public func entryMetadata(tree: String) async throws -> WireEntryMetadata {
+        let value: WireEntryMetadata = try await get(path: "/.arbor/trees/\(component(tree))/entry-metadata")
+        guard !value.update.isEmpty, value.entries.keys.allSatisfy({ $0.hasPrefix("/") }) else {
+            throw ArborWireValidationError.invalidValue("Malformed entry metadata")
+        }
+        return value
+    }
+
     public func prepareUpdate(
         tree: String,
         base: WireUpdateBase,

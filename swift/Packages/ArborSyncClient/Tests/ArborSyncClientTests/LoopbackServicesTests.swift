@@ -78,7 +78,6 @@ struct LoopbackServicesTests {
         #expect(bootstrap.tree.osPath == "/Users/joe/notes")
         #expect(bootstrap.accepted.cursor == nil)
         #expect(bootstrap.spine.root == bootstrap.accepted.root)
-        #expect(bootstrap.modifiedAtByPath == ["/": 1789473600000])
         #expect(bootstrap.observedThrough == "1f8b3c6d-observed:7")
 
         // The spine is sparse: the root directory and the Markdown object are present,

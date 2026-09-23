@@ -246,21 +246,17 @@ public struct TreeBootstrap: Sendable, Equatable {
     public var accepted: TreeBootstrapAccepted
     /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
     public var spine: WireSnapshot
-    /// Local page-body mtimes in Unix milliseconds, keyed by logical path.
-    public var modifiedAtByPath: [String: Double]
     public var observedThrough: String
 
     public init(
         tree: TreeBootstrapDescriptor,
         accepted: TreeBootstrapAccepted,
         spine: WireSnapshot,
-        modifiedAtByPath: [String: Double] = [:],
         observedThrough: String
     ) {
         self.tree = tree
         self.accepted = accepted
         self.spine = spine
-        self.modifiedAtByPath = modifiedAtByPath
         self.observedThrough = observedThrough
     }
 }

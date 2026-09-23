@@ -219,9 +219,18 @@ public enum WorkingTreeDirectoryBodyPlacement: String, Codable, Sendable {
     case siblingMarkdown
 }
 
-public struct WorkingTreeSystemNode: Sendable, Equatable {
-    /// Local presentation metadata; excluded from the Wire snapshot.
+/// Descriptive metadata about an entry, kept outside every Overstory hash:
+/// presentation and history, never content. New fields are optional.
+public struct EntryMetadata: Codable, Equatable, Sendable {
+    /// When the entry last changed: the accepted time from Canopy, or the
+    /// local time of a change this replica made or observed.
     public var modifiedAt: Date?
+    public init(modifiedAt: Date? = nil) { self.modifiedAt = modifiedAt }
+}
+
+public struct WorkingTreeSystemNode: Sendable, Equatable {
+    /// Excluded from the Wire snapshot.
+    public var metadata: EntryMetadata
     public var path: String
     public var pageID: String?
     public var content: WorkingTreeSystemNodeContent
@@ -231,14 +240,14 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
 
     public init(
         path: String,
-        modifiedAt: Date? = nil,
+        metadata: EntryMetadata = EntryMetadata(),
         pageID: String? = nil,
         content: WorkingTreeSystemNodeContent,
         childrenSource: WireCollectionFileDescriptor? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil
     ) {
-        self.modifiedAt = modifiedAt
+        self.metadata = metadata
         self.path = path
         self.pageID = pageID
         self.content = content
@@ -248,17 +257,49 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
     }
 }
 
+/// The directory entry holding a node's content, which is where entry
+/// metadata is keyed: a page's `<name>.md`, a directory's `_index.md` or its
+/// sibling `<name>.md`, a file's own entry. A directory without a body and a
+/// nested tree have none.
+func bodyEntryPath(path: String, kind: WorkingTreeNodeKind, hasBody: Bool, siblingBody: Bool) -> String? {
+    switch kind {
+    case .markdown: return path + ".md"
+    case .file: return path
+    case .boundary: return nil
+    case .directory:
+        guard hasBody else { return nil }
+        if siblingBody { return path + ".md" }
+        return (path == "/" ? "" : path) + "/_index.md"
+    }
+}
+
+extension WorkingTreeSystemNode {
+    var bodyEntryPath: String? {
+        switch content {
+        case .markdown: CanopyWorkingTree.bodyEntryPath(path: path, kind: .markdown, hasBody: true, siblingBody: false)
+        case .file: CanopyWorkingTree.bodyEntryPath(path: path, kind: .file, hasBody: true, siblingBody: false)
+        case .boundary: nil
+        case let .directory(source): CanopyWorkingTree.bodyEntryPath(path: path, kind: .directory, hasBody: source != nil,
+            siblingBody: directoryBodyPlacement == .siblingMarkdown)
+        }
+    }
+}
+
 public struct WorkingTreeSystemReplacement: Sendable, Equatable {
     public var root: String
     public var update: String
     public var cursor: String?
     public var nodes: [WorkingTreeSystemNode]
+    /// When Canopy accepted this root. Nodes it changes are dated then rather
+    /// than when this replica happened to install it.
+    public var acceptedAt: Date?
 
-    public init(root: String, update: String, cursor: String? = nil, nodes: [WorkingTreeSystemNode]) {
+    public init(root: String, update: String, cursor: String? = nil, nodes: [WorkingTreeSystemNode], acceptedAt: Date? = nil) {
         self.root = root
         self.update = update
         self.cursor = cursor
         self.nodes = nodes
+        self.acceptedAt = acceptedAt
     }
 }
 
@@ -285,9 +326,31 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     var directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement?
     // Not logical content; retained only so a shadowed sibling round-trips exactly.
     var shadowedSiblingMarkdownSource: String?
-    /// Local observation time for recency sorting. This is replica metadata,
-    /// deliberately omitted from Overstory object encoding.
-    var modifiedAt: Date?
+    /// Descriptive metadata, deliberately omitted from Overstory object encoding.
+    var metadata: EntryMetadata?
+    /// State written before `metadata` stored the date alone under this key.
+    private var legacyModifiedAt: Date?
+
+    var modifiedAt: Date? {
+        get { metadata?.modifiedAt ?? legacyModifiedAt }
+        set { var value = metadata ?? EntryMetadata(); value.modifiedAt = newValue; metadata = value; legacyModifiedAt = nil }
+    }
+
+    var bodyEntryPath: String? {
+        CanopyWorkingTree.bodyEntryPath(path: path, kind: kind, hasBody: source != nil,
+            siblingBody: directoryBodyPlacement == .siblingMarkdown)
+    }
+
+    /// The node's content and placement, without its descriptive metadata.
+    var withoutMetadata: WorkingTreeNode {
+        var node = self; node.metadata = nil; node.legacyModifiedAt = nil; return node
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path, pageID, kind, source, ref, mediaType, trashedFrom, boundaryTree, childrenSource
+        case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata
+        case legacyModifiedAt = "modifiedAt"
+    }
 
     init(
         path: String,
@@ -301,7 +364,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         childrenSource: WireCollectionFileDescriptor? = nil,
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
-        modifiedAt: Date? = nil
+        metadata: EntryMetadata? = nil
     ) {
         self.path = path
         self.pageID = pageID
@@ -314,7 +377,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         self.childrenSource = childrenSource
         self.directoryBodyPlacement = directoryBodyPlacement
         self.shadowedSiblingMarkdownSource = shadowedSiblingMarkdownSource
-        self.modifiedAt = modifiedAt
+        self.metadata = metadata
     }
 }
 

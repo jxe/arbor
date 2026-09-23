@@ -273,6 +273,7 @@ final class ArborWorkspaceState {
             transport: transport,
             platform: platform
         )
+        refreshEntryDates(workingTree, tree: tree.id, client: client)
         let (coordinator, nextProvider) = try synchronizedProvider(
             workingTree: workingTree,
             transport: transport,
@@ -428,6 +429,17 @@ final class ArborWorkspaceState {
         await editorWorkspace.closeAll()
     }
 #endif
+
+    /// Canopy's entry dates for an opened tree, read in the background: they
+    /// never delay opening, and a failed read keeps the dates the tree has.
+    @discardableResult
+    private func refreshEntryDates(_ workingTree: WorkingTree, tree: String, client: ArborWireClient) -> Task<Void, Never> {
+        Task.detached {
+            guard let metadata = try? await client.entryMetadata(tree: tree) else { return }
+            let dates = metadata.entries.compactMapValues { $0.modifiedAt.map { Date(timeIntervalSince1970: $0 / 1_000) } }
+            try? await workingTree.applyEntryDates(dates, update: metadata.update)
+        }
+    }
 
     func sharePresentation(for node: WorkspaceNode) async throws -> ArborSharePresentation {
 #if os(iOS)
@@ -941,12 +953,18 @@ final class ArborWorkspaceState {
             tree: TreeID(rawValue: treeID),
             update: bootstrap.accepted.update,
             cursor: bootstrap.accepted.cursor,
-            mode: .sparseFiles,
-            modifiedAtByPath: bootstrap.modifiedAtByPath.mapValues {
-                Date(timeIntervalSince1970: $0 / 1_000)
-            }
+            mode: .sparseFiles
         )
         try await workingTree.initializeFromSystem(replacement)
+        // This tree is rebuilt on every launch: wait briefly for its dates so
+        // the sidebar does not open undated, but never block on the network.
+        let dates = refreshEntryDates(workingTree, tree: treeID, client: wireClient)
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await dates.value }
+            group.addTask { try? await Task.sleep(for: .seconds(2)) }
+            await group.next()
+            group.cancelAll()
+        }
 
         let stateRoot = ArborSupportDirectories.workingTrees
             .appending(path: ArborSupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)
@@ -1053,6 +1071,7 @@ final class ArborWorkspaceState {
             update: tree.update,
             cursor: resolution.observedThrough
         ))
+        refreshEntryDates(workingTree, tree: tree.id, client: client)
         let provider = WorkingTreeProvider(workingTree: workingTree, readOnly: true)
         await switchProvider(
             provider,
@@ -1098,6 +1117,7 @@ final class ArborWorkspaceState {
             transport: transport,
             platform: platform
         )
+        refreshEntryDates(workingTree, tree: tree.id, client: client)
         let (coordinator, provider) = try synchronizedProvider(
             workingTree: workingTree,
             transport: transport,

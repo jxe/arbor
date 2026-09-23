@@ -134,6 +134,20 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
     }
 }
 
+/// `GET /.arbor/trees/{id}/entry-metadata`: file entries of the current root,
+/// keyed by entry path (`/Trips/_index.md`), with the accepted update they
+/// describe. Unknown fields inside an entry are ignored.
+public struct WireEntryMetadata: Decodable, Sendable, Equatable {
+    public struct Entry: Decodable, Sendable, Equatable {
+        /// Unix milliseconds of the accepted update that last wrote the entry.
+        public var modifiedAt: Double?
+        public init(modifiedAt: Double? = nil) { self.modifiedAt = modifiedAt }
+    }
+    public var update: String
+    public var entries: [String: Entry]
+    public init(update: String, entries: [String: Entry]) { self.update = update; self.entries = entries }
+}
+
 public struct WireSnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
     public var snapshot: Value
     public var observedThrough: String
