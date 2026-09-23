@@ -16,7 +16,9 @@ depends on it except tests and the deployment tooling.
   accepted-row transaction, and the only writer of `trees.ref`),
   `observations.ts` (cursor order over accepted updates, the only source of
   watch order), `watch-frames.ts`
-  (net catch-up), `graph-validation.ts`, `source-edits.ts` (exact source
+  (net catch-up), `tree-diff.ts` (the one paired walk over two roots, and
+  the per-update object reader the transition and entry-change diffs share),
+  `graph-validation.ts`, `source-edits.ts` (exact source
   execution and `composeFrames`), `conflict-store.ts`, `merge-state-store.ts`,
   `source-intent-store.ts`, `entry-ambiguity.ts`, `semantic-merge.ts`.
 - `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, and the

@@ -57,6 +57,7 @@ import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore, type AcceptedUpdateInput, type StoredAcceptedResponse } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
+import { TreeReader } from "./updates/tree-diff.ts";
 import { ObjectStore } from "@overstory/object-store";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
@@ -668,8 +669,7 @@ export class CanopyDaemon implements AsyncDisposable {
     readAccountConfigGraphV2(nextSnapshot, account.configTree!);
     await this.objects.store([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configTree = this.get(account.configTree!)!;
-    const transition = await this.acceptedTransitionPayload(configTree.ref, nextSnapshot.root);
-    const changes = await this.entryChanges(configTree.ref, nextSnapshot.root);
+    const { transition, changes } = await this.acceptedDiff(configTree.ref, nextSnapshot.root);
     const now = Date.now();
     const accepted = this.acceptedStore.commit({
       entryChanges: changes,
@@ -1126,6 +1126,15 @@ export class CanopyDaemon implements AsyncDisposable {
     if (this.execution.current && !this.execution.allows(result.update.tree, "/", "read")) throw new Error("Reconciliation disclosure is not allowed");
     const reconciliation = await buildAcceptedTransitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
     return { ...result, reconciliation };
+  }
+
+  /** One accepted update's transition and entry changes, reading the two roots once. */
+  private async acceptedDiff(previousRoot: ObjectHash, root: ObjectHash): Promise<{ transition: AcceptedTransitionPayload; changes: EntryChanges }> {
+    const reader = new TreeReader((hash) => this.object(hash));
+    return {
+      transition: await buildAcceptedTransitionPayload(previousRoot, root, reader),
+      changes: await entryChanges(previousRoot, root, reader),
+    };
   }
 
   private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
@@ -1754,8 +1763,7 @@ export class CanopyDaemon implements AsyncDisposable {
       markPhase("accepted-store");
       const now = Date.now();
       const prepared = await policy.prepareCommit(remoteTree, nextRoot, now);
-      const transition = await this.acceptedTransitionPayload(remoteTree.ref, nextRoot);
-      const changes = await this.entryChanges(remoteTree.ref, nextRoot);
+      const { transition, changes } = await this.acceptedDiff(remoteTree.ref, nextRoot);
       markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
@@ -1951,11 +1959,7 @@ export class CanopyDaemon implements AsyncDisposable {
           result.object,
           now
         );
-      const transition = await this.acceptedTransitionPayload(
-        current.root,
-        result.object
-      );
-      const changes = await this.entryChanges(current.root, result.object);
+      const { transition, changes } = await this.acceptedDiff(current.root, result.object);
       markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
@@ -2126,8 +2130,9 @@ export class CanopyDaemon implements AsyncDisposable {
         for (const rewrite of rewrites) {
           await this.cacheRootProfile(rewrite.nextRoot, rewrite.generated);
           await this.objects.store([...rewrite.generated].map(([hash, bytes]) => ({ hash, bytes })));
-          transitions.set(rewrite.parent.id, await this.acceptedTransitionPayload(rewrite.parent.ref, rewrite.nextRoot));
-          rewriteChanges.set(rewrite.parent.id, await this.entryChanges(rewrite.parent.ref, rewrite.nextRoot));
+          const diff = await this.acceptedDiff(rewrite.parent.ref, rewrite.nextRoot);
+          transitions.set(rewrite.parent.id, diff.transition);
+          rewriteChanges.set(rewrite.parent.id, diff.changes);
         }
         const boundaryUpdates: AcceptedUpdate[] = [];
         return {
@@ -2345,10 +2350,7 @@ export class CanopyDaemon implements AsyncDisposable {
       await this.cacheRootProfile(attachment.nextRoot, attachment.generated);
       await this.objects.store([...attachment.generated].map(([hash, bytes]) => ({ hash, bytes })));
     }
-    const attachmentTransition = attachment
-      ? await this.acceptedTransitionPayload(attachment.parent.ref, attachment.nextRoot)
-      : null;
-    const attachmentChanges = attachment ? await this.entryChanges(attachment.parent.ref, attachment.nextRoot) : null;
+    const attachmentDiff = attachment ? await this.acceptedDiff(attachment.parent.ref, attachment.nextRoot) : null;
     const initialChanges = await this.entryChanges(null, snapshot.root);
     const now = Date.now();
     this.db.transaction(() => {
@@ -2379,8 +2381,8 @@ export class CanopyDaemon implements AsyncDisposable {
           kind: "accepted",
           acceptedAt: now,
           subject: credentialSubject ?? null,
-          ...(attachmentTransition ? { transition: attachmentTransition } : {}),
-          entryChanges: attachmentChanges!,
+          transition: attachmentDiff!.transition,
+          entryChanges: attachmentDiff!.changes,
         });
         if (!accepted) throw new RefConflictError(this.get(attachment.parent.id)?.ref ?? null);
       }
