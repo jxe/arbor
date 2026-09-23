@@ -188,12 +188,10 @@ struct ArborDirectoryView: View {
             }
             Section("Groups") {
                 ForEach(groups) { row($0) }
-                if groups.isEmpty, query.isEmpty {
-                    if canCreateGroup {
-                        Button("New Group…", systemImage: "person.2.badge.plus") { newGroup = ArborNewGroupRequest() }
-                    } else {
-                        Text("No groups yet.").foregroundStyle(.secondary)
-                    }
+                if canCreateGroup {
+                    Button("New Group…", systemImage: "person.2.badge.plus") { newGroup = ArborNewGroupRequest() }
+                } else if groups.isEmpty, query.isEmpty {
+                    Text("No groups yet.").foregroundStyle(.secondary)
                 }
             }
             directorySection("Others", values: individuals.filter { !$0.entry.sources.contains("community") })
@@ -202,18 +200,6 @@ struct ArborDirectoryView: View {
         .searchable(text: $query, prompt: "Search people and groups")
         .overlay { if people.isEmpty && !query.isEmpty && workspace.directoryError == nil { ContentUnavailableView("No people found", systemImage: "person.2") } }
         .toolbar {
-            if canCreateGroup || workspace.editableCommunity != nil {
-                Menu("Add", systemImage: "plus") {
-                    if let community = workspace.editableCommunity {
-                        Button("Add Person to This Canopy…", systemImage: "person.badge.plus") {
-                            editMembers(community.tree, nil)
-                        }
-                    }
-                    if canCreateGroup {
-                        Button("New Group…", systemImage: "person.2.badge.plus") { newGroup = ArborNewGroupRequest() }
-                    }
-                }
-            }
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await workspace.refreshDirectory(force: true) } }
                 .disabled(workspace.directoryIsRefreshing)
         }
@@ -283,8 +269,8 @@ struct ArborDirectoryView: View {
         }
     }
 
-    /// Directory groups this device can edit. The Canopy's member list is
-    /// left to Add Person to This Canopy, which also reserves a handle.
+    /// Directory groups this account can edit. The Canopy's member list is
+    /// edited from its own row, where adding a person also reserves a handle.
     private var writableGroups: [DirectoryPerson] {
         let writable = workspace.writableProfileTrees
         return workspace.directory.filter { $0.entry.kind == "group" && !isCommunity($0) && writable.contains($0.id) }

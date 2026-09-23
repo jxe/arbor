@@ -1520,10 +1520,14 @@ final class ArborWorkspaceState {
                 guard let rawOrigin = account.canopy, seen.insert(rawOrigin).inserted,
                       let origin = URL(string: rawOrigin) else { continue }
                 do {
-                    if !force, let fetched = try await self.directoryStore.fetchedAt(origin: origin),
+                    if !force, self.writableTreesByOrigin[origin.absoluteString] != nil,
+                       let fetched = try await self.directoryStore.fetchedAt(origin: origin),
                        Date().timeIntervalSince(fetched) < 60 { continue }
-                    let snapshot = try await self.wireClient(origin: origin, overview: self.localArborSyncOverview).directory()
-                    try await self.directoryStore.save(origin: origin, entries: snapshot.snapshot)
+                    let client = self.wireClient(origin: origin, overview: self.localArborSyncOverview)
+                    async let directory = client.directory()
+                    async let trees = client.trees()
+                    try await self.directoryStore.save(origin: origin, entries: directory.snapshot)
+                    self.writableTreesByOrigin[origin.absoluteString] = Set(try await trees.snapshot.filter(\.grantsWrite).map(\.id))
                 } catch { failures.append("\(origin.host() ?? rawOrigin): \(error.localizedDescription)") }
             }
 #else
@@ -1532,13 +1536,18 @@ final class ArborWorkspaceState {
                 let key = "\(placement.origin.absoluteString)|\(placement.configurationTree ?? "")"
                 guard seen.insert(key).inserted else { continue }
                 do {
-                    if !force, let fetched = try await self.directoryStore.fetchedAt(origin: placement.origin),
+                    if !force, self.writableTreesByOrigin[placement.origin.absoluteString] != nil,
+                       let fetched = try await self.directoryStore.fetchedAt(origin: placement.origin),
                        Date().timeIntervalSince(fetched) < 60 { continue }
-                    let snapshot = try await NativeAccountService(
+                    let service = NativeAccountService(
                         origin: placement.origin,
                         configurationTree: placement.configurationTree
-                    ).directory()
+                    )
+                    let snapshot = try await service.directory()
                     try await self.directoryStore.save(origin: placement.origin, entries: snapshot.snapshot)
+                    self.writableTreesByOrigin[placement.origin.absoluteString] = Set(
+                        try await service.trees().snapshot.filter(\.grantsWrite).map(\.id)
+                    )
                 } catch { failures.append("\(placement.origin.host() ?? placement.origin.absoluteString): \(error.localizedDescription)") }
             }
 #endif
@@ -1549,29 +1558,12 @@ final class ArborWorkspaceState {
         await task.value
     }
 
-    /// Profile trees this device can edit, so People offers only groups a
-    /// member can actually be added to.
-    var writableProfileTrees: Set<String> {
-#if os(macOS)
-        Set((localArborSyncOverview?.trees ?? []).filter { $0.access == ArborTreeAccess.write.rawValue }.map(\.id))
-#else
-        Set(nativePlacements.filter { $0.tree.grantsWrite }.map(\.tree.id))
-#endif
-    }
+    /// Trees each Canopy says this account can edit, by origin: People
+    /// offers only groups a member can actually be added to.
+    private var writableTreesByOrigin: [String: Set<String>] = [:]
 
-    /// The community `/` membership profile this device can edit: its
-    /// TreeID and root locator.
-    var editableCommunity: (tree: String, locator: String)? {
-#if os(macOS)
-        guard let overview = localArborSyncOverview,
-              let tree = overview.trees.first(where: { $0.canonicalPath == "/" && $0.access == ArborTreeAccess.write.rawValue }),
-              let origin = overview.accounts.first(where: { $0.configurationTree == tree.configurationTree })?.canopy else {
-            return nil
-        }
-        return (tree.id, origin.hasSuffix("/") ? origin : origin + "/")
-#else
-        return nil
-#endif
+    var writableProfileTrees: Set<String> {
+        writableTreesByOrigin.values.reduce(into: Set<String>()) { $0.formUnion($1) }
     }
 
     func avatarData(for person: DirectoryPerson) async throws -> Data {

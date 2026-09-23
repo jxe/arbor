@@ -100,10 +100,12 @@ cache but still accepts a raw handle, profile URL, or Profile TreeID.
 People lists **On this Canopy**, headed by the Canopy's own membership
 profile (the group at its root, shown as "Everyone on <host>") and followed by
 its members; **Groups** with their visible member counts; and **Others**. Membership is edited where it is
-authored: **Add Person to This Canopy…**, a group's **Edit Members…**, and a
-person's **Add to Group ▸** open that profile's home page with its Members
-sheet presented (and the person ready to add), so every membership change is
-an ordinary page edit. **Add to Group** lists only groups this device can edit.
+authored: a group's **Edit Members…** (including the Canopy's own member
+list) and a person's **Add to Group ▸** open that profile's home page with its
+Members sheet presented (and the person ready to add), so every membership
+change is an ordinary page edit. Both appear only for groups the Canopy's tree
+list marks writable for this account. **New Group…** always closes the Groups
+list.
 
 **New Group…** creates a group profile tree at `/~handle/<slug>` under an
 account this Mac administers, placed at `groups/<slug>` in the Arbor data home,
