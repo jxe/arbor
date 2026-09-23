@@ -1881,7 +1881,7 @@ func boundEqualByteReorder() async throws {
         _ = binding.document.replaceChildrenReconciled(Array(binding.document.children.reversed()))
     }
     binding.admitCurrentGeneration()
-    try await binding.flush()
+    await binding.flush()
     let patches = await session.admittedPatches()
     #expect(patches.count == 1)
     #expect(patches.first?.edits.first?.lineage?.count == 2)
