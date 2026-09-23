@@ -2211,7 +2211,7 @@ extension SourceSessionPublicationTests {
             let aDate = Date(timeIntervalSince1970: 1_789_000_000), bDate = Date(timeIntervalSince1970: 1_788_000_000)
             let tree = try await WorkingTree.inMemory(tree: treeID)
             try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: initial, tree: treeID,
-                update: "up_initial", modifiedAtByPath: ["/a": aDate, "/b": bDate]))
+                update: "up_initial", entryMetadata: ["/a.md": EntryMetadata(modifiedAt: aDate), "/b.md": EntryMetadata(modifiedAt: bDate)]))
             let coordinator = try UpdateCoordinator(workingTree: tree, transport: SourceModeTransport(initial: initial, peer: initial),
                 stateRoot: root, sourceOperationEmission: true, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
             let provider = WorkingTreeProvider(workingTree: tree, sourceCoordinator: coordinator)

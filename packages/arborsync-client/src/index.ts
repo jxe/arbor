@@ -86,8 +86,6 @@ export interface TreeBootstrap {
   accepted: { root: string; update: string; cursor: string | null };
   /** Base64 sparse CBOR snapshot bundle: every directory object plus every Markdown file object. */
   spine: string;
-  /** Local page-body mtimes, Unix milliseconds, keyed by tree-relative logical path. */
-  modifiedAtByPath: Record<string, number>;
   observedThrough: string;
 }
 

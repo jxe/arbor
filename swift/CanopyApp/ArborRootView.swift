@@ -260,13 +260,6 @@ enum ArborPagePickerSelection {
 }
 
 #if os(macOS)
-private enum MacSidebarSearchCommand {
-    case previous
-    case next
-    case open
-    case escape
-}
-
 @MainActor
 private func returnFocusFromMacSearch(to commands: EditorCommands?) {
     // FocusState reconciliation happens asynchronously. Release the AppKit
@@ -275,280 +268,6 @@ private func returnFocusFromMacSearch(to commands: EditorCommands?) {
     NSApp.keyWindow?.makeFirstResponder(nil)
     DispatchQueue.main.async {
         commands?.perform(.escape)
-    }
-}
-
-// A decorative sibling of the accessory, so AppKit's accessory clipping does
-// not cut off the background extension. It never intercepts titlebar input.
-private final class MacSidebarTitlebarBackground: NSHostingView<AnyView> {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
-private struct MacSidebarTitlebarAccessory: NSViewRepresentable {
-    let width: CGFloat
-    let isVisible: Bool
-    let focusSearchRequest: Int
-    let handleSearchCommand: @MainActor (MacSidebarSearchCommand) -> Void
-    @Binding var installed: Bool
-    let content: AnyView
-    @FocusedValue(\.editorCommands) private var editorCommands
-
-    init<Content: View>(
-        width: CGFloat,
-        isVisible: Bool,
-        focusSearchRequest: Int,
-        handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void,
-        installed: Binding<Bool>,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.width = width
-        self.isVisible = isVisible
-        self.focusSearchRequest = focusSearchRequest
-        self.handleSearchCommand = handleSearchCommand
-        _installed = installed
-        self.content = AnyView(content())
-    }
-
-    private func dispatchSearchCommand(_ command: MacSidebarSearchCommand) {
-        handleSearchCommand(command)
-        if case .escape = command {
-            returnFocusFromMacSearch(to: editorCommands)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            installed: $installed,
-            isVisible: isVisible,
-            handleSearchCommand: dispatchSearchCommand
-        )
-    }
-
-    func makeNSView(context: Context) -> MacWindowReaderView {
-        let view = MacWindowReaderView()
-        view.windowChanged = { window in
-            context.coordinator.attach(to: window)
-        }
-        return view
-    }
-
-    func updateNSView(_ view: MacWindowReaderView, context: Context) {
-        context.coordinator.update(
-            content: content,
-            width: width,
-            isVisible: isVisible,
-            focusSearchRequest: focusSearchRequest,
-            handleSearchCommand: dispatchSearchCommand
-        )
-        context.coordinator.attach(to: view.window)
-    }
-
-    static func dismantleNSView(_ view: MacWindowReaderView, coordinator: Coordinator) {
-        coordinator.detach()
-    }
-
-    @MainActor
-    final class Coordinator {
-        private let installed: Binding<Bool>
-        private var windowObservers: [NSObjectProtocol] = []
-        private let controller = NSTitlebarAccessoryViewController()
-        private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
-        private let leadingBackground = MacSidebarTitlebarBackground(
-            rootView: AnyView(Color.clear.modifier(ArborSidebarSurface()))
-        )
-        private lazy var widthConstraint = hostingView.widthAnchor.constraint(equalToConstant: sidebarWidth)
-        private weak var window: NSWindow?
-        private var sidebarWidth: CGFloat = 240
-        private var isVisible: Bool
-        private var pendingFocusSearchRequest = 0
-        private var handledFocusSearchRequest = 0
-        private var handleSearchCommand: @MainActor (MacSidebarSearchCommand) -> Void
-        private var keyMonitor: Any?
-
-        init(
-            installed: Binding<Bool>,
-            isVisible: Bool,
-            handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void
-        ) {
-            self.installed = installed
-            self.isVisible = isVisible
-            self.handleSearchCommand = handleSearchCommand
-            controller.layoutAttribute = .left
-            hostingView.wantsLayer = true
-            hostingView.layer?.masksToBounds = true
-            controller.view = hostingView
-            widthConstraint.isActive = true
-        }
-
-        func update(
-            content: AnyView,
-            width: CGFloat,
-            isVisible: Bool,
-            focusSearchRequest: Int,
-            handleSearchCommand: @escaping @MainActor (MacSidebarSearchCommand) -> Void
-        ) {
-            hostingView.rootView = content
-            sidebarWidth = max(0, width)
-            self.isVisible = isVisible
-            self.handleSearchCommand = handleSearchCommand
-            pendingFocusSearchRequest = focusSearchRequest
-            guard isVisible else {
-                detach()
-                return
-            }
-            updatePresentation()
-            focusSearchFieldIfRequested()
-        }
-
-        func attach(to nextWindow: NSWindow?) {
-            guard isVisible else {
-                detach()
-                return
-            }
-            guard let nextWindow else { return }
-            guard window !== nextWindow else {
-                updatePresentation()
-                installKeyMonitorIfNeeded()
-                return
-            }
-            detach()
-            window = nextWindow
-            installKeyMonitorIfNeeded()
-            for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-                windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: nextWindow, queue: .main) { [weak self] _ in
-                    Task { @MainActor in self?.updatePresentation() }
-                })
-            }
-            updatePresentation()
-        }
-
-        private func updatePresentation() {
-            guard let window else { return }
-            if !window.titlebarAccessoryViewControllers.contains(where: { $0 === controller }) {
-                controller.view.frame = NSRect(x: 0, y: 0, width: sidebarWidth, height: 52)
-                window.addTitlebarAccessoryViewController(controller)
-            }
-            fitToSidebar()
-            setInstalled(true)
-            focusSearchFieldIfRequested()
-        }
-
-        func detach() {
-            leadingBackground.removeFromSuperview()
-            windowObservers.forEach(NotificationCenter.default.removeObserver)
-            windowObservers.removeAll()
-            if let keyMonitor {
-                NSEvent.removeMonitor(keyMonitor)
-                self.keyMonitor = nil
-            }
-            if let window,
-               let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === controller }) {
-                window.removeTitlebarAccessoryViewController(at: index)
-            }
-            window = nil
-            setInstalled(false)
-        }
-
-        private func fitToSidebar() {
-            guard window != nil else {
-                setAccessoryWidth(sidebarWidth)
-                return
-            }
-            let accessoryLeadingEdge = max(0, hostingView.convert(.zero, to: nil).x)
-            setAccessoryWidth(max(0, sidebarWidth - accessoryLeadingEdge))
-            updateLeadingBackground()
-        }
-
-        private func updateLeadingBackground() {
-            // In fullscreen AppKit leaves an 18pt leading inset (measured in
-            // the view debugger). Derive it from coordinates rather than
-            // baking that system spacing into the layout.
-            guard window?.styleMask.contains(.fullScreen) == true,
-                  let container = hostingView.superview,
-                  let titlebar = container.superview else {
-                leadingBackground.removeFromSuperview()
-                return
-            }
-            if leadingBackground.superview !== titlebar {
-                leadingBackground.removeFromSuperview()
-                titlebar.addSubview(leadingBackground, positioned: .below, relativeTo: container)
-            }
-            let accessoryFrame = hostingView.convert(hostingView.bounds, to: titlebar)
-            let windowLeadingEdge = titlebar.convert(.zero, from: nil).x
-            leadingBackground.frame = NSRect(
-                x: windowLeadingEdge,
-                y: accessoryFrame.minY,
-                width: max(0, accessoryFrame.minX - windowLeadingEdge),
-                height: accessoryFrame.height
-            )
-        }
-
-        private func setAccessoryWidth(_ width: CGFloat) {
-            widthConstraint.constant = width
-            controller.view.frame.size.width = width
-        }
-
-        private func setInstalled(_ value: Bool) {
-            guard installed.wrappedValue != value else { return }
-            DispatchQueue.main.async { [installed] in
-                installed.wrappedValue = value
-            }
-        }
-
-        private func focusSearchFieldIfRequested() {
-            guard hostingView.window != nil, pendingFocusSearchRequest > 0,
-                  pendingFocusSearchRequest != handledFocusSearchRequest else { return }
-            let request = pendingFocusSearchRequest
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      let field = self.firstEditableTextField(in: self.hostingView),
-                      self.window?.makeFirstResponder(field) == true else { return }
-                self.handledFocusSearchRequest = request
-            }
-        }
-
-        private func firstEditableTextField(in view: NSView) -> NSTextField? {
-            if let field = view as? NSTextField, field.isEditable { return field }
-            for child in view.subviews {
-                if let field = firstEditableTextField(in: child) { return field }
-            }
-            return nil
-        }
-
-        private func installKeyMonitorIfNeeded() {
-            guard keyMonitor == nil else { return }
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      event.window === self.window,
-                      self.searchFieldIsFirstResponder else { return event }
-                let command: MacSidebarSearchCommand
-                switch event.keyCode {
-                case 53: command = .escape
-                case 126: command = .previous
-                case 125: command = .next
-                case 36, 76: command = .open
-                default: return event
-                }
-                self.handleSearchCommand(command)
-                return nil
-            }
-        }
-
-        private var searchFieldIsFirstResponder: Bool {
-            guard let responder = window?.firstResponder,
-                  let field = firstEditableTextField(in: hostingView) else { return false }
-            return responder === field || field.currentEditor() === responder
-        }
-    }
-}
-
-@MainActor
-private final class MacWindowReaderView: NSView {
-    var windowChanged: ((NSWindow?) -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        windowChanged?(window)
     }
 }
 
@@ -817,8 +536,6 @@ struct ArborRootView: View {
     @FocusState private var sidebarSearchFocused: Bool
     @FocusState private var pageRenameFocused: Bool
 #if os(macOS)
-    @State private var sidebarTitlebarAccessoryInstalled = false
-    @State private var sidebarSearchFocusRequest = 0
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var managementPresented = false
     @State private var profileAfterManagementDismiss: String?
@@ -1231,26 +948,18 @@ struct ArborRootView: View {
     private var sidebarContent: some View {
 #if os(macOS)
         VStack(spacing: 0) {
-            if !sidebarTitlebarAccessoryInstalled {
-                sidebarPagesHeader
-            }
             sidebarReviewContent
             sidebarFooter
         }
         .modifier(ArborSidebarSurface(showsDivider: true))
-        .background {
-            GeometryReader { geometry in
-                MacSidebarTitlebarAccessory(
-                    width: geometry.size.width,
-                    isVisible: columnVisibility != .detailOnly,
-                    focusSearchRequest: sidebarSearchFocusRequest,
-                    handleSearchCommand: handleSidebarSearchCommand,
-                    installed: $sidebarTitlebarAccessoryInstalled
-                ) {
-                    sidebarPagesHeader
-                }
-                .frame(width: 0, height: 0)
+        // Toolbar content declared on the sidebar column occupies the
+        // toolbar's sidebar section, so the search sits in the titlebar over
+        // the sidebar and tracks its width without any AppKit bridging.
+        .toolbar {
+            ToolbarItem {
+                sidebarPagesHeader
             }
+            .sharedBackgroundVisibility(.hidden)
         }
 #else
         VStack(spacing: 0) {
@@ -1565,14 +1274,12 @@ struct ArborRootView: View {
             escapeReturnsToDocument: true
         )
 #if os(macOS)
-        .padding(.leading, 8)
-        .padding(.trailing, 8)
-        .frame(height: 52)
+        .frame(maxWidth: .infinity)
 #else
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-#endif
         .modifier(ArborSidebarSurface())
+#endif
         .onChange(of: sidebarSearchText) { _, query in
             sidebarKeyboardSelection = nil
             sidebarTreeSelection = nil
@@ -1655,37 +1362,6 @@ struct ArborRootView: View {
             in: results.map(\.id)
         )
     }
-
-#if os(macOS)
-    private func handleSidebarSearchCommand(_ command: MacSidebarSearchCommand) {
-        if case .escape = command {
-            sidebarSearchFocused = false
-            return
-        }
-        if sidebarPageOrder == .trees {
-            switch command {
-            case .previous: moveTreeSelection(-1)
-            case .next: moveTreeSelection(1)
-            case .open: openSelectedSidebarTree()
-            case .escape: break
-            }
-            return
-        }
-        let results = keyboardNavigableSidebarResults
-        guard !results.isEmpty else { return }
-        switch command {
-        case .escape:
-            break
-        case .previous:
-            moveSidebarKeyboardSelection(by: -1, in: results)
-        case .next:
-            moveSidebarKeyboardSelection(by: 1, in: results)
-        case .open:
-            let result = results.first { $0.id == sidebarKeyboardSelection } ?? results[0]
-            openFromSidebar(.reference(result.reference))
-        }
-    }
-#endif
 
 #if os(macOS)
     @ViewBuilder
@@ -1903,9 +1579,6 @@ struct ArborRootView: View {
                 Task { @MainActor in
                     await Task.yield()
                     sidebarSearchFocused = true
-#if os(macOS)
-                    sidebarSearchFocusRequest += 1
-#endif
                 }
             },
             showSearch: { searchPresented = true },

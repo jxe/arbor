@@ -6,12 +6,12 @@ import { EntryMetadataStore, entryChanges, type EntryChanges } from "../../../..
 import { AcceptedUpdateStore } from "../../../../packages/canopyd/src/updates/store.ts";
 import { assertCurrentCanopySchema } from "../../../../packages/canopyd/src/schema.ts";
 
-/** Schema 15 (or 16) → 17: entry metadata, then one accepted history.
+/** Schema 16 → 17: one accepted history.
  *
- * From 15 it first does what migration 014 did (never run live, folded in
- * here): create `entry_metadata` and `document_versions` and fill both by
- * replaying each tree's accepted updates in order. From 16 that step is
- * skipped.
+ * Live is at 16 (migration 014, 2026-09-22). A schema-15 copy is accepted
+ * too: it first gets what migration 014 did, `entry_metadata` and
+ * `document_versions` filled by replaying each tree's accepted updates in
+ * order.
  *
  * Then it removes the copies of accepted history:
  * - `observations` folds into `accepted_updates.ordinal`, the row's cursor.

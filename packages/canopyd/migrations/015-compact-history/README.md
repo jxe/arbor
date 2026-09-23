@@ -1,23 +1,20 @@
-# Migration 015: entry metadata and one accepted history (15 → 17)
+# Migration 015: one accepted history (16 → 17)
 
-One cutover from the live schema 15. It carries two changes:
+One cutover from the live schema 16, which [migration 014](../014-entry-metadata/README.md)
+deployed on 2026-09-22. Stored copies of accepted history are removed. The data now lives
+only in `accepted_updates`.
 
-1. **Entry metadata** ([canopyd 013](../../../../plans/canopyd/013-entry-metadata.md) and the
-   storage half of [canopyd 007](../../../../plans/canopyd/007-canopy-document-history.md)).
-   Migration 014 was written and rehearsed for this but never ran live. It is folded in
-   here unchanged, and its directory is deleted.
-2. **One accepted history.** Stored copies of accepted history are removed. The data now lives
-   only in `accepted_updates`.
-
-The migration accepts a schema-16 copy too, such as a 014 rehearsal copy. It then
-does only the second step.
+The migration also accepts a schema-15 copy, such as a backup taken before 014. It then
+first does what 014 did: it creates the entry tables and fills them by replaying accepted
+history. That step is gated on the stamp and was rehearsed, so it stays until the
+directory is deleted. Live does not take it.
 
 ## What changes
 
-- **`entry_metadata` and `document_versions`** (15 only). These are created and filled by
-  replaying each tree's accepted updates in order, exactly as canopyd does inside every
-  accepted transaction (`AcceptedUpdateStore.insertWithinTransaction` →
-  `EntryMetadataStore.apply`).
+- **`entry_metadata` and `document_versions`** (schema-15 copies only; live already has
+  them). These are created and filled by replaying each tree's accepted updates in order,
+  exactly as canopyd does inside every accepted transaction
+  (`AcceptedUpdateStore.insertWithinTransaction` → `EntryMetadataStore.apply`).
 - **`observations` is removed.** Its rows move into `accepted_updates.ordinal`, which is the
   `INTEGER PRIMARY KEY AUTOINCREMENT` rowid:
   - An accepted update's cursor is now `String(ordinal)`. The row keeps its `id`, which
@@ -51,11 +48,11 @@ does only the second step.
   index" before. There is a new `accepted_updates_root (tree_id, root)`. The snapshot route's
   retained-root check used to scan a tree's whole history.
 
-Unchanged: tree roots, update ids, objects, merge states, conflicts, devices, and every other
-account column. The report's
-roots equal the backup's. No wire format changes, and no client needs an update.
+Unchanged: tree roots, update ids, objects, merge states, conflicts, devices, every other
+account column, and (from 16) the entry tables. The report's roots equal the backup's. No
+wire format changes, and no client needs an update.
 
-## History boundary (entry metadata)
+## History boundary (entry metadata, schema-15 copies only)
 
 Each tree's first retained accepted update is its boundary, and every file it holds is dated
 there. Live history begins at the 2026-09-02 cutover, so pages untouched since then read as
@@ -80,7 +77,7 @@ The run happens in this order:
    insertion order equals its observation order. No observation is orphaned. Every
    `authored_changes` copy matches its accepted update. Every account has a device.
 3. From 15 only, replay the entry changes (object reads).
-4. With foreign keys off, run one transaction. It fills the entry tables, rebuilds
+4. With foreign keys off, run one transaction. It fills the entry tables (from 15), rebuilds
    `accepted_updates`, drops `observations` and `reflog`, rebuilds `authored_changes` and
    `accounts`, sets the sequence, stamps 17, and runs `foreign_key_check`.
 5. Run the startup schema check.

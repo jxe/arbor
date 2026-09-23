@@ -328,7 +328,8 @@ public actor UpdateCoordinator {
                 tree: await workingTree.treeID(),
                 update: final.update.id,
                 cursor: event.id,
-                mode: .sparseFiles
+                mode: .sparseFiles,
+                acceptedAt: Date(timeIntervalSince1970: final.update.acceptedAt / 1_000)
             )
             try await workingTree.replaceFromSystem(replacement)
         }
@@ -967,7 +968,8 @@ public actor UpdateCoordinator {
                 tree: await workingTree.treeID(),
                 update: accepted.id,
                 cursor: nil,
-                mode: .sparseFiles
+                mode: .sparseFiles,
+                acceptedAt: Date(timeIntervalSince1970: accepted.acceptedAt / 1_000)
             )
             if heads.pendingRoot == nil {
                 try await workingTree.replaceFromSystem(replacement)
