@@ -421,6 +421,24 @@ class Engine {
 
     return state;
   }
+  /** A copy of `id` and its active descendants: everything a later operation
+   * can read through an entry operation's result (`binding` descends with
+   * `within`; `copy`, `copyEntry` and `selection` read the subtree). Older
+   * records carry the whole tree; readers accept both. */
+  subtree(view: View, id: string): View {
+    const childrenByParent = new Map<string, Node[]>();
+    for (const node of Object.values(view.nodes)) if (node.active && node.parent !== null) {
+      const siblings = childrenByParent.get(node.parent);
+      if (siblings) siblings.push(node); else childrenByParent.set(node.parent, [node]);
+    }
+    const nodes: Record<string, Node> = {};
+    const visit = (node: Node) => {
+      nodes[node.id] = clone(node);
+      for (const child of childrenByParent.get(node.id) ?? []) visit(child);
+    };
+    visit(view.nodes[id]!);
+    return { root: id, nodes };
+  }
   children(view: View, id: string): Node[] {
     return Object.values(view.nodes).filter((n) => n.active && n.parent === id);
   }
@@ -1067,10 +1085,7 @@ class Engine {
       if (validatedBasisObject)
         for (const id of Object.keys(state.nodes))
           if (id === key || id.startsWith(`${key}/`)) (before as Record<string, Node | undefined>)[id] = undefined;
-      result = {
-        node: key,
-        view: { root: state.root, nodes: clone(state.nodes) },
-      };
+      result = { node: key, view: this.subtree(state, key) };
     } else {
       const material = await this.binding(operation.source, basis, state),
         node = state.nodes[material.node];
@@ -1119,10 +1134,7 @@ class Engine {
               );
           }
         }
-        result = {
-          node: id,
-          view: { root: state.root, nodes: clone(state.nodes) },
-        };
+        result = { node: id, view: this.subtree(state, id) };
       } else if (operation.kind === "replaceEntry") {
         const value = operation.value;
         if ("material" in value) {
@@ -1177,10 +1189,7 @@ class Engine {
               this.copy(state, temporary, child.id, key, node.id, child.name);
           }
         }
-        result = {
-          node: node.id,
-          view: { root: state.root, nodes: clone(state.nodes) },
-        };
+        result = { node: node.id, view: this.subtree(state, node.id) };
       }
     }
     const effect: Effect = {
