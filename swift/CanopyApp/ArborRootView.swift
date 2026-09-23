@@ -300,87 +300,103 @@ private extension View {
     }
 }
 
-/// Keeps the sidebar search's toolbar item sized to the titlebar over the
-/// sidebar. It reports how far the window buttons reach into the sidebar, in
-/// window points (zero in full screen), and relays out the titlebar whenever
-/// the search's width changes.
+/// Sizes the sidebar search's toolbar item to the titlebar over the sidebar:
+/// the sidebar's width less the window buttons' reach (none in full screen)
+/// and a trailing margin. A toolbar item keeps its ideal width, and a width
+/// held in SwiftUI state lands a layout pass after the split view resizes,
+/// which pushes the item into the overflow menu when the sidebar narrows. So
+/// the width is an AppKit constraint on the item's view, updated as the split
+/// view resizes.
 private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
-    let searchWidth: CGFloat
-    let changed: (CGFloat) -> Void
+    func makeNSView(context: Context) -> SizerView { SizerView() }
+    func updateNSView(_ view: SizerView, context: Context) { view.resize() }
 
-    func makeNSView(context: Context) -> ReaderView {
-        let view = ReaderView()
-        view.changed = changed
-        return view
-    }
+    final class SizerView: NSView {
+        private static let trailingMargin: CGFloat = 32
+        private static let minimumWidth: CGFloat = 60
 
-    func updateNSView(_ view: ReaderView, context: Context) {
-        view.changed = changed
-        view.report()
-        view.searchWidthChanged(to: searchWidth)
-    }
-
-    final class ReaderView: NSView {
-        var changed: ((CGFloat) -> Void)?
         private var observers: [NSObjectProtocol] = []
-        private var searchWidth: CGFloat?
+        private weak var itemView: NSView?
+        private var widthConstraint: NSLayoutConstraint?
 
-        /// A sidebar resize lays out the toolbar before the search's new width
-        /// lands, so narrowing pushes the search into the overflow menu. With
-        /// the sidebar-section items compressible and the titlebar relaid out
-        /// once the width lands, the toolbar brings it back.
-        func searchWidthChanged(to width: CGFloat) {
-            guard width != searchWidth else { return }
-            searchWidth = width
-            DispatchQueue.main.async { [weak self] in
-                guard let window = self?.window,
-                      let titlebar = window.standardWindowButton(.closeButton)?.superview
-                else { return }
-                if let toolbar = window.toolbar {
-                    for item in toolbar.items {
-                        if item.itemIdentifier.rawValue.hasPrefix("com.apple.SwiftUI.splitViewSeparator") { break }
-                        item.view?.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-                    }
-                }
-                var pending = [titlebar]
-                while let view = pending.popLast() {
-                    view.needsLayout = true
-                    pending.append(contentsOf: view.subviews)
-                }
-                titlebar.layoutSubtreeIfNeeded()
-            }
-        }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
             guard let window else { return }
+            let center = NotificationCenter.default
+            let resizeOnNotification: (Notification) -> Void = { [weak self] _ in
+                MainActor.assumeIsolated { self?.resize() }
+            }
+            if let splitView {
+                observers.append(center.addObserver(
+                    forName: NSSplitView.didResizeSubviewsNotification,
+                    object: splitView, queue: nil, using: resizeOnNotification
+                ))
+            }
             for name in [
                 NSWindow.didEnterFullScreenNotification,
                 NSWindow.didExitFullScreenNotification,
                 NSWindow.didResizeNotification,
             ] {
-                observers.append(NotificationCenter.default.addObserver(
-                    forName: name, object: window, queue: .main
-                ) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.report() }
-                })
+                observers.append(center.addObserver(forName: name, object: window, queue: nil, using: resizeOnNotification))
             }
-            report()
+            resize()
+            // The toolbar item may not exist until the toolbar's first pass.
+            DispatchQueue.main.async { [weak self] in self?.resize() }
         }
 
-        func report() {
-            guard let window else { return }
-            var inset: CGFloat = 0
-            if !window.styleMask.contains(.fullScreen),
-               let zoom = window.standardWindowButton(.zoomButton),
-               !zoom.isHidden,
-               let superview = zoom.superview {
-                inset = superview.convert(zoom.frame, to: nil).maxX
+        func resize() {
+            guard let window, let splitView, let sidebar = splitView.arrangedSubviews.first,
+                  let item = searchItem(in: window), let view = item.view else { return }
+            // Dragging the sidebar closed collapses it without removing the
+            // sidebar's toolbar items, which would leave the search in the
+            // overflow menu.
+            let collapsed = splitView.isSubviewCollapsed(sidebar) || sidebar.isHidden || sidebar.frame.width < 1
+            if item.isHidden != collapsed { item.isHidden = collapsed }
+            guard !collapsed else { return }
+            let width = max(Self.minimumWidth, sidebar.frame.width - buttonsInset(in: window) - Self.trailingMargin)
+            if view !== itemView {
+                widthConstraint?.isActive = false
+                let constraint = view.widthAnchor.constraint(equalToConstant: width)
+                constraint.isActive = true
+                itemView = view
+                widthConstraint = constraint
+            } else if widthConstraint?.constant != width {
+                widthConstraint?.constant = width
             }
-            let changed = changed
-            DispatchQueue.main.async { changed?(inset) }
+        }
+
+        private var splitView: NSSplitView? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let split = view as? NSSplitView { return split }
+                ancestor = view.superview
+            }
+            return nil
+        }
+
+        /// The toolbar item in the sidebar section whose view holds a text
+        /// field: the search.
+        private func searchItem(in window: NSWindow) -> NSToolbarItem? {
+            for item in window.toolbar?.items ?? [] {
+                if item.itemIdentifier.rawValue.hasPrefix("com.apple.SwiftUI.splitViewSeparator") { break }
+                if let view = item.view, Self.containsTextField(view) { return item }
+            }
+            return nil
+        }
+
+        private func buttonsInset(in window: NSWindow) -> CGFloat {
+            guard !window.styleMask.contains(.fullScreen),
+                  let zoom = window.standardWindowButton(.zoomButton), !zoom.isHidden,
+                  let superview = zoom.superview else { return 0 }
+            return superview.convert(zoom.frame, to: nil).maxX
+        }
+
+        private static func containsTextField(_ view: NSView) -> Bool {
+            view is NSTextField || view.subviews.contains(where: containsTextField)
         }
     }
 }
@@ -753,8 +769,6 @@ struct ArborRootView: View {
     @FocusState private var pageRenameFocused: Bool
 #if os(macOS)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var sidebarColumnWidth: CGFloat = 260
-    @State private var titlebarButtonsInset: CGFloat = 0
     @State private var managementPresented = false
     @State private var profileAfterManagementDismiss: String?
     @State private var sheetAfterManagementDismiss: ArborPresentedSheet?
@@ -1190,12 +1204,6 @@ struct ArborRootView: View {
             }
     }
 
-#if os(macOS)
-    private var sidebarSearchWidth: CGFloat {
-        max(60, sidebarColumnWidth - titlebarButtonsInset - 32)
-    }
-#endif
-
     private var sidebarColumn: some View {
 #if os(macOS)
         VStack(spacing: 0) {
@@ -1203,22 +1211,14 @@ struct ArborRootView: View {
             sidebarFooter
         }
         .modifier(ArborSidebarSurface(showsDivider: true))
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
-            sidebarColumnWidth = $0
-        }
-        .background {
-            MacSidebarSearchTitlebarSizer(searchWidth: sidebarSearchWidth) {
-                titlebarButtonsInset = $0
-            }
-        }
+        .background { MacSidebarSearchTitlebarSizer() }
         // Toolbar content declared on the sidebar column occupies the
-        // toolbar's sidebar section, over the sidebar in the titlebar. A
-        // toolbar item keeps its ideal width, so the search takes an explicit
-        // one: the sidebar's width less the window buttons and margins.
+        // toolbar's sidebar section, over the sidebar in the titlebar. The
+        // sizer sets the item's width; the controls fill it.
         .toolbar {
             ToolbarItem {
                 sidebarPagesHeader
-                    .frame(width: sidebarSearchWidth)
+                    .frame(maxWidth: .infinity)
             }
             .sharedBackgroundVisibility(.hidden)
         }
