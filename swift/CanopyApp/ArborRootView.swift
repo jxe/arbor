@@ -300,6 +300,91 @@ private extension View {
     }
 }
 
+/// Keeps the sidebar search's toolbar item sized to the titlebar over the
+/// sidebar. It reports how far the window buttons reach into the sidebar, in
+/// window points (zero in full screen), and relays out the titlebar whenever
+/// the search's width changes.
+private struct MacSidebarSearchTitlebarSizer: NSViewRepresentable {
+    let searchWidth: CGFloat
+    let changed: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.changed = changed
+        return view
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.changed = changed
+        view.report()
+        view.searchWidthChanged(to: searchWidth)
+    }
+
+    final class ReaderView: NSView {
+        var changed: ((CGFloat) -> Void)?
+        private var observers: [NSObjectProtocol] = []
+        private var searchWidth: CGFloat?
+
+        /// A sidebar resize lays out the toolbar before the search's new width
+        /// lands, so narrowing pushes the search into the overflow menu. With
+        /// the sidebar-section items compressible and the titlebar relaid out
+        /// once the width lands, the toolbar brings it back.
+        func searchWidthChanged(to width: CGFloat) {
+            guard width != searchWidth else { return }
+            searchWidth = width
+            DispatchQueue.main.async { [weak self] in
+                guard let window = self?.window,
+                      let titlebar = window.standardWindowButton(.closeButton)?.superview
+                else { return }
+                if let toolbar = window.toolbar {
+                    for item in toolbar.items {
+                        if item.itemIdentifier.rawValue.hasPrefix("com.apple.SwiftUI.splitViewSeparator") { break }
+                        item.view?.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                    }
+                }
+                var pending = [titlebar]
+                while let view = pending.popLast() {
+                    view.needsLayout = true
+                    pending.append(contentsOf: view.subviews)
+                }
+                titlebar.layoutSubtreeIfNeeded()
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            for name in [
+                NSWindow.didEnterFullScreenNotification,
+                NSWindow.didExitFullScreenNotification,
+                NSWindow.didResizeNotification,
+            ] {
+                observers.append(NotificationCenter.default.addObserver(
+                    forName: name, object: window, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.report() }
+                })
+            }
+            report()
+        }
+
+        func report() {
+            guard let window else { return }
+            var inset: CGFloat = 0
+            if !window.styleMask.contains(.fullScreen),
+               let zoom = window.standardWindowButton(.zoomButton),
+               !zoom.isHidden,
+               let superview = zoom.superview {
+                inset = superview.convert(zoom.frame, to: nil).maxX
+            }
+            let changed = changed
+            DispatchQueue.main.async { changed?(inset) }
+        }
+    }
+}
+
 private struct MacPageOrderPicker: NSViewRepresentable {
     var includesTrees = false
     private var orders: [ArborSidebarPageOrder] { includesTrees ? ArborSidebarPageOrder.allCases : ArborSidebarPageOrder.pageOrders }
@@ -365,15 +450,135 @@ private final class PageOrderPopUpButton: NSPopUpButton {
 }
 #endif
 
+/// The sidebar's search controls. macOS hosts them as a toolbar item, where
+/// SwiftUI focus tracking never sees the field focused, so there the field's
+/// AppKit first-responder state drives `isFocused` and a request to focus it.
+private struct ArborSidebarSearchControls: View {
+    @Binding var query: String
+    @Binding var order: ArborSidebarPageOrder
+    @Binding var isFocused: Bool
+    let handleKeyPress: (KeyPress) -> KeyPress.Result
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        ArborPageSearchControls(
+            includesTrees: true,
+            query: $query,
+            order: $order,
+            prompt: order == .trees ? "Search trees" : "Search pages",
+            focused: $fieldFocused,
+            showsFocus: isFocused,
+            handleKeyPress: handleKeyPress,
+            escapeReturnsToDocument: true
+        )
+#if os(macOS)
+        .background { MacToolbarSearchFieldFocus(isFocused: $isFocused) }
+#else
+        .onAppear { fieldFocused = isFocused }
+        .onChange(of: fieldFocused) { _, focused in isFocused = focused }
+        .onChange(of: isFocused) { _, focused in fieldFocused = focused }
+#endif
+    }
+}
+
+#if os(macOS)
+private final class WeakEditorCommands {
+    weak var value: EditorCommands?
+}
+
+/// Binds `isFocused` to whether the text field beside it is the window's
+/// first responder, and makes it or releases it when `isFocused` changes.
+private struct MacToolbarSearchFieldFocus: NSViewRepresentable {
+    @Binding var isFocused: Bool
+
+    func makeNSView(context: Context) -> FocusView {
+        let view = FocusView()
+        view.focusChanged = { isFocused = $0 }
+        return view
+    }
+
+    func updateNSView(_ view: FocusView, context: Context) {
+        view.focusChanged = { isFocused = $0 }
+        view.request(isFocused)
+    }
+
+    final class FocusView: NSView {
+        var focusChanged: ((Bool) -> Void)?
+        private var observation: NSKeyValueObservation?
+        private var fieldIsFocused = false
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observation = window?.observe(\.firstResponder) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.firstResponderChanged() }
+            }
+            firstResponderChanged()
+        }
+
+        func request(_ focused: Bool) {
+            guard focused != fieldIsFocused else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window, let field = self.field else { return }
+                if focused, !self.fieldIsFocused {
+                    window.makeFirstResponder(field)
+                } else if !focused, self.fieldIsFocused {
+                    window.makeFirstResponder(nil)
+                }
+            }
+        }
+
+        private func firstResponderChanged() {
+            let responder = window?.firstResponder
+            let focused = field.map { responder === $0 || (responder != nil && $0.currentEditor() === responder) } ?? false
+            guard focused != fieldIsFocused else { return }
+            fieldIsFocused = focused
+            let focusChanged = focusChanged
+            DispatchQueue.main.async { focusChanged?(focused) }
+        }
+
+        /// The nearest editable text field around this view: the search field
+        /// in the same toolbar item.
+        private var field: NSTextField? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let field = Self.firstEditableTextField(in: view) { return field }
+                ancestor = view.superview
+            }
+            return nil
+        }
+
+        private static func firstEditableTextField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            for child in view.subviews {
+                if let field = firstEditableTextField(in: child) { return field }
+            }
+            return nil
+        }
+    }
+}
+#endif
+
 struct ArborPageSearchControls: View {
     var includesTrees = false
     @Binding var query: String
     @Binding var order: ArborSidebarPageOrder
     var prompt = "Search pages"
     var focused: FocusState<Bool>.Binding
+    /// Overrides `focused` for the focus highlight, where the field's focus
+    /// is tracked outside SwiftUI.
+    var showsFocus: Bool?
     var handleKeyPress: ((KeyPress) -> KeyPress.Result)?
     var escapeReturnsToDocument = false
+
+    private var isShowingFocus: Bool { showsFocus ?? focused.wrappedValue }
     @FocusedValue(\.editorCommands) private var editorCommands
+#if os(macOS)
+    /// The editor's commands as last seen. A field in the titlebar sees none
+    /// once it takes focus, so Escape returns to the editor they belong to.
+    @State private var lastEditorCommands = WeakEditorCommands()
+#endif
 
     var body: some View {
         HStack(spacing: 6) {
@@ -387,7 +592,7 @@ struct ArborPageSearchControls: View {
                     .onKeyPress(.escape) {
                         guard escapeReturnsToDocument else { return .ignored }
                         focused.wrappedValue = false
-                        returnFocusFromMacSearch(to: editorCommands)
+                        returnFocusFromMacSearch(to: editorCommands ?? lastEditorCommands.value)
                         return .handled
                     }
 #endif
@@ -414,11 +619,11 @@ struct ArborPageSearchControls: View {
 #endif
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(focused.wrappedValue ? 0.065 : 0.035))
+                    .fill(Color.primary.opacity(isShowingFocus ? 0.065 : 0.035))
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(
-                                Color.primary.opacity(focused.wrappedValue ? 0.18 : 0.075),
+                                Color.primary.opacity(isShowingFocus ? 0.18 : 0.075),
                                 lineWidth: 0.75
                             )
                     }
@@ -452,6 +657,11 @@ struct ArborPageSearchControls: View {
             .accessibilityValue(order.label)
 #endif
         }
+#if os(macOS)
+        .onChange(of: editorCommands.map(ObjectIdentifier.init), initial: true) {
+            if let editorCommands { lastEditorCommands.value = editorCommands }
+        }
+#endif
     }
 
     private var cornerRadius: CGFloat {
@@ -539,10 +749,12 @@ struct ArborRootView: View {
     @State private var sidebarListSelection: WorkspaceIdentity?
     @State private var pageRenameLocation: WorkspaceLocation?
     @State private var pageRenameDraft = ""
-    @FocusState private var sidebarSearchFocused: Bool
+    @State private var sidebarSearchFocused = false
     @FocusState private var pageRenameFocused: Bool
 #if os(macOS)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var sidebarColumnWidth: CGFloat = 260
+    @State private var titlebarButtonsInset: CGFloat = 0
     @State private var managementPresented = false
     @State private var profileAfterManagementDismiss: String?
     @State private var sheetAfterManagementDismiss: ArborPresentedSheet?
@@ -835,7 +1047,7 @@ struct ArborRootView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
                 .toolbar(removing: .sidebarToggle)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 260, max: 500)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 500)
         } detail: {
             switch workspace.launchPhase {
             case let .restoring(name):
@@ -962,7 +1174,8 @@ struct ArborRootView: View {
 #endif
 
     /// The sidebar column. Its search reactions live here, not on
-    /// `sidebarPagesHeader`, so the header stays presentational.
+    /// `sidebarPagesHeader`, which macOS hosts as a toolbar item that the
+    /// toolbar may rebuild.
     private var sidebarContent: some View {
         sidebarColumn
             .onChange(of: sidebarSearchText) { _, query in
@@ -977,18 +1190,44 @@ struct ArborRootView: View {
             }
     }
 
+#if os(macOS)
+    private var sidebarSearchWidth: CGFloat {
+        max(60, sidebarColumnWidth - titlebarButtonsInset - 32)
+    }
+#endif
+
     private var sidebarColumn: some View {
-        // The search row sits at the top of the column rather than in the
-        // toolbar: toolbar items keep their ideal width, so only ordinary
-        // layout lets the field fill the sidebar beside the order picker.
+#if os(macOS)
+        VStack(spacing: 0) {
+            sidebarReviewContent
+            sidebarFooter
+        }
+        .modifier(ArborSidebarSurface(showsDivider: true))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+            sidebarColumnWidth = $0
+        }
+        .background {
+            MacSidebarSearchTitlebarSizer(searchWidth: sidebarSearchWidth) {
+                titlebarButtonsInset = $0
+            }
+        }
+        // Toolbar content declared on the sidebar column occupies the
+        // toolbar's sidebar section, over the sidebar in the titlebar. A
+        // toolbar item keeps its ideal width, so the search takes an explicit
+        // one: the sidebar's width less the window buttons and margins.
+        .toolbar {
+            ToolbarItem {
+                sidebarPagesHeader
+                    .frame(width: sidebarSearchWidth)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
+#else
         VStack(spacing: 0) {
             sidebarPagesHeader
             sidebarReviewContent
             sidebarFooter
         }
-#if os(macOS)
-        .modifier(ArborSidebarSurface(showsDivider: true))
-#else
         .modifier(ArborSidebarSurface())
 #endif
     }
@@ -1304,19 +1543,13 @@ struct ArborRootView: View {
     }
 
     private var sidebarPagesHeader: some View {
-        ArborPageSearchControls(
-            includesTrees: true,
+        ArborSidebarSearchControls(
             query: $sidebarSearchText,
             order: $sidebarPageOrder,
-            prompt: sidebarPageOrder == .trees ? "Search trees" : "Search pages",
-            focused: $sidebarSearchFocused,
-            handleKeyPress: handleSidebarSearchKeyPress,
-            escapeReturnsToDocument: true
+            isFocused: $sidebarSearchFocused,
+            handleKeyPress: handleSidebarSearchKeyPress
         )
-#if os(macOS)
-        .padding(.horizontal, 10)
-        .padding(.bottom, 6)
-#else
+#if os(iOS)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .modifier(ArborSidebarSurface())
