@@ -18,6 +18,12 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Native 011 — Unify Mac account management and fold daemon clients into their callers](swift/011-unify-mac-accounts-and-fold-daemon-clients.md) — **NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
 - [Native 010 — Extend accepted-choice review](swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
 
+## Client state machines
+
+`clients/` — The portable client state machines and the runners that execute them.
+
+- [Clients 001 — Reconcile the client state machines with the clients that run them](clients/001-reconcile-client-state-machines.md) — **NEEDS DESIGN.** Neither TypeScript reducer runs in production, and the Swift runners bypass their machines' effects and phases; decide per behaviour whether the machine or the runner is right, revise spec 09 and the vectors, make the runners effect-driven, and add runner conformance before Web 025 needs them.
+
 ## Web client
 
 `canopy-web/` — Restore the browser working-tree client, then its interface and editor features.
