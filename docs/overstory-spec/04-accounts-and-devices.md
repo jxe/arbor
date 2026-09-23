@@ -18,9 +18,7 @@ description: Builds shared gardens.
 type: group
 members:
   - profile: arbor://tr_alice_profile/
-    handle: alice
   - profile: arbor://tr_bob_profile/
-    handle: bob
   - profile: arbor://tr_carol_profile/
 ```
 
@@ -62,17 +60,14 @@ for membership without hosting, a distinguished home host, a separate
 principal, or account roles. Device administration is the one authority bit in
 the configuration graph.
 
-Every structured `members` entry requires the stable `profile` locator. A
-`profile` alone is membership without a local host account; adding the
-The host-policy `handle` also reserves canopyd's corresponding account
-locator for that exact profile. There is no handle-only member or account
-reservation. The person can create the profile tree locally first and share
-its raw TreeID locator with the community administrator.
-
-The handle is deliberately bare: the containing community already identifies
-the host, so its DNS name and `arbor:` scheme are not repeated. Other host
-implementations may define another local allocation field and policy. A scalar
-member locator is legacy input compatibility, not the normative authored form.
+Every structured `members` entry requires the stable `profile` locator, and
+membership, including membership used by access rules, is decided by that
+Profile TreeID alone. A host may define further per-member fields for its own
+account allocation, such as [canopyd's](../architecture/canopyd/README.md#accounts-and-canonical-paths) `handle`, which
+reserves an account for exactly that profile; they never establish identity or
+membership. The person can create the profile tree locally first and share its
+raw TreeID locator with the host's administrator. A scalar member locator is
+legacy input compatibility, not the normative authored form.
 
 ### 1.1 Beginning a person identity
 
@@ -118,7 +113,8 @@ PUT /.arbor/accounts
 ```
 
 The community administrator first records an exact structured member containing
-the person's public profile TreeID and the host-local handle. The person may
+the person's public profile TreeID and the host's local allocation for it
+(canopyd's `handle`). The person may
 send that public TreeID by any ordinary channel; no claim secret is needed. A
 host founder supplies the same public TreeID as bootstrap configuration, so
 founding removes only that out-of-band handoff and does not waive proof.

@@ -13,8 +13,8 @@ Portable Overstory content uses these locator forms:
 arbor://<TreeID>/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 ./relative/tree/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 /tree-rooted/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-https://canopy.example/~handle/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-arbor://canopy.example/~handle/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+https://canopy.example/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+arbor://canopy.example/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 ```
 
 `arbor://<TreeID>/...` directly names the primary tree identity plus a logical
@@ -37,13 +37,13 @@ its longest readable registered boundary, the decoded logical path remainder, op
 immutable revision, access, and enough server provenance to perform a permitted
 operation.
 
-canopyd's first `~handle` segment is an account-policy name, not a
-profile identifier or a requirement of Overstory locators. Another host may
-allocate account and canonical paths differently. The same handle at two
-Canopies implies no relationship, and one profile `TreeID` may be associated
-with differently shaped account locators at several Canopies. Conversely,
-`/~handle` may identify an account that has not yet hosted its profile tree.
-Profile identity equality comes only from the profile `TreeID` recorded by the
+A canonical path is a host-assigned name, not a profile identifier. Overstory
+does not prescribe where profiles, groups, or any other trees are placed:
+which paths exist, their shape, and which account may declare each are host
+policy ([canopyd's](../architecture/canopyd/README.md#accounts-and-canonical-paths) uses `/~name` segments). The same path at two
+hosts implies no relationship, and one profile `TreeID` may be associated with
+differently shaped account locators at several hosts. An account locator may
+also exist before any tree is registered at it. Profile identity equality comes only from the profile `TreeID` recorded by the
 account, never from a handle or canonical URL. A new person-profile TreeID is
 self-certifying as defined by [accounts §1.1](04-accounts-and-devices.md#11-beginning-a-person-identity);
 ordinary and group-profile TreeIDs remain opaque identifiers.
@@ -182,10 +182,9 @@ one tree is canonical at `/~alice` and another at `/~alice/atlas`, the latter
 boundary wins below it.
 
 Host policy assigns each registered canonical boundary to the account allowed
-to declare it. In canopyd, boundaries under `/~handle` belong to that
-local account locator. The account locator may exist without a registered tree
-at exactly `/~handle`; longest-boundary lookup can still resolve declared trees
-below it. This allocation rule is not part of the portable locator grammar.
+to declare it ([canopyd's policy](../architecture/canopyd/README.md#accounts-and-canonical-paths)). Longest-boundary lookup
+resolves declared trees below a path whether or not a tree is registered at
+the path itself. No allocation rule is part of the portable locator grammar.
 
 Canonical placement is mutable naming. Changing the host's DNS name, moving
 a registered boundary, or renaming a node changes canonical URLs without

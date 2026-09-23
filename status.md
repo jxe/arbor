@@ -53,7 +53,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Working-tree client transition | installed | The explicit soak closeout | [release and soak](plans/verification/release-and-soak.md#observation-and-soak-closeout) |
 | Canopy for the web | not mounted | The browser editor is out of the build until it is rebuilt as a working-tree client over the same machines as the Mac app | [Web 025](plans/canopy-web/025-arbor-web.md) |
 | Executable documents | core only | MDX/TSX compilation, generated typing, editor integration, React presentation, activation, Canopy presentation, canopyd hosting | [Apps 001 and 003 to 006](plans/catalog.md#product-completion) |
-| Group management | implemented, not deployed or installed | Deploy canopyd group membership by Profile TreeID (it matched by handle, so handle-less group members gained nothing); install the Mac New Group, Members sheet, and People/Share entry points; iOS group creation; claimed-member restoration | [design](docs/implementing-editors/design.md#profile-control-and-claim) |
+| Group management | implemented, not deployed or installed | Deploy canopyd group membership by Profile TreeID (it matched by handle, so handle-less group members gained nothing) and top-level `/~name` trees for administrators; install the Mac New Group, Members sheet, and People/Share entry points; iOS group creation; claimed-member restoration | [design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Composable conflict fragments | reassess | Only residual representation gaps remain after schema 12 | [canopyd 002](plans/canopyd/002-composable-conflict-fragments.md) |
 
 ## Specified but not implemented

@@ -142,6 +142,11 @@ function graphAdministrators(graph: AccountConfigGraphV2): string[] {
   return Object.values(graph.devices).filter((device) => device.administrator).map((device) => device.id);
 }
 
+/** The name in a path's leading /~name segment, if it has one. */
+function accountName(path: string): string | undefined {
+  return /^\/~([a-z0-9][a-z0-9-]{0,62})(?:\/|$)/.exec(path)?.[1];
+}
+
 function sameOrDescendant(path: string, parent: string): boolean {
   return path === parent || parent === "/" || path.startsWith(`${parent}/`);
 }
@@ -622,7 +627,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
       throw new Error("Account challenge target must use canonical Canopy URLs");
     }
-    if (this.accountByHandle(reservation.handle) || this.boundary(`/~${reservation.handle}`)) throw new AlreadyClaimedError(reservation.handle);
+    if (this.accountByHandle(reservation.handle) || this.nameHeldByTree(reservation.handle)) throw new AlreadyClaimedError(reservation.handle);
     const issuedAt = Date.now();
     const challenge: AccountChallenge = {
       version: 1,
@@ -752,7 +757,7 @@ export class CanopyDaemon implements AsyncDisposable {
   isReservedHandle(handle: string): boolean {
     return (
       HANDLE.test(handle)
-      && !this.boundary(`/~${handle}`) &&
+      && !this.nameHeldByTree(handle) &&
       !this.accountByHandle(handle) &&
       this.communityAccountReservations().has(handle)
     );
@@ -1085,7 +1090,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!challengeRow || challengeRow.challenge_json !== stableJSONString(proof.challenge)) throw new Error("Account challenge is invalid");
     if (challengeRow.expires_at <= Date.now()) throw new Error("Account challenge is expired");
     if (challengeRow.consumed_at !== null) throw new Error("Account challenge was already consumed");
-    if (this.boundary(`/~${input.handle}`)) throw new AlreadyClaimedError(input.handle);
+    if (this.nameHeldByTree(input.handle)) throw new AlreadyClaimedError(input.handle);
     if (!this.communityMemberHandles().has(input.handle)) {
       throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
     }
@@ -2091,12 +2096,14 @@ export class CanopyDaemon implements AsyncDisposable {
         await this.validateReservedBoundaries(tree, root, objects);
         const requiredType = this.requiredProfileType(tree.id, tree.canonicalPath);
         if (requiredType) await this.validateProfileRoot(root, objects, requiredType);
+        if (tree.canonicalPath === "/") await this.validateCommunityReservations(root, objects);
       },
       validateAccepted: async (remoteTree, root, objects) => {
         await checkEffects(remoteTree.ref, root, objects);
         if (root === request.candidate) return;
         await this.validateGraph(root, objects, remoteTree.ref);
         await this.validateReservedBoundaries(remoteTree, root, objects);
+        if (remoteTree.canonicalPath === "/") await this.validateCommunityReservations(root, objects);
       },
       prepareCommit: async (remoteTree) => ({
         withinTransaction: () => {
@@ -2605,16 +2612,27 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.rootProfile(root).handles;
   }
 
-  /** The current Canopy allocates all of one account's canonical paths below /~handle. */
+  /**
+   * canopyd's path policy. An account declares canonical paths below its own
+   * /~handle. An account that can write the community profile may also
+   * declare paths below any /~name that no person has reserved or claimed,
+   * so top-level names can address groups or any other tree.
+   */
   private validateCurrentCanopyAccountPaths(handle: string, graph: AccountConfigGraphV2, existingAccount?: CanopyAccount): void {
     const root = `/~${handle}`;
+    const administersCommunity = !!existingAccount && this.canWrite(existingAccount, this.community().id);
     for (const [treeID, declaration] of Object.entries(graph.trees)) {
       const path = new URL(declaration.canonical).pathname;
       const retainedAdministeredTree = existingAccount
         && this.get(treeID)?.canonicalPath === path
         && this.canAdminister(existingAccount, treeID);
-      if (!sameOrDescendant(path, root) && !retainedAdministeredTree) {
+      if (sameOrDescendant(path, root) || retainedAdministeredTree) continue;
+      const name = accountName(path);
+      if (!name || !administersCommunity) {
         throw new Error(`Canonical path is outside this Canopy account allocation: ${path}`);
+      }
+      if (this.communityAccountReservations().has(name) || this.accountByHandle(name)) {
+        throw new Error(`~${name} is reserved for a person on this Canopy: ${path}`);
       }
     }
     const profile = graph.trees[graph.account.profile];
@@ -2624,6 +2642,31 @@ export class CanopyDaemon implements AsyncDisposable {
     // the account's self-certifying Profile TreeID.
     if ((profile && new URL(profile.canonical).pathname !== root) || (rootTree && rootTree !== graph.account.profile)) {
       throw new Error("account.profile must match a tree declaration at its canonical handle");
+    }
+  }
+
+  /**
+   * Whether a tree not administered by the ~name account holds /~name or a
+   * path below it, active or declared and awaiting its first update. A person
+   * may then neither reserve nor claim that name.
+   */
+  private nameHeldByTree(name: string): boolean {
+    const root = `/~${name}`;
+    const owner = this.accountByHandle(name)?.id;
+    if (this.list().some((tree) => tree.status === "active" && tree.canonicalPath !== null
+      && sameOrDescendant(tree.canonicalPath, root) && (!owner || tree.accountID !== owner))) return true;
+    const pending = this.db.query("SELECT account_id, canonical_path FROM tree_reservations").all() as Array<{ account_id: string; canonical_path: string }>;
+    return pending.some((row) => sameOrDescendant(row.canonical_path, root) && row.account_id !== owner);
+  }
+
+  /** A community update may not reserve a handle whose /~name a tree already holds. */
+  private async validateCommunityReservations(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
+    const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
+    const current = this.communityMemberHandles();
+    for (const handle of memberHandles(facts.members)) {
+      if (!current.has(handle) && this.nameHeldByTree(handle)) {
+        throw new Error(`~${handle} is already the address of a tree on this Canopy`);
+      }
     }
   }
 
