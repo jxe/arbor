@@ -53,14 +53,17 @@ const snapshot = (root: string) => {
       // Rowid order is read only within one document: the newest version is its largest rowid.
       versions: db.query("SELECT * FROM document_versions ORDER BY tree_id, stable_key, rowid").all(),
       merges: db.query("SELECT * FROM accepted_merge_states ORDER BY accepted_id").all(),
+      accounts: db.query("SELECT * FROM accounts ORDER BY id").all(),
+      devices: db.query("SELECT * FROM devices ORDER BY id").all(),
     };
   } finally { db.close(); }
 };
 
 /** Rewrite a schema-17 root into the schema-15 layout it was cut over from:
  * the observation log (plus one legacy status row and a sequence that ran
- * ahead), the reflog, full `authored_changes` rows, and (for 15) no entry
- * tables. */
+ * ahead), the reflog, full `authored_changes` rows, `accounts.token_digest`
+ * (the first device's digest, as account creation wrote it), and (for 15) no
+ * entry tables. */
 function downgrade(root: string, stamp: "15" | "16", authored: { tree: string; change: string; basis: string; candidate: string } | null = null) {
   const db = new Database(join(root, "canopy.sqlite3"));
   try {
@@ -99,6 +102,15 @@ function downgrade(root: string, stamp: "15" | "16", authored: { tree: string; c
         const owner = db.query("SELECT id FROM accepted_updates WHERE tree_id = ? AND change_id = ?").get(authored.tree, authored.change) as { id: string };
         db.run("INSERT INTO authored_changes VALUES (?, ?, ?, ?, ?, '[]', '[]')", [authored.tree, authored.change, owner.id, authored.basis, authored.candidate]);
       }
+      db.run("CREATE TABLE accounts_prior AS SELECT * FROM accounts");
+      db.run("DROP TABLE accounts");
+      db.run(`CREATE TABLE accounts (id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE, profile_tree TEXT, config_tree TEXT,
+        token_digest TEXT NOT NULL UNIQUE, enabled INTEGER NOT NULL DEFAULT 1, claim_digest TEXT)`);
+      db.run(`INSERT INTO accounts (id, handle, profile_tree, config_tree, token_digest, enabled, claim_digest)
+        SELECT a.id, a.handle, a.profile_tree, a.config_tree,
+          (SELECT d.token_digest FROM devices d WHERE d.account_id = a.id ORDER BY d.created_at LIMIT 1), a.enabled, a.claim_digest
+        FROM accounts_prior a`);
+      db.run("DROP TABLE accounts_prior");
       if (stamp === "15") { db.run("DROP TABLE entry_metadata"); db.run("DROP TABLE document_versions"); }
       db.run("UPDATE meta SET value = ? WHERE key = 'schema_version'", [stamp]);
     })();
@@ -132,8 +144,9 @@ for (const stamp of ["15", "16"] as const) test(`from schema ${stamp}: history, 
     expect(snapshot(root)).toEqual(live);
     const db = new Database(join(root, "canopy.sqlite3"), { readonly: true });
     expect(db.query("SELECT * FROM authored_changes").all()).toEqual([{ accepted_id: expect.any(String), trace_json: "[]", evidence_json: "[]" }]);
-    for (const table of ["observations", "reflog", "authored_changes_prior", "accepted_updates_next"])
+    for (const table of ["observations", "reflog", "authored_changes_prior", "accepted_updates_next", "accounts_next"])
       expect(db.query("SELECT 1 FROM sqlite_master WHERE name = ?").get(table)).toBeNull();
+    expect((db.query("PRAGMA table_info(accounts)").all() as Array<{ name: string }>).map(({ name }) => name)).not.toContain("token_digest");
     db.close();
 
     const rerun = await migrateCompactHistory(root);
@@ -158,6 +171,7 @@ for (const stamp of ["15", "16"] as const) test(`from schema ${stamp}: history, 
       directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
       const encoded = encodeWireDirectory(directory);
       const objects = new Map([...snapshotted.objects, [file, bytes], [hashObject(encoded), encoded]]);
+      // `client` authenticated with the device token alone.
       const next = await client.submitUpdate(tree, descriptor.tree.update, { root: hashObject(encoded) as ObjectHash, objects });
       expect(next.update.id).toBe(String(lastOrdinal + 6));
       expect(next.update.previous?.id).toBe(descriptor.tree.update);
@@ -181,6 +195,23 @@ test("an authored-change copy that disagrees with its accepted update stops the 
     const after = new Database(join(root, "canopy.sqlite3"), { readonly: true });
     expect((after.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value).toBe("15");
     expect(after.query("SELECT sql FROM sqlite_master ORDER BY name").all()).toEqual(schema);
+    after.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an account without a device credential stops the run and leaves schema 15", async () => {
+  const root = await mkdtemp(`${tmpdir()}/arbor-migration-015-deviceless-`);
+  try {
+    await history(root);
+    downgrade(root, "15");
+    const db = new Database(join(root, "canopy.sqlite3"));
+    db.run("DELETE FROM devices");
+    db.close();
+    await expect(migrateCompactHistory(root)).rejects.toThrow(/no device credential/);
+    const after = new Database(join(root, "canopy.sqlite3"), { readonly: true });
+    expect((after.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value).toBe("15");
     after.close();
   } finally {
     await rm(root, { recursive: true, force: true });

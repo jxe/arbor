@@ -165,7 +165,7 @@ than it understands. The stamps that have shipped:
 | 14 | Operation frames: authored changes carry `trace` frames (migration 012). |
 | 15 | Compact merge evidence and v3 merge states (migration 013). |
 | 16 | `entry_metadata` (per file entry: last accepted change) and `document_versions` (per Markdown document: accepted content versions), both written inside the accepted transaction and backfilled by replaying accepted history. Never deployed alone: migration 015 carries it from 15. No wire change is required of clients; the new `entry-metadata` read is additive. |
-| 17 | One accepted history (migration 015): `observations` folds into `accepted_updates.ordinal` (the `INTEGER PRIMARY KEY AUTOINCREMENT` cursor; every accepted update keeps its old cursor, legacy status cursors resync); `reflog` is dropped; `authored_changes` keeps only the trace and evidence beside its `accepted_id`; `accepted_updates_tree` and `accepted_updates_root` are schema indexes. No wire change. |
+| 17 | One accepted history (migration 015): `observations` folds into `accepted_updates.ordinal` (the `INTEGER PRIMARY KEY AUTOINCREMENT` cursor; every accepted update keeps its old cursor, legacy status cursors resync); `reflog` is dropped; `authored_changes` keeps only the trace and evidence beside its `accepted_id`; `accepted_updates_tree` and `accepted_updates_root` are schema indexes; the unread `accounts.token_digest` is dropped (authentication reads device digests only). No wire change. |
 
 Client-side formats have their own ladders, recorded in [the local system
 reference](../../../docs/architecture/arborsync/data-home.md): iOS working-tree format marker 4, local

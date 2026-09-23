@@ -25,6 +25,9 @@ import { assertCurrentCanopySchema } from "../../../../packages/canopyd/src/sche
  * - `authored_changes` keeps only `(accepted_id, trace_json, evidence_json)`.
  *   Its tree, change, basis and candidate were copies of the owning accepted
  *   update's columns; the run stops if any copy disagrees.
+ * - `accounts.token_digest` is dropped. Written at account creation and token
+ *   reset but never read: authentication reads `devices.token_digest` only.
+ *   The run stops if any account has no device.
  *
  * Order: stamp and `quick_check` → checks and (from 15) the entry replay,
  * both read-only → one transaction (entry tables, rebuild, stamp 17,
@@ -108,6 +111,10 @@ export async function migrateCompactHistory(root: string, log: Log = () => {}): 
       WHERE u.id IS NULL OR u.tree_id IS NOT a.tree_id OR u.change_id IS NOT a.change_id
         OR u.base_root IS NOT a.basis_root OR u.candidate_root IS NOT a.candidate_root`);
     if (copies) throw new Error(`${copies} authored changes disagree with their accepted updates`);
+    // Authentication reads only device digests; an account without a device
+    // would lose its only credential with `accounts.token_digest`.
+    const deviceless = count("SELECT COUNT(*) AS n FROM accounts a WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)");
+    if (deviceless) throw new Error(`${deviceless} accounts have no device credential`);
     const reflogRows = count("SELECT COUNT(*) AS n FROM reflog");
     const observationSequence = (db.query("SELECT seq FROM sqlite_sequence WHERE name = 'observations'").get() as { seq: number } | null)?.seq ?? 0;
     const nextOrdinal = rows.reduce((max, row) => Math.max(max, row.ordinal!), observationSequence) + 1;
@@ -159,6 +166,20 @@ export async function migrateCompactHistory(root: string, log: Log = () => {}): 
       AcceptedUpdateStore.createSchema(db);
       db.run("INSERT INTO authored_changes (accepted_id, trace_json, evidence_json) SELECT accepted_id, trace_json, evidence_json FROM authored_changes_prior");
       db.run("DROP TABLE authored_changes_prior");
+      // A UNIQUE column cannot be dropped in place; devices, pairings and
+      // reservations reference accounts(id), which the rebuild keeps.
+      db.run(`CREATE TABLE accounts_next (
+        id TEXT PRIMARY KEY,
+        handle TEXT NOT NULL UNIQUE,
+        profile_tree TEXT,
+        config_tree TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        claim_digest TEXT
+      )`);
+      db.run(`INSERT INTO accounts_next (id, handle, profile_tree, config_tree, enabled, claim_digest)
+        SELECT id, handle, profile_tree, config_tree, enabled, claim_digest FROM accounts ORDER BY rowid`);
+      db.run("DROP TABLE accounts");
+      db.run("ALTER TABLE accounts_next RENAME TO accounts");
       db.run("DELETE FROM sqlite_sequence WHERE name IN ('observations', 'accepted_updates', 'accepted_updates_next')");
       db.run("INSERT INTO sqlite_sequence (name, seq) VALUES ('accepted_updates', ?)", [nextOrdinal - 1]);
       db.run("UPDATE meta SET value = '17' WHERE key = 'schema_version'");
