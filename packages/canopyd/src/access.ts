@@ -9,8 +9,11 @@ import type { CanopyAccessEntry, CanopyAccount, CanopyTree } from "./model.ts";
 
 export interface AccessHost {
   tree(id: string): CanopyTree | null;
-  /** Handles of every member of a group profile tree. */
-  profileMemberHandles(treeID: string): ReadonlySet<string>;
+  /**
+   * Whether a group profile tree lists this person: by Profile TreeID, or by
+   * handle for a legacy scalar `/~handle` member locator.
+   */
+  isProfileMember(groupTree: string, profileTree: string, handle: string | undefined): boolean;
   /** The tree root's frontmatter `type`, or null when the root declares neither profile kind. */
   rootProfileType(treeID: string): "person" | "group" | null;
 }
@@ -91,7 +94,7 @@ export class AccessControl {
       isGroupMember: (group, profile) => {
         if (this.host.rootProfileType(group) !== "group") return false;
         const member = this.db.query("SELECT handle FROM accounts WHERE profile_tree = ? AND enabled = 1").get(profile) as { handle: string } | null;
-        return !!member && this.host.profileMemberHandles(group).has(member.handle);
+        return !!member && this.host.isProfileMember(group, profile, member.handle);
       },
     }, path, operation);
   }
@@ -104,7 +107,7 @@ export class AccessControl {
     if (!policy || !ownerProfile) return undefined;
     const rules = policy.filter(rule => !rule.via && ruleMatches(rule, {
       ownerProfile, callerProfile: account?.profileTree ?? null, linkDigest,
-      isGroupMember: (group, profile) => this.host.rootProfileType(group) === "group" && profile === account?.profileTree && this.host.profileMemberHandles(group).has(account.handle),
+      isGroupMember: (group, profile) => this.host.rootProfileType(group) === "group" && profile === account?.profileTree && this.host.isProfileMember(group, profile, account.handle),
     }));
     return { code: "", version: "direct", caller: account?.id ?? null, sponsor: tree.accountID, subject, linkDigest,
       expiresAt: Date.now() + 60000, active,
@@ -186,7 +189,7 @@ export class AccessControl {
     for (const entry of this.entries(treeID)) {
       if (entry.subjectKind !== "profile") continue;
       if (this.host.rootProfileType(entry.subject) !== "group") continue;
-      if (this.host.profileMemberHandles(entry.subject).has(account.handle)) {
+      if (this.host.isProfileMember(entry.subject, account.profileTree, account.handle)) {
         if (entry.access === "write") return "write";
         result = "read";
       }

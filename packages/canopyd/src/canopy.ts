@@ -100,16 +100,33 @@ const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 interface RootProfile {
   type: "person" | "group" | null;
   members: Array<{ profile: string; handle?: string; legacy?: true }>;
+  /** Community reservations: structured handles plus legacy `/~handle` locators. */
   handles: ReadonlySet<string>;
+  /** Group membership for access: the Profile TreeID each member locator names. */
+  profiles: ReadonlySet<string>;
+  /** Group membership for access by a legacy `/~handle` locator alone. */
+  legacyHandles: ReadonlySet<string>;
 }
 const ROOT_PROFILE_LIMIT = 1024;
+
+function legacyHandle(member: RootProfile["members"][number]): string | undefined {
+  if (!member.legacy) return undefined;
+  return /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile)?.[1];
+}
 
 /** Structured handles, plus the handle of a legacy `/~handle` locator. */
 function memberHandles(members: RootProfile["members"]): ReadonlySet<string> {
   return new Set(members.flatMap((member) => {
     if (member.handle && HANDLE.test(member.handle)) return [member.handle];
-    if (!member.legacy) return [];
-    const match = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile);
+    const handle = legacyHandle(member);
+    return handle ? [handle] : [];
+  }));
+}
+
+/** The Profile TreeID of every `arbor://<TreeID>/` member locator. */
+function memberProfiles(members: RootProfile["members"]): ReadonlySet<string> {
+  return new Set(members.flatMap((member) => {
+    const match = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/.exec(member.profile);
     return match ? [match[1]!] : [];
   }));
 }
@@ -261,7 +278,7 @@ export class CanopyDaemon implements AsyncDisposable {
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
       tree: (id) => this.get(id),
-      profileMemberHandles: (id) => this.profileMemberHandles(id),
+      isProfileMember: (group, profileTree, handle) => this.isProfileMember(group, profileTree, handle),
       rootProfileType: (id) => {
         const tree = this.get(id);
         return tree ? this.rootProfileType(tree.ref) : null;
@@ -2530,9 +2547,11 @@ export class CanopyDaemon implements AsyncDisposable {
     return null;
   }
 
-  private profileMemberHandles(treeID: string): ReadonlySet<string> {
-    const tree = this.get(treeID);
-    return tree ? this.memberHandlesFromRoot(tree.ref) : new Set();
+  private isProfileMember(groupTree: string, profileTree: string, handle: string | undefined): boolean {
+    const tree = this.get(groupTree);
+    if (!tree) return false;
+    const profile = this.rootProfile(tree.ref);
+    return profile.profiles.has(profileTree) || (handle !== undefined && profile.legacyHandles.has(handle));
   }
 
   private communityMemberHandles(): ReadonlySet<string> {
@@ -2550,9 +2569,9 @@ export class CanopyDaemon implements AsyncDisposable {
     if (cached) return cached;
     const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
     // Not memoized: the facts of a root may be cached after it is first asked about.
-    if (!row) return { type: null, members: [], handles: new Set() };
+    if (!row) return { type: null, members: [], handles: new Set(), profiles: new Set(), legacyHandles: new Set() };
     const value = JSON.parse(row.value) as { type?: unknown; members?: unknown };
-    const profile: Omit<RootProfile, "handles"> = {
+    const profile: Pick<RootProfile, "type" | "members"> = {
       type: value.type === "person" || value.type === "group" ? value.type : null,
       members: Array.isArray(value.members) ? value.members.flatMap((member) => {
         if (typeof member === "string") return [{ profile: member, legacy: true as const }];
@@ -2566,7 +2585,12 @@ export class CanopyDaemon implements AsyncDisposable {
         }];
       }) : [],
     };
-    const facts: RootProfile = { ...profile, handles: memberHandles(profile.members) };
+    const facts: RootProfile = {
+      ...profile,
+      handles: memberHandles(profile.members),
+      profiles: memberProfiles(profile.members),
+      legacyHandles: new Set(profile.members.flatMap((member) => legacyHandle(member) ?? [])),
+    };
     if (this.rootProfiles.size >= ROOT_PROFILE_LIMIT) this.rootProfiles.delete(this.rootProfiles.keys().next().value!);
     this.rootProfiles.set(root, facts);
     return facts;

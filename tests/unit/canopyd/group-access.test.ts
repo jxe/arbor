@@ -26,13 +26,16 @@ const trees = new Map([
   ["tr_group", tree("tr_group", "/~editors")],
   ["tr_person", tree("tr_person", "/~mallory")],
   ["tr_untyped", tree("tr_untyped", "/~owner/notes")],
+  ["tr_legacy", tree("tr_legacy", "/~owner/legacy")],
 ]);
 const profileTypes = new Map<string, "person" | "group" | null>([
-  ["tr_group", "group"], ["tr_person", "person"], ["tr_bob", "person"], ["tr_untyped", null],
+  ["tr_group", "group"], ["tr_person", "person"], ["tr_bob", "person"], ["tr_untyped", null], ["tr_legacy", "group"],
 ]);
 const host: AccessHost = {
   tree: (id) => trees.get(id) ?? null,
-  profileMemberHandles: (id) => new Set(["tr_group", "tr_person", "tr_untyped"].includes(id) ? ["bob"] : []),
+  isProfileMember: (group, profile, handle) =>
+    (["tr_group", "tr_person", "tr_untyped"].includes(group) && profile === "tr_bob")
+    || (group === "tr_legacy" && handle === "bob"),
   rootProfileType: (id) => profileTypes.get(id) ?? null,
 };
 
@@ -67,6 +70,11 @@ describe("group ACL expansion is gated on the subject root's type: group", () =>
     expect(access.canWrite(bob, "tr_shared")).toBe(false);
     access.set("tr_shared", "profile", "tr_group", "write");
     expect(access.canWrite(bob, "tr_shared")).toBe(true);
+  });
+
+  test("a legacy /~handle member locator still expands by handle", () => {
+    access.set("tr_shared", "profile", "tr_legacy", "read");
+    expect(access.canRead(bob, "tr_shared")).toBe(true);
   });
 
   test("direct profile grants and the account's own profile tree need no kind", () => {
