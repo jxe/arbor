@@ -85,8 +85,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 
 ## Accepted-history compaction — 2026-09-22
 
-Implemented at schema 17 and rehearsed on production copies; not deployed.
-Migration 015 is the pending cutover from the live schema 16. It removes stored copies of accepted
+Deployed 2026-09-23 at schema 17 by migration 015, from schema 16. It removes stored copies of accepted
 history: `observations` becomes `accepted_updates.ordinal` (unchanged cursors for every
 accepted update), `reflog` is dropped, `authored_changes` keeps only the trace and
 evidence, and the unread `accounts.token_digest` is dropped. `AcceptedUpdateStore.advance` is now the only writer of `trees.ref`. A merge

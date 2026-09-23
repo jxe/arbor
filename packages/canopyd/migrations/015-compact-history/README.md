@@ -139,3 +139,12 @@ Then serve the migrated copy with the new build, confirm that it opens, read
 - **From 15:** the same run on the pre-014 backup `.backups/railway/20260922T190204Z/volume.tar`
   replayed 2,515 updates in 1.1 s and produced the same entry tables as migration 014 did.
   All five roots were unchanged.
+
+## Live cutover
+
+2026-09-23, deployed from `main` at 16674731. The live report matched the rehearsal exactly,
+apart from timings: from 16, five roots unchanged, 2,551 updates, `respelledCursors` 0,
+`statusObservations` 0, `nextOrdinal` 4133 (commit 134 ms on Railway). After the redeploy,
+the Mac daemon resumed without re-placing any tree, with all three placements idle at
+their prior updates. `verify.ts` passed, and the authored manifest (111 files) was unchanged.
+A round-trip create and delete in `/~joe/todos` took updates 4133 and 4134.
