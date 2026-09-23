@@ -962,8 +962,7 @@ struct ArborRootView: View {
 #endif
 
     /// The sidebar column. Its search reactions live here, not on
-    /// `sidebarPagesHeader`, which macOS hosts as a toolbar item that the
-    /// toolbar may rebuild.
+    /// `sidebarPagesHeader`, so the header stays presentational.
     private var sidebarContent: some View {
         sidebarColumn
             .onChange(of: sidebarSearchText) { _, query in
@@ -979,27 +978,17 @@ struct ArborRootView: View {
     }
 
     private var sidebarColumn: some View {
-#if os(macOS)
-        VStack(spacing: 0) {
-            sidebarReviewContent
-            sidebarFooter
-        }
-        .modifier(ArborSidebarSurface(showsDivider: true))
-        // Toolbar content declared on the sidebar column occupies the
-        // toolbar's sidebar section, so the search sits in the titlebar over
-        // the sidebar and tracks its width without any AppKit bridging.
-        .toolbar {
-            ToolbarItem {
-                sidebarPagesHeader
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
-#else
+        // The search row sits at the top of the column rather than in the
+        // toolbar: toolbar items keep their ideal width, so only ordinary
+        // layout lets the field fill the sidebar beside the order picker.
         VStack(spacing: 0) {
             sidebarPagesHeader
             sidebarReviewContent
             sidebarFooter
         }
+#if os(macOS)
+        .modifier(ArborSidebarSurface(showsDivider: true))
+#else
         .modifier(ArborSidebarSurface())
 #endif
     }
@@ -1325,7 +1314,8 @@ struct ArborRootView: View {
             escapeReturnsToDocument: true
         )
 #if os(macOS)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
 #else
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
