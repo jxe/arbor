@@ -482,3 +482,31 @@ enum ArborGroupSlug {
         slug.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,62})$"#, options: .regularExpression) != nil
     }
 }
+
+/// Where New Group puts a group, as the canonical path before its slug.
+/// These are Canopy's conventions; the Canopy decides which it allows.
+enum ArborGroupPlacement: String, CaseIterable, Identifiable {
+    case groupsFolder, canopy
+    var id: Self { self }
+
+    var label: String {
+        switch self {
+        case .groupsFolder: "In my groups folder"
+        case .canopy: "On the Canopy"
+        }
+    }
+
+    func prefix(handle: String) -> String {
+        switch self {
+        case .groupsFolder: "/~\(handle)/groups/"
+        case .canopy: "/~"
+        }
+    }
+}
+
+extension DirectoryPerson {
+    /// The Canopy's own membership profile: the group hosted at its root.
+    var isCommunityProfile: Bool {
+        entry.kind == "group" && entry.locator.flatMap(URL.init(string:)).map { ["", "/"].contains($0.path) } == true
+    }
+}

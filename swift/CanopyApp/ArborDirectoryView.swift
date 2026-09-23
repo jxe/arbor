@@ -224,10 +224,7 @@ struct ArborDirectoryView: View {
         }
     }
 
-    /// The Canopy's own membership profile: the group hosted at its root.
-    private func isCommunity(_ person: DirectoryPerson) -> Bool {
-        person.entry.kind == "group" && person.entry.locator.flatMap(URL.init(string:)).map { ["", "/"].contains($0.path) } == true
-    }
+    private func isCommunity(_ person: DirectoryPerson) -> Bool { person.isCommunityProfile }
 
     private func row(_ person: DirectoryPerson) -> some View {
         let isGroup = person.entry.kind == "group"
@@ -294,6 +291,7 @@ struct ArborNewGroupSheet: View {
     @State private var name = ""
     @State private var slug = ""
     @State private var slugEdited = false
+    @State private var placement = ArborGroupPlacement.groupsFolder
     @State private var groupDescription = ""
     @State private var members: [String] = []
     @State private var query = ""
@@ -308,14 +306,23 @@ struct ArborNewGroupSheet: View {
 #endif
     }
 
+    /// Top-level names are for the Canopy's administrators.
+    private var placements: [ArborGroupPlacement] {
+        let administers = workspace.directory.contains { $0.isCommunityProfile && workspace.writableProfileTrees.contains($0.id) }
+        return ArborGroupPlacement.allCases.filter { $0 != .canopy || administers }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     TextField("Name", text: $name, prompt: Text("Garden Club"))
+                    Picker("Place it", selection: $placement) {
+                        ForEach(placements) { Text($0.label).tag($0) }
+                    }
                     LabeledContent("Address") {
                         HStack(spacing: 0) {
-                            Text("/~\(handle ?? "you")/").foregroundStyle(.secondary)
+                            Text(placement.prefix(handle: handle ?? "you")).foregroundStyle(.secondary)
                             TextField("Address", text: Binding(get: { slug }, set: { slug = $0; slugEdited = true }), prompt: Text("garden-club"))
                                 .labelsHidden()
 #if os(iOS)
@@ -396,6 +403,7 @@ struct ArborNewGroupSheet: View {
             let tree = try await workspace.createGroup(
                 name: name,
                 slug: slug,
+                placement: placement,
                 description: groupDescription,
                 memberTrees: members
             )

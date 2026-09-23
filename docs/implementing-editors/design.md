@@ -107,8 +107,13 @@ change is an ordinary page edit. Both appear only for groups the Canopy's tree
 list marks writable for this account. **New Group…** always closes the Groups
 list.
 
-**New Group…** creates a group profile tree at `/~handle/<slug>` under an
-account this Mac administers, placed at `groups/<slug>` in the Arbor data home,
+**New Group…** creates a group profile tree under an account this Mac
+administers, at one of Canopy's conventional addresses: **In my groups
+folder** (`/~handle/groups/<slug>`) or,
+for the Canopy's administrators, **On the Canopy** (`/~<slug>`, when no person
+holds that name). The Canopy decides which addresses it accepts
+([canopyd's policy](../architecture/canopyd/README.md#accounts-and-canonical-paths)).
+The tree is placed at `groups/<slug>` in the Arbor data home,
 with a name, optional description, and first members. Its one access rule is
 read for the community `/` profile, so everyone on the Canopy can see the
 group and its roster while it stays private to the web. Share offers the same

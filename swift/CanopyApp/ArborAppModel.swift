@@ -813,10 +813,16 @@ final class ArborWorkspaceState {
         return nil
     }
 
-    /// Create a group profile tree at `/~handle/<slug>`, readable by everyone
-    /// on the Canopy (the community `/` profile), and place it on this Mac.
-    /// Returns the new group's TreeID.
-    func createGroup(name: String, slug: String, description: String, memberTrees: [String]) async throws -> String {
+    /// Create a group profile tree at `placement`'s path for `slug`, readable
+    /// by everyone on the Canopy (the community `/` profile), and place it on
+    /// this Mac. Returns the new group's TreeID.
+    func createGroup(
+        name: String,
+        slug: String,
+        placement: ArborGroupPlacement,
+        description: String,
+        memberTrees: [String]
+    ) async throws -> String {
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
         guard let account = groupCreationAccount, let handle = account.handle,
               let origin = URL(string: account.origin) else {
@@ -825,10 +831,14 @@ final class ArborWorkspaceState {
         guard ArborGroupSlug.isValid(slug) else {
             throw ArborWireValidationError.invalidValue("Use lowercase letters, numbers, and hyphens for the group address")
         }
-        let canonical = origin.appending(path: "~\(handle)/\(slug)").absoluteString
-        if localArborSyncOverview?.trees.contains(where: { $0.canonicalPath == "/~\(handle)/\(slug)" }) == true {
-            throw ArborWireValidationError.invalidValue("/~\(handle)/\(slug) is already in use")
+        let path = placement.prefix(handle: handle) + slug
+        if placement == .canopy, directory.contains(where: { $0.entry.handle == slug }) {
+            throw ArborWireValidationError.invalidValue("~\(slug) belongs to a person on this Canopy")
         }
+        if localArborSyncOverview?.trees.contains(where: { $0.canonicalPath == path }) == true {
+            throw ArborWireValidationError.invalidValue("\(path) is already in use")
+        }
+        let canonical = origin.appending(path: String(path.dropFirst())).absoluteString
         let source = try ArborProfileDocument.newGroupSource(displayName: name, description: description, memberTrees: memberTrees)
         let community = try await wireClient(origin: origin, overview: localArborSyncOverview).resolve(path: "/").ref.tree
         let folder = ArborSupportDirectories.dataHome.appending(path: "groups/\(slug)", directoryHint: .isDirectory)
