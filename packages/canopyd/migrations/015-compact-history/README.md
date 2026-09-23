@@ -123,20 +123,19 @@ Then serve the migrated copy with the new build, confirm that it opens, read
 
 ## Rehearsal log
 
-Not yet rehearsed as 015.
+2026-09-23, on the merged branch (`bun run test:migration` 5 of 5, `bun run test` 1,183 of 1,183).
 
-For reference, the entry-metadata half was rehearsed as migration 014 on 2026-09-22.
-
-- **Backup:** `.backups/railway/20260922T190204Z/volume.tar` (sha256 f49146fb…, matching the
-  volume). Both the live database and the vacuumed copy held 2,515 accepted updates, 5 trees and
-  1,533 merge rows at schema 15.
-- **Report:** 2,515 updates replayed, 113 entry rows, and 2,569 document versions over 90
-  documents. `prunedHistory` was 0. The replay took 1.3 s and the commit 49 ms.
+- **Backup:** `.backups/railway/20260923T083243Z/volume.tar` (sha256 8105dbc8…, matching the
+  volume). The live database and the vacuumed copy both held schema 16, 2,551 accepted updates,
+  2,551 observations, 5 trees, 1,567 merge rows and 113 entry rows.
+- **Report:** from 16. 2,551 updates, 406 authored changes, 113 entry rows and 2,604 document
+  versions over 91 documents, all carried over. `respelledCursors` 0, `statusObservations` 0,
+  2,551 reflog rows dropped, `nextOrdinal` 4133. The commit took 16 ms.
 - **Roots:** `compare-canopy-roots` showed all five roots unchanged.
-- **Serving:** the schema-16 build opened the copy and warmed in 5.1 s. `/entry-metadata`
+- **Serving:** the schema-17 build opened the copy and warmed in 4.0 s. `/entry-metadata`
   answered 200 for public trees and 404 without credentials for private ones.
   `verify.ts --no-sync` passed.
-- **Console tree dates:** 97 of 106 entries sit at the tree's history boundary (2026-09-13).
-  The rest are dated on the days they were last edited.
-
-That backup can be reused to rehearse 015. It is still at schema 15.
+- **Rerun:** reports `migrated: false`.
+- **From 15:** the same run on the pre-014 backup `.backups/railway/20260922T190204Z/volume.tar`
+  replayed 2,515 updates in 1.1 s and produced the same entry tables as migration 014 did.
+  All five roots were unchanged.
