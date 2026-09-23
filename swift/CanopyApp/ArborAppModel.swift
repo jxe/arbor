@@ -95,16 +95,7 @@ struct LocalArborSyncOverview: Sendable, Equatable {
     let accounts: [LocalCanopyAccountDescriptor]
     let trees: [LocalArborSyncTreePresentation]
     let visits: [LocalArborSyncVisitPresentation]
-    let devices: [LocalArborSyncDevicePresentation]
     let observedThrough: String
-}
-
-private struct LocalAccountConfigurationPresentation {
-    let origin: String?
-    let handle: String?
-    let administrators: Set<String>
-    let currentDevice: String?
-    let devices: [LocalArborSyncDevicePresentation]
 }
 
 struct LocalArborSyncPairingPresentation: Sendable, Equatable {
@@ -1314,14 +1305,12 @@ final class ArborWorkspaceState {
     }
 
     /// The daemon's view of this installation: `/v1/trees` and `/v1/accounts`
-    /// only. Visits are the app's own; the legacy singleton account on disk
-    /// still supplies device rows when no plural account exists.
+    /// only. Visits are the app's own; each account's devices load separately.
     private func loadLocalArborSyncOverview() async throws -> LocalArborSyncOverview {
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         async let treeListRequest = client.trees()
         async let accountsRequest = client.accounts()
         let (treeList, accounts) = try await (treeListRequest, accountsRequest)
-        let localConfiguration = accounts.isEmpty ? try? loadLocalAccountConfiguration() : nil
         let configurationTree = treeList.snapshot.first { $0.kind == ArborTreeKind.accountConfiguration }?.id
         let trees = treeList.snapshot.map {
             LocalArborSyncTreePresentation(
@@ -1340,96 +1329,15 @@ final class ArborWorkspaceState {
         }
         let visits = await recentVisits()
         return LocalArborSyncOverview(
-            origin: accounts.first?.canopy ?? localConfiguration?.origin,
-            handle: accounts.first?.handle ?? localConfiguration?.handle,
+            origin: accounts.first?.canopy,
+            handle: accounts.first?.handle,
             configurationTree: configurationTree,
             credentialAvailable: accounts.contains(where: \.credentialAvailable),
             accounts: accounts,
             trees: trees,
             visits: visits,
-            devices: localConfiguration?.devices ?? [],
             observedThrough: treeList.observedThrough
         )
-    }
-
-    private func loadLocalAccountConfiguration() throws -> LocalAccountConfigurationPresentation {
-        let home = ArborSupportDirectories.dataHome
-        let accountSource = try String(contentsOf: home.appending(path: "account.yaml"), encoding: .utf8)
-        let administrators = Set(yamlSequence(named: "admins", in: accountSource))
-        let currentDeviceURL = home.appending(path: ".state/device.json")
-        let currentDeviceState = try? JSONDecoder().decode(
-            [String: String].self,
-            from: Data(contentsOf: currentDeviceURL)
-        )
-        let currentDevice = currentDeviceState?["id"]
-        let devicesURL = home.appending(path: "devices", directoryHint: .isDirectory)
-        let files = try FileManager.default.contentsOfDirectory(
-            at: devicesURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        let devices = try files.compactMap { url -> LocalArborSyncDevicePresentation? in
-            guard url.pathExtension == "yaml" else { return nil }
-            let id = url.deletingPathExtension().lastPathComponent
-            guard id.hasPrefix("dv_") else { return nil }
-            let source = try String(contentsOf: url, encoding: .utf8)
-            return LocalArborSyncDevicePresentation(
-                id: id,
-                label: yamlScalar(named: "label", in: source) ?? id,
-                isAdministrator: administrators.contains(id),
-                isCurrent: currentDevice == id
-            )
-        }.sorted { lhs, rhs in
-            if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
-            return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
-        }
-        return LocalAccountConfigurationPresentation(
-            origin: yamlScalar(named: "community", in: accountSource),
-            handle: yamlScalar(named: "handle", in: accountSource),
-            administrators: administrators,
-            currentDevice: currentDevice,
-            devices: devices
-        )
-    }
-
-    private func yamlScalar(named name: String, in source: String) -> String? {
-        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix("\(name):") else { continue }
-            return decodeYAMLScalar(String(line.dropFirst(name.count + 1)))
-        }
-        return nil
-    }
-
-    private func yamlSequence(named name: String, in source: String) -> [String] {
-        let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "\(name):" }) else {
-            return []
-        }
-        let indentation = lines[start].prefix { $0 == " " }.count
-        var values: [String] = []
-        for line in lines.dropFirst(start + 1) {
-            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-            let lineIndentation = line.prefix { $0 == " " }.count
-            guard lineIndentation > indentation else { break }
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("-") else { continue }
-            if let value = decodeYAMLScalar(String(trimmed.dropFirst())) { values.append(value) }
-        }
-        return values
-    }
-
-    private func decodeYAMLScalar(_ source: String) -> String? {
-        let value = source.trimmingCharacters(in: .whitespaces)
-        guard !value.isEmpty else { return nil }
-        if value.hasPrefix("\"") {
-            return try? JSONDecoder().decode(String.self, from: Data(value.utf8))
-        }
-        if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
-            return String(value.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
-        }
-        if let comment = value.range(of: " #") { return String(value[..<comment.lowerBound]) }
-        return value
     }
 
     private func startLocalOverviewWatch(after cursor: String) {
@@ -1479,13 +1387,13 @@ final class ArborWorkspaceState {
         }
     }
 
-    func createLocalArborSyncPairing(configurationTree: String? = nil) async throws -> LocalArborSyncPairingPresentation {
+    func createLocalArborSyncPairing(configurationTree: String) async throws -> LocalArborSyncPairingPresentation {
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
         guard let overview = localArborSyncOverview else {
             throw ArborSyncSupervisorError.incompatibleService("The account list is unavailable")
         }
-        let selected = configurationTree.flatMap { id in overview.accounts.first { $0.configurationTree == id } }
+        let selected = overview.accounts.first { $0.configurationTree == configurationTree }
         guard let rawOrigin = selected?.canopy ?? overview.origin,
               let origin = URL(string: rawOrigin) else {
             throw ArborSyncSupervisorError.incompatibleService("The community origin is invalid")
@@ -1500,59 +1408,6 @@ final class ArborWorkspaceState {
         return LocalArborSyncPairingPresentation(
             payload: String(decoding: data, as: UTF8.self),
             confirmationCode: offer.confirmationCode
-        )
-    }
-
-    /// Pause between editing the legacy account files and re-reading them.
-    /// The reason is not recorded (the re-read is local); presumably it lets
-    /// arborsync observe the edit first. Kept unchanged with the legacy path.
-    private static let legacyDeviceRevocationSettleDelay: Duration = .milliseconds(250)
-
-    func revokeLocalArborSyncDevice(_ id: String) async throws {
-        let configuration = try loadLocalAccountConfiguration()
-        guard let target = configuration.devices.first(where: { $0.id == id }) else {
-            throw ArborSyncSupervisorError.incompatibleService("The device is no longer active")
-        }
-        let currentIsAdministrator = configuration.currentDevice.map(configuration.administrators.contains) == true
-        guard target.isCurrent || currentIsAdministrator else {
-            throw ArborSyncSupervisorError.incompatibleService("Only an administrator can revoke another device")
-        }
-        if target.isAdministrator {
-            guard configuration.administrators.count > 1 else {
-                throw ArborSyncSupervisorError.incompatibleService("The last administrator cannot be revoked")
-            }
-            let accountURL = ArborSupportDirectories.dataHome.appending(path: "account.yaml")
-            let source = try String(contentsOf: accountURL, encoding: .utf8)
-            let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            let filtered = lines.filter { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard trimmed.hasPrefix("-") else { return true }
-                return decodeYAMLScalar(String(trimmed.dropFirst())) != id
-            }
-            guard filtered.count == lines.count - 1 else {
-                throw ArborSyncSupervisorError.incompatibleService("The administrator entry could not be edited safely")
-            }
-            try (filtered.joined(separator: "\n")).write(to: accountURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: accountURL.path)
-        }
-        let deviceURL = ArborSupportDirectories.dataHome.appending(path: "devices/\(id).yaml")
-        try FileManager.default.removeItem(at: deviceURL)
-        try await Task.sleep(for: Self.legacyDeviceRevocationSettleDelay)
-        try await refreshLocalArborSyncDevices()
-    }
-
-    private func refreshLocalArborSyncDevices() async throws {
-        guard let overview = localArborSyncOverview else { return }
-        localArborSyncOverview = LocalArborSyncOverview(
-            origin: overview.origin,
-            handle: overview.handle,
-            configurationTree: overview.configurationTree,
-            credentialAvailable: overview.credentialAvailable,
-            accounts: overview.accounts,
-            trees: overview.trees,
-            visits: overview.visits,
-            devices: try loadLocalAccountConfiguration().devices,
-            observedThrough: overview.observedThrough
         )
     }
 #endif

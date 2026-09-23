@@ -2949,7 +2949,6 @@ private struct MacArborSyncAccountPanel: View {
     @State private var message: String?
 
     private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
-    private var activeDevices: [LocalArborSyncDevicePresentation] { account?.devices ?? [] }
 
     var body: some View {
         NavigationStack {
@@ -3011,37 +3010,7 @@ private struct MacArborSyncAccountPanel: View {
                             }
                         }
                     }
-                    if account.accounts.isEmpty, account.handle != nil {
-                        Section {
-                            ForEach(activeDevices, id: \.id) { device in
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(device.label)
-                                        Text([
-                                            device.isCurrent ? "This Mac" : nil,
-                                            device.isAdministrator ? "Administrator" : "Active device",
-                                        ].compactMap { $0 }.joined(separator: " · "))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Button("Revoke", role: .destructive) {
-                                        Task { await revoke(device.id) }
-                                    }
-                                    .disabled(device.isAdministrator && activeDevices.filter(\.isAdministrator).count == 1)
-                                }
-                            }
-                        } header: {
-                            ArborDevicesHeader(addAccount: { setupPresented = true })
-                        } footer: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Each active device has its own server credential. Revoking one does not delete any tree data.")
-                                Button("Pair another device…") { Task { await createPairing(configurationTree: nil) } }
-                                    .buttonStyle(.link)
-                                    .textCase(nil)
-                            }
-                        }
-                    } else if account.accounts.isEmpty {
+                    if account.accounts.isEmpty {
                         ContentUnavailableView(
                             "No Canopy account",
                             systemImage: "person.crop.circle.badge.questionmark",
@@ -3267,7 +3236,7 @@ private struct MacArborSyncAccountPanel: View {
         }
     }
 
-    private func createPairing(configurationTree: String?) async {
+    private func createPairing(configurationTree: String) async {
         do {
             let value = try await workspace.createLocalArborSyncPairing(configurationTree: configurationTree)
             pairing = value
@@ -3292,11 +3261,6 @@ private struct MacArborSyncAccountPanel: View {
         } catch {
             message = error.localizedDescription
         }
-    }
-
-    private func revoke(_ id: String) async {
-        do { try await workspace.revokeLocalArborSyncDevice(id) }
-        catch { message = error.localizedDescription }
     }
 }
 
