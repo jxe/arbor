@@ -86,8 +86,8 @@ Implemented locally at schema 17; not deployed, and not rehearsed on a productio
 Migration 015 is the single pending cutover from the live schema 15. It folds in the
 never-run migration 014 (entry metadata) and removes stored copies of accepted
 history: `observations` becomes `accepted_updates.ordinal` (unchanged cursors for every
-accepted update), `reflog` is dropped, and `authored_changes` keeps only the trace and
-evidence. `AcceptedUpdateStore.advance` is now the only writer of `trees.ref`. A merge
+accepted update), `reflog` is dropped, `authored_changes` keeps only the trace and
+evidence, and the unread `accounts.token_digest` is dropped. `AcceptedUpdateStore.advance` is now the only writer of `trees.ref`. A merge
 that records decisions reads only its own tree's legacy conflict rows instead of every
 row in the database. See the
 [migration README](packages/canopyd/migrations/015-compact-history/README.md).

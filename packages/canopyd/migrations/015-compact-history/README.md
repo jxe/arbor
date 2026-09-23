@@ -41,11 +41,18 @@ does only the second step.
   - Reads now join `accepted_updates`. The `(tree_id, change_id)` uniqueness is still enforced,
     by `accepted_updates_change`.
   - The run stops if any copy disagrees.
+- **`accounts.token_digest` is removed.** It was written at account creation and on token
+  reset, but nothing read it. Authentication reads only `devices.token_digest`, and every
+  account keeps its devices.
+  - `accounts` is rebuilt, because SQLite cannot drop a `UNIQUE` column in place.
+  - The run stops if any account has no device, since that account would lose its only
+    stored credential. Startup already refuses that state.
 - **Indexes.** `accepted_updates_tree` becomes part of the schema; it was an "additive read
   index" before. There is a new `accepted_updates_root (tree_id, root)`. The snapshot route's
   retained-root check used to scan a tree's whole history.
 
-Unchanged: tree roots, update ids, objects, merge states, conflicts, and accounts. The report's
+Unchanged: tree roots, update ids, objects, merge states, conflicts, devices, and every other
+account column. The report's
 roots equal the backup's. No wire format changes, and no client needs an update.
 
 ## History boundary (entry metadata)
@@ -71,11 +78,11 @@ The run happens in this order:
 1. Check the stamp and run `quick_check`.
 2. Run the read-only checks. Every accepted update has exactly one observation. Each tree's
    insertion order equals its observation order. No observation is orphaned. Every
-   `authored_changes` copy matches its accepted update.
+   `authored_changes` copy matches its accepted update. Every account has a device.
 3. From 15 only, replay the entry changes (object reads).
 4. With foreign keys off, run one transaction. It fills the entry tables, rebuilds
-   `accepted_updates`, drops `observations` and `reflog`, rebuilds `authored_changes`, sets the
-   sequence, stamps 17, and runs `foreign_key_check`.
+   `accepted_updates`, drops `observations` and `reflog`, rebuilds `authored_changes` and
+   `accounts`, sets the sequence, stamps 17, and runs `foreign_key_check`.
 5. Run the startup schema check.
 
 A crash before the transaction leaves the database untouched. A rerun afterwards reports
@@ -108,7 +115,10 @@ It checks that:
 - the migrated root serves;
 - old cursors still resolve and the legacy status cursor does not;
 - the next accepted update takes an ordinal past the old sequence;
-- a disagreeing authored copy, or a missing accepted root, stops the run with nothing changed.
+- accounts and devices are unchanged apart from the dropped column, and the migrated host
+  accepts an update authenticated by a device token;
+- a disagreeing authored copy, an account without a device, or a missing accepted root stops
+  the run with nothing changed.
 
 Then serve the migrated copy with the new build, confirm that it opens, read
 `/entry-metadata` for a tree, and run `verify.ts` against the report once. `verify.ts` calls

@@ -302,8 +302,8 @@ export class CanopyDaemon implements AsyncDisposable {
       );
       const accountID = generateArborID("ac");
       this.db.run(
-        "INSERT INTO accounts (id, handle, profile_tree, token_digest, enabled) VALUES (?, ?, ?, ?, 1)",
-        [accountID, account.handle, profile.id, sha256(account.token)],
+        "INSERT INTO accounts (id, handle, profile_tree, enabled) VALUES (?, ?, ?, 1)",
+        [accountID, account.handle, profile.id],
       );
       this.db.run(
         "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Initial device', ?, ?)",
@@ -1074,8 +1074,8 @@ export class CanopyDaemon implements AsyncDisposable {
       );
       if (consumed.changes !== 1) throw new Error("Account challenge was already consumed or expired");
       this.db.run(
-        "INSERT INTO accounts (id, handle, profile_tree, config_tree, token_digest, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, ?, 1)",
-        [accountID, input.handle, input.profileTree, input.configurationTree, input.credentialDigest.slice("sha256:".length), claimDigest],
+        "INSERT INTO accounts (id, handle, profile_tree, config_tree, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, 1)",
+        [accountID, input.handle, input.profileTree, input.configurationTree, claimDigest],
       );
       this.db.run(
         "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, ?, ?, ?)",

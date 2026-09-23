@@ -23,7 +23,7 @@ export const AUTHORITY_SCHEMA = {
   accepted_conflicts: ["accepted_id", "state_json"],
   accepted_merge_states: ["accepted_id", "record_json"],
   authored_changes: ["accepted_id", "trace_json", "evidence_json"],
-  accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
+  accounts: ["id", "handle", "profile_tree", "config_tree", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   account_challenges: ["id", "challenge_json", "expires_at", "consumed_at", "claim_digest"],
@@ -61,7 +61,6 @@ export function createCanopySchema(db: Database): void {
       handle TEXT NOT NULL UNIQUE,
       profile_tree TEXT,
       config_tree TEXT,
-      token_digest TEXT NOT NULL UNIQUE,
       enabled INTEGER NOT NULL DEFAULT 1,
       claim_digest TEXT
     )
