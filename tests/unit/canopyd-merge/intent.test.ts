@@ -2051,3 +2051,78 @@ test("nested enclosures retain readable alternatives as a source branch advances
   expect(f.content(next.result.object, "a.txt")).toBe("FOUR");
   expect(next.decisions.map(d => d.key)).toEqual(edited.decisions.map(d => d.key));
 });
+test("later edits follow a selected deletion's anchor without enclosing it", async () => {
+  const f = new Fixture(),
+    text = "intro\n\nblock one\n\ntail\n",
+    base = f.tree({ "p.md": text });
+  const remote = await f.run(
+    f.request(
+      base,
+      f.tree({ "p.md": "intro\n\nblock ONE\n\ntail\n" }),
+      [{ key: "edit", kind: "editSource", source: f.ref("/p.md", text, [13, 16]), text: "ONE" }],
+      "remote",
+    ),
+  );
+  let previous = await f.run(
+    f.request(
+      base,
+      f.tree({ "p.md": "intro\n\ntail\n" }),
+      [{ key: "delete", kind: "editSource", source: f.ref("/p.md", text, [7, 18]), text: "" }],
+      "local",
+      remote.result,
+    ),
+  );
+  expect(previous.decisions).toHaveLength(1);
+  const decision = previous.decisions[0]!;
+  expect(decision.context).toBeUndefined();
+  let current = "intro\n\ntail\n",
+    anchor = decision.placement!.anchor;
+  // Before the anchor, after it, and before it again.
+  for (const [index, at] of [0, current.length, 0].entries()) {
+    const insert = `M${index}\n`,
+      next = current.slice(0, at) + insert + current.slice(at);
+    const r = await f.run(
+      f.request(
+        previous.result,
+        f.tree({ "p.md": next }),
+        [{ key: "insert", kind: "editSource", source: f.ref("/p.md", current, [at, at]), text: insert }],
+        `local-${index}`,
+      ),
+    );
+    if (at < anchor) anchor += insert.length;
+    expect(r.decisions.map((d) => d.key)).toEqual([decision.key]);
+    expect(r.decisions[0]!.context).toBeUndefined();
+    expect(r.decisions[0]!.placement!.anchor).toBe(anchor);
+    expect(await f.content(r.result.object, "p.md")).toBe(next);
+    previous = r;
+    current = next;
+  }
+});
+test.each(["edit-first", "delete-first"])(
+  "a deletion never cuts into the selected side of its own choice (%s)",
+  async (order) => {
+    const f = new Fixture(),
+      text = "intro\n\nblock one\n\ntail\n",
+      base = f.tree({ "p.md": text });
+    const edit = { key: "edit", kind: "editSource" as const, source: f.ref("/p.md", text, [13, 16]), text: "ONE" },
+      remove = { key: "delete", kind: "editSource" as const, source: f.ref("/p.md", text, [7, 18]), text: "" },
+      edited = f.tree({ "p.md": "intro\n\nblock ONE\n\ntail\n" }),
+      removed = f.tree({ "p.md": "intro\n\ntail\n" });
+    const [first, second] = order === "edit-first"
+      ? [{ ops: [edit], tree: edited }, { ops: [remove], tree: removed }]
+      : [{ ops: [remove], tree: removed }, { ops: [edit], tree: edited }];
+    const current = await f.run(f.request(base, first.tree, first.ops, "first"));
+    const r = await f.run(f.request(base, second.tree, second.ops, "second", current.result));
+    expect(r.decisions).toHaveLength(1);
+    const decision = r.decisions[0]!,
+      selected = decision.alternatives[decision.selected]!;
+    const projected = await f.content(r.result.object, "p.md");
+    // The page is exactly the base with the selected side in the choice's range.
+    expect([
+      "intro\n\nblock ONE\n\ntail\n",
+      "intro\n\ntail\n",
+    ]).toContain(projected);
+    expect(selected.object).toBe(f.put(projected === "intro\n\ntail\n" ? "" : "block ONE\n\n"));
+    expect(decision.context).toBeUndefined();
+  },
+);

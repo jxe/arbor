@@ -98,6 +98,26 @@ function slice(pieces: Piece[], start: number, end: number): Piece[] {
   }
   return output;
 }
+/** `pieces` without the origin coordinates any of `without` covers. */
+function subtractPieces(pieces: Piece[], without: Piece[]): Piece[] {
+  if (!without.length) return pieces;
+  return pieces.flatMap((piece) => {
+    let parts = [piece];
+    for (const cut of without) {
+      if (cut.origin !== piece.origin) continue;
+      parts = parts.flatMap((part) => {
+        const start = Math.max(part.start, cut.start),
+          end = Math.min(part.start + part.length, cut.start + cut.length);
+        if (end <= start) return [part];
+        const keep = (from: number, to: number) => ({
+          ...part, start: from, offset: part.offset + (from - part.start), length: to - from,
+        });
+        return [keep(part.start, start), keep(end, part.start + part.length)].filter((p) => p.length > 0);
+      });
+    }
+    return parts;
+  });
+}
 function normalize(pieces: Piece[]): Piece[] {
   const out: Piece[] = [];
   for (const p of pieces) {
@@ -1247,19 +1267,21 @@ class Engine {
     }));
   }
   /** Enforce the deletions of `effects` (by default all of the state's). */
-  enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects) {
+  /** `kept` names, per node, pieces a new choice selected: a deletion that
+   * choice retains as its other alternative must not cut into them. */
+  enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects, kept: ReadonlyMap<string, Piece[]> = new Map()) {
     for (const effect of Object.values(effects)) {
       if (effect.undone || effect.kind !== "editSource") continue;
       for (const [id, edits] of Object.entries(effectEdits(effect))) {
         for (const edit of edits) {
           if (edit.inserted.length || edit.range[0] === edit.range[1]) continue;
-          const removed = edit.removed;
           for (const node of Object.values(state.nodes))
             if (
               node.active &&
               node.pieces &&
               this.realm(state, node.id) === this.realm(state, id)
             ) {
+              const removed = subtractPieces(edit.removed, kept.get(node.id) ?? []);
               const out: Piece[] = [];
               for (const p of node.pieces) {
                 let parts = [p];
@@ -1662,9 +1684,12 @@ class Engine {
         const placement = decision.placement,
           visibleBefore = placement ? base.nodes[placement.node] : undefined,
           visibleAfter = placement ? authored.nodes[placement.node] : undefined;
+        // A decision with its own context is placed within that context, not
+        // the live file, so live edits neither move nor enclose it.
         if (
           index === decision.selected &&
           placement &&
+          !decision.context &&
           same(old, node) &&
           !same(visibleBefore, visibleAfter)
         ) {
@@ -1674,6 +1699,24 @@ class Engine {
             !visibleAfter.pieces
           ) {
             wrapped.add(decision.key);
+            continue;
+          }
+          // An empty selection has no pieces to follow: carry its anchor
+          // through the file's edits, enclosing only when an edit spans it.
+          if (!placement.pieces.length && visibleBefore?.pieces) {
+            let anchor = placement.anchor,
+              spanned = false;
+            for (const edit of await this.edits(visibleBefore.pieces, visibleAfter.pieces, authored)) {
+              const [from, to] = edit.range;
+              if (from < placement.anchor && to > placement.anchor) spanned = true;
+              else if (to < placement.anchor || (to === placement.anchor && from < to))
+                anchor += length(edit.pieces) - (to - from);
+            }
+            if (spanned) {
+              wrapped.add(decision.key);
+              continue;
+            }
+            placement.anchor = anchor;
             continue;
           }
           try {
@@ -2395,7 +2438,11 @@ class Engine {
       merged.changes[request.incoming.change] = signature;
       for (const node of Object.values(merged.nodes))
         if (node.deletions?.length) node.active = false;
-      this.enforceDeletions(merged, await this.pendingDeletions(merged));
+      const kept = new Map<string, Piece[]>();
+      for (const decision of contentDecisions)
+        if (decision.placement)
+          kept.set(decision.placement.node, [...(kept.get(decision.placement.node) ?? []), ...decision.placement.pieces]);
+      this.enforceDeletions(merged, await this.pendingDeletions(merged), kept);
       try {
         if (!affected.length) await this.project(merged);
       } catch (error) {
@@ -2554,6 +2601,13 @@ class Engine {
         try {
           if (!node?.active || !node.pieces)
             throw new Error("Placement disappeared");
+          // An empty selection (a retained deletion) has no pieces to find;
+          // it stays attached at its anchor, as validation accepts.
+          if (!decision.placement.pieces.length) {
+            if (decision.placement.anchor > length(node.pieces))
+              throw new Error("Anchor is outside its material");
+            continue;
+          }
           const at = this.locate(node.pieces, decision.placement.pieces, [
             0,
             length(decision.placement.pieces),
