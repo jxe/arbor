@@ -1,18 +1,15 @@
-import { loadSharedValue, storeSharedValue } from "./state-value.ts";
-import { stableJSONString, hashObject } from "@overstory/protocol";
+import { boundedJSONSize, encodeJSON, keyHash, loadSharedValue, OBJECT_HASH, storeSharedValue } from "./state-value.ts";
+import { hashObject } from "@overstory/protocol";
 
 const format = "arbor-state-map-v1";
-const encoder = new TextEncoder();
-const hashPattern = /^sha256:[a-f0-9]{64}$/;
+const hashPattern = OBJECT_HASH;
 type Entry = [string, string];
 type Node =
   | { format: typeof format; entries: Entry[] }
   | { format: typeof format; children: (string | null)[] };
 type Read = (hash: string) => Promise<Uint8Array>;
 type Put = (bytes: Uint8Array) => string;
-const emit = (value: unknown, put: Put) =>
-  put(encoder.encode(stableJSONString(value)));
-const keyHash = (key: string) => hashObject(encoder.encode(key)).slice(7);
+const emit = (value: unknown, put: Put) => put(encodeJSON(value));
 const digit = (key: string, depth: number) =>
   parseInt(keyHash(key)[depth]!, 16);
 
@@ -87,7 +84,9 @@ function record(value: unknown, put: Put): string {
   // Large records contain growing before/after piece sequences. Chunk those
   // sequences so unchanged pages are shared between versions, not copied into
   // every historical effect. Small scalar records stay inline.
-  if (stableJSONString(value).length <= 2048)
+  // The threshold counts UTF-16 units of the canonical JSON, bounded rather
+  // than serializing a large record only to measure it.
+  if (boundedJSONSize(value, 2048, (json) => json.length) <= 2048)
     return emit({ format: "arbor-state-record-v1", value }, put);
   return emit(
     { format: "arbor-state-record-v2", value: storeSharedValue(value, put) },
@@ -116,15 +115,22 @@ export function storeStateMap(
     put,
   );
 }
+/** `nodes` caches validated nodes by hash and prefix across lookups. */
 export async function getStateMap(
   root: string,
   key: string,
   read: Read,
+  nodes?: Map<string, Promise<Node>>,
 ): Promise<unknown> {
   let hash = root,
     prefix = "";
   for (;;) {
-    const value = await node(hash, read, prefix);
+    let pending = nodes?.get(prefix + ":" + hash);
+    if (!pending) {
+      pending = node(hash, read, prefix);
+      nodes?.set(prefix + ":" + hash, pending);
+    }
+    const value = await pending;
     if ("entries" in value) {
       const entry = value.entries.find(([name]) => name === key);
       return entry ? readRecord(entry[1], read) : undefined;
@@ -201,214 +207,6 @@ export async function loadStateMap(
   return output;
 }
 
-/** Proofs mirror the radix tree. Parents retain child proofs, not copies of all
- * descendant values and dependencies. Expanded bytes still enforce input limits. */
-type ProofAllocation = {
-  weight: number;
-  children: readonly ProofAllocation[];
-};
-export type MapProof = ProofAllocation & {
-  values: Readonly<Record<string, unknown>>;
-  objects: Iterable<string>;
-  bytes: number;
-  visits: number;
-  references: Iterable<string>;
-};
-type RecordProof = ProofAllocation & {
-  value: unknown;
-  bytes: number;
-  objects: ReadonlySet<string>;
-  references: ReadonlySet<string>;
-};
-
-function* combined<T>(own: Iterable<T>, children: readonly Iterable<T>[]): Generator<T> {
-  yield* own;
-  for (const child of children) yield* child;
-}
-
-function proofObjects(hash: string, children: readonly (MapProof | RecordProof)[]): Iterable<string> {
-  return { [Symbol.iterator]: () => combined([hash], children.map(c => c.objects)) };
-}
-function proofReferences(children: readonly (MapProof | RecordProof)[]): Iterable<string> {
-  return { [Symbol.iterator]: () => combined([], children.map(c => c.references)) };
-}
-
-/** A synchronous, immutable lookup view over already validated children. Only
- * explicit enumeration pays for enumerating the whole history. */
-function branchValues(children: readonly (MapProof | undefined)[], depth: number): Readonly<Record<string, unknown>> {
-  const get = (key: string) => children[digit(key, depth)]?.values[key];
-  return new Proxy(Object.create(null), {
-    get: (_target, key) => typeof key === "string" ? get(key) : undefined,
-    has: (_target, key) => typeof key === "string" && get(key) !== undefined,
-    ownKeys: () => children.flatMap(child => child ? Object.keys(child.values) : []),
-    getOwnPropertyDescriptor: (_target, key) => {
-      const value = typeof key === "string" ? get(key) : undefined;
-      return value === undefined ? undefined : { value, enumerable: true, configurable: true, writable: false };
-    },
-    set: () => false,
-    deleteProperty: () => false,
-    defineProperty: () => false,
-    setPrototypeOf: () => false,
-    preventExtensions: () => false,
-  });
-}
-
-/** Semantic facts only, never evidence of durable availability. The memory
- * ledger counts a shared allocation once across cache entries and pinned state
- * proofs. Removing an entry cannot hide memory still owned by another root. */
-export class StateMapValidationCache {
-  private readonly entries = new Map<string, MapProof | RecordProof>();
-  private readonly owners = new Map<ProofAllocation, number>();
-  private weight = 0;
-  readonly stats = { hits: 0, misses: 0, sets: 0, rejected: 0, evictions: 0 };
-  constructor(private readonly maxBytes = 64 * 1024 * 1024) {}
-  get size(): { bytes: number; entries: number } {
-    return { bytes: this.weight, entries: this.entries.size };
-  }
-  private acquire(proof: ProofAllocation) {
-    const count = this.owners.get(proof) ?? 0;
-    this.owners.set(proof, count + 1);
-    if (count) return;
-    this.weight += proof.weight;
-    for (const child of proof.children) this.acquire(child);
-  }
-  private release(proof: ProofAllocation) {
-    const count = this.owners.get(proof)!;
-    if (count > 1) { this.owners.set(proof, count - 1); return; }
-    this.owners.delete(proof);
-    this.weight -= proof.weight;
-    for (const child of proof.children) this.release(child);
-  }
-  private trim() {
-    while (this.weight > this.maxBytes && this.entries.size) {
-      const key = this.entries.keys().next().value!;
-      const proof = this.entries.get(key)!;
-      this.entries.delete(key);
-      this.release(proof);
-      this.stats.evictions++;
-    }
-  }
-  /** A state cache must hold this lease for as long as it retains these views.
-   * If pinned roots alone exceed the bound, decline the new lease. */
-  pin(proofs: readonly MapProof[]): (() => void) | undefined {
-    for (const proof of proofs) this.acquire(proof);
-    this.trim();
-    if (this.weight > this.maxBytes) {
-      for (const proof of proofs) this.release(proof);
-      return undefined;
-    }
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      for (const proof of proofs) this.release(proof);
-    };
-  }
-  get(key: string): MapProof | RecordProof | undefined {
-    const proof = this.entries.get(key);
-    if (!proof) { this.stats.misses++; return undefined; }
-    this.stats.hits++;
-    this.entries.delete(key);
-    this.entries.set(key, proof);
-    return proof;
-  }
-  set(key: string, proof: MapProof | RecordProof) {
-    if (proof.weight > this.maxBytes) { this.stats.rejected++; return; }
-    this.stats.sets++;
-    this.acquire(proof);
-    const prior = this.entries.get(key);
-    if (prior) this.release(prior);
-    this.entries.delete(key);
-    this.entries.set(key, proof);
-    this.trim();
-  }
-}
-function freezeValue(value: unknown): unknown {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) freezeValue(child);
-    Object.freeze(value);
-  }
-  return value;
-}
-/** Revalidate changed branches and records. Complete dependency enumeration is
- * available to audits, but normal authority validation retains the proof DAG. */
-export async function loadValidatedStateMap(
-  root: string,
-  read: Read,
-  options: {
-    cache: StateMapValidationCache;
-    role: string;
-    validate: (value: unknown) => unknown;
-    references?: (value: unknown) => ReadonlySet<string>;
-    maxBytes: number;
-  },
-): Promise<MapProof> {
-  const check = <T extends { bytes: number; visits: number }>(proof: T) => {
-    if (proof.bytes > options.maxBytes || proof.visits > 1_000_000)
-      throw Error("State map exceeds verification budget");
-    return proof;
-  };
-  const visit = async (hash: string, prefix: string): Promise<MapProof> => {
-    const key = JSON.stringify(["map", options.role, prefix, hash]);
-    const cached = options.cache.get(key) as MapProof | undefined;
-    if (cached) return check(cached);
-    let bytes = 0;
-    const value = await node(hash, async h => {
-      const b = await read(h); bytes += b.length; return b;
-    }, prefix);
-    const ownBytes = bytes;
-    const records: RecordProof[] = [];
-    const branches: (MapProof | undefined)[] = Array(16);
-    let values: Readonly<Record<string, unknown>>;
-    let visits = 1;
-    if ("entries" in value) {
-      const leaf: Record<string, unknown> = Object.create(null);
-      for (const [name, hash] of value.entries) {
-        const recordKey = JSON.stringify(["record", options.role, hash]);
-        let record = options.cache.get(recordKey) as RecordProof | undefined;
-        if (!record) {
-          let length = 0;
-          const objects = new Set<string>();
-          const raw = await readRecord(hash, async h => {
-            const b = await read(h); length += b.length; objects.add(h); return b;
-          });
-          const value = freezeValue(options.validate(raw));
-          const references = options.references?.(value) ?? new Set<string>();
-          record = { value, bytes: length, objects, references, children: [],
-            weight: length * 2 + (objects.size + references.size) * 160 + 256 };
-          options.cache.set(recordKey, record);
-        }
-        records.push(record);
-        bytes += record.bytes;
-        visits++;
-        check({ bytes, visits });
-        leaf[name] = record.value;
-      }
-      values = Object.freeze(leaf);
-    } else {
-      for (let i = 0; i < 16; i++) if (value.children[i]) {
-        const child = await visit(value.children[i]!, prefix + i.toString(16));
-        branches[i] = child;
-        bytes += child.bytes;
-        visits += child.visits;
-        check({ bytes, visits });
-      }
-      values = branchValues(branches, prefix.length);
-    }
-    const children = [...records, ...branches.filter((p): p is MapProof => !!p)];
-    const proof: MapProof = check({ values, bytes, visits, children,
-      weight: ownBytes * 2 + children.length * 64 + 256,
-      // Factories create repeatable iterables, without retaining this visit's
-      // loader or its staged object map in the long-lived cache.
-      objects: proofObjects(hash, children),
-      references: proofReferences(children),
-    });
-    options.cache.set(key, proof);
-    return proof;
-  };
-  return visit(root, "");
-}
-
 /** Records under `root` whose key is absent from `since` or whose record hash
  * differs. Identical subtrees are skipped by hash, so the cost is the changed
  * buckets, not the map size. */
@@ -450,6 +248,8 @@ export async function diffStateMap(
  * `touched` is every object hash read through this view. */
 export class LazyStateMap {
   private readonly values = new Map<string, unknown>();
+  /** Parsed nodes, so lookups share the path from the root. */
+  private readonly nodes = new Map<string, Promise<Node>>();
   readonly touched = new Set<string>();
   private readonly read: Read;
   constructor(readonly root: string, read: Read) {
@@ -460,7 +260,7 @@ export class LazyStateMap {
   }
   async get(key: string): Promise<unknown> {
     if (this.values.has(key)) return this.values.get(key);
-    const value = await getStateMap(this.root, key, this.read);
+    const value = await getStateMap(this.root, key, this.read, this.nodes);
     this.values.set(key, value);
     return value;
   }

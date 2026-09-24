@@ -48,7 +48,7 @@ export function treeReader(load: Load | TreeReader): TreeReader {
 }
 
 /** One directory level of a walk: either side is absent where that side has no directory. */
-export interface DirectoryPair {
+interface DirectoryPair {
   path: string;
   depth: number;
   before: { hash: ObjectHash; directory: WireDirectory } | null;
@@ -56,7 +56,7 @@ export interface DirectoryPair {
 }
 
 /** One name whose entry differs between the two sides. */
-export interface EntryPair {
+interface EntryPair {
   /** `/`-joined from the walk's root, without a trailing slash; the root is `""`. */
   path: string;
   parent: string;
@@ -66,7 +66,7 @@ export interface EntryPair {
   after?: WireDirectoryEntry;
 }
 
-export interface TreeDiffVisitor {
+interface TreeDiffVisitor {
   directory?(pair: DirectoryPair): void | Promise<void>;
   /** Return true to walk into the entry's directory on each side that has one. */
   entry(pair: EntryPair): boolean | void | Promise<boolean | void>;
@@ -111,4 +111,25 @@ export async function walkTreeDiff(
     }
   };
   await walk(before, after, "", 0);
+}
+
+/** The paths whose entries differ between two roots. A changed file, nested
+ * tree or entry kind stays at its entry; a directory whose own metadata
+ * changed is named itself. Physical changes are evidence of a change, never
+ * of an editor operation. */
+export async function changedEntryPaths(before: ObjectHash, after: ObjectHash, load: Load | TreeReader): Promise<string[]> {
+  const paths: string[] = [];
+  const metadata = ({ entries: _entries, ...rest }: WireDirectory) => JSON.stringify(rest);
+  const value = (entry?: WireDirectoryEntry) =>
+    entry?.file ? `file:${entry.file}` : entry?.directory ? `directory:${entry.directory}` : entry?.tree ? `tree:${entry.tree}` : "absent";
+  await walkTreeDiff(before, after, load, {
+    directory: ({ path, before: old, after: next }) => {
+      if (old && next && metadata(old.directory) !== metadata(next.directory)) paths.push(path);
+    },
+    entry: ({ path, before: a, after: b }) => {
+      if (a?.directory && b?.directory) return true;
+      if (value(a) !== value(b)) paths.push(path);
+    },
+  });
+  return paths;
 }

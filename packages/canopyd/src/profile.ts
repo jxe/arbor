@@ -1,7 +1,20 @@
+import type { Database } from "bun:sqlite";
 import { parseMarkdown, plainMarkdownTitle, decodeWireDirectory, type ObjectHash } from "@overstory/protocol";
 
-const PROFILE_LOCATOR = /^arbor:\/\/tr_[a-z2-7]+\/?$/;
-const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
+/** A Canopy-local account handle, the name in `/~handle`. */
+export const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
+const PROFILE_LOCATOR = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/;
+const LEGACY_HANDLE_LOCATOR = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/;
+
+/** The Profile TreeID an `arbor://<TreeID>/` member locator names. */
+export function profileLocatorTree(locator: string): string | undefined {
+  return PROFILE_LOCATOR.exec(locator)?.[1];
+}
+
+/** The handle a legacy scalar member's `/~handle` locator names. */
+export function legacyMemberHandle(member: { profile: string; legacy?: true }): string | undefined {
+  return member.legacy ? LEGACY_HANDLE_LOCATOR.exec(member.profile)?.[1] : undefined;
+}
 
 export interface RootProfileFacts {
   version: 3;
@@ -94,4 +107,22 @@ export async function rootProfileFacts(root: ObjectHash, load: (hash: ObjectHash
     ...(description !== undefined ? { description } : {}),
     ...(avatar ? { avatar } : {}),
   };
+}
+
+/** A root's stored profile facts (`meta` key `profile:<root>`), or null. Only
+ * accepted person and group profile roots have a row, written with their
+ * acceptance; migration 016 rebuilt the rows for every current head. */
+export function storedProfileFacts(db: Database, root: ObjectHash): RootProfileFacts | null {
+  const row = db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
+  return row ? JSON.parse(row.value) as RootProfileFacts : null;
+}
+
+/** Store a profile root's facts, inside the transaction that accepts it. A
+ * root that declares neither person nor group gets no row. */
+export function recordProfileFacts(db: Database, root: ObjectHash, facts: RootProfileFacts | null): void {
+  if (!facts?.type) return;
+  db.run(
+    "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    [`profile:${root}`, JSON.stringify(facts)],
+  );
 }

@@ -13,11 +13,16 @@ describe("account configuration v2", () => {
   test("accepts every shared flat-graph conformance case", async () => {
     const registry = JSON.parse(await readFile(join(import.meta.dir, "../../docs/overstory-spec/conformance/configuration-yaml.json"), "utf8")) as {
       valid: Array<{ configurationTree: string; files: Record<"account.yaml" | "trees.yaml" | "devices.yaml", string> }>;
+      invalid: Array<{ name: string; path: string; source: string }>;
     };
     for (const candidate of registry.valid) {
       const account = parseCanopyAccountConfiguration(candidate.files["account.yaml"]);
       expect(() => parseHostedTreesConfiguration(candidate.files["trees.yaml"], account), candidate.configurationTree).not.toThrow();
       expect(() => parseAccountDevicesConfiguration(candidate.files["devices.yaml"]), candidate.configurationTree).not.toThrow();
+    }
+    const account = parseCanopyAccountConfiguration(registry.valid[0]!.files["account.yaml"]);
+    for (const candidate of registry.invalid.filter(item => item.path === "trees.yaml")) {
+      expect(() => parseHostedTreesConfiguration(candidate.source, account), candidate.name).toThrow();
     }
   });
 
@@ -27,7 +32,7 @@ describe("account configuration v2", () => {
     expect(parseHostedTreesConfiguration([
       `${tree}:`,
       "  canonical: https://canopy.example/~joe/notes",
-      "  access: [{ subject: { kind: everyone }, access: read }]",
+      "  access: [{ who: everyone, allow: [read] }]",
     ].join("\n"), account)[tree]?.canonical).toBe("https://canopy.example/~joe/notes");
     expect(parseAccountDevicesConfiguration(`${device}:\n  label: Joe's Mac\n  administrator: true\n`)[device])
       .toEqual({ id: device, label: "Joe's Mac", administrator: true });

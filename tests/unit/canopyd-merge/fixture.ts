@@ -13,6 +13,17 @@ import type {
   IntentResponse,
 } from "../../../packages/canopyd-merge/src/intent-model.ts";
 
+/** The frame chain of a one-step change: a single frame from the basis to the
+ * candidate, or no frame for a snapshot or a bare resolution, which carry no
+ * operations. Tests state most changes this way; the engine takes only frames. */
+export function singleStep(
+  basis: string,
+  candidate: string,
+  operations: SourceOperation[],
+): Frame[] {
+  return operations.length ? [{ before: basis, after: candidate, operations }] : [];
+}
+
 export class Fixture {
   objects = new Map<string, Uint8Array>();
   put(text: string | Uint8Array) {
@@ -71,7 +82,11 @@ export class Fixture {
       tree: "tree",
       base: ref(base),
       current: ref(current ?? base),
-      incoming: { change, object: candidate, operations },
+      incoming: {
+        change,
+        object: candidate,
+        trace: singleStep(ref(base).object, candidate, operations),
+      },
       rules: { id: "tree-default", revision: 1 },
     };
   }

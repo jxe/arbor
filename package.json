@@ -47,6 +47,7 @@
     "@overstory/client": "workspace:*",
     "@overstory/canopyd": "workspace:*",
     "@overstory/canopyd-merge": "workspace:*",
+    "@overstory/merge-protocol": "workspace:*",
     "@overstory/apps-runtime": "workspace:*",
     "@overstory/arborsync": "workspace:*",
     "@overstory/arborsync-client": "workspace:*",

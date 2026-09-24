@@ -1,4 +1,4 @@
-import { validateIntentState } from "../../../packages/canopyd-merge/src/intent-engine.ts";
+import { mergeIntent } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
 import { expect, test } from "bun:test";
 import type { MaterialRef, SourceOperation } from "@overstory/protocol";
@@ -839,7 +839,7 @@ test("malformed intent, unavailable objects, unsupported operations and resource
     },
   ]);
   const bad = structuredClone(request);
-  (bad.incoming.operations![0] as { kind: string }).kind = "unknown";
+  (bad.incoming.trace[0]!.operations[0] as { kind: string }).kind = "unknown";
   expect((await f.evaluate(bad)).outcome).toBe("unsupported");
   const limited = structuredClone(request);
   limited.rules.config = { maxBytes: 1 };
@@ -1957,18 +1957,19 @@ test("a later frame refers to an earlier frame's operation result", async () => 
   expect(f.content(framed.result.object, "a.md")).toBe("aOLDbc");
 });
 
-test("a change's identity is its frame chain, however the caller stated it", async () => {
+test("a change's identity is its frame chain", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.md": "abc" }),
     candidate = f.tree({ "a.md": "Abc" });
   const edit = { key: "a", kind: "editSource" as const, source: f.ref("/a.md", "abc", [0, 1]), text: "A" };
-  // One flat list and the single frame it adapts to are the same claim, so
-  // they must hash alike: the adapted list never survives beside the chain.
+  // A one-step request is the single frame it states, so the two hash alike.
   const flat = stableJSONString(changeIdentity(parseIntentRequest(f.request(base, candidate, [edit]))));
   const framed = f.trace(base, [{ after: candidate, operations: [edit] }]);
   expect(stableJSONString(changeIdentity(parseIntentRequest(framed)))).toBe(flat);
   expect(flat).toContain('"trace"');
-  expect(Object.keys(parseIntentRequest(f.request(base, candidate, [edit])).incoming)).not.toContain("operations");
+  // A flat operation list is not a request shape the engine accepts.
+  const { trace: _trace, ...rest } = f.request(base, candidate, [edit]).incoming;
+  expect(() => parseIntentRequest({ ...f.request(base, candidate, [edit]), incoming: { ...rest, operations: [edit] } })).toThrow();
   // The same operations divided into two frames are a different claim, so two
   // changes can never share an identity by regrouping their steps.
   const two = f.trace(base, [
@@ -2053,16 +2054,22 @@ test("nested enclosures retain readable alternatives as a source branch advances
     key: "copy", kind: "copySource", source: f.ref("/a.txt", "two", [1, 3]),
     at: f.ref("/c.txt", "end", [3, 3]), side: "after",
   }], "copy2"));
-  const objects = { read: async (hash: string) => f.objects.get(hash)!, store: async () => {} };
-  await validateIntentState(twice.result, "tree", objects);
+  // Eager evaluation fully loads and validates the basis state it starts from.
+  const eager = async (request: ReturnType<typeof f.request>) => {
+    const response = await mergeIntent(request, {
+      read: async (hash: string) => f.objects.get(hash)!,
+      store: async (values) => { for (const v of values) f.objects.set(v.hash, v.bytes); },
+    }, { eager: true });
+    if (response.outcome !== "evaluated") throw new Error(JSON.stringify(response));
+    return response;
+  };
   // Both enclosing decisions can alias the same root. Updating the nested
   // choice must not leave either newly recorded context with a stale alias.
-  const edited = await f.run(f.request(twice.result, tree("THREE", "endwo", "endwo"),
+  const edited = await eager(f.request(twice.result, tree("THREE", "endwo", "endwo"),
     edit("two", "THREE"), "later"));
   expect(f.content(edited.result.object, "a.txt")).toBe("THREE");
   expect(edited.decisions.map(d => d.key)).toEqual(twice.decisions.map(d => d.key));
-  await validateIntentState(edited.result, "tree", objects);
-  const next = await f.run(f.request(edited.result, tree("FOUR", "endwo", "endwo"),
+  const next = await eager(f.request(edited.result, tree("FOUR", "endwo", "endwo"),
     edit("THREE", "FOUR"), "again"));
   expect(f.content(next.result.object, "a.txt")).toBe("FOUR");
   expect(next.decisions.map(d => d.key)).toEqual(edited.decisions.map(d => d.key));

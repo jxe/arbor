@@ -3,18 +3,25 @@ import { mkdtemp, readdir, rm, writeFile, stat, utimes } from "node:fs/promises"
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@overstory/object-store";
-import { merge, type MergeRequest } from "@overstory/canopyd-merge";
+import { type MergeRequest } from "@overstory/canopyd-merge";
 import { encodeWireDirectory, hashObject, type TreeSnapshot } from "@overstory/protocol";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
 import { mergeWireTrees } from "../../../packages/canopyd-merge/src/merge.ts";
-import { snapshotAccountConfigV2 } from "../../../packages/canopyd-merge/src/account-v2.ts";
+import { snapshotAccountConfigV2 } from "@overstory/protocol";
 import fixtures from "../../fixtures/canopy/wire-merge.json";
 
 let directory: string, store: ObjectStore, tool: MergeTool;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "arbor-merge-tool-")); store = new ObjectStore(join(directory, "objects")); tool = new MergeTool(directory); });
-afterEach(async () => { await rm(directory, { recursive: true, force: true }); });
+afterEach(async () => { await tool[Symbol.asyncDispose](); await rm(directory, { recursive: true, force: true }); });
+/** A fake worker answers each request line with `body`. */
+const lineWorker = (body: string) => `for await (const _ of console) { ${body} }`;
+/** Every job removed its staged objects; only empty worker directories remain. */
+async function expectNoStaging() {
+  for (const worker of await readdir(join(directory, "merge-workers")).catch(() => [] as string[]))
+    expect(await readdir(join(directory, "merge-workers", worker))).toEqual([]);
+}
 const encoded = (s: string) => new TextEncoder().encode(s);
 function snapshot(source: string, name = "note.md"): TreeSnapshot {
   const bytes = encoded(source), file = hashObject(bytes);
@@ -35,45 +42,20 @@ test.each(fixtures.markdownCases)("subprocess preserves exact legacy rule output
   const result = await tool.evaluate(request, inputs);
   expect(result.response.result.object).toBe(expected.root);
   expect(result.objects).toEqual(expected.objects);
-  expect(result.response.decisions.filter(d => d.kind === "conflict" && d.scope === "entry").map(({ path, reason }) => ({ path, reason }))).toEqual(expected.conflicts);
+  expect(result.response.decisions.filter(d => d.kind === "conflict" && d.scope === "entry").map(({ path, reason }) => ({ path, reason })) as unknown[]).toEqual(expected.conflicts);
   expect(result.response.evidence.summary).toEqual(expected.summary);
-  expect(await readdir(join(directory, "merge-jobs"))).toEqual([]);
+  await expectNoStaging();
   for (const [hash] of result.objects) if (!base.objects.has(hash) && !current.objects.has(hash)) expect(await store.find(hash)).toBeNull();
 });
 
-test.each(["plain-text-disjoint", "markdown-prose-disjoint"])("source rule %s receives exact authored operations and object references", async id => {
-  const inputs = new Map<string, Uint8Array>();
-  const ref = (s: string) => { const bytes = encoded(s), object = hashObject(bytes); inputs.set(object, bytes); return { object }; };
-  const base = ref("alpha beta"), current = ref("Alpha beta"), incoming = ref("alpha Beta"), proposal = ref("Alpha Beta");
-  const changes = [{ change: "change", operations: [{ key: "edit", kind: "editSource" as const,
-    source: { material: { kind: "basis" as const, path: "/note.md", object: base.object }, range: [6, 7] as [number, number] }, text: "B" }] }];
-  const request: MergeRequest = { kind: "source", tree: "tree", path: "/note.md", base, current,
-    incoming: { ...incoming, contributions: [{ change: "change", operation: "edit" }], changes }, proposal, rules: { id, revision: 1 } };
-  const { response } = await tool.evaluate(request, inputs);
-  expect(response.decisions[0]).toMatchObject({ kind: "source", outcome: "resolved" });
-  const compare = await merge(request, { read: async hash => inputs.get(hash)!, store: async () => {} });
-  expect(response).toEqual(compare);
-  if (id === "markdown-prose-disjoint") {
-    request.proposal = ref("# Alpha Beta");
-    expect((await tool.evaluate(request, inputs)).response.decisions[0]).toMatchObject({ outcome: "inapplicable" });
-  }
-});
-
-test("account configuration v2 rules run outside Canopy without authorization code", async () => {
-  const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa", phone = "dv_bbbbbbbbbbbbbbbbbbbbbbbbbb";
-  const v2 = { account: { canopy: "https://canopy.example", profile }, trees: {}, devices: {
-    [admin]: { id: admin, label: "Mac", administrator: true }, [phone]: { id: phone, label: "Phone", administrator: false },
-  } };
-  for (const [id, make] of [
-    ["account-config-v2", (a: string, b: string) => snapshotAccountConfigV2({ ...v2, devices: { [admin]: { ...v2.devices[admin]!, label: a }, [phone]: { ...v2.devices[phone]!, label: b } } })],
-  ] as const) {
-    const base = make("Mac", "Phone"), current = make("Desktop", "Phone"), incoming = make("Mac", "Mobile");
-    const { request, inputs } = await prepare(base, current, incoming, id);
-    const { response } = await tool.evaluate(request, inputs);
-    expect(response.result.object).toBe(make("Desktop", "Mobile").root);
-    expect(response.decisions).toEqual([]);
-    expect(response.evidence.summary).toMatchObject({ version: id });
-  }
+test("account configuration is not a merge-tool rule", async () => {
+  const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const config = snapshotAccountConfigV2({ account: { canopy: "https://canopy.example", profile }, resources: {}, devices: {
+    [admin]: { id: admin, label: "Mac", administrator: true },
+  } });
+  const { request, inputs } = await prepare(config, config, config, "account-config-v2");
+  await expect(tool.evaluate(request, inputs)).rejects.toThrow("Unknown tree rule");
+  await expectNoStaging();
 });
 
 async function collection(rows: unknown[]): Promise<TreeSnapshot> {
@@ -107,24 +89,25 @@ test("concurrent jobs share immutable inputs without publishing either output", 
   const results = await Promise.all(Array.from({ length: 4 }, () => tool.evaluate(request, inputs)));
   expect(new Set(results.map(r => r.response.result.object)).size).toBe(1);
   expect(await store.find(results[0]!.response.result.object)).toBeNull();
-  expect(await readdir(join(directory, "merge-jobs"))).toEqual([]);
+  await expectNoStaging();
 });
 
-test("bad output, nonzero exit and timeout conservatively retain a whole-root decision", async () => {
+test("bad output, nonzero exit and timeout conservatively keep the current tree behind a whole-root decision", async () => {
   const base = snapshot("base"), current = snapshot("current"), incoming = snapshot("incoming");
   const { request, inputs } = await prepare(base, current, incoming);
   for (const [script, timeoutMs] of [
-    ['process.stdout.write("not JSON")', 3000],
+    [lineWorker('process.stdout.write("not JSON\\n")'), 3000],
     ['process.exit(42)', 3000],
     ['setTimeout(() => {}, 10000)', 50],
-    ['console.log(JSON.stringify({ result: {object: "sha256:' + '0'.repeat(64) + '"}, objects: [], decisions: [], evidence: {rule: {id:"tree-default",revision:1}}}))', 3000],
+    [lineWorker('console.log(JSON.stringify({ result: {object: "sha256:' + '0'.repeat(64) + '"}, objects: [], decisions: [], evidence: {rule: {id:"tree-default",revision:1}}}))'), 3000],
   ] as const) {
     const file = join(directory, "fake.ts"); await writeFile(file, script);
     const broken = new MergeTool(directory, { command: [process.execPath, file], timeoutMs });
     await expect(broken.evaluate(request, inputs)).rejects.toThrow();
     const result = await broken.tree(base.root, incoming.root, current.root, inputs);
-    expect(result).toMatchObject({ root: incoming.root, conflicts: [{ path: "/", reason: "node-conflict" }], unresolvedDirectories: ["/"] });
-    expect(await readdir(join(directory, "merge-jobs"))).toEqual([]);
+    expect(result).toMatchObject({ root: current.root, conflicts: [{ path: "/", reason: "node-conflict" }], unresolvedDirectories: ["/"] });
+    await broken[Symbol.asyncDispose]();
+    await expectNoStaging();
   }
 });
 
@@ -134,9 +117,10 @@ test("corrupt staged output cannot be accepted or published", async () => {
   const fake = join(directory, "fake.ts");
   await writeFile(fake, `import {mkdir,writeFile} from "node:fs/promises"; import {join} from "node:path";
     const root = process.argv[process.argv.indexOf("--staging")+1];
-    await mkdir(join(root,"00"),{recursive:true}); await writeFile(join(root,"00","${"0".repeat(62)}"),"wrong");
-    console.log(JSON.stringify({result:{object:"${incoming.root}"},objects:["sha256:${"0".repeat(64)}"],decisions:[],evidence:{rule:{id:"tree-default",revision:1}}}));`);
-  await expect(new MergeTool(directory, { command: [process.execPath, fake] }).evaluate(request, inputs)).rejects.toThrow("hash mismatch");
+    ${lineWorker(`await mkdir(join(root,"00"),{recursive:true}); await writeFile(join(root,"00","${"0".repeat(62)}"),"wrong");
+    console.log(JSON.stringify({result:{object:"${incoming.root}"},objects:["sha256:${"0".repeat(64)}"],decisions:[],evidence:{rule:{id:"tree-default",revision:1}}}));`)}`);
+  await using corrupt = new MergeTool(directory, { command: [process.execPath, fake] });
+  await expect(corrupt.evaluate(request, inputs)).rejects.toThrow("hash mismatch");
   expect(await store.find("sha256:" + "0".repeat(64))).toBeNull();
 });
 
@@ -162,12 +146,12 @@ test("collection rule process runs outside the checkout with a minimal environme
   const staging = join(directory, "standalone-staging");
   const staged = new ObjectStore(staging);
   await staged.store([...inputs].map(([hash, bytes]) => ({ hash, bytes })));
-  const child = Bun.spawn([process.execPath, new URL("../../../packages/canopyd-merge/src/cli.ts", import.meta.url).pathname, "evaluate", "--objects", join(directory, "objects"), "--staging", staging], {
+  const child = Bun.spawn([process.execPath, new URL("../../../packages/canopyd-merge/src/cli.ts", import.meta.url).pathname, "serve", "--objects", join(directory, "objects"), "--staging", staging], {
     cwd: directory, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: {},
   });
-  child.stdin.write(JSON.stringify(request)); child.stdin.end();
+  child.stdin.write(JSON.stringify(request) + "\n"); child.stdin.end();
   const [out, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  expect(errors).toBe(""); expect(code).toBe(0);
+  expect(errors.split("\n").filter(line => line && !line.startsWith('{"timings"'))).toEqual([]); expect(code).toBe(0);
   const expected = await mergeWireTrees(base.root, incoming.root, current.root, hash => store.load(hash, inputs));
   expect(JSON.parse(out).result.object).toBe(expected.root);
 });
@@ -176,10 +160,10 @@ test("collection rule process runs outside the checkout with a minimal environme
 test("unchanged shared outputs need no staging copies and existing objects are not rewritten", async () => {
   const base = snapshot("unchanged"), { request } = await prepare(base, base, base);
   const staging = join(directory, "empty-staging");
-  const child = Bun.spawn([process.execPath, "packages/canopyd-merge/src/cli.ts", "evaluate",
+  const child = Bun.spawn([process.execPath, "packages/canopyd-merge/src/cli.ts", "serve",
     "--objects", join(directory, "objects"), "--staging", staging],
     { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  child.stdin.write(JSON.stringify(request)); child.stdin.end();
+  child.stdin.write(JSON.stringify(request) + "\n"); child.stdin.end();
   const out = JSON.parse(await new Response(child.stdout).text());
   expect(await child.exited).toBe(0);
   expect(out.result.object).toBe(base.root);
@@ -195,47 +179,56 @@ test("unchanged shared outputs need no staging copies and existing objects are n
 });
 
 
-test("batched checkpoints exactly preserve individual states including legacy alternatives", async () => {
+test("checkpoints chain, and a decision scoped to a file below the root is retained", async () => {
   const roots = [snapshot("base"), snapshot("one"), snapshot("two"), snapshot("hidden")];
   await store.store(roots.flatMap(r => [...r.objects].map(([hash,bytes]) => ({hash,bytes}))));
   const steps = [
     {projection:roots[1]!.root,change:"first",decisions:[]},
     {projection:roots[2]!.root,change:"second",decisions:[{
-      key:"legacy-choice",path:["note.md"],dependencies:[],selected:0,
+      key:"file-choice",path:["note.md"],dependencies:[],selected:0,
       alternatives:[{object:roots[2]!.root,contributions:[{change:"second",operation:null}]},
         {object:roots[3]!.root,contributions:[{change:"hidden",operation:null}]}],
     }]},
   ];
   let current: {object:string;state?:string} = {object:roots[0]!.root};
-  const expected: Array<{object:string;state:string}> = [];
   for (const step of steps) {
     const value = await tool.evaluate({kind:"checkpoint",tree:"history-tree",current,...step},new Map());
     await store.store([...value.objects].map(([hash,bytes])=>({hash,bytes})));
-    expected.push(value.response.result); current = value.response.result;
+    expect(value.response.result.object).toBe(step.projection);
+    current = value.response.result;
   }
-  const request = {kind:"checkpoint-batch" as const,tree:"history-tree",current:{object:roots[0]!.root},steps};
-  const result = await tool.evaluate(request,new Map());
-  expect(result.response.checkpoints).toEqual(expected);
-  expect(result.response.result).toEqual(expected.at(-1)!);
-  const {parseResponse} = await import("@overstory/canopyd-merge");
-  expect(() => parseResponse({...result.response,checkpoints:expected.slice(1)},request)).toThrow();
-  expect(() => parseResponse({...result.response,checkpoints:[...expected].reverse()},request)).toThrow();
-  const other = await tool.evaluate({kind:"checkpoint",tree:"other-tree",current:request.current,...steps[0]!},new Map());
-  await store.store([...other.objects].map(([hash,bytes])=>({hash,bytes})));
-  const forged = {...result.response,checkpoints:[other.response.result,expected[1]!],objects:[]};
-  const fake = join(directory,"wrong-checkpoint.ts");
-  await writeFile(fake, `console.log(${JSON.stringify(JSON.stringify(forged))});`);
-  await expect(new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map())).rejects.toThrow();
+  const {loadIntentState} = await import("@overstory/canopyd-merge");
+  const state = await loadIntentState(current.state!, hash => store.read(hash));
+  expect(state.decisions.map(d => [d.key, d.kind])).toEqual([["file-choice", "content"]]);
 });
 
 
-test("only explicit checkpoint byte limits request a smaller historical batch",async()=>{
-  const {CheckpointBatchLimitError}=await import("@overstory/canopyd-merge");
-  const base=snapshot("base");await store.store([...base.objects].map(([hash,bytes])=>({hash,bytes})));
-  const fake=join(directory,"batch-limit.ts");await writeFile(fake,"process.exit(75);");
-  const request={kind:"checkpoint-batch" as const,tree:"tree",current:{object:base.root},steps:[{projection:base.root,change:"change",decisions:[]}]};
-  await expect(new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map())).rejects.toBeInstanceOf(CheckpointBatchLimitError);
-  expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
+test("one checkpoint request returns the author's state beside the projection's", async () => {
+  const roots = [snapshot("base"), snapshot("one"), snapshot("two")];
+  await store.store(roots.flatMap(r => [...r.objects].map(([hash, bytes]) => ({ hash, bytes }))));
+  const keep = async (value: { objects: Map<string, Uint8Array> }) => store.store([...value.objects].map(([hash, bytes]) => ({ hash, bytes })));
+  const initial = await tool.evaluate({ kind: "checkpoint", tree: "combined", current: { object: roots[0]!.root }, projection: roots[0]!.root, change: "first", decisions: [] }, new Map());
+  await keep(initial);
+  const current = initial.response.result;
+  // The projection and the author's candidate differ: two states, one request.
+  const combined = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root,
+    continueSelected: false, conflictProjection: "current", change: "change", decisions: [], authored: true }, new Map());
+  await keep(combined);
+  const author = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[2]!.root, change: "change", decisions: [] }, new Map());
+  const projection = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root,
+    continueSelected: false, conflictProjection: "current", change: "change", decisions: [] }, new Map());
+  expect(combined.response.result).toEqual(projection.response.result);
+  expect(combined.response.authored).toEqual(author.response.result);
+  expect(projection.response.authored).toBeUndefined();
+  // With nothing to decide, the author's candidate is the projection's state.
+  const same = await tool.evaluate({ kind: "checkpoint", tree: "combined", current, projection: roots[1]!.root, candidate: roots[1]!.root,
+    change: "same", decisions: [], authored: true }, new Map());
+  expect(same.response.authored).toEqual(same.response.result);
+  const { parseResponse } = await import("@overstory/canopyd-merge");
+  const request = { kind: "checkpoint" as const, tree: "combined", current, projection: roots[1]!.root, candidate: roots[2]!.root, change: "change", decisions: [], authored: true as const };
+  expect(() => parseResponse({ ...combined.response, authored: undefined }, request)).toThrow("authored");
+  expect(() => parseResponse({ ...combined.response, authored: combined.response.result }, request)).toThrow("authored");
+  expect(() => parseResponse(combined.response, { ...request, authored: undefined })).toThrow("authored");
 });
 
 test("one persistent stdin worker processes concurrent submissions in FIFO order", async () => {
@@ -244,7 +237,7 @@ test("one persistent stdin worker processes concurrent submissions in FIFO order
   const cli = new URL("../../../packages/canopyd-merge/src/cli.ts", import.meta.url).pathname;
   await writeFile(script, `import {appendFile} from "node:fs/promises"; import {run} from ${JSON.stringify(cli)};
     await appendFile(${JSON.stringify(log)}, process.pid + "\\n"); await run();`);
-  await using sequential = new MergeTool(directory, {persistent:true,command:[process.execPath,script]});
+  await using sequential = new MergeTool(directory, {command:[process.execPath,script]});
   const base = snapshot("base"), requests = [];
   for (let i=0;i<6;i++) requests.push(await prepare(base, base, snapshot(`edit-${i}`)));
   const completed: number[] = [];
@@ -252,14 +245,13 @@ test("one persistent stdin worker processes concurrent submissions in FIFO order
   expect(completed).toEqual([0,1,2,3,4,5]);
   expect(results.map(result => result.response.result.object)).toEqual(requests.map(({request}) => "incoming" in request ? request.incoming.object : ""));
   expect((await readFile(log,"utf8")).trim().split("\n")).toHaveLength(1);
-  expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
   const workers = await readdir(join(directory,"merge-workers"));
   expect(workers).toHaveLength(1);
   expect(await readdir(join(directory,"merge-workers",workers[0]!))).toEqual([]);
 });
 
 test("persistent jobs cannot borrow discarded staging and a failed job releases the queue", async () => {
-  await using sequential = new MergeTool(directory,{persistent:true});
+  await using sequential = new MergeTool(directory,{});
   const base = snapshot("base"), incoming = snapshot("new staged bytes");
   const {request,inputs} = await prepare(base,base,incoming);
   await sequential.evaluate(request, inputs);
@@ -267,7 +259,7 @@ test("persistent jobs cannot borrow discarded staging and a failed job releases 
   const retry = sequential.evaluate(request,inputs);
   await expect(missing).rejects.toThrow();
   expect((await retry).response.result.object).toBe(incoming.root);
-  expect(await readdir(join(directory,"merge-jobs"))).toEqual([]);
+  await expectNoStaging();
 });
 
 test.each(["exit", "timeout"])("persistent worker %s is reaped and the queued successor starts a replacement", async mode => {
@@ -278,7 +270,7 @@ test.each(["exit", "timeout"])("persistent worker %s is reaped and the queued su
     const first = !existsSync(${JSON.stringify(marker)}); appendFileSync(${JSON.stringify(marker)},process.pid+"\\n");
     if (first) { ${mode === "exit" ? "process.exit(42);" : "await new Promise(resolve=>setTimeout(resolve,10_000));"} }
     await run();`);
-  await using sequential = new MergeTool(directory,{persistent:true,command:[process.execPath,script],timeoutMs:500});
+  await using sequential = new MergeTool(directory,{command:[process.execPath,script],timeoutMs:500});
   const base = snapshot("base"), {request,inputs} = await prepare(base,base,snapshot("edited"));
   const failed = sequential.evaluate(request,inputs), next = sequential.evaluate(request,inputs);
   await expect(failed).rejects.toThrow(mode === "exit" ? "exited" : "timed out");
@@ -288,7 +280,7 @@ test.each(["exit", "timeout"])("persistent worker %s is reaped and the queued su
 });
 
 test("the single-worker queue is bounded and shutdown rejects waiting work", async () => {
-  const sequential = new MergeTool(directory,{persistent:true});
+  const sequential = new MergeTool(directory,{});
   const base = snapshot("base"), {request,inputs} = await prepare(base,base,snapshot("queued"));
   const pending = Array.from({length:65}, () => sequential.evaluate(request,inputs).then(
     () => "completed", error => String(error.message),
@@ -318,8 +310,9 @@ test("a worker evaluation failure surfaces its own message, not a response-schem
   const fake=join(directory,"worker-error.ts");
   const request={kind:"checkpoint" as const,tree:"tree",current:{object:base.root},projection:base.root,change:"change",decisions:[]};
   const fail=async(error:{message:string;code?:string})=>{
-    await writeFile(fake,`console.log(${JSON.stringify(JSON.stringify({error}))});`);
-    return new MergeTool(directory,{command:[process.execPath,fake]}).evaluate(request,new Map()).then(()=>null,(error:unknown)=>error as InstanceType<typeof MergeWorkerError>);
+    await writeFile(fake,lineWorker(`console.log(${JSON.stringify(JSON.stringify({error}))});`));
+    await using failing=new MergeTool(directory,{command:[process.execPath,fake]});
+    return await failing.evaluate(request,new Map()).then(()=>null,(error:unknown)=>error as InstanceType<typeof MergeWorkerError>);
   };
   const budget=await fail({message:"Evaluation time budget exceeded",code:"limit"});
   expect(budget).toBeInstanceOf(MergeWorkerError);

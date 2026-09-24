@@ -100,7 +100,6 @@ export async function initCommunity(args: string[]): Promise<void> {
     throw new Error(`${dataRoot} already holds a community; run \`canopyd serve ${dataRoot}\` instead`);
   }
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
-  process.env.ARBOR_CANOPY_NO_WARMUP ||= "1";
   const canopy = await CanopyDaemon.open(dataRoot, {
     handle,
     name: handle,
@@ -150,7 +149,7 @@ export async function serveCommunity(args: string[]): Promise<void> {
   const configuredAccounts = process.env.ARBOR_ACCOUNTS_JSON
     ? JSON.parse(process.env.ARBOR_ACCOUNTS_JSON) as CanopyBootstrapAccount[]
     : null;
-  const accountToken = process.env.ARBOR_ACCOUNT_TOKEN ?? process.env.ARBOR_OWNER_TOKEN;
+  const accountToken = process.env.ARBOR_ACCOUNT_TOKEN;
   const accounts = configuredAccounts ?? (accountToken ? [{
     handle: process.env.ARBOR_ACCOUNT_HANDLE ?? "owner",
     token: accountToken,

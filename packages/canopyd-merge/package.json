@@ -1,13 +1,16 @@
 {
   "name": "@overstory/canopyd-merge",
   "version": "0.1.0",
-  "description": "canopyd's merge sidecar: tree merging, format rules, account-configuration merge, checkpoints, and the arbor-merge command.",
+  "description": "canopyd's merge sidecar: tree merging, format rules, checkpoints, and the arbor-merge command.",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "dependencies": {
-    "@overstory/protocol": "workspace:*",
-    "@overstory/object-store": "workspace:*",
     "@overstory/apps-runtime": "workspace:*",
+    "@overstory/merge-protocol": "workspace:*",
+    "@overstory/object-store": "workspace:*",
+    "@overstory/protocol": "workspace:*",
     "saxes": "6.0.0",
     "tree-sitter-wasms": "0.1.13",
     "web-tree-sitter": "0.20.8",

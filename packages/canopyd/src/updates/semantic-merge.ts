@@ -1,9 +1,7 @@
-import { loadIntentState, MAX_CHECKPOINT_BATCH, CheckpointBatchLimitError, type CheckpointRequest } from "@overstory/canopyd-merge";
 import { Database } from "bun:sqlite";
 import { stableJSONString } from "@overstory/protocol";
 import {
   hashObject,
-  encodeWireDirectory,
   decodeWireDirectory,
   type AcceptedUpdate,
   type CandidateUpdate,
@@ -13,19 +11,14 @@ import {
 } from "@overstory/protocol";
 import { MergeTool } from "../merge-tool.ts";
 import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
-import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
-import {
-  type IntentRequest,
-  type IntentRequestInput,
-  type IntentResponse,
-} from "@overstory/canopyd-merge";
+import type { DecisionReport, IntentEvaluation, IntentRequest } from "@overstory/merge-protocol";
 const encoder = new TextEncoder();
 const id = (value: unknown) =>
   hashObject(encoder.encode(stableJSONString(value))).slice(7);
 export type StateRef = { object: string; state: string };
-export type Evaluated = Extract<IntentResponse, { outcome: "evaluated" }>;
-export function operationReferences(op: SourceOperation): MaterialRef[] {
+export type Evaluated = IntentEvaluation;
+function operationReferences(op: SourceOperation): MaterialRef[] {
   if (op.kind === "addEntry") return [op.destination.parent];
   const refs = [op.source];
   if (op.kind === "editSource")
@@ -41,150 +34,46 @@ export function operationReferences(op: SourceOperation): MaterialRef[] {
 export class SemanticMerge {
   readonly store: MergeStateStore;
   readonly updates: AcceptedUpdateStore;
-  private readonly checkpoints = new Map<string, StateRef>();
   constructor(
-    private db: Database,
+    db: Database,
     private tool: MergeTool,
     private read: (
       hash: string,
       objects: ReadonlyMap<string, Uint8Array>
-    ) => Promise<Uint8Array>,
-    private persist: (
-      objects: Array<{ hash: string; bytes: Uint8Array }>
-    ) => Promise<void>
+    ) => Promise<Uint8Array>
   ) {
     this.store = new MergeStateStore(db);
     this.updates = new AcceptedUpdateStore(db);
   }
-  private async legacyDecisions(
-    update: AcceptedUpdate,
-    objects: Map<string, Uint8Array>
-  ): Promise<CheckpointRequest["decisions"]> {
-    const result: CheckpointRequest["decisions"] = [];
-    const replace = async (
-      root: string,
-      path: string[],
-      value: Record<string, unknown>
-    ): Promise<string> => {
-      if (!path.length) {
-        if (typeof value.directory !== "string")
-          throw new Error("Root alternative is not a directory");
-        return value.directory;
-      }
-      const directory = decodeWireDirectory(await this.read(root, objects)),
-        name = path[0]!;
-      const prior = directory.entries.find((e) => e.name === name);
-      const entry =
-        path.length === 1
-          ? "absent" in value
-            ? null
-            : { name, ...value }
-          : {
-              name,
-              directory: await replace(
-                prior?.directory ?? "",
-                path.slice(1),
-                value
-              ),
-            };
-      directory.entries = directory.entries.filter((e) => e.name !== name);
-      if (entry)
-        directory.entries.push(entry as typeof directory.entries[number]);
-      directory.entries.sort((a, b) =>
-        Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))
-      );
-      const bytes = encodeWireDirectory(directory),
-        hash = hashObject(bytes);
-      objects.set(hash, bytes);
-      return hash;
-    };
-    const legacy = new ConflictStore(this.db).get(update.id)?.decisions ?? [];
-    for (const decision of legacy) {
-      const alternatives = [];
-      for (const alternative of decision.alternatives)
-        alternatives.push({
-          object: await replace(
-            update.root,
-            decision.root ? [] : decisionPath(decision).slice(1).split("/"),
-            alternative.value
-          ),
-          contributions: alternative.contributions,
-        });
-      result.push({
-        key: decision.id,
-        dependencies: legacy
-          .filter(
-            (child) =>
-              child.id !== decision.id &&
-              (decision.root ||
-                decisionPath(child).startsWith(decisionPath(decision) + "/"))
-          )
-          .map((child) => child.id),
-        // Files, or a file against its deletion, stay choices about that path.
-        ...(!decision.root &&
-        decision.alternatives.every((a) => "file" in a.value || "absent" in a.value) &&
-        decision.alternatives.some((a) => "file" in a.value)
-          ? { path: decisionPath(decision).slice(1).split("/") }
-          : {}),
-        selected: decision.alternatives.findIndex(
-          (a) => a.id === decision.selected
-        ),
-        alternatives,
-      });
-    }
-    return result;
+  /** The merge state an accepted update recorded. Every accepted update has
+   * one (schema 18). */
+  state(update: AcceptedUpdate): StateRef {
+    const record = this.store.get(update.id);
+    if (!record) throw new Error(`Accepted update ${update.id} has no merge state`);
+    return { object: update.root, state: record.state };
   }
-  remember(accepted: string, state: StateRef) {
-    this.checkpoints.set(accepted, state);
-    if (this.checkpoints.size > 256)
-      this.checkpoints.delete(this.checkpoints.keys().next().value!);
+
+  /** Open decisions at an accepted update. */
+  openDecisions(update: AcceptedUpdate): number {
+    return this.store.get(update.id)?.decisions.length ?? 0;
   }
-  async state(
-    update: AcceptedUpdate,
+
+  /** The merge state of an acceptance the host makes itself (a tree's first
+   * root, pairing, a nested-tree boundary): `root` checkpointed onto `from`'s
+   * state, or imported as the tree's first state when there is no `from`.
+   * Generated objects join `objects`; the caller stores them before commit. */
+  async checkpoint(
+    tree: string,
+    from: AcceptedUpdate | null,
+    root: string,
+    change: string,
     objects: Map<string, Uint8Array>
-  ): Promise<StateRef> {
-    const pending: AcceptedUpdate[] = [];
-    let cursor: AcceptedUpdate | null = update;
-    let prior: {object: string; state?: string} | undefined;
-    while (cursor) {
-      const cached = this.checkpoints.get(cursor.id);
-      const retained = this.store.get(cursor.id);
-      if (cached || retained) {
-        prior = cached ?? {object: cursor.root, state: retained!.state};
-        break;
-      }
-      pending.push(cursor);
-      cursor = cursor.previous ? this.updates.get(cursor.previous.id) : null;
-    }
-    pending.reverse();
-    let current: {object: string; state?: string} = prior ?? {object: pending[0]!.root};
-    let offset = 0;
-    while (offset < pending.length) {
-      let size = Math.min(MAX_CHECKPOINT_BATCH, pending.length - offset);
-      for (;;) {
-        const slice = pending.slice(offset, offset + size);
-        const inputs = new Map(objects), steps = [];
-        for (const accepted of slice) steps.push({
-          projection: accepted.root,
-          change: this.updates.changeForAccepted(accepted.id) ?? `accepted-${accepted.id}`,
-          decisions: await this.legacyDecisions(accepted, inputs),
-        });
-        try {
-          const evaluated = await this.tool.evaluate({kind: "checkpoint-batch", tree: update.tree, current, steps}, inputs);
-          // Persist only this slice and original inputs, never its growing prefix.
-          await this.persist([...inputs, ...evaluated.objects].map(([hash,bytes]) => ({hash,bytes})));
-          for (let index = 0; index < slice.length; index++)
-            this.remember(slice[index]!.id, evaluated.response.checkpoints[index]!);
-          current = evaluated.response.result;
-          offset += size;
-          break;
-        } catch (error) {
-          if (!(error instanceof CheckpointBatchLimitError) || size === 1) throw error;
-          size = Math.max(1, Math.floor(size / 2));
-        }
-      }
-    }
-    return current as StateRef;
+  ): Promise<MergeStateRecord> {
+    const current = from ? this.state(from) : { object: root };
+    const evaluated = await this.tool.evaluate({ kind: "checkpoint", tree, current, projection: root, change, decisions: [] }, objects);
+    for (const [hash, bytes] of evaluated.objects) objects.set(hash, bytes);
+    const result = evaluated.response.result;
+    return this.record(tree, result, result, evaluated.response.decisions, { change, candidate: root, trace: null, resolves: [] }, objects, null);
   }
 
   async evaluate(
@@ -206,15 +95,9 @@ export class SemanticMerge {
           throw new Error(
             "Alternative belongs to another tree or unavailable state"
           );
-        const previous = new ConflictStore(this.db)
-          .get(material.state)
-          ?.decisions.find((d) => d.id === material.conflict);
-        const retained = this.store.get(material.state),
-          decision =
-            retained?.decisions.find(
-              (d) => d.inspection.id === material.conflict
-            ) ??
-            (previous ? { key: previous.id, inspection: previous } : undefined);
+        const decision = this.store.get(material.state)?.decisions.find(
+          (d) => d.inspection.id === material.conflict
+        );
         const index =
           decision?.inspection.alternatives.findIndex(
             (a) => a.id === material.alternative
@@ -242,7 +125,7 @@ export class SemanticMerge {
         )
           alternatives.push(binding);
       }
-    const input: IntentRequestInput = {
+    const input: IntentRequest = {
       kind: "tree",
       tree,
       base: basis,
@@ -270,33 +153,12 @@ export class SemanticMerge {
     tree: string,
     result: StateRef,
     authored: StateRef,
-    request: CandidateUpdate,
+    reports: readonly DecisionReport[],
+    request: MergeStateRecord["request"],
     objects: Map<string, Uint8Array>,
     evidence: Evaluated["evidence"] | null
   ): Promise<MergeStateRecord> {
-    const state = this.tool.validatedState(tree, result)
-      ?? await loadIntentState(result.state, (hash) => this.read(hash, objects));
-    if (state.tree !== tree) throw new Error("Merge state tree mismatch");
-    const legacy = new Map(
-      (state.decisions.length ? new ConflictStore(this.db)
-        .forTree(tree)
-        .flatMap((row) => row.state.decisions.map((d) => [d.id, d] as const)) : [])
-    );
-    const decisionID = (key: string) =>
-      legacy.has(key) ? key : id([tree, "decision", key]);
-    const path = (nodeID: string) => {
-      const names: string[] = [];
-      let node = state.nodes[nodeID];
-      const seen = new Set<string>();
-      while (node?.parent !== null) {
-        if (!node || seen.has(node.id))
-          throw new Error("Invalid decision path");
-        seen.add(node.id);
-        names.unshift(node.name);
-        node = state.nodes[node.parent!];
-      }
-      return "/" + names.join("/");
-    };
+    const decisionID = (key: string) => id([tree, "decision", key]);
     const projectedFile = async (path: string) => {
       let object = result.object;
       for (const name of path.slice(1).split("/")) {
@@ -307,22 +169,17 @@ export class SemanticMerge {
       }
       return object;
     };
-    const decisions = await Promise.all(state.decisions.map(async (d) => {
-      const node = d.placement ? state.nodes[d.placement.node] : undefined;
+    const decisions = await Promise.all(reports.map(async (d) => {
       const affected: MaterialRef[] =
-        node && node.active && !d.context
+        d.placement?.path && d.placement.range
           ? [
               {
                 material: {
                   kind: "basis",
-                  path: path(node.id),
-                  object: await projectedFile(path(node.id)),
+                  path: d.placement.path,
+                  object: await projectedFile(d.placement.path),
                 },
-                range: [
-                  d.placement!.anchor,
-                  d.placement!.anchor +
-                    d.placement!.pieces.reduce((n, p) => n + p.length, 0),
-                ],
+                range: d.placement.range,
               },
             ]
           : [
@@ -331,13 +188,11 @@ export class SemanticMerge {
               },
             ];
       const alternatives = d.alternatives.map((a, index) => ({
-        id:
-          legacy.get(d.key)?.alternatives[index]?.id ??
-          id([tree, "alternative", d.key, index]),
+        id: id([tree, "alternative", d.key, index]),
         revision: id([a.object, a.state, a.contributions]),
         value:
           d.kind === "existence"
-            ? a.node ? { file: a.object } : { absent: true as const }
+            ? a.present ? { file: a.object } : { absent: true as const }
             : d.kind === "content" ? { file: a.object } : { directory: a.object },
         contributions: [
           ...new Map(
@@ -345,13 +200,14 @@ export class SemanticMerge {
           ).values(),
         ],
       }));
-      const entry = (d.kind === "content" && d.placement && !d.subject?.range) || d.kind === "existence";
+      // A folder choice below the root is about that entry, as a file choice
+      // is: its alternatives are the folder's versions, placed at its path.
+      const folder = d.kind === "directory" && d.subject?.material.kind === "basis" && d.subject.material.path !== "/";
+      const entry = (d.kind === "content" && d.placement && !d.subject?.range) || d.kind === "existence" || folder;
       const logical = entry
         ? d.subject?.material.kind === "basis"
           ? d.subject.material.path
-          : node
-          ? path(node.id)
-          : "/"
+          : d.placement?.path ?? "/"
         : "/";
       const parts = logical.slice(1).split("/"),
         name = parts.pop()!;
@@ -372,17 +228,10 @@ export class SemanticMerge {
       };
       return { key: d.key, inspection };
     }));
-    const proofs = new Map();
-    for (const ref of [result, authored]) {
-      const proof = this.tool.validationProof(tree, ref);
-      if (proof) proofs.set(ref.state, proof);
-    }
-    await this.tool.verifyRetention([result.state, authored.state], objects, proofs);
     return {
       state: result.state,
       authored: authored.state,
       decisions,
-      retention: { version: 1, roots: [...new Set([result.state, authored.state])] },
       evidence,
       request: {
         change: request.change,
@@ -396,12 +245,7 @@ export class SemanticMerge {
     const record = this.store.get(current.id);
     const keys: string[] = [];
     for (const guard of request.resolves) {
-      const previous = new ConflictStore(this.db)
-        .get(current.id)
-        ?.decisions.find((d) => d.id === guard.conflict);
-      const decision =
-        record?.decisions.find((d) => d.inspection.id === guard.conflict) ??
-        (previous ? { key: previous.id, inspection: previous } : undefined);
+      const decision = record?.decisions.find((d) => d.inspection.id === guard.conflict);
       if (
         guard.state !== current.id ||
         !decision ||

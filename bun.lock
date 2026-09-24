@@ -14,6 +14,7 @@
         "@overstory/cli": "workspace:*",
         "@overstory/client": "workspace:*",
         "@overstory/fs": "workspace:*",
+        "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
         "@overstory/protocol": "workspace:*",
       },
@@ -83,7 +84,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@overstory/apps-runtime": "workspace:*",
-        "@overstory/canopyd-merge": "workspace:*",
+        "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
         "@overstory/protocol": "workspace:*",
       },
@@ -93,6 +94,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@overstory/apps-runtime": "workspace:*",
+        "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
         "@overstory/protocol": "workspace:*",
         "saxes": "6.0.0",
@@ -131,6 +133,14 @@
       "dependencies": {
         "@overstory/protocol": "workspace:*",
         "@parcel/watcher": "2.5.1",
+      },
+    },
+    "packages/merge-protocol": {
+      "name": "@overstory/merge-protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@overstory/protocol": "workspace:*",
+        "zod": "4.3.6",
       },
     },
     "packages/object-store": {
@@ -305,6 +315,8 @@
     "@overstory/client": ["@overstory/client@workspace:packages/client"],
 
     "@overstory/fs": ["@overstory/fs@workspace:packages/fs"],
+
+    "@overstory/merge-protocol": ["@overstory/merge-protocol@workspace:packages/merge-protocol"],
 
     "@overstory/object-store": ["@overstory/object-store@workspace:packages/object-store"],
 

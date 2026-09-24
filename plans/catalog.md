@@ -22,7 +22,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `clients/` — The portable update machine, the change log, and the runners and sources that use them.
 
-- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **PHASES 0–3 IMPLEMENTED, not installed; soak and install need Joe's go-ahead.** One `UpdateMachine`, an effect-driven Swift runner over a change log, and an editor that appends straight to it are done; remaining: Mac and iPhone soak, the TypeScript runner with a `FolderSource` for the daemon, and the Web 025 handoff.
+- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **PHASES 0–3 DONE (Mac verified); phase 4 in progress.** One `UpdateMachine`, an effect-driven Swift runner over a change log, and an editor that appends straight to it are on `main`; remaining: the iPhone update (Joe's go-ahead), the TypeScript runner with a `FolderSource` for the daemon, and the Web 025 handoff.
 
 ## Web client
 
@@ -49,6 +49,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.
 - [canopyd 009 — Merge rule selection per host and per tree](canopyd/009-merge-rule-selection.md) — **P3 · PLANNED.** Governed host and per-tree choice among the merge tool's existing rules, recorded in each merge's evidence.
 - [canopyd 014 — Merge moved and copied text beyond paragraphs](canopyd/014-merge-moved-text.md) — **P3 · PLANNED.** Structural proofs for Markdown list/table/link transfers, same-anchor ordering, and keyed JSON/YAML and code moves.
+- [canopyd 016 — A merge sidecar built on objects and history](canopyd/016-sidecar-on-objects-and-history.md) — **P2 · PLANNED.** Accepted history stored as hash-chained log entries in the object store, so a sidecar needs only the object store and one merge question; sidecar state becomes a rebuildable cache, canopyd stores none, and plain edits on the head skip the sidecar.
 - **Sidebar creations as `addEntry`** — candidate. Editor page creation and a directory's first body are traced (canopyd 011, [closeout](../status.md#canopyd-011-012-and-013-closeout--2026-09-22)); the sidebar's `createMarkdown`/`createDirectory` actions still publish snapshots because their admission records carry no editor document. Emit `addEntry` from `retainStructure` for those actions too.
 
 ## CLI and external agents

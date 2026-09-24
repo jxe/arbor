@@ -1,7 +1,8 @@
 # @overstory/canopyd
 
 The reference Overstory host and the `canopyd` command. It depends on
-`protocol`, `object-store`, `apps-runtime`, and `canopyd-merge`; nothing
+`protocol`, `object-store`, `apps-runtime`, and `merge-protocol` (the JSON
+contract with its merge sidecar, whose code it never imports); nothing
 depends on it except tests and the deployment tooling.
 
 - `canopy.ts`: validation, object durability, bounded race coordination, and
@@ -10,22 +11,23 @@ depends on it except tests and the deployment tooling.
 - `schema.ts`: the SQLite table definitions, the schema version stamp, the
   startup schema assertion, and `openCanopyDatabase`. The stamps are listed in
   the [schema history](../../packages/canopyd/migrations/README.md#schema-history).
-- `updates/`: `decision.ts` (the identity-only current, accept, and merge
-  table), `reconcile.ts` (invokes the merge sidecar only when both sides
-  changed), `transition.ts`, `store.ts` (private accepted history, the
+- `updates/`: `reconcile.ts` (the identity-only current, accept, and merge
+  table; invokes the merge sidecar only when both sides changed),
+  `transition.ts`, `store.ts` (private accepted history, the
   accepted-row transaction, and the only writer of `trees.ref`),
   `observations.ts` (cursor order over accepted updates, the only source of
   watch order), `watch-frames.ts`
   (net catch-up), `tree-diff.ts` (the one paired walk over two roots, and
-  the per-update object reader the transition and entry-change diffs share),
-  `graph-validation.ts`, `source-edits.ts` (exact source
-  execution and `composeFrames`), `conflict-store.ts`, `merge-state-store.ts`,
-  `source-intent-store.ts`, `entry-ambiguity.ts`, `semantic-merge.ts`.
-- `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, and the
-  worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
+  the per-update object reader), `entry-metadata.ts` (entry dates and
+  document versions), `graph-validation.ts`, `merge-state-store.ts` (each
+  accepted update's merge state, the only conflict record), `semantic-merge.ts`
+  (merge states from the sidecar's decision reports).
+- `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, response
+  checks, and the worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
 - `access.ts`, `accounts.ts`, `account-policy-v2.ts`, `profile.ts`,
   `boundaries.ts`, `resource-effects.ts`, `execution-authority.ts`: claims,
-  accounts, governed configuration, and resource policy.
+  accounts, governed configuration (including its three-way merge), and
+  resource policy.
 - `public-page.ts`, `projection.ts`: public HTML and Markdown projection and
   collection-file projection.
 

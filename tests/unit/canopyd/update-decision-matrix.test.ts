@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mergeWireTrees, reconcileUpdate } from "@overstory/canopyd";
+import { reconcileUpdate } from "@overstory/canopyd";
+import { mergeWireTrees } from "@overstory/canopyd-merge";
 import { encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry, type WireDirectory } from "@overstory/protocol";
 
 const objects = new Map<string, Uint8Array>();
@@ -64,7 +65,7 @@ describe("snapshot reconciliation", () => {
     const base = dir([{ name: "a.md", file: file("A\n") }]);
     const candidate = dir([{ name: "a.md", file: file("A2\n") }]);
     const current = dir([{ name: "a.md", file: file("A\n") }, { name: "b.md", file: file("B\n") }]);
-    const result = await reconcileUpdate(base, candidate, current, load);
+    const result = await reconcileUpdate(base, candidate, current, load, { merge: mergeWireTrees });
     expect(result.outcome).toBe("merged");
     if (result.outcome !== "merged") throw new Error("expected merge");
     expect(result.conflicts).toEqual([]);
@@ -74,6 +75,6 @@ describe("snapshot reconciliation", () => {
 
   test("an unchanged candidate needs no merge", async () => {
     const root = dir([{ name: "a.md", file: file("A\n") }]);
-    expect((await reconcileUpdate(root, root, root, load)).outcome).toBe("current");
+    expect((await reconcileUpdate(root, root, root, load, { merge: mergeWireTrees })).outcome).toBe("current");
   });
 });

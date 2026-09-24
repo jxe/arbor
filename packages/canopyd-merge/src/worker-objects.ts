@@ -1,5 +1,5 @@
-import { ObjectStore } from "@overstory/object-store";
-import { hashObject } from "@overstory/protocol";
+import { absentFrom, ObjectStore } from "@overstory/object-store";
+export { absentFrom, holdsObject } from "@overstory/object-store";
 import type { MergeObjects } from "./index.ts";
 
 /** The worker owns scratch output only; Canopy owns durable publication. */
@@ -10,12 +10,7 @@ export function workerObjects(
   return {
     read: async (hash) =>
       (await shared.find(hash)) ?? (await staging.read(hash)),
-    store: async (values) => {
-      for (const value of values) {
-        if (hashObject(value.bytes) !== value.hash)
-          throw Error("Object hash mismatch");
-        if (!(await shared.find(value.hash))) await staging.stage([value]);
-      }
-    },
+    // One staging publish, which hash-checks every value it writes.
+    store: async (values) => staging.stage(await absentFrom(shared, values)),
   };
 }

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon } from "@overstory/arborsync";
 import { serveArborSyncControl } from "@overstory/arborsync";
 import { serveCanopy } from "@overstory/canopyd";
-import { ProfileIdentityStore, loadLocalPlacements } from "@overstory/arborsync/state";
+import { ProfileIdentityStore } from "@overstory/arborsync/state";
 
 let sandbox: string;
 let state: string;
@@ -71,10 +71,8 @@ beforeAll(async () => {
       `${tree}:`,
       `  canonical: ${JSON.stringify(`${sourceCanopy.url}/~joe/todos`)}`,
       "  access:",
-      "    - subject:",
-      "        kind: profile",
-      `        tree: ${sourceAccount.account!.profile}`,
-      "      access: write",
+      `    - who: { profile: ${sourceAccount.account!.profile} }`,
+      "      allow: [write]",
       "",
     ].join("\n"));
     await writeFile(join(state, "placements.yaml"), [
@@ -99,38 +97,16 @@ afterAll(async () => {
 });
 
 describe("arbor mv between Canopies", () => {
-  test("preflights, preserves identity and current bytes, and switches the local account placement", async () => {
+  test("refuses before changing anything: resource policy has no reviewed transfer", async () => {
     const sourceCanonical = `${sourceCanopy.url}/~joe/todos`;
     const destination = `${destinationCanopy.url}/~joe/todos-f`;
     const before = await readFile(join(state, "placements.yaml"), "utf8");
-    const checked = await arbor(["mv", "--dry-run", sourceCanonical, destination]);
-    expect(checked).toContain(`Would move ${tree}`);
+    for (const args of [["mv", "--dry-run", sourceCanonical, destination], ["mv", sourceCanonical, destination]])
+      await expect(arbor(args)).rejects.toThrow("requires a reviewed policy transfer");
     expect(await readFile(join(state, "placements.yaml"), "utf8")).toBe(before);
     expect(destinationCanopy.canopy.get(tree)).toBeNull();
-
-    const moved = await arbor(["mv", sourceCanonical, destination]);
-    expect(moved).toContain(`Moved ${tree}`);
-    const placements = await loadLocalPlacements();
-    const destinationAccount = (await loadCanopyAccountConfigurations()).find((account) => account.account?.canopy === destinationCanopy.url)!;
-    expect(placements.placements).toContainEqual({
-      configurationTree: destinationAccount.configurationTree,
-      path: source,
-      tree,
-    });
-    expect(sourceCanopy.canopy.get(tree)).not.toBeNull();
-    expect(destinationCanopy.canopy.get(tree)?.ref).toBe(sourceCanopy.canopy.get(tree)?.ref);
-    expect(await readFile(join(source, "todo.md"), "utf8")).toBe("# Keep this\n");
-    expect(destinationAccount.trees?.[tree]).toEqual({
-      canonical: destination,
-      access: [{ subject: { kind: "profile", tree: destinationAccount.account!.profile }, access: "write" }],
-    });
     const sourceAccount = (await loadCanopyAccountConfigurations()).find((account) => account.account?.canopy === sourceCanopy.url)!;
-    expect(sourceAccount.trees?.[tree]).toBeUndefined();
-    expect(sourceCanopy.canopy.get(tree)).toMatchObject({ status: "retired", canonicalPath: null });
-    expect(sourceCanopy.canopy.acceptedUpdates(tree).length).toBeGreaterThan(0);
-    expect((await fetch(sourceCanonical)).status).toBe(404);
-
-    const resumed = await arbor(["mv", destination, destination]);
-    expect(resumed).toContain(`${tree} is already at`);
+    expect(sourceAccount.trees?.[tree]?.canonical).toBe(sourceCanonical);
+    expect(sourceCanopy.canopy.get(tree)).toMatchObject({ status: "active" });
   });
 });

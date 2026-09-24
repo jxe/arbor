@@ -788,7 +788,7 @@ async function acceptance(state: LabState): Promise<void> {
     "const treeID = generateArborID('tr');",
     "await client.submitUpdate(configuration.tree.id, configuration.tree.update, snapshotAccountConfigV2({",
     "  account: graph.account,",
-    "  trees: { ...graph.trees, [treeID]: { canonical: `${graph.account.canopy}/~owner/${process.env.ARBOR_LAB_REPLAY}`, access: [] } },",
+    "  resources: { ...graph.resources, [treeID]: { canonical: `${graph.account.canopy}/~owner/${process.env.ARBOR_LAB_REPLAY}`, access: [] } },",
     "  devices: graph.devices,",
     "}));",
     "const initial = await resolveSnapshot(await snapshotDirectory('/tmp/arbor-replay'));",

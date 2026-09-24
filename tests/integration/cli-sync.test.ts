@@ -399,7 +399,6 @@ describe("Canopy deployment guards", () => {
       RAILWAY_ENVIRONMENT_ID: "",
       ARBOR_DOMAIN: "",
       ARBOR_ACCOUNT_TOKEN: "",
-      ARBOR_OWNER_TOKEN: "",
       ARBOR_ACCOUNTS_JSON: "",
     };
     const missingCommunity = await canopyFailure([join(sandbox, "unattended-no-community")], { ...bootstrapEnv, ARBOR_COMMUNITY_HANDLE: "" });

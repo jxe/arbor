@@ -17,7 +17,7 @@ test("author/user contributions are bounded by caller rules and nonrecursive und
       "CREATE TABLE resource_policy(account_id TEXT, tree_id TEXT, rules_json TEXT)"
     );
     db.run(
-      "CREATE TABLE access(id TEXT PRIMARY KEY, tree_id TEXT, subject_kind TEXT, subject TEXT, access TEXT, claimed_profile TEXT)"
+      "CREATE TABLE access(id TEXT PRIMARY KEY, tree_id TEXT, subject_kind TEXT, subject TEXT, access TEXT)"
     );
     db.run(
       "INSERT INTO accounts VALUES ('owner','tr_owner','owner',1),('user','tr_user','user',1)"

@@ -55,9 +55,8 @@ struct NativeAccountPairingTests {
         tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:
           canonical: https://canopy.example/~joe/notes
           access:
-            - subject:
-                kind: everyone
-              access: read
+            - who: everyone
+              allow: [read]
 
         # Keep the private tree exactly as its owner wrote it.
         tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:
@@ -495,7 +494,7 @@ func resourcePolicyEditing() throws {
         trees["tr_notes"]!.access = [ArborAccountAccessRule(subject: .everyone, access: "write")]
     }
     let parsed = try ArborAccountConfigurationYAML.trees(from: changed)
-    #expect(parsed["tr_notes"]?.resourceAccess?.contains(where: { $0.via == "tr_supplies" && $0.allow == [.createChild] && $0.within == "/inbox" }) == true)
+    #expect(parsed["tr_notes"]?.resourceAccess.contains(where: { $0.via == "tr_supplies" && $0.allow == [.createChild] && $0.within == "/inbox" }) == true)
     #expect(parsed["tr_notes"]?.access.first?.access == "write")
     #expect(changed.contains("# Preserve foreign grants exactly.\ntr_foreign:\n  access:\n    - who: me\n      via: tr_supplies\n      allow: [read]"))
     #expect(!changed.contains("subject:"))
@@ -532,6 +531,19 @@ func resourceConsentReview() throws {
     #expect(!foreign.after.components(separatedBy: "tr_foreign:")[1].contains("canonical:"))
     let link = try WireResourceAccessRule(who: .link("sha256:" + String(repeating: "a", count: 64)), allow: [.read])
     #expect(!link.consentDescription.contains("sha256:"))
+}
+
+@Test("trees.yaml accepts resource rules only; the earlier subject/access rules are rejected")
+func legacyTreesRejected() throws {
+    let legacy = "tr_notes:\n  canonical: https://example.test/~joe/notes\n  access:\n    - subject:\n        kind: everyone\n      access: read\n"
+    #expect(throws: (any Error).self) { try ArborAccountConfigurationYAML.trees(from: legacy) }
+    #expect(throws: (any Error).self) { try ArborAccountConfigurationYAML.replacingTrees(in: legacy) { _ in } }
+    let written = try ArborAccountConfigurationYAML.replacingTrees(in: "{}\n") { trees in
+        trees["tr_notes"] = ArborHostedTreeDeclaration(canonical: "https://example.test/~joe/notes",
+            access: [ArborAccountAccessRule(subject: .everyone, access: "read")])
+    }
+    #expect(!written.contains("subject:"))
+    #expect(try ArborAccountConfigurationYAML.trees(from: written)["tr_notes"]?.resourceAccess == [WireResourceAccessRule(who: .everyone, allow: [.read])])
 }
 
 @Test("Policy editors reject duplicate YAML keys, aliases, unknown fields and equivalent rule keys")

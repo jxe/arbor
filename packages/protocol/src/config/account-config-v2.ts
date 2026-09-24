@@ -38,7 +38,6 @@ export interface CanopyAccountConfigurationSnapshot {
 }
 
 const ID = /^(?:tr|dv)_[a-z2-7]+$/;
-const HASH = /^sha256:[a-f0-9]{64}$/;
 
 function issue(code: string, message: string, path: string): Diagnostic {
   return { code, message, path, severity: "warning" };
@@ -96,38 +95,6 @@ function canopyOrigin(value: unknown, label: string): string {
   return value;
 }
 
-function accessRules(value: unknown, label: string): AccessRule[] {
-  if (!Array.isArray(value)) throw new Error(`${label} must be a list`);
-  const seen = new Set<string>();
-  return value.map((candidate, index) => {
-    const rule = record(candidate, `${label}[${index}]`);
-    exactFields(rule, ["subject", "access"], `${label}[${index}]`);
-    if (rule.access !== "read" && rule.access !== "write") throw new Error(`${label}[${index}].access must be read or write`);
-    const subject = record(rule.subject, `${label}[${index}].subject`);
-    if (subject.kind === "everyone") {
-      exactFields(subject, ["kind"], `${label}[${index}].subject`);
-      if (seen.has("everyone")) throw new Error(`${label} subjects must be unique`);
-      seen.add("everyone");
-      return { subject: { kind: "everyone" }, access: rule.access };
-    }
-    if (subject.kind === "profile") {
-      exactFields(subject, ["kind", "tree"], `${label}[${index}].subject`);
-      const tree = configurationTreeID(subject.tree, `${label}[${index}].subject.tree`);
-      if (seen.has(`profile:${tree}`)) throw new Error(`${label} subjects must be unique`);
-      seen.add(`profile:${tree}`);
-      return { subject: { kind: "profile", tree }, access: rule.access };
-    }
-    if (subject.kind === "link") {
-      exactFields(subject, ["kind", "digest"], `${label}[${index}].subject`);
-      if (typeof subject.digest !== "string" || !HASH.test(subject.digest)) throw new Error(`${label}[${index}].subject.digest is invalid`);
-      if (seen.has(`link:${subject.digest}`)) throw new Error(`${label} subjects must be unique`);
-      seen.add(`link:${subject.digest}`);
-      return { subject: { kind: "link", digest: subject.digest as `sha256:${string}` }, access: rule.access };
-    }
-    throw new Error(`${label}[${index}].subject.kind is invalid`);
-  });
-}
-
 export function parseCanopyAccountConfiguration(source: string): CanopyAccountConfiguration {
   const value = record(parseStrict(source), "account.yaml");
   exactFields(value, ["canopy", "profile"], "account.yaml");
@@ -137,35 +104,9 @@ export function parseCanopyAccountConfiguration(source: string): CanopyAccountCo
   };
 }
 
-function canonicalURL(value: unknown, account: CanopyAccountConfiguration, label: string): string {
-  if (typeof value !== "string") throw new Error(`${label} must be a canonical HTTPS URL`);
-  const url = new URL(value);
-  if (url.username || url.password || url.search || url.hash || url.origin !== account.canopy) {
-    throw new Error(`${label} must use the account Canopy origin without credentials, query, or fragment`);
-  }
-  if (!url.pathname.startsWith("/") || url.pathname.includes("//")) throw new Error(`${label} path is not canonical`);
-  return value;
-}
-
-export function parseLegacyHostedTreesConfiguration(source: string, account: CanopyAccountConfiguration): HostedTreesConfiguration {
-  const value = record(parseStrict(source), "trees.yaml");
-  const trees: HostedTreesConfiguration = {};
-  for (const [idValue, candidate] of Object.entries(value)) {
-    const id = configurationTreeID(idValue, `trees.yaml key ${idValue}`);
-    const declaration = record(candidate, `trees.yaml.${id}`);
-    exactFields(declaration, ["canonical", "access"], `trees.yaml.${id}`);
-    trees[id] = {
-      canonical: canonicalURL(declaration.canonical, account, `trees.yaml.${id}.canonical`),
-      access: accessRules(declaration.access, `trees.yaml.${id}.access`),
-    };
-  }
-  return trees;
-}
-
-/** Compatibility projection for hosting consumers; full policy remains in resources/source bytes. */
+/** The hosted-tree projection of a resource-policy `trees.yaml`. */
 export function parseHostedTreesConfiguration(source: string, account: CanopyAccountConfiguration): HostedTreesConfiguration {
-  try { return parseLegacyHostedTreesConfiguration(source, account); }
-  catch { return hostedProjection(parseResourceConfiguration(source, account)); }
+  return hostedProjection(parseResourceConfiguration(source, account));
 }
 
 export function parseAccountDevicesConfiguration(source: string): Record<string, AccountDeviceConfiguration> {
@@ -287,8 +228,8 @@ export async function loadCanopyAccountConfiguration(configurationTreeInput: str
   try { if (sources["account.yaml"] !== undefined) account = parseCanopyAccountConfiguration(sources["account.yaml"]); }
   catch (error) { diagnostics.push(issue("invalid-account-yaml", error instanceof Error ? error.message : String(error), join(path, "account.yaml"))); }
   try { if (account && sources["trees.yaml"] !== undefined) {
-    try { trees = parseLegacyHostedTreesConfiguration(sources["trees.yaml"], account); }
-    catch { resources = parseResourceConfiguration(sources["trees.yaml"], account); trees = hostedProjection(resources); }
+    resources = parseResourceConfiguration(sources["trees.yaml"], account);
+    trees = hostedProjection(resources);
   } }
   catch (error) { diagnostics.push(issue("invalid-trees-yaml", error instanceof Error ? error.message : String(error), join(path, "trees.yaml"))); }
   try { if (sources["devices.yaml"] !== undefined) devices = parseAccountDevicesConfiguration(sources["devices.yaml"]); }

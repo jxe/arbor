@@ -1,160 +1,27 @@
 import { z } from "zod";
+import { OBJECT_HASH } from "./state-value.ts";
 import {
   decodeAuthoredCandidateIntent,
   decodeMaterialRef,
 } from "../../protocol/src/updates/authored-contract.ts";
-import type { MaterialRef, SourceOperation } from "@overstory/protocol";
+import type { MaterialRef } from "@overstory/protocol";
+import {
+  IntentError,
+  intentRequestSchema,
+  isIntentRequest,
+  traceOperations,
+  type DecisionReport,
+  type Frame,
+  type IntentEvaluation,
+  type IntentRequest,
+} from "@overstory/merge-protocol";
+export { IntentError, isIntentRequest, traceOperations, type Frame, type IntentRequest };
 
-const hash = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
-const ref = z.object({ object: hash, state: hash.optional() }).strict();
-const schema = z
-  .object({
-    kind: z.literal("tree"),
-    tree: token,
-    // Host-supplied state/root pairs have already passed semantic validation.
-    // This internal contract never accepts client assertions of that fact.
-    base: ref,
-    current: ref,
-    incoming: z
-      .object({
-        change: token,
-        object: hash,
-        // Exactly one of these arrives: `trace` is the frame chain; a bare
-        // `operations` array is the deployed wire's single frame and is adapted
-        // below. `parseIntentRequest` rejects both and neither.
-        operations: z.array(z.unknown()).max(1024).optional(),
-        trace: z
-          .array(
-            z
-              .object({
-                before: hash,
-                after: hash,
-                operations: z.array(z.unknown()).max(1024),
-              })
-              .strict()
-          )
-          .max(64)
-          .optional(),
-        resolves: z.array(z.string().min(1)).max(1024).optional(),
-      })
-      .strict(),
-    rules: z
-      .object({
-        id: z.literal("tree-default"),
-        revision: z.literal(1),
-        config: z
-          .object({
-            contentChoices: z.enum(["source", "file"]).optional(),
-            conflictProjection: z.enum(["current", "incoming"]).optional(),
-            maxMillis: z.number().int().positive().max(30_000).optional(),
-            maxBytes: z
-              .number()
-              .int()
-              .positive()
-              .max(128 * 1024 * 1024)
-              .optional(),
-            formats: z
-              .record(
-                z.string(),
-                z
-                  .object({
-                    format: z
-                      .enum([
-                        "text",
-                        "markdown",
-                        "json",
-                        "jsonl",
-                        "yaml",
-                        "toml",
-                        "csv",
-                        "tsv",
-                        "typescript",
-                        "javascript",
-                        "swift",
-                        "python",
-                        "html",
-                        "xml",
-                        "css",
-                        "binary",
-                      ])
-                      .optional(),
-                    recordKey: z.string().min(1).optional(),
-                    proseInsertions: z
-                      .enum(["review", "preserve-both"])
-                      .optional(),
-                  })
-                  .strict()
-              )
-              .optional(),
-            maxNodes: z.number().int().positive().max(100_000).optional(),
-          })
-          .strict()
-          .optional(),
-      })
-      .strict(),
-    alternatives: z
-      .array(
-        z
-          .object({
-            ref: z.unknown(),
-            decision: z.string().min(1),
-            alternative: z.number().int().nonnegative(),
-            value: z
-              .object({ object: hash, kind: z.enum(["file", "directory"]) })
-              .strict(),
-          })
-          .strict()
-      )
-      .max(1024)
-      .optional(),
-  })
-  .strict();
-/** One tree-root to tree-root step of authored evidence. Basis references
- * inside a frame name objects in that frame's `before` tree; operation
- * references name an earlier key in the same change. Concatenating two traces
- * therefore needs no rebasing. */
-export interface Frame {
-  before: string;
-  after: string;
-  operations: SourceOperation[];
-}
-/** Every operation of a change in authored order. Keys are unique across the
- * whole trace, so a flat list carries the change's complete contribution. */
-export function traceOperations(incoming: {
-  trace: Frame[];
-}): SourceOperation[] {
-  return incoming.trace.flatMap((frame) => frame.operations);
-}
-export type IntentRequest = Omit<
-  z.infer<typeof schema>,
-  "incoming" | "alternatives"
-> & {
-  incoming: {
-    change: string;
-    object: string;
-    trace: Frame[];
-    resolves?: string[];
-  };
-  alternatives?: Array<{
-    ref: MaterialRef;
-    decision: string;
-    alternative: number;
-    value: { object: string; kind: "file" | "directory" };
-  }>;
-};
-/** What a caller may hand the engine: a `trace` of frames, which is what the
- * wire carries, or a flat `operations` list for a caller that has only one
- * step to state. `parseIntentRequest` returns the frame form either way. */
-export type IntentRequestInput = Omit<IntentRequest, "incoming"> & {
-  incoming: {
-    change: string;
-    object: string;
-    operations?: SourceOperation[];
-    trace?: Frame[];
-    resolves?: string[];
-  };
-};
+const schema = intentRequestSchema;
+/** What a caller hands the engine, before `parseIntentRequest` checks it. */
+export type IntentRequestInput = IntentRequest;
 export function parseIntentRequest(raw: unknown): IntentRequest {
   if (
     raw &&
@@ -164,24 +31,8 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
   )
     throw new IntentError("unsupported", "Unknown rule revision");
   const value = schema.parse(raw);
-  const incoming = value.incoming;
-  if ((incoming.operations === undefined) === (incoming.trace === undefined))
-    throw new IntentError(
-      "invalid",
-      "An incoming change carries either operations or a trace"
-    );
-  // A caller with one step to state may send a flat operation list. It is
-  // exactly one frame from the base tree to the candidate; everything below
-  // sees frames, which is also what the wire hands in.
-  const trace =
-    incoming.trace ??
-    [
-      {
-        before: value.base.object,
-        after: incoming.object,
-        operations: incoming.operations!,
-      },
-    ];
+  const incoming = value.incoming,
+    trace = incoming.trace;
   if (trace.reduce((sum, frame) => sum + frame.operations.length, 0) > 1024)
     throw new IntentError("limit", "Trace exceeds the operation limit");
   const keys = new Set<string>();
@@ -191,10 +42,9 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
       throw new IntentError("invalid", "Trace does not follow its basis");
     if (index === trace.length - 1 && frame.after !== incoming.object)
       throw new IntentError("invalid", "Trace does not end at the candidate");
-    // Only the single adapted frame may be empty: that is a snapshot candidate
-    // or a bare resolution, which carries no operations at all. A trace states
-    // its steps, so each of its frames contributes something.
-    if (!frame.operations.length && incoming.trace)
+    // A trace states its steps, so each of its frames contributes something.
+    // A snapshot or a bare resolution carries no frames at all.
+    if (!frame.operations.length)
       throw new IntentError("invalid", "Frame carries no operations");
     for (const op of frame.operations)
       if (
@@ -213,13 +63,12 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
         ].includes(String(op.kind))
       )
         throw new IntentError("unsupported", "Unknown operation kind");
-    if (frame.operations.length || !incoming.resolves?.length)
-      decodeAuthoredCandidateIntent({
-        change: incoming.change,
-        candidate: frame.after,
-        trace: [{ before: frame.before, after: frame.after, operations: frame.operations }],
-        resolves: [],
-      });
+    decodeAuthoredCandidateIntent({
+      change: incoming.change,
+      candidate: frame.after,
+      trace: [{ before: frame.before, after: frame.after, operations: frame.operations }],
+      resolves: [],
+    });
     // An operation key names one authored contribution of this change, so it
     // stays unique across the whole trace, not merely within a frame.
     for (const op of frame.operations as Array<{ key: string }>) {
@@ -235,10 +84,7 @@ export function parseIntentRequest(raw: unknown): IntentRequest {
         "Alternative bindings require a complete alternative reference"
       );
   }
-  // The adapted list is dropped, never carried beside the chain it became: a
-  // change's identity must not depend on which of the two shapes stated it.
-  const { operations: _adapted, ...rest } = incoming;
-  return { ...value, incoming: { ...rest, trace } } as IntentRequest;
+  return value as IntentRequest;
 }
 /** The request's semantic identity, hashed into `changes[change]`. The frame
  * chain is the authored claim, so it is what the signature covers: the same
@@ -250,14 +96,6 @@ export function changeIdentity(request: IntentRequest) {
     alternatives: request.alternatives,
     rules: request.rules,
   };
-}
-export class IntentError extends Error {
-  constructor(
-    readonly code: "invalid" | "missing-context" | "unsupported" | "limit",
-    message: string
-  ) {
-    super(message);
-  }
 }
 export interface Piece {
   origin: string;
@@ -298,10 +136,11 @@ export interface Effect {
   preserves?: boolean;
   before: Record<string, Node>;
   after: Record<string, Node>;
-  /** The piece edits of an `editSource` effect, per file node. When present,
-   * `before`/`after` copies omit `pieces`: the edits carry exactly what
-   * deletion enforcement and retention read. Legacy records keep the pieces. */
-  edits?: Record<string, EffectEdit[]>;
+  /** The piece edits of an `editSource` effect, per file node (empty for
+   * every other kind). An edited file's `before`/`after` copies omit
+   * `pieces`: the edits carry exactly what deletion enforcement and retention
+   * read. */
+  edits: Record<string, EffectEdit[]>;
   undone: boolean;
 }
 export interface EffectEdit {
@@ -336,28 +175,11 @@ export interface IntentDecision {
   context?: string;
   placement?: { node: string; pieces: Piece[]; anchor: number };
 }
+/** The engine's in-process result. `decisions` are its retained records;
+ * `reports` are what crosses the worker boundary as the wire `decisions`. */
 export type IntentResponse =
-  | {
-      outcome: "evaluated";
-      result: { object: string; state: string };
-      authored: { object: string; state: string };
-      objects: string[];
-      decisions: IntentDecision[];
-      evidence: {
-        rule: { id: "tree-default"; revision: 1 };
-        /** The three tree roots the rule evaluated. The rule is deterministic,
-         * so these reproduce every object it read; a full read set is not kept. */
-        inputs: { base: string; current: string; incoming: string };
-        change: string;
-        operations: string[];
-        validation: "verified";
-        formats: import("./format-rules.ts").FormatEvidence[];
-      };
-    }
-  | {
-      outcome: "invalid" | "missing-context" | "unsupported" | "limit";
-      message: string;
-    };
+  | (Omit<IntentEvaluation, "decisions"> & { decisions: IntentDecision[]; reports: DecisionReport[] })
+  | { outcome: IntentError["code"]; message: string };
 export const keyOf = (change: string, operation: string) =>
   JSON.stringify([change, operation]);
 export const alternativeKey = (ref: MaterialRef) =>
@@ -462,7 +284,7 @@ const stateSchema = z
             range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]),
             removed: z.array(pieceSchema).max(100_000),
             inserted: z.array(pieceSchema).max(100_000),
-          }).strict())).optional(),
+          }).strict())),
           undone: z.boolean(),
         })
         .strict()
@@ -488,7 +310,7 @@ export function parseIntentState(raw: unknown): IntentState {
         id !== node.id ||
         (node.kind === "tree"
           ? !/^tr_[a-z0-9]+$/.test(node.object)
-          : !/^sha256:[a-f0-9]{64}$/.test(node.object))
+          : !OBJECT_HASH.test(node.object))
       )
         throw new Error("Invalid retained node identity");
     }
@@ -515,77 +337,6 @@ export function parseIntentHistoryRecord(
     [field]: {record: raw},
   });
   return state[field].record;
-}
-
-const intentResponseSchema = z
-  .object({
-    outcome: z.literal("evaluated"),
-    result: z.object({ object: hash, state: hash }).strict(),
-    authored: z.object({ object: hash, state: hash }).strict(),
-    objects: z.array(hash),
-    decisions: z.array(decisionSchema),
-    evidence: z
-      .object({
-        rule: z
-          .object({ id: z.literal("tree-default"), revision: z.literal(1) })
-          .strict(),
-        inputs: z.object({ base: hash, current: hash, incoming: hash }).strict(),
-        change: token,
-        operations: z.array(token),
-        validation: z.literal("verified"),
-        formats: z.array(
-          z
-            .object({
-              id: token,
-              revision: z.literal(1),
-              outcome: z.enum(["resolved", "unresolved"]),
-              reason: z.string(),
-              config: z.record(z.string(), z.unknown()),
-            })
-            .strict()
-        ),
-      })
-      .strict(),
-  })
-  .strict();
-export function parseIntentResponse(
-  raw: unknown,
-  request: IntentRequestInput
-): Extract<IntentResponse, { outcome: "evaluated" }> {
-  if (
-    raw &&
-    typeof raw === "object" &&
-    "outcome" in raw &&
-    ["invalid", "missing-context", "unsupported", "limit"].includes(
-      String(raw.outcome)
-    ) &&
-    "message" in raw &&
-    typeof raw.message === "string"
-  )
-    throw new IntentError(
-      raw.outcome as "invalid" | "missing-context" | "unsupported" | "limit",
-      raw.message
-    );
-  const value = intentResponseSchema.parse(raw);
-  if (
-    value.authored.object !== request.incoming.object ||
-    value.evidence.change !== request.incoming.change ||
-    JSON.stringify(value.evidence.operations) !==
-      JSON.stringify(
-        (request.incoming.trace
-          ? traceOperations({ trace: request.incoming.trace })
-          : request.incoming.operations ?? []
-        ).map((op) => op.key)
-      ) ||
-    new Set(value.objects).size !== value.objects.length
-  )
-    throw new Error("Intent response does not match request");
-  for (const decision of value.decisions) {
-    if (decision.selected >= decision.alternatives.length)
-      throw new Error("Invalid selected alternative");
-    if (decision.subject) decodeMaterialRef(decision.subject);
-  }
-  return value as Extract<IntentResponse, { outcome: "evaluated" }>;
 }
 
 /** Object dependencies only: change digests and nested TreeIDs are not objects. */
@@ -651,18 +402,4 @@ export function intentReferences(state: IntentState): Set<string> {
 export function intentHistoryReferences(field: "outputs" | "effects" | "origins" | "alternatives" | "changes", record: unknown): Set<string> {
   return intentReferences({format: "arbor-merge-intent-state", tree: "", root: "", nodes: {}, decisions: [],
     outputs: {}, effects: {}, origins: {}, alternatives: {}, changes: {}, [field]: {record}} as IntentState);
-}
-
-export function isIntentRequest(raw: unknown): raw is IntentRequestInput {
-  return (
-    !!raw &&
-    typeof raw === "object" &&
-    "kind" in raw &&
-    raw.kind === "tree" &&
-    "incoming" in raw &&
-    !!raw.incoming &&
-    typeof raw.incoming === "object" &&
-    // Either the deployed wire's flat operation list or a frame trace.
-    ("operations" in raw.incoming || "trace" in raw.incoming)
-  );
 }

@@ -40,9 +40,11 @@ describe("Canopy schema version stamp", () => {
     db.close();
     expect(columns(database, "boundaries")).toEqual(["path", "tree_id", "parent_tree"]);
     expect(columns(database, "tree_reservations")).toEqual(["id", "account_id", "canonical_path", "status", "error"]);
-    expect(columns(database, "authored_changes")).toEqual(["accepted_id", "trace_json", "evidence_json"]);
-    expect(columns(database, "accepted_updates").slice(0, 2)).toEqual(["ordinal", "id"]);
-    for (const table of ["reflog", "observations"]) expect(columns(database, table)).toEqual([]);
+    expect(columns(database, "accepted_updates")).toEqual([
+      "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id",
+    ]);
+    expect(columns(database, "entry_metadata")).toEqual(["tree_id", "path", "modified_at"]);
+    for (const table of ["reflog", "observations", "authored_changes", "accepted_conflicts"]) expect(columns(database, table)).toEqual([]);
 
     const reopened = await CanopyDaemon.open(root);
     expect(reopened.community().kind).toBe("ordinary");
@@ -57,20 +59,20 @@ describe("Canopy schema version stamp", () => {
     db.run("CREATE TABLE boundaries (path TEXT PRIMARY KEY, tree_id TEXT NOT NULL UNIQUE REFERENCES trees(id), parent_tree TEXT, kind TEXT NOT NULL)");
     db.run("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     db.close();
-    await expect(CanopyDaemon.open(root, bootstrap)).rejects.toThrow(/schema version 1 \(unstamped\).*run the offline migration/);
+    await expect(CanopyDaemon.open(root, bootstrap)).rejects.toThrow(/schema version \(unstamped\).*run the offline migration/);
     // The refused database is left untouched for the operator's migration tool.
     expect(columns(join(root, "canopy.sqlite3"), "boundaries")).toEqual(["path", "tree_id", "parent_tree", "kind"]);
   });
 
-  test("schema 17 is current: a schema-15 root is refused and points at the offline migration", async () => {
-    expect(CANOPY_SCHEMA_VERSION).toBe("17");
+  test("schema 18 is current: a schema-17 root is refused and points at the offline migration", async () => {
+    expect(CANOPY_SCHEMA_VERSION).toBe("18");
     const root = await dataRoot();
     const first = await CanopyDaemon.open(root, bootstrap);
     await first[Symbol.asyncDispose]();
     const db = new Database(join(root, "canopy.sqlite3"));
-    db.run("UPDATE meta SET value = '15' WHERE key = 'schema_version'");
+    db.run("UPDATE meta SET value = '17' WHERE key = 'schema_version'");
     db.close();
-    await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version 15 but this build requires 17.*run the offline migration/);
+    await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version 17 but this build requires 18.*run the offline migration/);
   });
 
   test("refuses a database stamped with a different version", async () => {
@@ -82,22 +84,4 @@ describe("Canopy schema version stamp", () => {
     db.close();
     await expect(CanopyDaemon.open(root)).rejects.toThrow(/schema version future.*run the offline migration/);
   });
-});
-
-test("rejects a v1 account policy at the current schema without changing its row", async () => {
-  const root = await dataRoot();
-  const first = await CanopyDaemon.open(root, bootstrap);
-  await first.ensureAccountConfigTrees("https://community.example");
-  await first[Symbol.asyncDispose]();
-  const path = join(root, "canopy.sqlite3");
-  const db = new Database(path);
-  db.run("UPDATE trees SET policy = 'account-config-v1' WHERE policy = 'account-config-v2'");
-  const before = db.query("SELECT * FROM trees ORDER BY id").all();
-  expect(before.some(row => (row as { policy: string }).policy === "account-config-v1")).toBe(true);
-  db.close();
-  await expect(CanopyDaemon.open(root)).rejects.toThrow("account-config-v1 requires offline migration");
-  const after = new Database(path, { readonly: true });
-  expect(after.query("SELECT * FROM trees ORDER BY id").all()).toEqual(before);
-  expect(after.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: CANOPY_SCHEMA_VERSION });
-  after.close();
 });

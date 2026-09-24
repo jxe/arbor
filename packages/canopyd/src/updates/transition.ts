@@ -1,5 +1,4 @@
 import {
-  encodeTransitionPayloadJSON,
   objectDelta,
   type AcceptedTransitionPayload,
   type ObjectDelta,
@@ -10,8 +9,28 @@ import { treeReader, walkTreeDiff, type Load, type TreeReader } from "./tree-dif
 /** Objects larger than this are always transferred complete rather than diffed. */
 const MAX_DELTA_SOURCE_BYTES = 64 * 1024 * 1024;
 
-function encodedSize(payload: AcceptedTransitionPayload): number {
-  return Buffer.byteLength(JSON.stringify(encodeTransitionPayloadJSON(payload)));
+/** Length of standard padded base64 for `bytes` bytes. */
+const base64Length = (bytes: number) => Math.ceil(bytes / 3) * 4;
+
+/**
+ * The JSON length one object adds to an encoded transition payload, complete
+ * or as a delta, computed without encoding it. Hashes, base64 and integers
+ * need no JSON escaping, so these equal the `encodeTransitionPayloadJSON`
+ * lengths; only the comparison between the two forms matters.
+ */
+function completeLength(hash: ObjectHash, bytes: Uint8Array): number {
+  return '{"hash":"","bytes":""}'.length + hash.length + base64Length(bytes.byteLength);
+}
+
+function deltaLength(delta: ObjectDelta): number {
+  let length = '{"base":"","result":"","instructions":[]}'.length + delta.base.length + delta.result.length
+    + Math.max(0, delta.instructions.length - 1);
+  for (const instruction of delta.instructions) {
+    length += "copy" in instruction
+      ? '{"copy":{"offset":,"length":}}'.length + String(instruction.copy.offset).length + String(instruction.copy.length).length
+      : '{"insert":""}'.length + base64Length(instruction.insert.byteLength);
+  }
+  return length;
 }
 
 /**
@@ -38,8 +57,7 @@ export async function buildAcceptedTransitionPayload(
     const before = beforeHash ? await reader.bytes(beforeHash) : undefined;
     if (before && before.byteLength <= MAX_DELTA_SOURCE_BYTES && after.byteLength <= MAX_DELTA_SOURCE_BYTES) {
       const candidate: ObjectDelta = { base: beforeHash!, result: afterHash, instructions: objectDelta(before, after) };
-      const complete = encodedSize({ objects: [{ hash: afterHash, bytes: after }], deltas: [] });
-      if (encodedSize({ objects: [], deltas: [candidate] }) < complete) { deltas.push(candidate); return; }
+      if (deltaLength(candidate) < completeLength(afterHash, after)) { deltas.push(candidate); return; }
     }
     objects.push({ hash: afterHash, bytes: after });
   };
@@ -53,12 +71,7 @@ export async function buildAcceptedTransitionPayload(
       return !!entry?.directory && !provided.has(entry.directory);
     },
   });
-  const payload: AcceptedTransitionPayload = {
-    objects,
-    deltas,
-  };
-  // Exercise the exact persisted/wire encoding here; every object was
-  // hash-checked by the reader while walking the canonical graph.
-  encodeTransitionPayloadJSON(payload);
-  return payload;
+  // Every object was hash-checked by the reader while walking the canonical
+  // graph; the store encodes the payload once, when it persists it.
+  return { objects, deltas };
 }

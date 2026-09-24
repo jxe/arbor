@@ -15,6 +15,11 @@ export interface CanopyTree {
   accountID: string | null;
 }
 
+/** Whether a tree holds an account's configuration rather than ordinary content. */
+export function isAccountConfigPolicy(policy: CanopyTree["policy"]): boolean {
+  return policy === "account-config-v2";
+}
+
 export interface CanopyAccount {
   id: string;
   handle: string;
@@ -35,5 +40,4 @@ export interface CanopyAccessEntry {
   subjectKind: "everyone" | "profile" | "link";
   subject: string;
   access: ReadWriteAccess;
-  claimedProfile?: string;
 }

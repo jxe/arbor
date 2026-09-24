@@ -47,7 +47,7 @@ describe("group ACL expansion is gated on the subject root's type: group", () =>
     db = new Database(":memory:");
     db.run(`CREATE TABLE access (
       id TEXT PRIMARY KEY, tree_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject TEXT NOT NULL,
-      access TEXT NOT NULL, claimed_profile TEXT, UNIQUE(tree_id, subject_kind, subject)
+      access TEXT NOT NULL, UNIQUE(tree_id, subject_kind, subject)
     )`);
     access = new AccessControl(db, host);
   });
@@ -88,7 +88,7 @@ describe("group ACL expansion is gated on the subject root's type: group", () =>
 test("direct read does not mask a group's stronger write permission", () => {
   const db = new Database(":memory:");
   try {
-    db.run("CREATE TABLE access (id TEXT PRIMARY KEY, tree_id TEXT, subject_kind TEXT, subject TEXT, access TEXT, claimed_profile TEXT, UNIQUE(tree_id, subject_kind, subject))");
+    db.run("CREATE TABLE access (id TEXT PRIMARY KEY, tree_id TEXT, subject_kind TEXT, subject TEXT, access TEXT, UNIQUE(tree_id, subject_kind, subject))");
     const access = new AccessControl(db, host);
     access.set("tr_shared", "profile", "tr_bob", "read");
     access.set("tr_shared", "profile", "tr_group", "write");

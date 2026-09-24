@@ -25,6 +25,7 @@ export * from "./updates/apply.ts";
 export * from "./updates/delta.ts";
 export * from "./transport.ts";
 export type { AuthoredOperation as SourceOperation, AuthoredFrame as SourceTraceFrame, Material, MaterialRef, EntryDestination, ResolutionDeclaration } from "./updates/authored-contract.ts";
+export { decodeMaterialRef } from "./updates/authored-contract.ts";
 export type { DecisionPage, InspectedDecision, InspectedAlternative } from "./updates/accepted-contract.ts";
 
 export * from "./documents/markdown.ts";
@@ -37,5 +38,6 @@ export * from "./documents/merge.ts";
 export * from "./config/private-state.ts";
 export * from "./config/account-config-v2.ts";
 export * from "./config/resource-configuration.ts";
+export * from "./config/account-config-graph.ts";
 export * from "./config/server-config.ts";
 export * from "./config/placement.ts";

@@ -62,10 +62,8 @@ beforeAll(async () => {
       `${tree}:`,
       `  canonical: ${JSON.stringify(`${running.url}/~joe/todos`)}`,
       "  access:",
-      "    - subject:",
-      "        kind: profile",
-      `        tree: ${account.account!.profile}`,
-      "      access: write",
+      `    - who: { profile: ${account.account!.profile} }`,
+      "      allow: [write]",
       "",
     ].join("\n"));
     await writeFile(join(state, "placements.yaml"), [

@@ -1,9 +1,9 @@
 # Clients 001: One update machine for every working tree
 
-Status: phases 0–3 IMPLEMENTED, not installed (2026-09-24; evidence in
+Status: phases 0–3 DONE and on `main`; the Mac runs them (evidence in
 [status](../../status.md#clients-001-phases-03--2026-09-24)). Remaining: the
-Swift soak and install, which need Joe's go-ahead; the TypeScript runner and
-daemon (phase 4); and the Web 025 handoff (phase 5). No priority assigned.
+iPhone update, which needs Joe's go-ahead; the TypeScript runner and daemon
+(phase 4, in progress); and the Web 025 handoff (phase 5). No priority assigned.
 
 ## Outcome
 
@@ -37,30 +37,15 @@ What exists, and where it is described:
 
 ## Remaining work
 
-### Soak and install the Swift client
+### Update the iPhone
 
-Needs Joe's go-ahead before anything installed changes.
+Needs Joe's go-ahead. Let the installed iPhone app publish everything first:
+new builds refuse a control file or review journal that still holds work in
+the earlier form, and rewrite nothing. Then install and run the recipes in
+[release and soak](../verification/release-and-soak.md).
 
-- **Drain first.** New builds refuse, with `UpdateError.earlierPendingWork`,
-  a control file that still holds a snapshot head, a next base, or an attempt
-  outside the change log, and a review journal with its own pending attempt;
-  they rewrite nothing. Before installing, let the installed Mac and iPhone
-  apps publish everything (Sync Status shows current), then install. A clean
-  earlier journal is adopted in place (`source-admissions.json` becomes
-  `change-log.json`).
-- **Soak.** Mac and iPhone, following the recipes in
-  [release and soak](../verification/release-and-soak.md): offline edits and
-  reconnection without Sync Now, concurrent edits from another client, quitting
-  while offline with unpublished edits, killing during typing, and a held
-  rejection (a stale review guard) with Discard Refused Changes.
-- **Hosted smoke.** `swift/scripts/hosted-smoke.ts` fails before building on
-  `main` as well (`daemon.claimCanopyAccount` moved to the account service),
-  and it builds with `-project`, which resolves the pinned Quagmire release
-  while `CanopyEditor` needs the editable one. Fix it and run it as a gate
-  before the soak.
-- **History.** Working-tree sessions serve no history, so the History sheet
-  shows an empty state where the recovery store's local copies used to be.
-  Decide whether that is acceptable until Canopy serves page history.
+Open question: working-tree sessions serve no history, so the History sheet
+shows an empty state where the recovery store's local copies used to be.
 
 ### Phase 4: TypeScript runner and daemon
 

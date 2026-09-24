@@ -6,8 +6,9 @@
 graph validation, authoritative reconciliation, and private storage. Update
 handling separates decision, causal reconciliation, and transactional storage
 from rule computation; the [merge sidecar](merge-tool.md) computes every
-merge and returns retained state, and canopyd validates the result and owns
-acceptance. Table definitions, the schema stamp, and the startup schema
+merge and keeps its own retained state, which canopyd treats as opaque.
+canopyd checks each response's shape and objects, merges account
+configuration itself, and owns acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/canopyd/migrations/README.md#schema-history)
 lists every stamp.
 
@@ -48,6 +49,14 @@ same phases in a `Server-Timing` header. The log is silent under the test
 runner and never contains request content, subjects, or object identities.
 The Canopy app's network log is its client-side counterpart
 ([local system](../canopy-browser/local-state.md#diagnostic-streams)).
+
+A tree watch reauthorizes before every event it sends and every 250 ms while
+idle, and an execution authority watch every 250 ms; revocation closes the
+stream within that interval. Between checks canopyd reuses the previous
+decision until the database changes (a write through its connection, or a
+commit by any other) or execution authority is invalidated, so an idle
+check costs one trivial query. Execution token revocation, expiry, and its
+host validity callback are checked every time.
 
 ## Sidecars
 

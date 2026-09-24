@@ -28,7 +28,7 @@ by the existing suites. This plan finishes the job.
    assert them in the same commit.
 4. **`-v2` file names.** The v1 readers were retired on 2026-09-21 (see
    [status](../../status.md#v1-account-and-local-state-cutoff--2026-09-21)); rename `account-config-v2.ts`,
-   `account-policy-v2.ts`, `account-v2.ts`, their tests, and the
+   `account-policy-v2.ts`, their tests, and the
    `./account-config-v2` export subpath to the plain names.
 5. **`tests/fixtures/canopy/wire-merge.json`** and the `wire-format`
    marker file name inside the iOS working tree are on-disk names; leave the

@@ -29,7 +29,8 @@ as `@overstory/<name>`; Swift packages live under `swift/Packages/`.
 - **canopyd, the host**: serves communities, accounts, hosted trees, and
   public pages over HTTPS, accepts updates, and runs two sidecars: the merge
   tool for every accepted update and the executable-document runtime for
-  queries and mutations. `canopyd`, `canopyd-merge`, `apps-runtime`.
+  queries and mutations. `canopyd`, `canopyd-merge`, `merge-protocol` (the JSON contract
+  between the two), `apps-runtime`.
 - **Arbor Sync, the local daemon**, with the `arbor` command: keeps placed
   folders on a Mac synchronized with their hosts and serves them to local
   clients over loopback. `arborsync`, `arborsync-client`, `cli`;
@@ -51,6 +52,7 @@ flowchart TB
     direction LR
     D["canopyd<br/>communities, accounts, hosted trees, public pages, update acceptance"]
     M["canopyd-merge<br/>merge sidecar"]
+    MP["merge-protocol<br/>JSON contract"]
     AR["apps-runtime<br/>queries and mutations"]
   end
   subgraph arbor["Arbor Sync, the local daemon (loopback)"]
@@ -63,7 +65,8 @@ flowchart TB
     APP["Mac and iOS app<br/><i>CanopyAppKit · CanopyEditor · ArborSyncClient</i>"]
     WEB["canopy-web"]
   end
-  D --- M
+  D --- MP
+  MP --- M
   D --- AR
   AS -- "publishes and watches" --> D
   APP -- "edits, publishes, watches" --> D

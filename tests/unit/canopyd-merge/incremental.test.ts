@@ -152,78 +152,26 @@ test("incremental replacements and deletions match full execution across snapsho
   }
 });
 
-test("authority validation inherits unchanged file projections but checks changed pieces", async () => {
-  const { validateIntentState } = await import(
-    "../../../packages/canopyd-merge/src/intent-engine.ts"
-  );
-  const { StateMapValidationCache } = await import(
-    "../../../packages/canopyd-merge/src/state-map.ts"
-  );
+test("a stored state whose pieces do not project its files is refused", async () => {
+  const { mergeIntent } = await import("../../../packages/canopyd-merge/src/intent-engine.ts");
   const f = new Fixture();
-  const files = Object.fromEntries(
-    Array.from({ length: 100 }, (_, i) => [`file-${i}`, `body-${i}`]),
-  );
-  const root = f.tree(files);
-  const initial = await f.run(
-    f.request(
-      root,
-      root,
-      [
-        {
-          kind: "editSource",
-          key: "same",
-          source: f.ref("/file-0", "body-0"),
-          text: "body-0",
-        },
-      ],
-      "start",
-    ),
-  );
-  const state = await loadIntentState(
-    initial.result.state,
-    async (hash) => f.objects.get(hash)!,
-  );
-  const readHashes: string[] = [];
-  const objects = {
-    read: async (hash: string) => {
-      readHashes.push(hash);
-      return f.objects.get(hash)!;
-    },
-    store: async () => {},
-  };
-  const previous = new Map(),
-    historyCache = new StateMapValidationCache();
-  await validateIntentState(initial.result, "tree", objects, {
-    historyCache,
-    retained: () => {},
-    material: { next: previous },
-  });
-  readHashes.length = 0;
-  await validateIntentState(initial.result, "tree", objects, {
-    historyCache,
-    retained: () => {},
-    material: { previous, next: new Map() },
-  });
-  expect(
-    Object.values(files).every((text) => !readHashes.includes(f.put(text))),
-  ).toBe(true);
-  const file = Object.values(state.nodes).find(
-    (node) => node.name === "file-0",
-  )!;
+  const root = f.tree({ "file-0": "body-0", "file-1": "body-1" });
+  const initial = await f.run(f.request(root, root, [
+    { kind: "editSource", key: "same", source: f.ref("/file-0", "body-0"), text: "body-0" },
+  ], "start"));
+  const state = await loadIntentState(initial.result.state, async (hash) => f.objects.get(hash)!);
+  const file = Object.values(state.nodes).find((node) => node.name === "file-0")!;
   file.pieces![0]!.length += 100;
-  const malformed = storeIntentState(state, (bytes) => f.put(bytes));
-  await expect(
-    validateIntentState(
-      { ...initial.result, state: malformed },
-      "tree",
-      objects,
-      {
-        historyCache,
-        retained: () => {},
-        material: { previous, next: new Map() },
-      },
-    ),
-  ).rejects.toThrow("Invalid retained piece");
+  const malformed = { ...initial.result, state: storeIntentState(state, (bytes) => f.put(bytes)) };
+  const candidate = f.tree({ "file-0": "body-0", "file-1": "BODY-1" });
+  const next = (basis: { object: string; state: string }) => mergeIntent(f.request(basis, candidate, [
+    { kind: "editSource", key: "next", source: f.ref("/file-1", "body-1"), text: "BODY-1" },
+  ], "next"), {
+    read: async (hash) => f.objects.get(hash)!,
+    store: async () => {},
+  }, { eager: true });
+  expect((await next(initial.result)).outcome).toBe("evaluated");
+  expect((await next(malformed)).outcome).toBe("invalid");
 });
 
 test("worker-local projection reuse and targeted effects match full evaluation for multiple edits", async () => {
@@ -338,9 +286,9 @@ test("host-validated basis skips untouched bodies but still verifies the edit an
   }};
   expect((await mergeIntent(request, damaged)).outcome).toBe("invalid");
   expect((await mergeIntent({...request, incoming: {...request.incoming, object: base}}, objects)).outcome).toBe("invalid");
-  expect((await mergeIntent({...request, incoming: {...request.incoming, operations: [
+  expect((await mergeIntent({...request, incoming: {...request.incoming, trace: [{...request.incoming.trace[0]!, operations: [
     {kind: "editSource", key: "bad", source: f.ref("/a.md", "wrong", [1, 2]), text: "B"},
-  ]}}, objects)).outcome).toBe("invalid");
+  ]}]}}, objects)).outcome).toBe("invalid");
 });
 
 test("a multi-frame trace of exact-basis edits takes the fast path", async () => {

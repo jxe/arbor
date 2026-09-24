@@ -1,11 +1,40 @@
 import { SaxesParser } from "saxes";
 import type Parser from "web-tree-sitter";
-export interface SourceUnit {
+interface SourceUnit {
   key: string;
   start: number;
   end: number;
 }
-const byte = (s: string, i: number) => Buffer.byteLength(s.slice(0, i));
+/** Prefix UTF-8 lengths of a few recent sources. A rule analyzes each of its
+ * versions in turn, so a handful of slots makes every lookup constant time. */
+const utf8Tables: Array<{ source: string; table: Uint32Array }> = [];
+const loneSurrogateBytes = Buffer.byteLength("\ud800");
+/** `Buffer.byteLength(source.slice(0, offset))` for a UTF-16 `offset`, from one
+ * table per source rather than re-encoding a prefix per call. A lone or split
+ * surrogate counts as the runtime counts it (Bun: 2 bytes, Node: 3). */
+export function byte(source: string, offset: number): number {
+  let slot = utf8Tables.find((entry) => entry.source === source);
+  if (!slot) {
+    const table = new Uint32Array(source.length + 1);
+    let bytes = 0;
+    for (let i = 0; i < source.length; i++) {
+      table[i] = bytes;
+      const c = source.charCodeAt(i);
+      if (c < 0x80) bytes += 1;
+      else if (c < 0x800) bytes += 2;
+      else if ((c & 0xfc00) === 0xd800 && i + 1 < source.length &&
+        (source.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+        table[++i] = bytes + loneSurrogateBytes;
+        bytes += 4;
+      } else bytes += (c & 0xf800) === 0xd800 ? loneSurrogateBytes : 3;
+    }
+    table[source.length] = bytes;
+    slot = { source, table };
+    utf8Tables.unshift(slot);
+    utf8Tables.length = Math.min(utf8Tables.length, 4);
+  }
+  return slot.table[Math.min(offset, source.length)]!;
+}
 /** Strict, namespace-free XML subset. No DTDs or entity expansion. */
 export function xmlUnits(source: string): SourceUnit[] | null {
   let valid = true;

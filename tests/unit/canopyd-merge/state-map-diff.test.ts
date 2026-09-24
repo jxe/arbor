@@ -69,3 +69,17 @@ test("diff and lazy reads touch only changed buckets", async () => {
   // Depth grows by one level per 16x; the read set does not grow with the map.
   expect(counts[1]! - counts[0]!).toBeLessThan(10);
 });
+
+test("records stay inline up to 2048 UTF-16 units of canonical JSON", () => {
+  const formats = (value: unknown) => {
+    const s = store();
+    storeStateMap({ key: value }, s.put);
+    return [...s.objects.values()]
+      .map((bytes) => JSON.parse(new TextDecoder().decode(bytes)).format)
+      .filter((format: string) => format.startsWith("arbor-state-record"));
+  };
+  // {"s":"…"} adds 8 units; é is one unit but two UTF-8 bytes.
+  expect(formats({ s: "é".repeat(2040) })).toEqual(["arbor-state-record-v1"]);
+  expect(formats({ s: "é".repeat(2041) })).toEqual(["arbor-state-record-v2"]);
+  expect(formats({ s: "😀".repeat(1020) })).toEqual(["arbor-state-record-v1"]);
+});

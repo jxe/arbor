@@ -1,5 +1,5 @@
 import { installAccountHome } from "../helpers/account-home.ts";
-import { executeExactSourceEdits } from "../../packages/canopyd/src/updates/source-edits.ts";
+import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -72,7 +72,7 @@ try {
     const reviewTrees = Object.fromEntries(["choose", "compose", "lost-response", "continued-edit", "group-remove", "group-rescue", "group-keep", "group-lost-response", "independent-ranges"].map(mode => [mode, generateArborID("tr")]));
     await owner.submitUpdate(configurationTree, configuration.tree.update, snapshotAccountConfigV2({
       account: graph.account,
-      trees: { ...graph.trees,
+      resources: { ...graph.resources,
         [tree]: { canonical: `${canopy.url}/~owner/protocol`, access: [] },
         [sourceTree]: { canonical: `${canopy.url}/~owner/source-admissions`, access: [] },
         [crossDocumentTree]: { canonical: `${canopy.url}/~owner/cross-document`, access: [] },

@@ -18,8 +18,66 @@ type Chunk =
       kind: "object-branches" | "array-branches";
       children: string[];
     };
-const HASH = /^sha256:[a-f0-9]{64}$/;
-const encode = (value: unknown) => encoder.encode(stableJSONString(value));
+/** An object-store hash: the one pattern every merge-package format checks. */
+export const OBJECT_HASH = /^sha256:[a-f0-9]{64}$/;
+const HASH = OBJECT_HASH;
+/** Canonical JSON bytes: the exact encoding every stored merge format uses. */
+export const encodeJSON = (value: unknown): Uint8Array =>
+  encoder.encode(stableJSONString(value));
+/** The object hash of a value's canonical JSON bytes. */
+export const jsonHash = (value: unknown): string => hashObject(encodeJSON(value));
+const encode = encodeJSON;
+
+/** Hex SHA-256 of a map key, which radix partitions consume one digit per
+ * level. Keys repeat across levels, lookups and writes, so the digest is
+ * memoized; the bound keeps a long-lived worker's memory flat. */
+const keyHashes = new Map<string, string>();
+export function keyHash(key: string): string {
+  let known = keyHashes.get(key);
+  if (known === undefined) {
+    known = hashObject(encoder.encode(key)).slice(7);
+    if (keyHashes.size >= 65_536) keyHashes.clear();
+    keyHashes.set(key, known);
+  }
+  return known;
+}
+
+/** Canonical JSON length of `value`: exact up to `limit`, `limit + 1` above
+ * it, without serializing more than the bound requires. `measure` counts one
+ * serialized scalar or key, in UTF-8 bytes or UTF-16 units as the caller's
+ * threshold is defined. `sizes` memoizes shared subtrees within one write. */
+export function boundedJSONSize(
+  value: unknown,
+  limit: number,
+  measure: (json: string) => number,
+  sizes = new WeakMap<object, number>(),
+): number {
+  const size = (value: unknown): number => {
+    if (value === null || typeof value !== "object")
+      return measure(stableJSONString(value) ?? "");
+    const known = sizes.get(value);
+    if (known !== undefined) return known;
+    let total = 2,
+      count = 0;
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        total += (count++ ? 1 : 0) + size(child);
+        if (total > limit) break;
+      }
+    } else {
+      for (const [key, child] of Object.entries(value)) {
+        if (child === undefined) continue;
+        total += (count++ ? 1 : 0) + measure(JSON.stringify(key)) + 1 + size(child);
+        if (total > limit) break;
+      }
+    }
+    const bounded = Math.min(total, limit + 1);
+    sizes.set(value, bounded);
+    return bounded;
+  };
+  return size(value);
+}
+const utf8Length = (json: string) => Buffer.byteLength(json);
 
 /** Deterministic immutable chunks. Object keys use a radix partition so one new
  * entry rewrites only its bucket and ancestors, rather than shifting all pages. */
@@ -32,30 +90,8 @@ export function storeSharedValue(
   // write, so a later mutation can never reuse stale bytes or hashes.
   const sizes = new WeakMap<object, number>();
   const stored = new WeakMap<object, string>();
-  const keyHashes = new Map<string, string>();
-  const size = (value: Value): number => {
-    if (value === null || typeof value !== "object")
-      return encode(value).length;
-    const known = sizes.get(value);
-    if (known !== undefined) return known;
-    let total = 2,
-      count = 0;
-    if (Array.isArray(value)) {
-      for (const child of value) {
-        total += (count++ ? 1 : 0) + size(child);
-        if (total > 2048) break;
-      }
-    } else {
-      for (const [key, child] of Object.entries(value)) {
-        if (child === undefined) continue;
-        total += (count++ ? 1 : 0) + encode(key).length + 1 + size(child);
-        if (total > 2048) break;
-      }
-    }
-    const bounded = Math.min(total, 2049);
-    sizes.set(value, bounded);
-    return bounded;
-  };
+  const size = (value: Value): number =>
+    boundedJSONSize(value, 2048, utf8Length, sizes);
   const emit = (value: Chunk) => put(encode(value));
   const item = (value: Value): Item =>
     size(value) <= 512 ? { inline: value } : { ref: store(value) };
@@ -68,12 +104,7 @@ export function storeSharedValue(
       });
     const buckets = new Map<string, Array<[string, Value]>>();
     for (const entry of entries) {
-      let keyHash = keyHashes.get(entry[0]);
-      if (!keyHash) {
-        keyHash = hashObject(encoder.encode(entry[0])).slice(7);
-        keyHashes.set(entry[0], keyHash);
-      }
-      const digit = keyHash[depth]!;
+      const digit = keyHash(entry[0])[depth]!;
       const bucket = buckets.get(digit) ?? [];
       bucket.push(entry);
       buckets.set(digit, bucket);

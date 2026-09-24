@@ -1,0 +1,11 @@
+{
+  "name": "@overstory/merge-protocol",
+  "version": "0.1.0",
+  "description": "The JSON contract between canopyd and its merge worker: request and response shapes, decision reports, and error codes. No merge logic.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@overstory/protocol": "workspace:*",
+    "zod": "4.3.6"
+  }
+}
