@@ -225,6 +225,14 @@ and changed on the other is an existence choice about that file alone: its
 kept alternative is the file, the deleted alternative names no node, and every
 other concurrent change still merges into the projection.
 
+An untraced snapshot (as filesystem sync sends) is checkpointed onto the
+current state. It encloses only choices whose own material it touches: a
+choice about one file is untouched by edits elsewhere, and a snapshot of the
+displayed version continues that alternative, as a traced edit would. When a
+snapshot itself conflicts, each conflicting file (or file against its
+deletion) becomes its own choice and the rest of the snapshot merges; folders
+and the root keep a single whole-root choice.
+
 Evaluation time-budget exhaustion is an execution failure: canopyd returns a
 retryable HTTP 503, not a malformed-request HTTP 400. The host grants evaluations
 20 seconds by default, capped by the worker timeout (`evaluationMillis` can

@@ -120,8 +120,10 @@ export class SemanticMerge {
                 decisionPath(child).startsWith(decisionPath(decision) + "/"))
           )
           .map((child) => child.id),
+        // Files, or a file against its deletion, stay choices about that path.
         ...(!decision.root &&
-        decision.alternatives.every((a) => "file" in a.value)
+        decision.alternatives.every((a) => "file" in a.value || "absent" in a.value) &&
+        decision.alternatives.some((a) => "file" in a.value)
           ? { path: decisionPath(decision).slice(1).split("/") }
           : {}),
         selected: decision.alternatives.findIndex(

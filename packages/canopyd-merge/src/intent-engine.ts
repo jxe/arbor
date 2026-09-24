@@ -2980,6 +2980,7 @@ export async function checkpointIntent(
     );
   }
   const wrapped: string[] = [];
+  const continuations: Array<{ decision: IntentDecision; apply: () => Promise<void> }> = [];
   for (const decision of state.decisions) {
     if (decision.context) continue;
     if (decision.placement) {
@@ -3023,6 +3024,50 @@ export async function checkpointIntent(
         }
       }
     } else if (request.current.object === request.projection) continue;
+    else if (decision.kind === "existence") {
+      // A choice about one file concerns only that file.
+      const id = decision.affected[0]!,
+        before = previous.nodes[id]?.active ? oldObjects.get(id) : undefined,
+        after = state.nodes[id]?.active ? state.nodes[id]!.object : undefined;
+      if (before === after) continue;
+      const selected = decision.alternatives[decision.selected]!;
+      if (request.continueSelected !== false && !request.decisions.length &&
+          selected.node && before !== undefined && after !== undefined) {
+        // Editing the kept file edits that alternative; the deletion stays.
+        continuations.push({ decision, apply: async () => {
+          const material = clone(state.nodes[id]!);
+          material.id = `snapshot-alternative:${request.change}:${decision.key}`;
+          material.parent = null;
+          state.nodes[material.id] = material;
+          selected.node = material.id;
+          selected.object = after;
+          selected.contributions.push({ change: request.change, operation: null });
+          selected.state = (await engine.record(state)).state;
+        } });
+        continue;
+      }
+    } else if (decision.kind === "directory" && request.continueSelected !== false &&
+        !request.decisions.length && decision.alternatives[decision.selected]!.node === previous.root) {
+      // A snapshot of the displayed tree edits that alternative, as a traced edit would.
+      const selected = decision.alternatives[decision.selected]!;
+      continuations.push({ decision, apply: async () => {
+        selected.node = state.root;
+        selected.object = request.projection;
+        selected.contributions.push({ change: request.change, operation: null });
+        selected.state = (await engine.record(state)).state;
+      } });
+      continue;
+    }
+    decision.context = previousRecord.state;
+    wrapped.push(decision.key);
+  }
+  // Continuing an alternative claims the snapshot's material. When another
+  // choice's material is wrapped and the current projection is kept, the
+  // snapshot is withheld as a whole, so those choices are wrapped with it.
+  const withheld = wrapped.length > 0 && !request.decisions.some((d) => !d.path) &&
+    request.current.object !== request.projection && request.conflictProjection === "current";
+  for (const { decision, apply } of continuations) {
+    if (!withheld) { await apply(); continue; }
     decision.context = previousRecord.state;
     wrapped.push(decision.key);
   }
@@ -3037,6 +3082,47 @@ export async function checkpointIntent(
             fail("Legacy alternative path absent");
         return node;
       };
+      const find = (view: View) => { try { return locate(view); } catch { return undefined; } };
+      const contexts = await Promise.all(input.alternatives.map((a) => engine.initial(a.object)));
+      if (contexts.some((context) => !find(context))) {
+        // Deleted in one alternative: a choice about this file's existence.
+        const present = contexts.map(find);
+        if (present.some((node) => node && (node.kind !== "file" || !node.pieces)))
+          throw new Error("Legacy existence alternative is not a file");
+        const kept = present.find((node) => node)!;
+        let target = find(state);
+        if (!target) {
+          // The projection shows the deletion: keep an inactive occurrence at the path.
+          const parentPath = input.path.slice(0, -1);
+          let parent = state.nodes[state.root]!;
+          for (const name of parentPath)
+            parent = engine.children(state, parent.id).find((n) => n.name === name) ?? fail("Legacy alternative parent absent");
+          target = { ...clone(kept), id: `existence:${input.key}`, parent: parent.id, name: input.path.at(-1)!, active: false };
+          state.nodes[target.id] = target;
+        }
+        const alternatives = [];
+        for (const [index, a] of input.alternatives.entries()) {
+          const recorded = await engine.record(contexts[index]!), node = present[index];
+          if (!node) { alternatives.push({ ...recorded, contributions: a.contributions }); continue; }
+          const material = clone(node);
+          material.id = `legacy:${input.key}:${index}`;
+          material.parent = null;
+          if (index === input.selected && target.active) material.pieces = clone(target.pieces);
+          state.nodes[material.id] = material;
+          alternatives.push({ ...recorded, object: await engine.project(state, material.id), node: material.id, contributions: a.contributions });
+        }
+        state.decisions.push({
+          key: input.key,
+          kind: "existence",
+          affected: [target.id],
+          selected: input.selected,
+          alternatives,
+          dependencies: input.dependencies ?? [],
+          reason: "Deleted in one version and changed in another",
+          subject: { material: { kind: "basis", path: "/" + input.path.join("/"), object: alternatives.find((a) => "node" in a)!.object } },
+        });
+        continue;
+      }
       const selected = locate(state);
       if (!selected.pieces)
         throw new Error("Legacy file decision has no file placement");
@@ -3100,9 +3186,10 @@ export async function checkpointIntent(
       reason: "Retained snapshot ambiguity",
     });
   }
+  // Whole-root inputs already enclose what they wrap; per-path ones do not.
   if (
     wrapped.length &&
-    !request.decisions.length &&
+    !request.decisions.some((d) => !d.path) &&
     request.current.object !== request.projection
   ) {
     const projected = await engine.record(state);
