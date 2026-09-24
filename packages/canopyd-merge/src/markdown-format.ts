@@ -135,6 +135,23 @@ function inlineProse(source: string): boolean {
   return !/[`*_~<>|\[\]\\]/.test(rest);
 }
 
+/** One document's scans, each computed on first use: its UTF-8 bytes and
+ * opaque regions. Checks that ask about many offsets in the same document
+ * share one, so the document is encoded and scanned once. */
+export class MarkdownSource {
+  private encoded?: Buffer;
+  private regions?: Array<[number, number]>;
+  constructor(readonly text: string) {}
+  get bytes(): Buffer {
+    return (this.encoded ??= Buffer.from(this.text));
+  }
+  get opaque(): Array<[number, number]> {
+    return (this.regions ??= opaqueRegions(this.text));
+  }
+}
+const scanned = (source: string | MarkdownSource) =>
+  typeof source === "string" ? new MarkdownSource(source) : source;
+
 /** Opaque source regions have local boundaries. Unknown/unclosed HTML protects
  * the remaining suffix, never unrelated prose before it. Offsets are characters. */
 function opaqueRegions(source: string): Array<[number, number]> {
@@ -192,15 +209,16 @@ function opaqueRegions(source: string): Array<[number, number]> {
 /** Deliberately modest prose policy: retain authored insertions without inventing
  * separators or treating code/data/link syntax as ordinary paragraph text. */
 export function markdownProseInsertion(
-  source: string,
+  document: string | MarkdownSource,
   offset: number,
   additions: string[]
 ): boolean {
-  const characterOffset = Buffer.from(source)
+  const scan = scanned(document), source = scan.text, bytes = scan.bytes;
+  const characterOffset = bytes
     .subarray(0, offset)
     .toString("utf8").length;
   if (
-    opaqueRegions(source).some(
+    scan.opaque.some(
       ([start, end]) =>
         characterOffset >= start &&
         (characterOffset < end ||
@@ -208,8 +226,7 @@ export function markdownProseInsertion(
     )
   )
     return false;
-  const bytes = Buffer.from(source),
-    prefix = bytes.subarray(0, offset).toString("utf8"),
+  const prefix = bytes.subarray(0, offset).toString("utf8"),
     suffix = bytes.subarray(offset).toString("utf8");
   const before = prefix.slice(prefix.lastIndexOf("\n") + 1),
     after = suffix.split("\n", 1)[0]!;
@@ -260,7 +277,8 @@ export function markdownProseInsertion(
  * or embedded programs as prose. editSource independence keeps inline formatting
  * protected; explicit transfer replay may carry complete formatted prose spans.
  * This is a policy guard, never an identity map. */
-export function markdownTransferShape(source: string, formattedProse = true): string | null {
+export function markdownTransferShape(document: string | MarkdownSource, formattedProse = true): string | null {
+  const scan = scanned(document), source = scan.text;
   const protectedBlocks: string[] = [];
   let cursor = 0;
   const protectProse = (text: string) => {
@@ -280,7 +298,7 @@ export function markdownTransferShape(source: string, formattedProse = true): st
         protectedBlocks.push(block);
     }
   };
-  for (const [start, end] of opaqueRegions(source)) {
+  for (const [start, end] of scan.opaque) {
     protectProse(source.slice(cursor, start));
     protectedBlocks.push(source.slice(start, end));
     cursor = end;
@@ -292,8 +310,8 @@ export function markdownTransferShape(source: string, formattedProse = true): st
 /** Ordinary list editing is local source work, not an opaque host rewrite.
  * Only normalize complete affected lines of plain prose/list items; fences,
  * headings, links, HTML, indented code and reference syntax stay protected. */
-export function markdownListEdit(source: string, start: number, end: number, text: string): boolean {
-  const bytes = Buffer.from(source);
+export function markdownListEdit(document: string | MarkdownSource, start: number, end: number, text: string): boolean {
+  const scan = scanned(document), source = scan.text, bytes = scan.bytes;
   const prefix = bytes.subarray(0, start).toString("utf8");
   const suffix = bytes.subarray(end).toString("utf8");
   const first = prefix.lastIndexOf("\n") + 1;
@@ -301,7 +319,7 @@ export function markdownListEdit(source: string, start: number, end: number, tex
   const tail = end > 0 && bytes[end - 1] === 10 && (!text || text.endsWith("\n"))
     ? "" : last < 0 ? suffix : suffix.slice(0, last);
   const head = prefix.slice(first);
-  if (opaqueRegions(source).some(([a,b]) => first < b && source.length - suffix.length + tail.length >= a)) return false;
+  if (scan.opaque.some(([a,b]) => first < b && source.length - suffix.length + tail.length >= a)) return false;
   const before = head + bytes.subarray(start, end).toString("utf8") + tail;
   const after = head + text + tail;
   const marker = /^ *(?:[-+*]|\d+[.)])(?:[ \t]+|$)/;

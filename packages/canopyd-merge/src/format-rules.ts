@@ -1,4 +1,4 @@
-import { markdownLayout, markdownProseInsertion, markdownTransferShape, markdownListEdit } from "./markdown-format.ts";
+import { markdownLayout, markdownProseInsertion, markdownTransferShape, markdownListEdit, MarkdownSource } from "./markdown-format.ts";
 import { byte, xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
@@ -59,7 +59,9 @@ const formats: Record<string, Format> = {
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 let initialized: Promise<void> | undefined;
 const languages = new Map<string, Promise<Parser.Language>>();
-async function parse(language: string, source: string): Promise<Parser.Tree> {
+/** A parser for `language`, which the caller deletes. One evaluation reuses
+ * it for every document it parses. */
+async function createParser(language: string): Promise<Parser> {
   await (initialized ??= Parser.init());
   let grammar = languages.get(language);
   if (!grammar) {
@@ -78,12 +80,18 @@ async function parse(language: string, source: string): Promise<Parser.Tree> {
   try {
     parser.setLanguage(await grammar);
     parser.setTimeoutMicros(100_000);
-    const tree = parser.parse(source);
-    if (!tree) throw new Error("Parser budget exceeded");
-    return tree;
-  } finally {
+    return parser;
+  } catch (error) {
     parser.delete();
+    throw error;
   }
+}
+/** A complete parse. A parse that runs out of time throws, so a parser is
+ * never reused to resume one. */
+function parse(parser: Parser, source: string): Parser.Tree {
+  const tree = parser.parse(source);
+  if (!tree) throw new Error("Parser budget exceeded");
+  return tree;
 }
 type Unit = { key: string; start: number; end: number };
 const range = (source: string, n: Parser.SyntaxNode) => ({
@@ -364,13 +372,24 @@ function tableUnits(
   }
   return units;
 }
+/** What one evaluation's transfer checks share: they all read the same base
+ * document, so it is scanned and laid out once, and each distinct edit of it
+ * is judged once. */
+interface ProseBase {
+  bytes: Uint8Array;
+  document: MarkdownSource;
+  layout: ReturnType<typeof markdownLayout>;
+  /** Whether an edit (by range and text) keeps the base's prose shape. */
+  kept: Map<string, boolean>;
+}
+
 /** Normalize verified inline edits and prose insertions before checking transfers.
  * Everything else, including the exact protected host/embedded syntax, remains
  * in the signature. Source ranges come from identity correspondence, not a diff. */
-function proseTransferShape(base: Uint8Array, changed: Uint8Array, edits: PieceEdit[]): string | null {
+function proseTransferShape(scan: ProseBase, changed: Uint8Array, edits: PieceEdit[]): string | null {
   try {
     if (edits.length > 128) return null;
-    const source = decoder.decode(base), layout = markdownLayout(source);
+    const { bytes: base, document, layout } = scan;
     if (!layout) return null;
     const parts: string[] = [];
     let old = 0, next = 0;
@@ -384,15 +403,21 @@ function proseTransferShape(base: Uint8Array, changed: Uint8Array, edits: PieceE
       if (next + size > changed.length) return null;
       const text = decoder.decode(changed.subarray(next, next + size));
       const previous = decoder.decode(base.subarray(start, end));
-      const inline = !/[\r\n]/.test(previous + text) &&
-        touched(layout.units.filter(u => !u.key.startsWith("embedded:")), [edit]) !== null &&
-        markdownProseInsertion(source, start, [text]) &&
-        markdownLayout(decoder.decode(base.subarray(0, start)) + text + decoder.decode(base.subarray(end)))?.skeleton === layout.skeleton;
-      // New prose/list items use the established insertion guard. Headings and
-      // blockquotes can change the scope of later edits and remain protected.
-      const insertion = start === end && !/^ {0,3}(?:#{1,6}(?:\s|$)|>)/m.test(text) &&
-        markdownProseInsertion(source, start, [text]);
-      parts.push(inline || insertion || markdownListEdit(source, start, end, text) ? previous : text);
+      const key = JSON.stringify([start, end, text]);
+      let kept = scan.kept.get(key);
+      if (kept === undefined) {
+        const inline = !/[\r\n]/.test(previous + text) &&
+          touched(layout.units.filter(u => !u.key.startsWith("embedded:")), [edit]) !== null &&
+          markdownProseInsertion(document, start, [text]) &&
+          markdownLayout(decoder.decode(base.subarray(0, start)) + text + decoder.decode(base.subarray(end)))?.skeleton === layout.skeleton;
+        // New prose/list items use the established insertion guard. Headings and
+        // blockquotes can change the scope of later edits and remain protected.
+        const insertion = start === end && !/^ {0,3}(?:#{1,6}(?:\s|$)|>)/m.test(text) &&
+          markdownProseInsertion(document, start, [text]);
+        kept = inline || insertion || markdownListEdit(document, start, end, text);
+        scan.kept.set(key, kept);
+      }
+      parts.push(kept ? previous : text);
       old = end; next += size;
     }
     if (!Buffer.from(base.subarray(old)).equals(changed.subarray(next))) return null;
@@ -452,11 +477,12 @@ export async function evaluateFormat(
       // For overlaps the caller's tentative projection selects incoming edits;
       // proving its host safe permits local choices, not automatic resolution.
       const projection = [...b, ...a.filter(x => !b.some(y => overlap(x, y)))];
+      const scan: ProseBase = { bytes: base, document: new MarkdownSource(sources[0]!), layout: layouts[0] ?? null, kept: new Map() };
       const shapes = [
-        markdownTransferShape(sources[0]!, false),
-        proseTransferShape(base, current, a),
-        proseTransferShape(base, incoming, b),
-        proseTransferShape(base, proposed, projection),
+        markdownTransferShape(scan.document, false),
+        proseTransferShape(scan, current, a),
+        proseTransferShape(scan, incoming, b),
+        proseTransferShape(scan, proposed, projection),
       ];
       if (shapes[0] !== null && shapes.every(shape => shape === shapes[0]))
         return result(true, "Independent prose edits and transfers preserve protected Markdown structure");
@@ -558,6 +584,7 @@ export async function evaluateFormat(
     );
   }
   const trees: Parser.Tree[] = [];
+  let parser: Parser | undefined;
   try {
     const language =
       format === "jsonl"
@@ -565,6 +592,8 @@ export async function evaluateFormat(
         : format === "typescript" && extname(path) === ".tsx"
           ? "tsx"
           : format;
+    // One parser for every document this evaluation parses.
+    const parsed = async (source: string) => parse((parser ??= await createParser(language)), source);
     if (format === "jsonl") {
       if (!config.recordKey)
         return result(false, "JSONL requires an explicit record key");
@@ -578,7 +607,7 @@ export async function evaluateFormat(
             offset += Buffer.byteLength(line);
             continue;
           }
-          const tree = await parse("json", line);
+          const tree = await parsed(line);
           trees.push(tree);
           if (tree.rootNode.hasError()) return result(false, "Malformed JSONL");
           const record = JSON.parse(line),
@@ -615,7 +644,7 @@ export async function evaluateFormat(
         "Independent keyed record fields with stable order",
       );
     }
-    for (const source of sources) trees.push(await parse(language, source));
+    for (const source of sources) trees.push(await parsed(source));
     if (trees.some((t) => t.rootNode.hasError()))
       return result(false, "Malformed or unsupported syntax");
     if (format === "json" || format === "yaml" || format === "toml") {
@@ -670,6 +699,7 @@ export async function evaluateFormat(
     return result(false, "Parser or semantic context unavailable");
   } finally {
     for (const tree of trees) tree.delete();
+    parser?.delete();
   }
 }
 
