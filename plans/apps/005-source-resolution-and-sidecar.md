@@ -4,7 +4,9 @@
 
 **P1 · PLANNED · L effort · high authority-boundary risk.** Replanned at
 `d55f4142`, 2026-09-21. Execute after
-[Apps 007: CDDL collection schemas](../soon/007-cddl-collection-schemas.md).
+[Apps 007: CDDL collection schemas](../soon/007-cddl-collection-schemas.md), which is
+implemented: collection acceptance, projection and merge no longer execute schemas,
+and QuickJS is no longer a workspace dependency.
 Read [DEVELOPMENT.md](../../DEVELOPMENT.md), `status.md`, current source and tests
 before relying on this checkpoint. No live-data, installed-app or public-host
 changes are authorized by this plan. Do not commit or push unless requested.

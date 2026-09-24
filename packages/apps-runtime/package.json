@@ -1,7 +1,7 @@
 {
   "name": "@overstory/apps-runtime",
   "version": "0.1.0",
-  "description": "Executable-document runtime: query lowering and execution, live result streams, transactional mutations, the overstory/data authoring API, and the collection schema sandbox and collection-file codec.",
+  "description": "Executable-document runtime: query lowering and execution, live result streams, transactional mutations, the overstory/data authoring API, and the projection-provider contract types.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -10,9 +10,6 @@
   },
   "dependencies": {
     "@overstory/protocol": "workspace:*",
-    "csv-parse": "6.1.0",
-    "quickjs-emscripten": "0.32.0",
-    "yaml": "2.8.2",
-    "zod": "4.3.6"
+    "yaml": "2.8.2"
   }
 }

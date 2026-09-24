@@ -381,7 +381,8 @@ in. Structured formats cannot opt into concatenation.
 Tree-sitter grammars and the strict XML parser are pinned dependencies. Only
 grammar modules are cached; parsed trees are disposed after evaluation.
 Neither authored source nor parser IDs execute with host IO authority, and
-collection schema evaluation stays in the QuickJS sandbox.
+collection schemas are declarative `schema.cddl` data checked by
+[`collection-schema`](../collection-schema/README.md); nothing is evaluated.
 
 ### Retained state
 
@@ -470,10 +471,11 @@ fixed arguments and limits. Arguments are never interpreted by a shell.
 `ARBOR_MERGE_CACHE_MB` bounds the sidecar's cache and `ARBOR_OBJECT_CACHE_MB` its
 object read cache.
 
-Install workspace dependencies with `bun install`. Collection schema compilation
-resolves the sidecar's installed Zod, uses private temporary files, and evaluates inside
-the existing memory/time-limited QuickJS sandbox. It does not depend on the caller's
-working directory or execute authored schemas in the host runtime.
+Install workspace dependencies with `bun install`. Collection-file rows are decoded and
+re-encoded through the pure `collection-schema` package under the profile's bounded
+parse and validation budgets; the sidecar executes no authored schema and has no QuickJS
+or Zod dependency for collections. A merge that involves a retired version-1
+(`schema.ts`) collection reports `collection-file-schema-conflict`.
 
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint

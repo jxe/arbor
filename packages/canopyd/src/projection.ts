@@ -9,7 +9,12 @@ import {
   type ResolvedWireLogicalNode,
   type WireDirectory,
 } from "@overstory/protocol";
-import { decodeWireCollectionFile, SchemaSandbox, type DecodedWireCollectionFile, type WireCollectionFileRow } from "@overstory/apps-runtime/collections";
+import {
+  decodeWireCollectionFile,
+  unsupportedLegacyCollection,
+  type DecodedWireCollectionFile,
+  type WireCollectionFileRow,
+} from "@overstory/collection-schema";
 
 export interface WireProjectionOptions {
   root: ObjectHash;
@@ -49,6 +54,8 @@ export class WireProjection {
   async collectionFile(directory: WireDirectory): Promise<DecodedWireCollectionFile | null> {
     const descriptor = directory.childrenSource;
     if (!descriptor) return null;
+    // Retired version-1 collections are an explicit unsupported read, never ordinary files.
+    if (descriptor.version !== 2) throw unsupportedLegacyCollection();
     const sourceHash = directory.entries.find((entry) => entry.name === descriptor.source)?.file;
     const schemaHash = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.file;
     if (!sourceHash || !schemaHash) throw new Error("Collection-file sources are missing");
@@ -56,9 +63,7 @@ export class WireProjection {
       this.options.load(sourceHash),
       this.options.load(schemaHash),
     ]);
-    const sandbox = new SchemaSandbox();
-    try { return await decodeWireCollectionFile(descriptor, source, schema, sandbox); }
-    finally { await sandbox[Symbol.asyncDispose](); }
+    return decodeWireCollectionFile(descriptor, source, schema);
   }
 
   async resolve(requestedPath: string, stableKey: string | null = null): Promise<WireResolution> {

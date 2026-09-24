@@ -6,8 +6,9 @@ import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { serveCanopy } from "@overstory/canopyd";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
-import { WireClient, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject,
-  type CandidateUpdate, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
+import { WireClient, WireUnsupportedOperation, WireUpdateConflict, decodeWireDirectory, encodeWireDirectory, hashObject,
+  type CandidateUpdate, type Hash, type WireDirectory, type WireDirectoryEntry } from "@overstory/protocol";
+import { collectionChildSetHash } from "@overstory/collection-schema";
 
 let dir: string, running: Awaited<ReturnType<typeof serveCanopy>>, client: WireClient;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
@@ -118,12 +119,12 @@ test("snapshot suffixes retain hidden attribution and unrelated accepted additio
 async function collection(basis: string, name: string) {
   const local = await mkdtemp(`${tmpdir()}/arbor-snapshot-collection-`), stores = new ProjectionProviderHost();
   try {
-    const source = `import { z } from "zod"; export const schema = z.object({ id: z.string(), ${name}: z.string() }); export const primaryKey = ["id"];`;
-    await writeFile(`${local}/schema.ts`, source); await writeFile(`${local}/_store.json`, "[]");
+    const source = `overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, ${name}: tstr }\n`;
+    await writeFile(`${local}/schema.cddl`, source); await writeFile(`${local}/_store.json`, "[]");
     const value = decodeWireDirectory(objects.get(basis)!);
     value.entries = value.entries.filter(e => e.name === "_index.md");
-    value.entries.push({ name: "_store.json", file: file("[]") }, { name: "schema.ts", file: file(source) });
-    value.childrenSource = { version: 1, type: "collection-file", source: "_store.json", schemaSource: "schema.ts",
+    value.entries.push({ name: "_store.json", file: file("[]") }, { name: "schema.cddl", file: file(source) });
+    value.childrenSource = { version: 2, type: "collection-file", source: "_store.json", schemaSource: "schema.cddl",
       ...((await stores.collectionFileDescriptor(local, "_store.json"))!) };
     return directory(value);
   } finally { await stores[Symbol.asyncDispose](); await rm(local, { recursive: true, force: true }); }
@@ -397,4 +398,50 @@ test("health checks only the database while integrity audits history in one shar
   const integrity = await fetch(`${running.url}/.arbor/integrity`);
   expect(integrity.status).toBe(200);
   expect(await integrity.json()).toEqual({ status: "ok" });
+});
+
+test("the host validates declarative collections itself and treats retired schema.ts collections as unsupported", async () => {
+  const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: uint }\n';
+  const people = (rows: Array<Record<string, unknown>>, declared = rows) => directory({
+    type: "directory",
+    entries: [{ name: "_store.json", file: file(`${JSON.stringify(rows)}\n`) }, { name: "schema.cddl", file: file(schema) }],
+    childrenSource: {
+      version: 2, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.cddl",
+      schemaFingerprint: hashObject(new TextEncoder().encode(schema)) as Hash,
+      childSetHash: collectionChildSetHash(declared.map((row) => ({ key: `[["id",${JSON.stringify(row.id)}]]`, name: String(row.id), properties: row }))),
+    },
+  });
+  // Invalid rows and a client-asserted hash that the host recomputes differently are both rejected.
+  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: -1 }]) } })))).rejects.toThrow();
+  await expect(submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1 }], [{ id: "a", count: 2 }]) } })))).rejects.toThrow();
+
+  const legacySource = 'import { z } from "zod"; export const schema = z.object({ id: z.string() }); export const primaryKey = ["id"];\n';
+  const legacy = directory({
+    type: "directory",
+    entries: [{ name: "_store.json", file: file("[]\n") }, { name: "schema.ts", file: file(legacySource) }],
+    childrenSource: {
+      version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.ts",
+      schemaFingerprint: hashObject(new TextEncoder().encode(legacySource)) as Hash, childSetHash: collectionChildSetHash([]),
+    },
+  });
+  const rejected = submit(snapshot(change(root, { legacy: { directory: legacy } })));
+  await expect(rejected).rejects.toBeInstanceOf(WireUnsupportedOperation);
+  await expect(rejected).rejects.toThrow("schema.cddl");
+
+  const accepted = await submit(snapshot(change(root, { people: { directory: people([{ id: "a", count: 1 }]) } })));
+  expect(accepted.root).not.toBe(root);
+  const readPage = async () => {
+    const page = await fetch(`${running.url}/people`, { headers: { authorization: `Bearer ${token}`, accept: "text/html" } });
+    expect(page.status).toBe(200);
+    return page.text();
+  };
+  const before = await readPage();
+  expect(before).toContain("people/a");
+  expect(before).not.toContain("schema.cddl");
+  // A restarted host reads the same rows from the exact stored bytes, with no apps process.
+  await stop(); await start();
+  expect(await readPage()).toBe(before);
+  const stored = decodeWireDirectory(await client.object(tree, decodeWireDirectory(await client.object(tree, accepted.root)).entries.find(e => e.name === "people")!.directory!));
+  const store = stored.entries.find(e => e.name === "_store.json")!.file!;
+  expect(new TextDecoder().decode(await client.object(tree, store))).toBe('[{"id":"a","count":1}]\n');
 });

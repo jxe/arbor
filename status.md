@@ -46,6 +46,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public canopyd),
 | Native sidebar Trees mode, People footer, and single-pane profile/sync/devices management with focused account and identity actions on Mac and iOS | implemented, not installed; macOS and iOS builds passed, manual UI verification pending | [client design](docs/implementing-editors/design.md#profile-control-and-claim) |
 | Plural local accounts and devices: one data home holds several host accounts, including several at one origin, in `account.yaml`, `trees.yaml`, and `devices.yaml`; Mac-to-iPhone pairing | installed, verified | [local system](docs/architecture/arborsync/data-home.md#data-home) |
 | Short-lived cloud workspaces: reusable one-account bundles, exact placements under an isolated root, detached Arbor Sync, explicit finish, bundle revocation, `arbor status` | implemented | [CLI](docs/getting-started/cli.md#short-lived-cloud-sessions) |
+| Declarative collection schemas: `schema.cddl` in the Overstory CDDL profile, version-2 collection descriptors (TypeScript and Swift), schema-directed CSV cells, validation that never normalizes, generated collection types without Zod; canopyd acceptance and projection, the merge rules and Arbor Sync providers use the pure `@overstory/collection-schema` package, and QuickJS is no longer a dependency. Retired version-1 `schema.ts` collections still decode byte-exactly but are never interpreted: `422 unsupported-operation` at the host, `collection-file-schema-conflict` in merges, `legacy-collection-schema` locally, and a `schema.ts` collection file refuses to snapshot | implemented, not deployed or installed: the Swift model edits are unverified (no Swift toolchain where they were made); [migration 021](packages/canopyd/migrations/021-cddl-collection-schemas/README.md) converts authored trees and has run on disposable copies only; **no operator inventory, conversion of real data, or cutover** (waits for Joe's go-ahead) | [collection schemas](docs/architecture/collection-schema/README.md), [child backings §2.4–2.5](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile) |
 | Headless executable-data core: SQLite-backed query lowering and execution over the Supplies corpus, dependency-sensitive live result streams, authorized transactional mutations with durable retry receipts | implemented | [apps runtime](packages/apps-runtime/README.md), [Supplies](examples/supplies/README.md) |
 | One merge-state model and squashed history: every acceptance records a merge state (tree creation, pairing, account configuration and boundary rewrites checkpoint their root; no whole-entry conflict rows); schema 18 keeps one accepted update per tree, and migration 016 squashes history to each head, keeping roots, head ids, entry dates and document versions | deployed 2026-09-24 at schema 18; history cut 2026-09-24 by migration 016 | migration 016 (deleted; its runbook is `packages/canopyd/migrations/016-squash-history/README.md` at `d15ddce`) |
 | Operational hosting: Railway and VPS deployment, persistent storage, backup and restore, coordinated upgrades, one-off migrations | deployed | [deployment](packages/canopyd/deploy/README.md), [migrations](packages/canopyd/migrations/README.md) |
@@ -128,6 +129,46 @@ Not verified: every Swift edit is uncompiled. `swift/Canopy.xcodeproj` was
 edited by hand to match `project.yml` and must be regenerated with xcodegen on
 a Mac; `CanopyEditor/Package.resolved` was left unchanged. The remaining Mac
 gates are in [release and verification](plans/verification/release-and-soak.md#native-011-mac-gates).
+
+## Declarative collection schemas — 2026-09-24
+
+Apps 007 is implemented and tested, not deployed or installed. A collection's `schema.cddl` is parsed and
+checked under the profile in [child backings §2.4](docs/overstory-spec/06-child-backings.md#24-collection-schema-profile)
+by `@overstory/collection-schema`, which executes no code and has no
+filesystem or network access; `apps-runtime` lost its QuickJS sandbox and its
+QuickJS, Zod and `csv-parse` dependencies. Evidence:
+
+- `tests/unit/collection-schema.test.ts` passes every
+  [`collection-schemas.json`](docs/overstory-spec/conformance/collection-schemas.json)
+  vector: syntax, metadata, values, CSV conversion and encoding, malformed
+  UTF-8, budgets (tokens, nodes, rules, depth through references, expanded
+  size, choices, members, source bytes, row and collection steps), numeric
+  edges and deterministic diagnostics. Every accepted vector also parses in the
+  independent `cddl` 0.23.0 parser ([coverage notes](docs/architecture/collection-schema/README.md#parser-choice)).
+- `tests/unit/collection-schema-types.test.ts` typechecks generated
+  declarations without authored modules or Zod;
+  `tests/unit/collection-schema-boundary.test.ts` checks manifests, the lockfile
+  and the bundled module closures of canopyd, the merge worker, `tree-merge`,
+  Arbor Sync and `arbor`, and runs acceptance decoding, projection, merge and
+  local reads with QuickJS made unavailable.
+- Host, merge and provider tests: `snapshot-acceptance` (valid and invalid
+  CDDL collection updates, a recomputed child-set hash, version-1 candidates
+  rejected as unsupported, public projection), `graph-validation` (an unproven
+  version-1 basis collection is revalidated), `wire-projection-collections`,
+  `tree-merge/update-merge` (typed CSV rows merge and re-encode; a version-1
+  side is a schema conflict), `collections` and `workspace` (CSV text keys stay
+  exact, undeclared columns and members reject instead of being stripped,
+  retired and ambiguous schemas, database backings, generated types).
+- The retained-history policy is [§2.5](docs/overstory-spec/06-child-backings.md#25-retired-version-1-schemats-collections):
+  retained objects and bytes are unchanged and readable; the host never
+  projected rows of non-current roots, so no promised history read changes;
+  a current state's version-1 collections are converted by an ordinary update
+  after [migration 021](packages/canopyd/migrations/021-cddl-collection-schemas/README.md)
+  rewrites the working tree, which proves row identity per collection and
+  blocks on transforms, refinements, defaults and values Zod had normalized.
+- Measurements, against the retired sandbox's 214 ms cold compile and 44 µs
+  per row: 4.5 ms and 0.8 µs for an ordinary schema; profile-maximal inputs and
+  the bounded cache are in [the architecture](docs/architecture/collection-schema/README.md#measurements).
 
 ## Arbor Sync downloads iCloud placeholders — 2026-09-24
 

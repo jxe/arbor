@@ -1,11 +1,18 @@
-import { toJSONValue, canonicalCBORHash, stableJSONString, revisionOf, stableKeyFromProperties, parseMarkdown } from "@overstory/protocol";
+import { toJSONValue, stableJSONString, revisionOf, stableKeyFromProperties, parseMarkdown } from "@overstory/protocol";
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import type { Diagnostic, Hash, JSONValue } from "@overstory/protocol";
 import { commitPrepared, prepareAtomic, readRevision, removeIfExists } from "@overstory/fs";
 import { replaceCollectionFileRow } from "../collection-file-writes.ts";
-import { logicalChildName, SchemaSandbox, type SchemaDescription } from "@overstory/apps-runtime/collections";
-import { decodeCollectionFileSource } from "@overstory/apps-runtime/collections";
+import {
+  CollectionSchemaCache,
+  collectionChildSetHash,
+  decodeCollectionFileSource,
+  logicalChildName,
+  validateRow,
+  valueDiagnostic,
+  type CollectionSchema,
+} from "@overstory/collection-schema";
 import {
   type ProjectionProvider,
   decodeProviderCursor,
@@ -19,8 +26,16 @@ import {
   type ProjectionWriteTarget,
   type ProviderChildRecord,
 } from "@overstory/apps-runtime/collections";
+/** The schema facts a projection needs; an unschematized collection has none of them. */
+type SchemaView = Pick<CollectionSchema, "columns" | "primaryKey" | "childName" | "revision"> & { schema: CollectionSchema | null };
+const NO_SCHEMA: SchemaView = { columns: [], primaryKey: null, childName: { from: "primaryKey" }, revision: revisionOf("") as CollectionSchema["revision"], schema: null };
+
+function invalidWrite(diagnostics: ReturnType<typeof validateRow>): ProjectionProviderError {
+  return new ProjectionProviderError("invalid-write", diagnostics.map((item) => `${item.path ? `${item.path.slice(1).replaceAll("/", ".")}: ` : ""}${item.message}`).join("; "));
+}
+
 interface LoadedFileProjection {
-  description: SchemaDescription;
+  description: SchemaView;
   rows: ProviderChildRecord[];
   revision: string;
   sourceRevision: string;
@@ -33,11 +48,14 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
   readonly kinds = ["csv", "json", "jsonl", "markdown"] as const;
   private commitTails = new Map<string, Promise<void>>();
   private snapshots = new Map<string, Promise<LoadedFileProjection>>();
-  constructor(private schemas = new SchemaSandbox()) {}
+  constructor(private schemas = new CollectionSchemaCache()) {}
+  private async compile(path: string): Promise<CollectionSchema> {
+    return this.schemas.compile(new Uint8Array(await readFile(path)));
+  }
   async describe(definition: ProjectionDefinition): Promise<ProjectionDescriptor> {
     const loaded = await this.load(definition);
     return {
-      columns: loaded.description.columns,
+      columns: [...loaded.description.columns],
       ...(loaded.identityRule ? { identityRule: loaded.identityRule } : {}),
       revision: loaded.revision,
       schemaRevision: loaded.description.revision,
@@ -91,7 +109,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     return {
       path: treePath,
       columns: loaded.description.columns.length
-        ? loaded.description.columns
+        ? [...loaded.description.columns]
         : [...new Set(rows.flatMap((row) => Object.keys(row.values)))],
       ...(loaded.identityRule ? { identityRule: loaded.identityRule } : {}),
       rows,
@@ -119,7 +137,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       row,
       page: {
         path: treePath,
-        columns: loaded.description.columns,
+        columns: [...loaded.description.columns],
         ...(loaded.identityRule ? { identityRule: loaded.identityRule } : {}),
         rows: [row],
         nextCursor: null,
@@ -143,18 +161,12 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     if (definition.diagnostics.some((item) => item.severity === "error")) {
       throw new ProjectionProviderError("invalid-write", definition.diagnostics.map((item) => item.message).join("; "));
     }
-    const description = await this.schemas.compile(definition.schemaPath);
-    const validated = await this.schemas.validate(definition.schemaPath, properties);
-    if (validated.diagnostics.length) throw new ProjectionProviderError("invalid-write", validated.diagnostics.map((item) => {
-      const field = item.field ? `${item.field}: ` : "";
-      return `${field}${item.message}`;
-    }).join("; "));
-    if (!validated.value || typeof validated.value !== "object" || Array.isArray(validated.value)) {
-      throw new ProjectionProviderError("invalid-write", "Markdown collection properties must validate to an object");
-    }
-    const identityProperties = description.primaryKey ?? (description.columns.includes("id") ? ["id"] : null);
+    const description = await this.compile(definition.schemaPath);
+    const diagnostics = validateRow(description, properties);
+    if (diagnostics.length) throw invalidWrite(diagnostics);
+    const identityProperties = description.primaryKey ? [...description.primaryKey] : description.columns.includes("id") ? ["id"] : null;
     return {
-      properties: validated.value as Record<string, JSONValue>,
+      properties,
       ...(identityProperties ? { identityRule: { properties: identityProperties } } : {}),
     };
   }
@@ -188,15 +200,9 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       throw new ProjectionProviderError("invalid-write", "The complete collection file must be schema-valid with unique stable keys before it can be edited");
     }
 
-    const validation = await this.schemas.validate(definition.schemaPath, properties);
-    if (validation.diagnostics.length) throw new ProjectionProviderError("invalid-write", validation.diagnostics.map((item) => {
-      const field = item.field ? `${item.field}: ` : "";
-      return `${field}${item.message}`;
-    }).join("; "));
-    if (!validation.value || typeof validation.value !== "object" || Array.isArray(validation.value)) {
-      throw new ProjectionProviderError("invalid-write", "CollectionFile properties must validate to an object");
-    }
-    const candidate = (toJSONValue(validation.value) ?? {}) as Record<string, JSONValue>;
+    const diagnostics = validateRow(loaded.description.schema!, properties);
+    if (diagnostics.length) throw invalidWrite(diagnostics);
+    const candidate = (toJSONValue(properties) ?? {}) as Record<string, JSONValue>;
     if (stableKeyFromProperties(loaded.identityRule.properties, candidate) !== current.stableKey) {
       throw new ProjectionProviderError("invalid-write", `Identity properties ${loaded.identityRule.properties.join(", ")} are immutable`);
     }
@@ -308,23 +314,23 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
   }
 
   private async loadUncached(definition: ProjectionDefinition): Promise<LoadedFileProjection> {
-    const description = definition.schemaPath
-      ? await this.schemas.compile(definition.schemaPath)
-      : { jsonSchema: {}, columns: [], primaryKey: null, childName: { from: "primaryKey" as const }, revision: revisionOf("") };
+    const schema = definition.schemaPath ? await this.compile(definition.schemaPath) : null;
+    const description: SchemaView = schema ? { ...schema, schema } : NO_SCHEMA;
+    // Rows arrive validated (and, for CSV, converted by their declared types);
+    // validation never changes a value, so the parsed values are the properties.
     const loaded = definition.provider === "csv" || definition.provider === "json" || definition.provider === "jsonl"
-      ? await this.sourceRows(definition)
-      : await this.markdownRows(definition);
+      ? await this.sourceRows(definition, schema)
+      : await this.markdownRows(definition, schema);
+    const fileValid = loaded.diagnostics.every((item) => item.severity !== "error");
     const identityProperties = description.primaryKey
-      ?? (definition.provider === "markdown" && description.columns.includes("id") ? ["id"] : null);
+      ? [...description.primaryKey]
+      : definition.provider === "markdown" && description.columns.includes("id") ? ["id"] : null;
     const identityRule = identityProperties ? { properties: identityProperties } : undefined;
-    const validated = await Promise.all(loaded.rows.map(async (row, index) => {
-      const result = definition.schemaPath
-        ? await this.schemas.validate(definition.schemaPath, row.values)
-        : { value: row.values, diagnostics: [] };
-      const values = (result.value as Record<string, unknown> | undefined) ?? row.values;
-      const stableKey = identityRule && result.diagnostics.length === 0
+    const validated = loaded.rows.map((row, index) => {
+      const values = row.values;
+      const stableKey = identityRule && fileValid && row.diagnostics.length === 0
         ? stableKeyFromProperties(identityRule.properties, values) : null;
-      const diagnostics = [...row.diagnostics, ...result.diagnostics];
+      const diagnostics = [...row.diagnostics];
       if (identityRule && !stableKey) diagnostics.push({
         code: "invalid-row-key", message: `Row does not have a valid ${identityRule.properties.join(", ")} stable key.`,
         path: definition.storePath ?? row.path, row: index, severity: "error",
@@ -350,7 +356,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
         stableKey,
         revision: row.revision ?? revisionOf(stableJSONString(values)), values, diagnostics,
       } satisfies ProviderChildRecord;
-    }));
+    });
     const counts = new Map<string, number>();
     for (const row of validated) if (row.stableKey) counts.set(row.stableKey, (counts.get(row.stableKey) ?? 0) + 1);
     const keyedRows = validated.map((row, index) => !row.stableKey || counts.get(row.stableKey) === 1 ? row : ({
@@ -376,9 +382,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       }],
     }));
     const revision = revisionOf(`${loaded.revision}\0${description.revision}\0${JSON.stringify({ columns: description.columns, primaryKey: identityProperties })}`);
-    const childSetHash = canonicalCBORHash([...rows]
-      .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
-      .map((row) => ({ key: row.stableKey, name: row.path, properties: row.values })));
+    const childSetHash = collectionChildSetHash(rows.map((row) => ({ key: row.stableKey, name: row.path, properties: row.values })));
     return {
       description, rows, revision, sourceRevision: loaded.revision, childSetHash,
       diagnostics: [...definition.diagnostics, ...loaded.diagnostics],
@@ -389,19 +393,26 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     };
   }
 
-  private async sourceRows(definition: ProjectionDefinition): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
+  private async sourceRows(
+    definition: ProjectionDefinition,
+    schema: CollectionSchema | null,
+  ): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
     const source = await readFile(definition.storePath!, "utf8");
-    const decoded = decodeCollectionFileSource(definition.provider as "csv" | "json" | "jsonl", source, definition.storePath!);
+    const decoded = decodeCollectionFileSource(definition.provider as "csv" | "json" | "jsonl", source, definition.storePath!, schema ?? undefined);
     return { ...decoded, revision: revisionOf(source) };
   }
 
-  private async markdownRows(definition: ProjectionDefinition): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
-    const rows = await Promise.all((definition.markdownPaths ?? []).sort().map(async (path) => {
+  private async markdownRows(
+    definition: ProjectionDefinition,
+    schema: CollectionSchema | null,
+  ): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
+    const rows = await Promise.all((definition.markdownPaths ?? []).sort().map(async (path, index) => {
       const source = await readFile(path, "utf8");
       const document = parseMarkdown(source);
       return {
         key: String(document.frontmatter.id ?? basename(path, ".md")), path: basename(path, ".md"),
-        stableKey: null, revision: revisionOf(source), values: document.frontmatter, diagnostics: [],
+        stableKey: null, revision: revisionOf(source), values: document.frontmatter,
+        diagnostics: schema ? validateRow(schema, document.frontmatter).map((item) => valueDiagnostic(item, path, index)) : [],
       } satisfies ProviderChildRecord;
     }));
     return { rows, revision: revisionOf(rows.map((row) => `${row.path}:${row.revision}`).join("\n")), diagnostics: [] as Diagnostic[] };
@@ -409,6 +420,6 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
 
   async [Symbol.asyncDispose](): Promise<void> {
     await Promise.all(this.commitTails.values());
-    await this.schemas[Symbol.asyncDispose]();
+    this.schemas.clear();
   }
 }

@@ -6,6 +6,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@overstory/apps-runtime": "workspace:*",
+    "@overstory/collection-schema": "workspace:*",
     "@overstory/merge-protocol": "workspace:*",
     "@overstory/object-store": "workspace:*",
     "@overstory/protocol": "workspace:*"

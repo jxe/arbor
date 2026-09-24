@@ -567,11 +567,12 @@ describe("governed account-configuration Canopy server", () => {
     }));
     const peoplePath = join(treePath, "people");
     await mkdir(peoplePath);
-    await writeFile(join(peoplePath, "schema.ts"), `
-      import { z } from "zod";
-      export const schema = z.object({ id: z.string(), name: z.string(), email: z.string() });
-      export const primaryKey = ["id"];
-    `);
+    await writeFile(join(peoplePath, "schema.cddl"), [
+      "overstory-schema-version = 1",
+      'overstory-primary-key = ["id"]',
+      "row = { id: tstr, name: tstr, email: tstr }",
+      "",
+    ].join("\n"));
     await writeFile(join(peoplePath, "_store.json"), '[{"id":"alice","name":"Alice","email":"alice@example.test"}]\n');
     const beforeCollectionFile = await client.descriptor(treeID);
     await client.submitUpdate(
@@ -589,7 +590,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(peopleHTML).toContain("Alice");
     expect(peopleHTML).toContain(`people/${rowPath};arbor-key=`);
     expect(peopleHTML).not.toContain("_store.json");
-    expect(peopleHTML).not.toContain("schema.ts");
+    expect(peopleHTML).not.toContain("schema.cddl");
     const staleRow = buildNetworkLocator("/~owner/new-shared-tree/people/stale", {
       stableKey: rowKey,
       applicationQuery: "view=card",

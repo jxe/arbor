@@ -93,7 +93,7 @@ That gets us to the level of plain filesystems, but we can do better. At this po
 Filesystems often get messy, whereas Notion, with the *same* hierarchical structure, doesn't so easily. Why? 
 
 * First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. Overstory does the same for local directories: arborsync always presents complete Markdown, treating the first standalone link to each immediate child as its position and appending ordinary links for children the stored body does not mention. An optional `_index.md` lets you author and persist that arrangement; merely browsing a bodyless directory creates no file.
-* Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.ts` to keep things orderly and allow queries.
+* Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.cddl` to keep things orderly and allow queries.
 * Third, sharing works on subtrees, which nudges people to map subtrees onto human groups and teams and projects. That social mapping keeps hierarchies meaningful as they grow. The same dynamic will happen here.
 
 All this, and arborsync still materializes the workspace as ordinary files on disk, for the pleasure of your agents and editors. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
@@ -112,18 +112,18 @@ Structured data belongs in the same tree as Markdown. The reference
 implementation supports expanded files, collection files, and SQLite today;
 Postgres connections remain planned. There are three intended forms:
 
-**First: plain files plus a schema.** A directory with a `schema.ts` becomes a typed collection over exactly one ordinary backing: many Markdown files whose frontmatter conforms, one `_store.csv`, or one line-oriented `_store.jsonl`:
+**First: plain files plus a schema.** A directory with a `schema.cddl` becomes a typed collection over exactly one ordinary backing: many Markdown files whose frontmatter conforms, one `_store.csv`, or one line-oriented `_store.jsonl`. The schema is declarative data in a small, bounded profile of [CDDL](https://www.rfc-editor.org/rfc/rfc8610.html), so reading a collection never runs code:
 
-```ts
-// essays/schema.ts
-import { z } from "zod";
+```cddl
+; essays/schema.cddl
+overstory-schema-version = 1
 
-export const schema = z.object({
-  title: z.string(),
-  date: z.coerce.date(),
-  tag: z.string(),
-  status: z.enum(["draft", "published"]).default("draft"),
-});
+row = {
+  title: tstr,
+  date: tstr,
+  tag: tstr,
+  status: "draft" / "published",
+}
 ```
 
 This is how Notion turns page properties into a database.
@@ -159,7 +159,6 @@ import { useState } from "react";
 import { z } from "zod";
 import { arbor, query, mutation } from "overstory/data";
 import { useQuery, useMutationAction } from "overstory/react";
-import { schema as submission } from "./submissions/schema";
 
 const atlas = arbor(".");
 const essays = arbor("./essays").children;
@@ -176,7 +175,7 @@ export const recentEssays = query.many(
 
 export const submitEssay = mutation(
   atlas,
-  submission.omit({ id: true, status: true }),
+  z.object({ title: z.string(), body: z.string(), author: z.string() }),
   async ({ tx, id, now }, input) => {
     await tx.insert(submissions, { id: id("submission"), ...input, status: "pending", submitted_at: now });
   },

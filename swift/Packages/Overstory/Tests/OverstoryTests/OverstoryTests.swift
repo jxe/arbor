@@ -101,7 +101,7 @@ struct WireObjectTests {
         let data = try Data(contentsOf: fixtures.appending(path: "protocol-objects.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let vectors = try #require(fixture["invalid"] as? [[String: Any]])
-        #expect(vectors.count == 6)
+        #expect(vectors.count == 9)
         for vector in vectors {
             let base64 = try #require(vector["canonicalCborBase64"] as? String)
             let bytes = try #require(Data(base64Encoded: base64))

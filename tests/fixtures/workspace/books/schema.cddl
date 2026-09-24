@@ -1,0 +1,6 @@
+overstory-schema-version = 1
+
+row = {
+  title: tstr,
+  status: "reading" / "done",
+}

@@ -10,7 +10,8 @@ committed change alters the canonical output. Its mutation runner validates
 input and authorization inside one transaction and commits retry-stable
 receipts with the data change. Document compilation and presentation are
 not current architecture; they are [Apps 001 and 003](../../../plans/README.md).
-The QuickJS sandbox that evaluates collection schemas lives here too and is
-shared by canopyd, the merge sidecar, and the daemon's providers.
+Collection schemas are not executed here or anywhere: they are declarative
+`schema.cddl` files interpreted by [`collection-schema`](../collection-schema/README.md).
+`collections/` keeps only the projection-provider contract types.
 
 See the [runtime package](../../../packages/apps-runtime/README.md) and [execution sidecar boundary](../canopyd/execution-sidecar.md).

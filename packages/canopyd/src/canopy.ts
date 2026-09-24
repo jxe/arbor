@@ -25,7 +25,7 @@ import {
   type AccessLevel,
 } from "@overstory/protocol";
 import { resourceRuleFromLegacy } from "@overstory/protocol";
-import { decodeWireCollectionFile, SchemaSandbox } from "@overstory/apps-runtime/collections";
+import { CollectionSchemaCache, decodeWireCollectionFile, unsupportedLegacyCollection } from "@overstory/collection-schema";
 import {
   validateUpdateRequestIntent,
   decodeWireDirectory,
@@ -267,7 +267,7 @@ export class ReservedBoundaryConflictError extends Error {
 }
 
 export class CanopyDaemon implements AsyncDisposable {
-  private readonly wireSchemas = new SchemaSandbox();
+  private readonly wireSchemas = new CollectionSchemaCache();
   private readonly validatedGraphs = new Map<string, ValidatedGraph>();
   /** Parsed profile facts by immutable root hash (`rootProfile`). */
   private readonly rootProfiles = new Map<ObjectHash, RootProfile>();
@@ -2212,18 +2212,30 @@ export class CanopyDaemon implements AsyncDisposable {
     // acceptedBasis comes from the server's current tree, never from worker or
     // client assertions. A staged proof is only inherited once that root has
     // actually become accepted (and therefore durable).
-    const collection = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+    const decode = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
       const source = directory.childrenSource!;
       const loadFile = async (name: string) => {
         const target = directory.entries.find(entry => entry.name === name)?.file;
         if (!target) throw Error(`Missing collection-file entry: ${name}`);
         return load(target);
       };
-      await decodeWireCollectionFile(source, await loadFile(source.source), await loadFile(source.schemaSource), this.wireSchemas);
+      decodeWireCollectionFile(source, await loadFile(source.source), await loadFile(source.schemaSource), this.wireSchemas);
+    };
+    // Retired version-1 (schema.ts) collections are never interpreted
+    // (spec 06 §2.5). A candidate containing one is an unsupported operation;
+    // one left in the accepted basis stays unproven, so an update is accepted
+    // only when its candidate replaces every such collection.
+    const collection = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+      if (directory.childrenSource!.version !== 2) throw new UpdateProtocolError("unsupported-operation", unsupportedLegacyCollection().message);
+      await decode(directory, load);
+    };
+    const basisCollection = async (directory: ReturnType<typeof decodeWireDirectory>, load: (hash: string) => Promise<Uint8Array>) => {
+      if (directory.childrenSource!.version !== 2) return "unproven" as const;
+      await decode(directory, load);
     };
     let basis = acceptedBasis ? this.validatedGraphs.get(acceptedBasis) : undefined;
     if (acceptedBasis && !basis)
-      basis = await validateGraphChange(acceptedBasis, hash => this.objects.read(hash), new Map(), collection);
+      basis = await validateGraphChange(acceptedBasis, hash => this.objects.read(hash), new Map(), basisCollection);
     // An object the candidate takes from the store outside its accepted basis
     // is one no client sent; freshen it so a concurrent object collection
     // cannot remove it before the accepted row names it.
@@ -2241,7 +2253,7 @@ export class CanopyDaemon implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.mergeTool[Symbol.asyncDispose]();
-    await this.wireSchemas[Symbol.asyncDispose]();
+    this.wireSchemas.clear();
     this.db.close();
     this.observationListeners.clear();
   }

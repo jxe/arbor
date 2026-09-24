@@ -5,7 +5,7 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@overstory/apps-runtime": "workspace:*",
+    "@overstory/collection-schema": "workspace:*",
     "@overstory/protocol": "workspace:*"
   }
 }

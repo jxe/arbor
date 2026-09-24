@@ -9,7 +9,9 @@ objects carry ordinary CSV, JSON, and JSONL source and schema entries plus a
 directory-level `childrenSource` descriptor that interprets them as one child
 set; canopyd validates those graphs, merges disjoint rows by stable identity,
 and projects logical rows at ordinary locators while keeping `_store.*` and
-`schema.ts` out of child navigation.
+`schema.cddl` out of child navigation. Directory descriptors are version 2
+(`schema.cddl`); version-1 (`schema.ts`) descriptors still decode byte-exactly
+in TypeScript and Swift but are never interpreted.
 
 For an update string, canopyd derives one credential-scoped digest per
 element over `{ domain: "arbor-update/2", tree, base, change, trace,

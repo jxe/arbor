@@ -9,8 +9,9 @@ engine, cache or process of its own.
 - `merge.ts`: the tree walk, stable-page renames and directory reconciliation.
 - `merge-rules.ts`: the representation rules it applies to one node changed on
   both sides: Markdown additive merging with frontmatter and fence checks, and
-  keyed collection-file rows checked in the collection schema sandbox of
-  [`@overstory/apps-runtime`](../apps-runtime/README.md).
+  keyed collection-file rows decoded and re-encoded through the declarative
+  schema of [`@overstory/collection-schema`](../collection-schema/README.md);
+  a retired version-1 (`schema.ts`) side is a schema conflict.
 - `model-hash.ts`: the model hashes that let a node reformatted on one side
   take the other side's bytes without conflict.
 

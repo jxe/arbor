@@ -10,7 +10,7 @@ let root: string;
 let state: string;
 let workspace: Workspace;
 
-const schema = 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n';
+const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n';
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-child-provider-"));
@@ -21,23 +21,23 @@ beforeAll(async () => {
   await writeFile(join(root, "expanded", "one.md"), "---\ntitle: One\n---\nExpanded body.\n");
 
   await mkdir(join(root, "markdown"));
-  await writeFile(join(root, "markdown", "schema.ts"), schema);
+  await writeFile(join(root, "markdown", "schema.cddl"), schema);
   await writeFile(join(root, "markdown", "one.md"), "---\nid: one\ntitle: One\n---\nRecord body.\n");
 
   for (const name of ["csv", "json", "jsonl"]) {
     await mkdir(join(root, name));
-    await writeFile(join(root, name, "schema.ts"), schema);
+    await writeFile(join(root, name, "schema.cddl"), schema);
   }
   await writeFile(join(root, "csv", "_store.csv"), "id,title\none,One\n");
   await writeFile(join(root, "json", "_store.json"), '[{"id":"one","title":"One"}]\n');
   await writeFile(join(root, "jsonl", "_store.jsonl"), '{"id":"one","title":"One"}\n');
 
   await mkdir(join(root, "outer", "deep", "nested"), { recursive: true });
-  await writeFile(join(root, "outer", "deep", "nested", "schema.ts"), schema);
+  await writeFile(join(root, "outer", "deep", "nested", "schema.cddl"), schema);
   await writeFile(join(root, "outer", "deep", "nested", "_store.json"), '[{"id":"one","title":"One"}]\n');
 
   await mkdir(join(root, "mixed"));
-  await writeFile(join(root, "mixed", "schema.ts"), schema);
+  await writeFile(join(root, "mixed", "schema.cddl"), schema);
   await writeFile(join(root, "mixed", "_store.json"), '[{"id":"collectionFile","title":"CollectionFile"}]\n');
   await writeFile(join(root, "mixed", "one.md"), "---\nid: physical\ntitle: Physical\n---\nBody.\n");
 

@@ -28,8 +28,9 @@ rows otherwise derive collision-safe readable names from declared stable keys.
 Equal keys and child-set hashes alone are therefore insufficient to promise
 equivalent `NodeRef`s or ordinary Markdown navigation.
 
-The specification supplies one provider-neutral mechanism: `schema.ts` may
-declare a deterministic primary-key- or property-derived `childName` rule.
+The specification supplies one provider-neutral mechanism: `schema.cddl` may
+declare a deterministic property-derived `overstory-child-name` rule; omitting
+it derives names from the primary key.
 
 The converter uses an existing unique property when it can reproduce every
 source logical name. Otherwise its dry-run reports the resulting renames or

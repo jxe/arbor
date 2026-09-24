@@ -1,7 +1,7 @@
 import { nodeDocument, nodeKind } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@overstory/arborsync";
@@ -50,23 +50,23 @@ describe("workspace service", () => {
     await expect(stat(join(root, ".arbor"))).rejects.toThrow();
 
     const collection = join(root, "typed");
-    const schemaPath = join(collection, "schema.ts");
+    const schemaPath = join(collection, "schema.cddl");
     await mkdir(collection);
-    await writeFile(schemaPath, 'import { z } from "zod"; export const schema = z.object({ title: z.string() });\n');
+    await writeFile(schemaPath, 'overstory-schema-version = 1\nrow = { title: tstr }\n');
     await writeFile(join(collection, "_store.csv"), "title\nExample\n");
     await workspace.editor.generateTypes();
 
     const generated = await readFile(declarationPath, "utf8");
-    const schemaImport = generated.match(/import type \{ schema as Schema0 \} from ("[^"]+");/);
-    expect(schemaImport).not.toBeNull();
-    expect(resolve(dirname(declarationPath), JSON.parse(schemaImport![1]!))).toBe(join(workspace.root, "typed", "schema.ts"));
-    expect(generated).toContain('"/typed": Collection<z.infer<typeof Schema0>>;');
+    // Declarations come from the declarative schema: no authored module or Zod import.
+    expect(generated).not.toContain("import");
+    expect(generated).toContain('type Schema0 = { "title": string; };');
+    expect(generated).toContain('"/typed": Collection<Schema0>;');
   });
 
   test("keeps Markdown collection rows out of the directory document", async () => {
     const collection = join(root, "records");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() });\n');
+    await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\nrow = { id: tstr, title: tstr }\n');
     await writeFile(join(collection, "_index.md"), "About the records.\n");
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
@@ -92,7 +92,7 @@ describe("workspace service", () => {
   test("resolves rolled-up JSON rows as ordinary stable-key nodes", async () => {
     const collection = join(root, "rolled");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+    await writeFile(join(collection, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
     await writeFile(join(collection, "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
 
     const parent = await workspace.editor.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });

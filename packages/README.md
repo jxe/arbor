@@ -11,7 +11,8 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 | Host | [`canopyd`](canopyd/README.md) | The reference host and the `canopyd` command |
 | | [`canopyd-merge`](canopyd-merge/README.md) | The merge sidecar and the `arbor-merge` command |
 | | [`tree-merge`](tree-merge/README.md) | The three-way snapshot tree merge, shared by the merge sidecar and Arbor Sync tree recovery |
-| | [`apps-runtime`](apps-runtime/README.md) | The executable-document runtime and the collection sandbox |
+| | [`collection-schema`](collection-schema/README.md) | Declarative `schema.cddl` collection schemas and the collection-file codec |
+| | [`apps-runtime`](apps-runtime/README.md) | The executable-document runtime |
 | Client stack | [`client`](client/README.md) | Synchronizing a working tree against a host |
 | | [`fs`](fs/README.md) | Materializing trees on a filesystem |
 | Arbor local tools | [`arborsync`](arborsync/README.md) | The Arbor Sync daemon and the `arborsync` command |
@@ -21,7 +22,8 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 Layering rules, checked by reading each `package.json`:
 
 - `protocol` depends on nothing in the workspace.
-- `apps-runtime` depends only on `protocol`; `tree-merge` only on those two.
+- `apps-runtime` and `collection-schema` depend only on `protocol`;
+  `tree-merge` only on `protocol` and `collection-schema`.
 - `object-store`, `fs`, `client`, `canopyd`, and `canopyd-merge` never depend
   on `arborsync` or `cli`.
 - `cli` and `canopy-web` may depend on anything.

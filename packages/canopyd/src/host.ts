@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse, buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@overstory/protocol";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@overstory/protocol";
 import { treeMutationResponse, treeQueryResponse } from "@overstory/apps-runtime/host";
+import { WireCollectionFileError } from "@overstory/collection-schema";
 import {
   AlreadyClaimedError,
   RefConflictError,
@@ -844,6 +845,9 @@ export async function serveCanopy(options: {
             kind: "server-update",
             current: error.current,
           });
+        }
+        if (error instanceof WireCollectionFileError && error.kind === "unsupported") {
+          return wireError("unsupported-operation", error.message, 422);
         }
         if (error instanceof UpdateProtocolError) {
           if (error.code === "unsupported-operation") return wireError(error.code, error.message, 422);

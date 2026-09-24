@@ -10,7 +10,7 @@ import {
 } from "@overstory/protocol";
 import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@overstory/protocol";
 import { ProjectionProviderHost, ObjectIndex } from "@overstory/arborsync/state";
-import { decodeWireCollectionFile, SchemaSandbox } from "@overstory/apps-runtime/collections";
+import { decodeWireCollectionFile } from "@overstory/collection-schema";
 import { materializeTree, resolveSnapshot, snapshotDirectory, type SnapshotObjectIndex } from "@overstory/fs";
 
 function objectIndexOf(index: ObjectIndex): SnapshotObjectIndex {
@@ -164,6 +164,9 @@ describe("canonical tree objects", () => {
       "dual-target",
       "entry-with-hash-key",
       "file-and-directory",
+      "collection-file-version-2-schema-ts",
+      "collection-file-version-1-schema-cddl",
+      "collection-file-unknown-version",
       "noncanonical-cbor",
     ]);
     for (const vector of fixture.invalid) {
@@ -260,9 +263,9 @@ describe("canonical tree objects", () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-wire-collection-file-"));
     const destination = await mkdtemp(join(tmpdir(), "arbor-wire-collection-file-materialized-"));
     try {
-      const schemaSource = "export const schema = z.object({ id: z.string() });\nexport const primaryKey = [\"id\"];\n";
+      const schemaSource = "overstory-schema-version = 1\noverstory-primary-key = [\"id\"]\nrow = { id: tstr }\n";
       const storeSource = "[{\"id\":\"one\"}]\n";
-      await writeFile(join(root, "schema.ts"), schemaSource);
+      await writeFile(join(root, "schema.cddl"), schemaSource);
       await writeFile(join(root, "_store.json"), storeSource);
       const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], async (_directory, sourceName) => ({
         format: sourceName === "_store.json" ? "json" : "csv",
@@ -272,7 +275,7 @@ describe("canonical tree objects", () => {
       const object = decodeWireDirectory(snapshot.objects.get(snapshot.root)!);
       if (object.type !== "directory") throw new Error("Expected a directory");
       const descriptor = object.childrenSource!;
-      expect(descriptor).toEqual(expect.objectContaining({ type: "collection-file", format: "json" }));
+      expect(descriptor).toEqual(expect.objectContaining({ version: 2, type: "collection-file", format: "json", schemaSource: "schema.cddl" }));
       const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.file!;
       const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
       expect(sourceHash).not.toBe(schemaHash);
@@ -281,14 +284,14 @@ describe("canonical tree objects", () => {
 
       await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!);
       expect(await readFile(join(destination, "_store.json"), "utf8")).toBe(storeSource);
-      expect(await readFile(join(destination, "schema.ts"), "utf8")).toBe(schemaSource);
+      expect(await readFile(join(destination, "schema.cddl"), "utf8")).toBe(schemaSource);
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(destination, { recursive: true, force: true });
     }
   });
 
-  test("executes schema.ts and verifies CSV, JSON, and JSONL Wire descriptors", async () => {
+  test("validates schema.cddl and verifies CSV, JSON, and JSONL Wire descriptors without executing code", async () => {
     const fixtures = {
       csv: "id,title\none,One\ntwo,Two\n",
       json: '[{"id":"one","title":"One"},{"id":"two","title":"Two"}]\n',
@@ -297,12 +300,11 @@ describe("canonical tree objects", () => {
     for (const [codec, source] of Object.entries(fixtures) as Array<[keyof typeof fixtures, string]>) {
       const root = await mkdtemp(join(tmpdir(), `arbor-wire-${codec}-`));
       const collections = new ProjectionProviderHost();
-      const schemas = new SchemaSandbox();
       try {
-        await writeFile(join(root, "schema.ts"), [
-          'import { z } from "zod";',
-          'export const schema = z.object({ id: z.string(), title: z.string() });',
-          'export const primaryKey = ["id"];',
+        await writeFile(join(root, "schema.cddl"), [
+          "overstory-schema-version = 1",
+          'overstory-primary-key = ["id"]',
+          "row = { id: tstr, title: tstr }",
           "",
         ].join("\n"));
         await writeFile(join(root, `_store.${codec}`), source);
@@ -315,16 +317,29 @@ describe("canonical tree objects", () => {
         const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!;
         const sourceObject = snapshot.objects.get(sourceHash)!;
         const schemaObject = snapshot.objects.get(schemaHash)!;
-        const decoded = await decodeWireCollectionFile(descriptor, sourceObject, schemaObject, schemas);
+        const decoded = decodeWireCollectionFile(descriptor, sourceObject, schemaObject);
         expect(decoded.rows.map((row) => row.properties), codec).toEqual([
           { id: "one", title: "One" },
           { id: "two", title: "Two" },
         ]);
       } finally {
-        await schemas[Symbol.asyncDispose]();
         await collections[Symbol.asyncDispose]();
         await rm(root, { recursive: true, force: true });
       }
+    }
+  });
+
+  test("refuses to snapshot a retired schema.ts collection file as ordinary files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-wire-legacy-collection-"));
+    const collections = new ProjectionProviderHost();
+    try {
+      await writeFile(join(root, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string() }); export const primaryKey = ["id"];\n');
+      await writeFile(join(root, "_store.json"), '[{"id":"one"}]\n');
+      await expect(snapshotDirectory(root, new Map(), [], (directory, name) =>
+        collections.collectionFileDescriptor(directory, name))).rejects.toThrow("convert this collection to schema.cddl");
+    } finally {
+      await collections[Symbol.asyncDispose]();
+      await rm(root, { recursive: true, force: true });
     }
   });
 

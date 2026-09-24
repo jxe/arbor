@@ -2,14 +2,14 @@ import {
   type ObjectHash,
   type UpdateConflict,
 } from "@overstory/protocol";
-import { canonicalCBORHash, stableJSONString, type CollectionFileDescriptor } from "@overstory/protocol";
+import { stableJSONString, type CollectionFileDescriptor } from "@overstory/protocol";
 import {
+  collectionChildSetHash,
   decodeWireCollectionFile,
   encodeWireCollectionFile,
   WireCollectionFileError,
   type WireCollectionFileRow,
-} from "@overstory/apps-runtime/collections";
-import { SchemaSandbox } from "@overstory/apps-runtime/collections";
+} from "@overstory/collection-schema";
 
 /**
  * Merge rules: the representation-specific way to combine two changes to one
@@ -272,14 +272,17 @@ export async function collectionFileRowsV1(
     context.conflicts.push({ path, reason: "collection-file-schema-conflict" });
     return { ...candidate, mergedRows: 0 };
   }
-  const schemas = new SchemaSandbox();
+  // A retired version-1 (schema.ts) collection is never interpreted (spec 06 §2.5).
+  if (base.descriptor.version !== 2 || candidate.descriptor.version !== 2 || current.descriptor.version !== 2) {
+    context.conflicts.push({ path, reason: "collection-file-schema-conflict" });
+    return { ...candidate, mergedRows: 0 };
+  }
   let mergedRows = 0;
   try {
     const decode = async (value: CollectionFileMergeInput) => decodeWireCollectionFile(
       value.descriptor,
       await collectionFile(value.source),
       await collectionFile(value.schemaSource),
-      schemas,
     );
     const [baseFile, candidateFile, currentFile] = [await decode(base), await decode(candidate), await decode(current)];
     const baseRows = new Map(baseFile.rows.map((row) => [row.stableKey, row]));
@@ -312,9 +315,7 @@ export async function collectionFileRowsV1(
       }
     }
     ordered.push(...[...selected.values()].sort((left, right) => left.stableKey < right.stableKey ? -1 : 1));
-    const childSetHash = canonicalCBORHash([...ordered]
-      .sort((left, right) => left.stableKey < right.stableKey ? -1 : left.stableKey > right.stableKey ? 1 : 0)
-      .map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
+    const childSetHash = collectionChildSetHash(ordered.map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
     const source = context.store(encodeWireCollectionFile(current.descriptor.format, currentFile.schema, ordered));
     return {
       descriptor: { ...current.descriptor, childSetHash },
@@ -324,11 +325,9 @@ export async function collectionFileRowsV1(
     };
   } catch (error) {
     if (error instanceof WireCollectionFileError) {
-      context.conflicts.push({ path, reason: error.kind === "schema" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
+      context.conflicts.push({ path, reason: error.kind === "schema" || error.kind === "unsupported" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
       return { ...candidate, mergedRows: 0 };
     }
     throw error;
-  } finally {
-    await schemas[Symbol.asyncDispose]();
   }
 }

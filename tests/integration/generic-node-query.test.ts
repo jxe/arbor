@@ -54,19 +54,19 @@ beforeAll(async () => {
   process.env.ARBOR_DATA_HOME = state;
   const expanded = join(root, "records");
   await mkdir(expanded);
-  await writeFile(join(expanded, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(expanded, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
   await writeFile(join(expanded, "a.md"), "---\nid: a\ntitle: Alpha\n---\n");
   await writeFile(join(expanded, "b.md"), "---\nid: b\ntitle: Beta\n---\n");
   await writeFile(join(expanded, "c.md"), "---\nid: c\ntitle: Other\n---\n");
   const expandedKeys = join(root, "keys");
   await mkdir(expandedKeys);
-  await writeFile(join(expandedKeys, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ rank: z.number(), id: z.string(), title: z.string() }); export const primaryKey = ["rank", "id"] as const;\n');
+  await writeFile(join(expandedKeys, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["rank", "id"]\nrow = { rank: number, id: tstr, title: tstr }\n');
   await writeFile(join(expandedKeys, "one.md"), "---\nrank: 2\nid: é\ntitle: Accent\n---\n");
   await writeFile(join(expandedKeys, "two.md"), "---\nrank: 10\nid: a\ntitle: Ten\n---\n");
   await writeFile(join(expandedKeys, "three.md"), "---\nrank: 2\nid: 😀\ntitle: Emoji\n---\n");
   const liveDirectory = join(root, "live-records");
   await mkdir(liveDirectory);
-  await writeFile(join(liveDirectory, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), note: z.string().optional() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(liveDirectory, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, ? note: tstr }\n');
   await writeFile(join(liveDirectory, "a.md"), "---\nid: a\ntitle: Alpha\nnote: first\n---\n");
   workspace = await Workspace.open(root);
 

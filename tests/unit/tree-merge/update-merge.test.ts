@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mergeWireTrees } from "@overstory/tree-merge";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
-import { decodeWireCollectionFile, SchemaSandbox } from "@overstory/apps-runtime/collections";
+import { decodeWireCollectionFile } from "@overstory/collection-schema";
 import {
   decodeWireDirectory,
   encodeWireDirectory,
@@ -77,16 +77,18 @@ function namedMarkdownSnapshot(name: string, source: string, objects: Map<string
   return { root: root([{ name, file: file }], objects), objects };
 }
 
+const JSON_SCHEMA = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n';
+
 async function jsonCollectionFileSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
+  return collectionFileSnapshot("_store.json", JSON_SCHEMA, `${JSON.stringify(rows, null, 2)}\n`);
+}
+
+async function collectionFileSnapshot(store: string, schema: string, source: string): Promise<TreeSnapshot> {
   const directory = await mkdtemp(join(tmpdir(), "arbor-collection-file-merge-"));
   const collections = new ProjectionProviderHost();
   try {
-    await writeFile(join(directory, "schema.ts"), `
-      import { z } from "zod";
-      export const schema = z.object({ id: z.string(), title: z.string() });
-      export const primaryKey = ["id"];
-    `);
-    await writeFile(join(directory, "_store.json"), `${JSON.stringify(rows, null, 2)}\n`);
+    await writeFile(join(directory, "schema.cddl"), schema);
+    await writeFile(join(directory, store), source);
     return await resolveSnapshot(await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionFileDescriptor(root, name)));
   } finally {
     await collections[Symbol.asyncDispose]();
@@ -191,16 +193,49 @@ describe("reference Canopy merge fixtures", () => {
     const descriptor = rootObject.childrenSource!;
     const source = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
     const schema = load(rootObject.entries.find((entry) => entry.name === descriptor.schemaSource)!.file!);
-    const sandbox = new SchemaSandbox();
-    try {
-      const decoded = await decodeWireCollectionFile(descriptor, source, schema, sandbox);
-      expect(decoded.rows.map((row) => row.properties)).toEqual([
-        { id: "a", title: "Candidate A" },
-        { id: "b", title: "Remote B" },
-      ]);
-    } finally {
-      await sandbox[Symbol.asyncDispose]();
-    }
+    const decoded = decodeWireCollectionFile(descriptor, source, schema);
+    expect(decoded.rows.map((row) => row.properties)).toEqual([
+      { id: "a", title: "Candidate A" },
+      { id: "b", title: "Remote B" },
+    ]);
+  });
+
+  test("typed CSV rows merge and re-encode through their declared column types", async () => {
+    const schema = 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, count: int, ? note: tstr }\n';
+    const [base, candidate, remote] = await Promise.all([
+      collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,1,\n002,2,x\n"),
+      collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,10,\n002,2,x\n"),
+      collectionFileSnapshot("_store.csv", schema, "id,count,note\n001,1,\n002,2,y\n"),
+    ]);
+    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+    const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    expect(result.conflicts).toEqual([]);
+    const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
+    const rootObject = decodeWireDirectory(load(result.root));
+    if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
+    const descriptor = rootObject.childrenSource!;
+    const sourceBytes = load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.file!);
+    expect(new TextDecoder().decode(sourceBytes)).toBe("id,count,note\n001,10,\n002,2,y\n");
+    const decoded = decodeWireCollectionFile(descriptor, sourceBytes, load(rootObject.entries.find((entry) => entry.name === "schema.cddl")!.file!));
+    expect(decoded.rows.map((row) => row.properties)).toEqual([{ id: "001", count: 10 }, { id: "002", count: 2, note: "y" }]);
+  });
+
+  test("a merge involving a retired version-1 collection is a schema conflict, never an evaluation", async () => {
+    const objects = new Map<string, Uint8Array>();
+    const legacy = (title: string) => {
+      const source = stored({ type: "file", bytes: new TextEncoder().encode(`[{"id":"a","title":"${title}"}]\n`) }, objects);
+      const schema = stored({ type: "file", bytes: new TextEncoder().encode('import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"];\n') }, objects);
+      return stored({
+        type: "directory",
+        entries: [{ name: "_store.json", file: source }, { name: "schema.ts", file: schema }],
+        childrenSource: {
+          version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.ts",
+          schemaFingerprint: schema as `sha256:${string}`, childSetHash: source as `sha256:${string}`,
+        },
+      }, objects);
+    };
+    const result = await mergeWireTrees(legacy("A"), legacy("Candidate"), legacy("Remote"), async (hash) => objects.get(hash)!);
+    expect(result.conflicts).toEqual([expect.objectContaining({ reason: "collection-file-schema-conflict" })]);
   });
 
   test("divergent changes to one stable row conflict", async () => {

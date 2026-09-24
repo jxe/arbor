@@ -16,7 +16,7 @@ Historical identifier: **Smaller project 003**. The filename number is preserved
 ## Target result
 
 A native offline replica that already contains a synchronized CSV, JSON, or
-JSONL collection file and its exact `schema.ts` presents the same logical row
+JSONL collection file and its exact `schema.cddl` presents the same logical row
 `NodeSnapshot`s and `ChildrenPage`s as local
 Arbor Sync and canopyd, without a network connection and without changing the
 synchronized tree.
@@ -32,6 +32,9 @@ children.
   collection-file and schema objects.
 - The native result uses the same authored schema meaning and validation rules
   as other Overstory placements; it does not introduce a second schema language.
+  The declarative profile and its `collection-schemas.json` vectors
+  ([child backings §2.4](../../docs/overstory-spec/06-child-backings.md#24-collection-schema-profile))
+  are what a native implementation must pass; no evaluator is involved.
 - Invalid, duplicate, missing, or ambiguous stable keys fail closed and produce
   compatible diagnostics.
 - Resource bounds and forward-compatibility behavior are explicit and covered

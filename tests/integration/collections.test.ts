@@ -65,28 +65,28 @@ async function prepareWrite(
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-collections-"));
   await mkdir(join(root, "csv"));
-  await writeFile(join(root, "csv", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), count: z.coerce.number() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "csv", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number }\n');
   await writeFile(join(root, "csv", "_store.csv"), "id,title,count\none,One,1\ntwo,Two,nope\n");
   await mkdir(join(root, "jsonl"));
-  await writeFile(join(root, "jsonl", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "jsonl", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
   await writeFile(join(root, "jsonl", "_store.jsonl"), '{"id":"one","title":"One"}\nnot json\n{"id":"three","title":"Three"}\n');
   await mkdir(join(root, "json"));
-  await writeFile(join(root, "json", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "json", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
   await writeFile(join(root, "json", "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
   await mkdir(join(root, "named"));
-  await writeFile(join(root, "named", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), slug: z.string(), title: z.string() }); export const primaryKey = ["id"] as const; export const childName = { from: "property", property: "slug" } as const;\n');
+  await writeFile(join(root, "named", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\noverstory-child-name = "slug"\nrow = { id: tstr, slug: tstr, title: tstr }\n');
   await writeFile(join(root, "named", "_store.json"), '[{"id":"opaque-1","slug":"first-practice","title":"First"}]\n');
   await mkdir(join(root, "markdown"));
-  await writeFile(join(root, "markdown", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), status: z.enum(["draft", "done"]) });\n');
+  await writeFile(join(root, "markdown", "schema.cddl"), 'overstory-schema-version = 1\nrow = { id: tstr, title: tstr, status: "draft" / "done" }\n');
   await writeFile(join(root, "markdown", "one.md"), "---\nid: abc123\ntitle: One\nstatus: draft\n---\nBody\n");
   await mkdir(join(root, "writable-json"));
-  await writeFile(join(root, "writable-json", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), count: z.number() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "writable-json", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number }\n');
   await writeFile(join(root, "writable-json", "_store.json"), '[\n  { "id": "one", "title": "One", "count": 1 },\n  {\n    "id":"two",\n    "title":"Two",\n    "count":2\n  }\n]\n');
   await mkdir(join(root, "writable-jsonl"));
-  await writeFile(join(root, "writable-jsonl", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), count: z.number() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "writable-jsonl", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number }\n');
   await writeFile(join(root, "writable-jsonl", "_store.jsonl"), '{"id":"one","title":"One","count":1}\r\n  {"id":"two","title":"Two","count":2}  \r\n');
   await mkdir(join(root, "writable-csv"));
-  await writeFile(join(root, "writable-csv", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), count: z.coerce.number(), notes: z.string() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "writable-csv", "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr, count: number, notes: tstr }\n');
   await writeFile(join(root, "writable-csv", "_store.csv"), 'id,title,count,notes\r\none,One,1,"first\r\nnote"\r\ntwo,Two,2,plain\r\n');
   await mkdir(join(root, "sqlite"));
   const sqliteSchema = "create table items (id text primary key, title text not null, active boolean not null); create table memberships (list_id text not null, profile text not null, primary key (list_id, profile));";
@@ -110,7 +110,7 @@ describe("file-backed collections", () => {
     expect((await detectProjection(join(root, "sqlite")))?.provider).toBe("sqlite");
   });
 
-  test("validates CSV rows in the schema sandbox", async () => {
+  test("converts and validates CSV cells by their declared column types", async () => {
     const collections = new ProjectionProviderHost();
     const summary = await collections.descriptor(join(root, "csv"));
     const page = await childrenOf(collections, join(root, "csv"), "/csv", null, 20);
@@ -118,7 +118,7 @@ describe("file-backed collections", () => {
     expect(page.items[0]?.properties.count).toBe(1);
     expect(page.items[0]?.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
     expect(page.items[0]?.capabilities.properties?.writable).toBe(false);
-    expect(page.items[1]?.diagnostics[0]?.code).toBe("schema-validation");
+    expect(page.items[1]?.diagnostics[0]).toMatchObject({ code: "csv-invalid-cell", field: "count" });
     expect(page.items[1]?.ref.stableKey).toBeNull();
   });
 
@@ -176,7 +176,7 @@ describe("file-backed collections", () => {
   test("never falls back from duplicate or nullable declared identity", async () => {
     const duplicate = join(root, "duplicate");
     await mkdir(duplicate);
-    await writeFile(join(duplicate, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+    await writeFile(join(duplicate, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
     await writeFile(join(duplicate, "_store.json"), '[{"id":"same","title":"One"},{"id":"same","title":"Two"}]\n');
     const page = await childrenOf(new ProjectionProviderHost(), duplicate, "/duplicate", null, 20);
     expect(page.items.every((row) => row.ref.stableKey === null)).toBe(true);
@@ -184,9 +184,65 @@ describe("file-backed collections", () => {
 
     const nullable = join(root, "nullable");
     await mkdir(nullable);
-    await writeFile(join(nullable, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string().optional() }); export const primaryKey = ["id"] as const;\n');
+    await writeFile(join(nullable, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { ? id: tstr }\n');
     await writeFile(join(nullable, "_store.json"), "[]\n");
-    await expect(new ProjectionProviderHost().descriptor(nullable)).rejects.toThrow("required schema properties");
+    await expect(new ProjectionProviderHost().descriptor(nullable)).rejects.toThrow("invalid-primary-key");
+  });
+
+  test("keeps CSV text keys exact and rejects undeclared columns instead of stripping them", async () => {
+    const directory = join(root, "typed-csv");
+    await mkdir(directory);
+    await writeFile(join(directory, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["code"]\nrow = { code: tstr, qty: uint, ? note: tstr, active: bool }\n');
+    await writeFile(join(directory, "_store.csv"), "code,qty,note,active\n001,2,,true\n010,0,x,false\n");
+    const providers = new ProjectionProviderHost();
+    const page = await childrenOf(providers, directory, "/typed-csv");
+    expect(page.items.map((item) => [item.ref.path, item.properties])).toEqual([
+      ["/typed-csv/001", { code: "001", qty: 2, active: true }],
+      ["/typed-csv/010", { code: "010", qty: 0, note: "x", active: false }],
+    ]);
+    expect(await providers.collectionFileDescriptor(directory, "_store.csv")).toMatchObject({ format: "csv" });
+
+    await writeFile(join(directory, "_store.csv"), "code,qty,active,extra\n001,2,true,ignored\n");
+    const unknown = await providers.descriptor(directory);
+    expect(unknown?.diagnostics?.[0]).toMatchObject({ code: "csv-unknown-column", field: "extra" });
+    expect(unknown?.editable).toBe(false);
+    expect(await providers.collectionFileDescriptor(directory, "_store.csv")).toBeNull();
+    await providers[Symbol.asyncDispose]();
+  });
+
+  test("never interprets a retired schema.ts, alone or beside schema.cddl", async () => {
+    const legacy = join(root, "legacy");
+    await mkdir(legacy);
+    await writeFile(join(legacy, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string() }); export const primaryKey = ["id"] as const;\n');
+    await writeFile(join(legacy, "_store.json"), '[{"id":"one"}]\n');
+    expect((await detectProjection(legacy))?.diagnostics[0]?.code).toBe("legacy-collection-schema");
+    const providers = new ProjectionProviderHost();
+    const page = await childrenOf(providers, legacy, "/legacy");
+    expect(page.items).toEqual([]);
+    await expect(providers.collectionFileDescriptor(legacy, "_store.json")).rejects.toThrow("convert this collection to schema.cddl");
+
+    await writeFile(join(legacy, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr }\n');
+    expect((await detectProjection(legacy))?.diagnostics[0]?.code).toBe("ambiguous-collection-schema");
+    await expect(providers.collectionFileDescriptor(legacy, "_store.json")).rejects.toThrow("remove schema.ts");
+    await providers[Symbol.asyncDispose]();
+  });
+
+  test("schema.cddl does not govern a database backing", async () => {
+    const directory = join(root, "sqlite-with-schema");
+    await mkdir(directory);
+    new Database(join(directory, "_store.sqlite3")).close();
+    await writeFile(join(directory, "schema.cddl"), "overstory-schema-version = 1\nrow = { id: tstr }\n");
+    const definition = await detectProjection(directory);
+    expect(definition).toMatchObject({ provider: "sqlite", diagnostics: [expect.objectContaining({ code: "mixed-collection-backing" })] });
+    expect(definition?.schemaPath).toBeUndefined();
+  });
+
+  test("an invalid schema.cddl is rejected with its profile diagnostic, not evaluated", async () => {
+    const directory = join(root, "invalid-cddl");
+    await mkdir(directory);
+    await writeFile(join(directory, "schema.cddl"), "overstory-schema-version = 1\nrow = { id: tstr .size 3 }\n");
+    await writeFile(join(directory, "_store.json"), "[]\n");
+    await expect(new ProjectionProviderHost().descriptor(directory)).rejects.toThrow("unsupported-syntax at 2:18");
   });
 
   test("keeps Markdown identity in the same property map as record fields", async () => {
@@ -246,6 +302,8 @@ describe("file-backed collections", () => {
       .rejects.toMatchObject({ code: "invalid-write" });
     await expect(prepareWrite(collections, target!, target!.revision, { id: "one", title: 7, count: 1 }, "bad-schema"))
       .rejects.toMatchObject({ code: "invalid-write" });
+    await expect(prepareWrite(collections, target!, target!.revision, { id: "one", title: "One", count: 1, extra: true }, "unknown-member"))
+      .rejects.toMatchObject({ code: "invalid-write", message: expect.stringContaining("extra") });
     expect(await readFile(path, "utf8")).toBe(original);
 
     const beforeAbort = await readdir(directory);

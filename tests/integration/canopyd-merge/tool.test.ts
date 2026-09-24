@@ -84,7 +84,7 @@ async function collection(rows: unknown[]): Promise<TreeSnapshot> {
   const root = await mkdtemp(join(directory, "collection-"));
   const host = new ProjectionProviderHost();
   try {
-    await writeFile(join(root, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"];');
+    await writeFile(join(root, "schema.cddl"), 'overstory-schema-version = 1\noverstory-primary-key = ["id"]\nrow = { id: tstr, title: tstr }\n');
     await writeFile(join(root, "_store.json"), JSON.stringify(rows) + "\n");
     return await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (path, name) => host.collectionFileDescriptor(path, name)));
   } finally { await host[Symbol.asyncDispose](); }

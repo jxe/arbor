@@ -156,21 +156,28 @@ struct UpdateCoordinatorTests {
         }
     }
 
-    @Test("Native materialization preserves exact Wire collection-file descriptors")
-    func collectionFileDescriptorRoundTrip() async throws {
+    @Test(
+        "Native materialization preserves exact Wire collection-file descriptors, including retired version 1",
+        arguments: [
+            (2, "schema.cddl", "overstory-schema-version = 1\nrow = { id: tstr }\n"),
+            (1, "schema.ts", "export const schema = value\n"),
+        ]
+    )
+    func collectionFileDescriptorRoundTrip(version: Int, schemaName: String, schemaText: String) async throws {
         try await withTemporaryRoot { root in
             let source = try WireObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
-            let schema = try WireObjectCodec.object(.file(Data("export const schema = value\n".utf8)))
+            let schema = try WireObjectCodec.object(.file(Data(schemaText.utf8)))
             let descriptor = WireCollectionFileDescriptor(
+                version: version,
                 format: "json",
                 source: "_store.json",
-                schemaSource: "schema.ts",
+                schemaSource: schemaName,
                 schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
                 childSetHash: "sha256:" + String(repeating: "4", count: 64)
             )
             let directory = try WireObjectCodec.object(.directory([
                 .init(name: "_store.json", file: source.hash),
-                .init(name: "schema.ts", file: schema.hash),
+                .init(name: schemaName, file: schema.hash),
             ], childrenSource: descriptor))
             let snapshot = WireSnapshot(root: directory.hash, objects: [directory, schema, source])
             let replacement = try SnapshotBridge.replacement(
