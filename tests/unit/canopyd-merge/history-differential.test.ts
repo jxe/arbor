@@ -5,7 +5,7 @@ import {
   mergeIntent,
 } from "../../../packages/canopyd-merge/src/intent-engine.ts";
 import type {
-  IntentRequestInput,
+  IntentRequest,
   IntentResponse,
 } from "../../../packages/canopyd-merge/src/intent-model.ts";
 import { Fixture } from "./fixture.ts";
@@ -16,7 +16,7 @@ type Step = { text: string; result: State };
 /** Eager evaluation re-projects every state and re-enforces all history; the
  * default path trusts recorded projections and enforces only deletions newer
  * than an editable basis. Every accepted outcome must be identical. */
-async function differential(f: Fixture, request: IntentRequestInput) {
+async function differential(f: Fixture, request: IntentRequest) {
   const objects = {
     read: async (hash: string) => f.objects.get(hash)!,
     states: f.states,

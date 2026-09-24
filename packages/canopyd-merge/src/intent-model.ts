@@ -12,9 +12,6 @@ import {
   type IntentRequest,
 } from "./engine-contract.ts";
 export { IntentError, traceOperations, type Frame, type IntentRequest, type IntentResponse };
-const schema = intentRequestSchema;
-/** What a caller hands the engine, before `parseIntentRequest` checks it. */
-export type IntentRequestInput = IntentRequest;
 /** Check a request's shape and decode every operation. Anything wrong with it
  * is the request's fault, so every failure here is a typed refusal. */
 export function parseIntentRequest(raw: unknown): IntentRequest {
@@ -33,7 +30,7 @@ function checkIntentRequest(raw: unknown): IntentRequest {
     (raw.rules as { revision?: number })?.revision !== 1
   )
     throw new IntentError("unsupported", "Unknown rule revision");
-  const value = schema.parse(raw);
+  const value = intentRequestSchema.parse(raw);
   const incoming = value.incoming,
     trace = incoming.trace;
   if (trace.reduce((sum, frame) => sum + frame.operations.length, 0) > 1024)
@@ -143,13 +140,8 @@ export interface Effect {
    * every other kind). An edited file's `before`/`after` copies omit
    * `pieces`: the edits carry exactly what deletion enforcement and retention
    * read. */
-  edits: Record<string, EffectEdit[]>;
+  edits: Record<string, Array<{ range: [number, number]; removed: Piece[]; inserted: Piece[] }>>;
   undone: boolean;
-}
-export interface EffectEdit {
-  range: [number, number];
-  removed: Piece[];
-  inserted: Piece[];
 }
 export interface IntentState extends View {
   format: "arbor-merge-intent-state";

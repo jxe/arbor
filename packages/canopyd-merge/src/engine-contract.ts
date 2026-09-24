@@ -2,68 +2,78 @@
  * evaluation and a checkpoint of an accepted projection. These are internal
  * to the sidecar; canopyd asks the one question in `@overstory/merge-protocol`. */
 import { z } from "zod";
-import type { MaterialRef, SourceOperation } from "@overstory/protocol";
-import type { LogDecision } from "@overstory/merge-protocol";
+import type { SourceOperation } from "@overstory/protocol";
+import type { ObjectStore } from "@overstory/object-store";
+import { OBJECT_HASH, type AlternativeBinding, type Frame, type LogDecision } from "@overstory/merge-protocol";
+import { FORMATS } from "./format-rules.ts";
 import type { IntentDecision } from "./intent-model.ts";
+import type { RetainedStates } from "./retained-state.ts";
 
-export const OBJECT_HASH = /^sha256:[a-f0-9]{64}$/;
+export type { Frame };
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
+
+/** Immutable object IO for the engine: no accepted-state or database access.
+ * `read` reports an absent object as a `missing-context` `MergeRefusal` (as
+ * the sidecar's reader does) or an `ENOENT` error (as `ObjectStore.read`
+ * does); any other failure is the store's own and propagates. Bytes it
+ * returns are the object's: every production reader verifies them. */
+export interface MergeObjects {
+  read(hash: string): Promise<Uint8Array>;
+  store: ObjectStore["store"];
+  /** The engine states recorded so far, kept by identity. */
+  states: RetainedStates;
+}
+
+/** The reference sidecar's rules (`tree-default`, revision 1): the
+ * configuration a question's `rules.config` may carry. */
+export const treeDefaultConfig = z
+  .object({
+    contentChoices: z.enum(["source", "file"]).optional(),
+    conflictProjection: z.enum(["current", "incoming"]).optional(),
+    maxMillis: z.number().int().positive().max(30_000).optional(),
+    maxBytes: z.number().int().positive().max(128 * 1024 * 1024).optional(),
+    formats: z
+      .record(
+        z.string(),
+        z
+          .object({
+            format: z.enum(FORMATS).optional(),
+            recordKey: z.string().min(1).optional(),
+            proseInsertions: z.enum(["review", "preserve-both"]).optional(),
+          })
+          .strict()
+      )
+      .optional(),
+    maxNodes: z.number().int().positive().max(100_000).optional(),
+  })
+  .strict();
 
 // ---- Authored (intent) evaluation ---------------------------------------
 
 const stateRef = z.object({ object: hash, state: hash.optional() }).strict();
-const formatName = z.enum([
-  "text", "markdown", "json", "jsonl", "yaml", "toml", "csv", "tsv",
-  "typescript", "javascript", "swift", "python", "html", "xml", "css", "binary",
-]);
-/** The shape of an authored tree request. The worker additionally decodes
- * every operation; canopyd only builds these. */
+/** The shape of an authored tree request, as the sidecar builds one for its
+ * engine; `parseIntentRequest` also decodes every operation. */
 export const intentRequestSchema = z
   .object({
     kind: z.literal("tree"),
     tree: token,
-    // Host-supplied state/root pairs come from canopyd's accepted records,
-    // never from client assertions.
+    // A root and the engine state the sidecar recorded for it; a root alone
+    // is imported as it stands.
     base: stateRef,
     current: stateRef,
     incoming: z
       .object({
         change: token,
         object: hash,
-        // The authored frame chain. A snapshot carries no evidence and
-        // arrives as an empty chain.
+        // The authored frame chain. An empty chain carries no evidence: a
+        // bare resolution, or snapshot semantics.
         trace: z.array(z.object({ before: hash, after: hash, operations: z.array(z.unknown()).max(1024) }).strict()).max(64),
         resolves: z.array(z.string().min(1)).max(1024).optional(),
       })
       .strict(),
     rules: z
-      .object({
-        id: z.literal("tree-default"),
-        revision: z.literal(1),
-        config: z
-          .object({
-            contentChoices: z.enum(["source", "file"]).optional(),
-            conflictProjection: z.enum(["current", "incoming"]).optional(),
-            maxMillis: z.number().int().positive().max(30_000).optional(),
-            maxBytes: z.number().int().positive().max(128 * 1024 * 1024).optional(),
-            formats: z
-              .record(
-                z.string(),
-                z
-                  .object({
-                    format: formatName.optional(),
-                    recordKey: z.string().min(1).optional(),
-                    proseInsertions: z.enum(["review", "preserve-both"]).optional(),
-                  })
-                  .strict()
-              )
-              .optional(),
-            maxNodes: z.number().int().positive().max(100_000).optional(),
-          })
-          .strict()
-          .optional(),
-      })
+      .object({ id: z.literal("tree-default"), revision: z.literal(1), config: treeDefaultConfig.optional() })
       .strict(),
     alternatives: z
       .array(
@@ -80,22 +90,9 @@ export const intentRequestSchema = z
       .optional(),
   })
   .strict();
-/** One tree-root to tree-root step of authored evidence. Basis references
- * inside a frame name objects in that frame's `before` tree; operation
- * references name an earlier key in the same change. */
-export interface Frame {
-  before: string;
-  after: string;
-  operations: SourceOperation[];
-}
 export type IntentRequest = Omit<z.infer<typeof intentRequestSchema>, "incoming" | "alternatives"> & {
   incoming: { change: string; object: string; trace: Frame[]; resolves?: string[] };
-  alternatives?: Array<{
-    ref: MaterialRef;
-    decision: string;
-    alternative: number;
-    value: { object: string; kind: "file" | "directory" };
-  }>;
+  alternatives?: AlternativeBinding[];
 };
 
 /** Every operation of a change in authored order. */

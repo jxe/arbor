@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { decodeMaterialRef, hashObject, stableJSONString, type MaterialRef, type SourceOperation } from "@overstory/protocol";
+import { decodeMaterialRef, stableJSONString, type MaterialRef, type SourceOperation } from "@overstory/protocol";
 
 /** The contract between canopyd and a merge sidecar: the log entries canopyd
  * writes into the object store, the one question it asks, and the answer.
@@ -136,11 +136,6 @@ export function decodeLogEntry(bytes: Uint8Array): LogEntry {
   return entry;
 }
 
-/** An entry's object name. */
-export function logEntryHash(entry: LogEntry): ObjectHash {
-  return hashObject(encodeLogEntry(entry));
-}
-
 // ---- The merge question ----------------------------------------------------
 
 /** An alternative a client's operation names as material: canopyd resolves
@@ -188,34 +183,6 @@ const askedSchema = z
     rules: rulesSchema,
   })
   .strict();
-
-const formatName = z.enum([
-  "text", "markdown", "json", "jsonl", "yaml", "toml", "csv", "tsv",
-  "typescript", "javascript", "swift", "python", "html", "xml", "css", "binary",
-]);
-/** The reference sidecar's rules. Another sidecar may define its own. */
-export const treeDefaultConfig = z
-  .object({
-    contentChoices: z.enum(["source", "file"]).optional(),
-    conflictProjection: z.enum(["current", "incoming"]).optional(),
-    maxMillis: z.number().int().positive().max(30_000).optional(),
-    maxBytes: z.number().int().positive().max(128 * 1024 * 1024).optional(),
-    formats: z
-      .record(
-        z.string(),
-        z
-          .object({
-            format: formatName.optional(),
-            recordKey: z.string().min(1).optional(),
-            proseInsertions: z.enum(["review", "preserve-both"]).optional(),
-          })
-          .strict()
-      )
-      .optional(),
-    maxNodes: z.number().int().positive().max(100_000).optional(),
-  })
-  .strict();
-export type TreeDefaultConfig = z.infer<typeof treeDefaultConfig>;
 
 export interface MergeRules { id: string; revision: number; config?: unknown }
 
@@ -278,13 +245,6 @@ export class MergeRefusal extends Error {
 }
 export const REFUSAL_CODES = ["invalid", "missing-context", "unsupported", "limit"] as const;
 
-/** One response line: an answer, `{ refusal: { code, message } }`, or
- * `{ error: { message, code? } }` for a failure to evaluate. */
-export type MergeResponse =
-  | MergeAnswer
-  | { refusal: { code: MergeRefusal["code"]; message: string } }
-  | { error: { message: string; code?: string } };
-
 /** Check an answer's shape. Throws `MergeRefusal` for a refusal line. It does
  * not look inside the sidecar's reasoning. */
 export function parseAnswer(raw: unknown): MergeAnswer {
@@ -297,9 +257,4 @@ export function parseAnswer(raw: unknown): MergeAnswer {
   const answer = answerSchema.parse(raw) as MergeAnswer;
   if (new Set(answer.objects).size !== answer.objects.length) throw new Error("Duplicate answer object");
   return answer;
-}
-
-/** Every operation of a trace in authored order. */
-export function traceOperations(frames: Frame[] | null): SourceOperation[] {
-  return (frames ?? []).flatMap((f) => f.operations);
 }

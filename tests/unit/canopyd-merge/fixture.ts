@@ -11,7 +11,7 @@ import { mergeIntent } from "@overstory/canopyd-merge";
 import { viewState, type RetainedState } from "../../../packages/canopyd-merge/src/retained-state.ts";
 import type {
   Frame,
-  IntentRequestInput,
+  IntentRequest,
   IntentResponse,
   IntentState,
 } from "../../../packages/canopyd-merge/src/intent-model.ts";
@@ -85,7 +85,7 @@ export class Fixture {
     operations: SourceOperation[],
     change = "edit",
     current?: string | { object: string; state: string },
-  ): IntentRequestInput {
+  ): IntentRequest {
     const ref = (r: string | { object: string; state: string }) =>
       typeof r === "string" ? { object: r } : r;
     return {
@@ -108,7 +108,7 @@ export class Fixture {
     frames: Array<{ after: string; operations: SourceOperation[] }>,
     change = "edit",
     current?: string | { object: string; state: string },
-  ): IntentRequestInput {
+  ): IntentRequest {
     const ref = (r: string | { object: string; state: string }) =>
       typeof r === "string" ? { object: r } : r;
     const chain: Frame[] = [];
@@ -127,14 +127,14 @@ export class Fixture {
     };
   }
   async run(
-    r: IntentRequestInput,
+    r: IntentRequest,
   ): Promise<Extract<IntentResponse, { outcome: "evaluated" }>> {
     const response = await this.evaluate(r);
     if (response.outcome !== "evaluated")
       throw new Error(JSON.stringify(response));
     return response;
   }
-  evaluate(r: IntentRequestInput) {
+  evaluate(r: IntentRequest) {
     return mergeIntent(r, {
       // Verifies as the sidecar's stores do: the engine does not hash again.
       read: async (hash) => {

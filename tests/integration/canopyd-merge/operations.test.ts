@@ -7,7 +7,7 @@ import { encodeLogEntry, LOG_ENTRY_FORMAT, MergeRefusal, type LogEntry, type Mer
 import { hashObject } from "@overstory/protocol";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
 import { Fixture } from "../../unit/canopyd-merge/fixture.ts";
-import type { IntentRequestInput } from "../../../packages/canopyd-merge/src/intent-model.ts";
+import type { IntentRequest } from "../../../packages/canopyd-merge/src/intent-model.ts";
 
 /** Store `value` as a log entry of `tree`; returns its hash. */
 async function entry(store: ObjectStore, value: Partial<LogEntry> & Pick<LogEntry, "previous" | "root" | "change">): Promise<string> {
@@ -17,7 +17,7 @@ async function entry(store: ObjectStore, value: Partial<LogEntry> & Pick<LogEntr
 }
 
 /** The question an engine request asks, authored on `base` with `head` current. */
-function question(request: IntentRequestInput, base: string, head: string): MergeQuestion {
+function question(request: IntentRequest, base: string, head: string): MergeQuestion {
   return {
     base, head,
     candidate: { root: request.incoming.object, change: request.incoming.change, trace: request.incoming.trace, resolves: [] },

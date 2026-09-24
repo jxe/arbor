@@ -8,8 +8,7 @@ import {
   type SourceOperation,
   type WireDirectory,
 } from "@overstory/protocol";
-import type { MergeObjects } from "./index.ts";
-import { EvaluationFailure, type CheckpointRequest, type CheckpointResponse } from "./engine-contract.ts";
+import { EvaluationFailure, type CheckpointRequest, type CheckpointResponse, type MergeObjects } from "./engine-contract.ts";
 import { MergeRefusal, OBJECT_HASH } from "@overstory/merge-protocol";
 import {
   IntentError,
@@ -20,7 +19,6 @@ import {
   traceOperations,
   type Effect,
   type IntentRequest,
-  type IntentRequestInput,
   type IntentDecision,
   type IntentResponse,
   type IntentState,
@@ -2430,7 +2428,8 @@ class Engine {
       }
     }
     // Presentation granularity and selected projection are policy, not a second
-    // executor. Canopy initially requests whole-file choices for installed clients.
+    // executor: `contentChoices: "file"` presents whole-file choices, where the
+    // default is independent source choices.
     if (request.rules.config?.contentChoices === "file") {
       const fresh = resultState.decisions.filter(
         (d) =>
@@ -2748,7 +2747,7 @@ class Engine {
 export const engineDiagnostics: Record<string, number> = {};
 
 export async function mergeIntent(
-  raw: IntentRequestInput,
+  raw: IntentRequest,
   objects: MergeObjects,
   options: {incremental?: boolean; eager?: boolean} = {}
 ): Promise<IntentResponse> {

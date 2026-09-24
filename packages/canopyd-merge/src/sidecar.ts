@@ -3,7 +3,6 @@ import {
   decodeLogEntry,
   MergeRefusal,
   parseQuestion,
-  treeDefaultConfig,
   type Candidate,
   type LogDecision,
   type LogEntry,
@@ -11,8 +10,7 @@ import {
   type MergeQuestion,
   type MergeRules,
 } from "@overstory/merge-protocol";
-import type { MergeObjects } from "./index.ts";
-import type { CheckpointRequest, IntentRequest } from "./engine-contract.ts";
+import { treeDefaultConfig, type CheckpointRequest, type IntentRequest, type MergeObjects } from "./engine-contract.ts";
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import { IntentError, type Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";

@@ -1,7 +1,7 @@
 import { hashObject } from "@overstory/protocol";
 import { MergeRefusal } from "@overstory/merge-protocol";
 import { mergeIntent } from "../../packages/canopyd-merge/src/intent-engine.ts";
-import type { IntentRequestInput } from "../../packages/canopyd-merge/src/intent-model.ts";
+import type { IntentRequest } from "../../packages/canopyd-merge/src/intent-model.ts";
 import type { IntentEvaluation } from "../../packages/canopyd-merge/src/engine-contract.ts";
 import type { RetainedState } from "../../packages/canopyd-merge/src/retained-state.ts";
 
@@ -13,7 +13,7 @@ const recorded = new WeakMap<ReadonlyMap<string, Uint8Array>, Map<string, Retain
  * records are kept per input map, so a later evaluation over the same map can
  * name them as a basis. */
 export async function evaluateIntent(
-  request: IntentRequestInput,
+  request: IntentRequest,
   inputs: ReadonlyMap<string, Uint8Array>,
 ): Promise<{ response: IntentEvaluation; objects: Map<string, Uint8Array> }> {
   const objects = new Map<string, Uint8Array>();

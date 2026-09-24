@@ -11,23 +11,12 @@ export interface FormatConfig {
   recordKey?: string;
   proseInsertions?: "review" | "preserve-both";
 }
-export type Format =
-  | "text"
-  | "markdown"
-  | "json"
-  | "jsonl"
-  | "yaml"
-  | "toml"
-  | "csv"
-  | "tsv"
-  | "typescript"
-  | "javascript"
-  | "swift"
-  | "python"
-  | "html"
-  | "xml"
-  | "css"
-  | "binary";
+/** Every format a rule names. */
+export const FORMATS = [
+  "text", "markdown", "json", "jsonl", "yaml", "toml", "csv", "tsv",
+  "typescript", "javascript", "swift", "python", "html", "xml", "css", "binary",
+] as const;
+export type Format = (typeof FORMATS)[number];
 export interface FormatEvidence {
   id: string;
   revision: 1;
