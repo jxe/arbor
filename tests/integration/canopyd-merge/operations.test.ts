@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@overstory/object-store";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
+import { wireResponse } from "../../../packages/canopyd-merge/src/index.ts";
 import { Fixture } from "../../unit/canopyd-merge/fixture.ts";
 
 test("operation evaluation is identical through library, worker process and Canopy staging validation", async () => {
@@ -47,7 +48,7 @@ test("operation evaluation is identical through library, worker process and Cano
     );
     await using tool = new MergeTool(directory);
     const actual = await tool.evaluate(request, f.objects);
-    expect(actual.response).toEqual(expected);
+    expect(actual.response).toEqual(wireResponse(expected) as typeof actual.response);
     const child = Bun.spawn(
       [
         process.execPath,
@@ -67,7 +68,7 @@ test("operation evaluation is identical through library, worker process and Cano
       .split("\n")
       .map((line) => JSON.parse(line));
     expect(await child.exited).toBe(0);
-    expect(lines).toEqual([expected, expected]);
+    expect(lines).toEqual([wireResponse(expected), wireResponse(expected)]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -133,7 +134,7 @@ test("typed evaluation refusals match the library in shared and fresh worker pro
           .split("\n")
           .map((s) => JSON.parse(s));
         expect(await child.exited).toBe(0);
-        expect(lines).toEqual(batch.map((r) => expected[requests.indexOf(r)]));
+        expect(lines).toEqual(batch.map((r) => wireResponse(expected[requests.indexOf(r)]!)));
       }
     }
   } finally {
@@ -141,7 +142,7 @@ test("typed evaluation refusals match the library in shared and fresh worker pro
   }
 });
 
-test("authority rejects missing inverse material and a forged result projection", async () => {
+test("canopyd checks a worker response's shape and objects, not its retained state", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.txt": "old" });
   const request = f.request(base, f.tree({ "a.txt": "new" }), [
@@ -152,59 +153,29 @@ test("authority rejects missing inverse material and a forged result projection"
       text: "new",
     },
   ]);
-  const response = await f.run(request);
+  const reply = wireResponse(await f.run(request)) as Extract<ReturnType<typeof wireResponse>, { outcome: "evaluated" }>;
   const directory = await mkdtemp(join(tmpdir(), "arbor-worker-validation-"));
   try {
     const script = join(directory, "worker.ts");
-    const reply = { ...response, objects: [] };
     await new ObjectStore(join(directory, "objects")).store(
       [...f.objects].map(([hash, bytes]) => ({ hash, bytes }))
     );
-    // All hashes exist, but the claimed root is not the projection of its state.
-    await Bun.write(
-      script,
-      `for await (const _ of console) console.log(${JSON.stringify(
-        JSON.stringify({ ...reply, result: { ...reply.result, object: base } })
-      )});`
-    );
-    await using tool = new MergeTool(directory, {
-      command: [process.execPath, script],
-    });
-    await expect(tool.evaluate(request, new Map())).rejects.toThrow(
-      "State does not project"
-    );
-    // New visible bytes are intact; deleting the old bytes breaks retained undo.
-    const old = f.put("old").slice(7);
-    await rm(join(directory, "objects", old.slice(0, 2), old.slice(2)));
-    await Bun.write(
-      script,
-      `for await (const _ of console) console.log(${JSON.stringify(JSON.stringify(reply))});`
-    );
-    await expect(tool.evaluate(request, new Map())).rejects.toThrow();
+    // A fresh process per case: the worker persists across jobs.
+    const answer = async (value: unknown) => {
+      await Bun.write(script, `for await (const _ of console) console.log(${JSON.stringify(JSON.stringify(value))});`);
+      await using tool = new MergeTool(directory, { command: [process.execPath, script] });
+      return await tool.evaluate(request, new Map());
+    };
+    // The worker's own well-formed answer is trusted as it stands.
+    expect((await answer({ ...reply, objects: [] })).response.result).toEqual(reply.result);
+    // Its engine records never cross the boundary.
+    await expect(answer({ ...reply, objects: [], reports: [] })).rejects.toThrow("reports");
+    // A generated object the worker never wrote.
+    const missing = `sha256:${"0".repeat(64)}`;
+    await expect(answer({ ...reply, objects: [missing] })).rejects.toThrow();
+    // A result root that exists nowhere.
+    await expect(answer({ ...reply, objects: [], result: { ...reply.result, object: missing } })).rejects.toThrow();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-test("accepted-state proofs share bounded history rather than charging it to every head", async () => {
-  const { loadIntentState, storeIntentState } = await import("../../../packages/canopyd-merge/src/state-storage.ts");
-  const f = new Fixture(), base = f.tree({"a.txt": "one"});
-  const first = await f.run(f.request(base, base, [{kind: "editSource", key: "same", source: f.ref("/a.txt", "one"), text: "one"}], "initial"));
-  const state = await loadIntentState(first.result.state, async hash => f.objects.get(hash)!);
-  const change = f.put(JSON.stringify({base: {object: base}, incoming: {object: base}}));
-  for (let i = 0; i < 2000; i++) state.changes[`history-${i}`] = change;
-  const ref = {object: base, state: storeIntentState(state, bytes => f.put(bytes))};
-  const directory = await mkdtemp(join(tmpdir(), "arbor-proof-ownership-"));
-  try {
-    const objects = new ObjectStore(join(directory, "objects"));
-    await objects.store([...f.objects].map(([hash, bytes]) => ({hash, bytes})));
-    // Large history has a separate, shared budget. The per-head budget only
-    // owns active state, material validation, and references into that history.
-    await using tool = new MergeTool(directory, {objects, stateProofBytes: 16_384, historyCacheBytes: 2_000_000});
-    await tool.warm("tree", ref);
-    expect(tool.validatedState("tree", ref)?.changes["history-1999"]).toBe(change);
-    const reads = objects.readCounters.reads;
-    await tool.warm("tree", ref);
-    expect(objects.readCounters.reads).toBe(reads);
-  } finally { await rm(directory, {recursive: true, force: true}); }
 });

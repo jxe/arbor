@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { InspectedDecision, CandidateUpdate } from "@overstory/protocol";
-import type { IntentResponse } from "@overstory/canopyd-merge";
+import type { IntentEvaluation } from "@overstory/merge-protocol";
 export interface MergeStateRecord {
   state: string;
   authored: string;
@@ -9,7 +9,7 @@ export interface MergeStateRecord {
    * recomputes the closure from them; no row stores a flattened closure. */
   retention: { version: 1; roots: string[] };
   evidence:
-    | Extract<IntentResponse, { outcome: "evaluated" }>["evidence"]
+    | IntentEvaluation["evidence"]
     | null;
   request: Pick<
     CandidateUpdate,

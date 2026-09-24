@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { mergeWireTrees, type MergeResult } from "@overstory/canopyd";
+import { mergeWireTrees, type MergeResult } from "@overstory/canopyd-merge";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import {
   applyTransitionPayload,

@@ -1,4 +1,4 @@
-import { IntentError } from "@overstory/canopyd-merge/intent-model";
+import { IntentError } from "@overstory/merge-protocol";
 import { AuthenticationRequiredError, NotFoundError, PermissionDeniedError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
 import { resolve } from "node:path";

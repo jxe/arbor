@@ -201,16 +201,9 @@ test("batched checkpoints exactly preserve individual states including legacy al
   const result = await tool.evaluate(request,new Map());
   expect(result.response.checkpoints).toEqual(expected);
   expect(result.response.result).toEqual(expected.at(-1)!);
-  const {parseResponse} = await import("@overstory/canopyd-merge");
+  const {parseResponse} = await import("@overstory/merge-protocol");
   expect(() => parseResponse({...result.response,checkpoints:expected.slice(1)},request)).toThrow();
   expect(() => parseResponse({...result.response,checkpoints:[...expected].reverse()},request)).toThrow();
-  const other = await tool.evaluate({kind:"checkpoint",tree:"other-tree",current:request.current,...steps[0]!},new Map());
-  await store.store([...other.objects].map(([hash,bytes])=>({hash,bytes})));
-  const forged = {...result.response,checkpoints:[other.response.result,expected[1]!],objects:[]};
-  const fake = join(directory,"wrong-checkpoint.ts");
-  await writeFile(fake, lineWorker(`console.log(${JSON.stringify(JSON.stringify(forged))});`));
-  await using forger = new MergeTool(directory,{command:[process.execPath,fake]});
-  await expect(forger.evaluate(request,new Map())).rejects.toThrow();
 });
 
 

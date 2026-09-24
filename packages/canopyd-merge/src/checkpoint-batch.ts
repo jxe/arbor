@@ -2,7 +2,8 @@ import { checkpointIntent } from "./intent-engine.ts";
 import type { MergeObjects } from "./index.ts";
 import type { CheckpointBatchRequest, CheckpointBatchResponse } from "./checkpoint.ts";
 
-export class CheckpointBatchLimitError extends Error {}
+import { CheckpointBatchLimitError } from "@overstory/merge-protocol";
+export { CheckpointBatchLimitError };
 
 /** Reuse exact immutable material across a bounded slice, publishing outputs once. */
 export async function checkpointBatch(request: CheckpointBatchRequest, objects: MergeObjects): Promise<CheckpointBatchResponse> {

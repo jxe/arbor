@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mergeWireTrees, reconcileUpdate } from "@overstory/canopyd";
+import { reconcileUpdate } from "@overstory/canopyd";
+import { mergeWireTrees } from "@overstory/canopyd-merge";
 import { encodeWireDirectory, hashObject, type ObjectHash, type WireDirectoryEntry, type WireDirectory } from "@overstory/protocol";
 
 const objects = new Map<string, Uint8Array>();

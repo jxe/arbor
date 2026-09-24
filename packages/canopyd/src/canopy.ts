@@ -4,7 +4,7 @@ import { validateGraphChange, type ValidatedGraph } from "./updates/graph-valida
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
 import { SemanticMerge, type StateRef, type Evaluated } from "./updates/semantic-merge.ts";
-import { IntentError } from "@overstory/canopyd-merge/intent-model";
+import { IntentError, type DecisionReport } from "@overstory/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { decisionDependencies, ConflictStore, type ConflictState } from "./updates/conflict-store.ts";
 import { reconcileEntryAmbiguity, entryValue, authoredConflictBasis, changedEntryPaths } from "./updates/entry-ambiguity.ts";
@@ -291,9 +291,6 @@ export class CanopyDaemon implements AsyncDisposable {
       onTiming: (phase, ms) => phaseTimer()?.add(`worker-${phase}`, ms),
       onCount: (name, value) => phaseTimer()?.count(name, value),
       objects: this.objects,
-      historyCacheBytes: megabytes("ARBOR_HISTORY_CACHE_MB", 256),
-      stateProofBytes: megabytes("ARBOR_STATE_PROOF_MB", 64),
-      validationMillis: Number(process.env.ARBOR_STATE_VALIDATION_MS) > 0 ? Number(process.env.ARBOR_STATE_VALIDATION_MS) : 60_000,
       ...mergeTool,
     });
     this.semantic = new SemanticMerge(
@@ -1841,6 +1838,7 @@ export class CanopyDaemon implements AsyncDisposable {
       markPhase("current-state");
       let result: StateRef,
         authored: StateRef,
+        reports: DecisionReport[],
         evidence: Evaluated["evidence"] | null = null;
       if (prepared) {
         // Preflight already evaluated the exact no-concurrency case. Reuse only
@@ -1858,6 +1856,7 @@ export class CanopyDaemon implements AsyncDisposable {
         );
         result = evaluated.result;
         authored = evaluated.authored;
+        reports = evaluated.decisions;
         evidence = evaluated.evidence;
       } else {
         const merged = await reconcileUpdate(
@@ -1904,6 +1903,7 @@ export class CanopyDaemon implements AsyncDisposable {
         for (const [hash, bytes] of checkpoint.objects)
           proposed.set(hash, bytes);
         result = checkpoint.response.result;
+        reports = checkpoint.response.decisions;
         // Snapshot candidate is the author's basis for a later batch suffix.
         const author = await this.mergeTool.evaluate(
           {
@@ -1925,6 +1925,7 @@ export class CanopyDaemon implements AsyncDisposable {
         tree.id,
         result,
         authored,
+        reports,
         request,
         proposed,
         evidence
@@ -2197,9 +2198,9 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.objects.read(hash);
   }
 
-  /** Prime validation proofs and retention closures for every tree's current
-   * semantic state in the background, so the first edit after a restart does
-   * not pay the cold history walk. Failures are logged and never fatal. */
+  /** Resolve every tree's current semantic state in the background, so the
+   * first edit after a restart does not rebuild it from accepted history.
+   * Failures are logged and never fatal. */
   private warmSemanticStates(): void {
     const started = performance.now();
     const trees = (this.db.query("SELECT id FROM trees").all() as Array<{ id: string }>).map((row) => row.id);
@@ -2211,11 +2212,11 @@ export class CanopyDaemon implements AsyncDisposable {
           if (!current) continue;
           // Resolve the state the first edit would use: a retained record, a
           // cached checkpoint, or one rebuilt from the last retained ancestor.
+          const treeStarted = performance.now();
           const ref = await this.semantic.state(current, new Map());
           if (!ref.state) continue;
-          const result = await this.mergeTool.warm(tree, { object: ref.object, state: ref.state });
           warmed++;
-          if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm", tree, reads: result.reads, ms: Math.round(result.milliseconds) }));
+          if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm", tree, ms: Math.round(performance.now() - treeStarted) }));
         } catch (error) {
           if (process.env.NODE_ENV !== "test") console.log(JSON.stringify({ event: "warm", tree, error: error instanceof Error ? error.message : String(error) }));
         }
@@ -2260,8 +2261,6 @@ export class CanopyDaemon implements AsyncDisposable {
       if (dependency.kind === "directory") await this.objects.verifyReachable([dependency.hash]);
       else if (hashObject(await this.objects.load(dependency.hash)) !== dependency.hash) throw new Error("Invalid alternative object");
     }
-    const { retentionAudit } = await import("@overstory/canopyd-merge/retention");
-    const auditRetention = retentionAudit(hash => this.objects.load(hash));
     const compactRoots = new Set<string>();
     for (const { accepted, record } of this.semantic.store.entries()) {
       const owner = this.update(accepted);
@@ -2274,7 +2273,7 @@ export class CanopyDaemon implements AsyncDisposable {
         compactRoots.add(record.state); compactRoots.add(record.authored);
       }
     }
-    await auditRetention([...compactRoots], true);
+    await this.mergeTool.auditRetention(compactRoots);
     for (const { accepted, state } of new ConflictStore(this.db).all()) {
       const owner = this.update(accepted);
       if (!owner || owner.conflicted !== (state.decisions.length > 0))

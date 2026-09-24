@@ -85,8 +85,7 @@ async function run(label: string, job: { request: IntentRequestInput; inputs: Ma
   return evaluated.result as { object: string; state: string };
 }
 
-const warm = await tool.warm(tree, head);
-console.log(JSON.stringify({ tree, head: head.state.slice(7, 19), warm }));
+console.log(JSON.stringify({ tree, head: head.state.slice(7, 19) }));
 let n = 0;
 const id = (name: string) => `replay-${name}-${Date.now()}-${n++}`;
 for (const round of [1, 2]) {

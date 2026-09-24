@@ -1,4 +1,4 @@
-import { loadIntentState, MAX_CHECKPOINT_BATCH, CheckpointBatchLimitError, type CheckpointRequest } from "@overstory/canopyd-merge";
+import { MAX_CHECKPOINT_BATCH, CheckpointBatchLimitError, type CheckpointRequest, type DecisionReport, type IntentEvaluation, type IntentRequest } from "@overstory/merge-protocol";
 import { Database } from "bun:sqlite";
 import { stableJSONString } from "@overstory/protocol";
 import {
@@ -15,16 +15,11 @@ import { MergeTool } from "../merge-tool.ts";
 import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
 import { ConflictStore, decisionPath } from "./conflict-store.ts";
 import { AcceptedUpdateStore } from "./store.ts";
-import {
-  type IntentRequest,
-  type IntentRequestInput,
-  type IntentResponse,
-} from "@overstory/canopyd-merge";
 const encoder = new TextEncoder();
 const id = (value: unknown) =>
   hashObject(encoder.encode(stableJSONString(value))).slice(7);
 export type StateRef = { object: string; state: string };
-export type Evaluated = Extract<IntentResponse, { outcome: "evaluated" }>;
+export type Evaluated = IntentEvaluation;
 function operationReferences(op: SourceOperation): MaterialRef[] {
   if (op.kind === "addEntry") return [op.destination.parent];
   const refs = [op.source];
@@ -242,7 +237,7 @@ export class SemanticMerge {
         )
           alternatives.push(binding);
       }
-    const input: IntentRequestInput = {
+    const input: IntentRequest = {
       kind: "tree",
       tree,
       base: basis,
@@ -270,33 +265,18 @@ export class SemanticMerge {
     tree: string,
     result: StateRef,
     authored: StateRef,
+    reports: readonly DecisionReport[],
     request: CandidateUpdate,
     objects: Map<string, Uint8Array>,
     evidence: Evaluated["evidence"] | null
   ): Promise<MergeStateRecord> {
-    const state = this.tool.validatedState(tree, result)
-      ?? await loadIntentState(result.state, (hash) => this.read(hash, objects));
-    if (state.tree !== tree) throw new Error("Merge state tree mismatch");
     const legacy = new Map(
-      (state.decisions.length ? new ConflictStore(this.db)
+      (reports.length ? new ConflictStore(this.db)
         .forTree(tree)
         .flatMap((row) => row.state.decisions.map((d) => [d.id, d] as const)) : [])
     );
     const decisionID = (key: string) =>
       legacy.has(key) ? key : id([tree, "decision", key]);
-    const path = (nodeID: string) => {
-      const names: string[] = [];
-      let node = state.nodes[nodeID];
-      const seen = new Set<string>();
-      while (node?.parent !== null) {
-        if (!node || seen.has(node.id))
-          throw new Error("Invalid decision path");
-        seen.add(node.id);
-        names.unshift(node.name);
-        node = state.nodes[node.parent!];
-      }
-      return "/" + names.join("/");
-    };
     const projectedFile = async (path: string) => {
       let object = result.object;
       for (const name of path.slice(1).split("/")) {
@@ -307,22 +287,17 @@ export class SemanticMerge {
       }
       return object;
     };
-    const decisions = await Promise.all(state.decisions.map(async (d) => {
-      const node = d.placement ? state.nodes[d.placement.node] : undefined;
+    const decisions = await Promise.all(reports.map(async (d) => {
       const affected: MaterialRef[] =
-        node && node.active && !d.context
+        d.placement?.path && d.placement.range
           ? [
               {
                 material: {
                   kind: "basis",
-                  path: path(node.id),
-                  object: await projectedFile(path(node.id)),
+                  path: d.placement.path,
+                  object: await projectedFile(d.placement.path),
                 },
-                range: [
-                  d.placement!.anchor,
-                  d.placement!.anchor +
-                    d.placement!.pieces.reduce((n, p) => n + p.length, 0),
-                ],
+                range: d.placement.range,
               },
             ]
           : [
@@ -337,7 +312,7 @@ export class SemanticMerge {
         revision: id([a.object, a.state, a.contributions]),
         value:
           d.kind === "existence"
-            ? a.node ? { file: a.object } : { absent: true as const }
+            ? a.present ? { file: a.object } : { absent: true as const }
             : d.kind === "content" ? { file: a.object } : { directory: a.object },
         contributions: [
           ...new Map(
@@ -349,9 +324,7 @@ export class SemanticMerge {
       const logical = entry
         ? d.subject?.material.kind === "basis"
           ? d.subject.material.path
-          : node
-          ? path(node.id)
-          : "/"
+          : d.placement?.path ?? "/"
         : "/";
       const parts = logical.slice(1).split("/"),
         name = parts.pop()!;
@@ -372,7 +345,6 @@ export class SemanticMerge {
       };
       return { key: d.key, inspection };
     }));
-    await this.tool.verifyRetention([result.state, authored.state], objects);
     return {
       state: result.state,
       authored: authored.state,

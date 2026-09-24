@@ -1,4 +1,5 @@
 import { isEditableState, loadEditableIntentState, loadIntentState, loadLazyIntentState, storeLazyIntentState } from "./state-storage.ts";
+import { decisionReports } from "./reports.ts";
 import { cloneHistory, need, since, union } from "./history-view.ts";
 import type { MapProof, StateMapValidationCache } from "./state-map.ts";
 import { stableJSONString } from "@overstory/protocol";
@@ -2755,6 +2756,7 @@ class Engine {
       authored: this.authoredResult ?? result,
       objects: [...this.generated.keys()],
       decisions: state.decisions,
+      reports: decisionReports(state),
       evidence: {
         rule: { id: "tree-default", revision: 1 },
         inputs: {
@@ -2765,7 +2767,7 @@ class Engine {
         change: this.request.incoming.change,
         operations: traceOperations(this.request.incoming).map((op) => op.key),
         validation: "verified",
-        formats: this.formatEvidence,
+        formats: this.formatEvidence.map(evidence => ({ ...evidence, config: { ...evidence.config } })),
       },
     };
   }
@@ -3189,7 +3191,7 @@ export async function checkpointIntent(
   await objects.store(
     [...engine.generated].map(([hash, bytes]) => ({ hash, bytes }))
   );
-  return { kind: "checkpoint", result, objects: [...engine.generated.keys()] };
+  return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions: decisionReports(state) };
 }
 
 /** Validate a worker-owned graph at the authority boundary without running edits. */

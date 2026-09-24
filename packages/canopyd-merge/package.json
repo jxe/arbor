@@ -4,20 +4,13 @@
   "description": "canopyd's merge sidecar: tree merging, format rules, checkpoints, and the arbor-merge command.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./checkpoint": "./src/checkpoint.ts",
-    "./intent-engine": "./src/intent-engine.ts",
-    "./intent-model": "./src/intent-model.ts",
-    "./retention": "./src/retention.ts",
-    "./state-map": "./src/state-map.ts",
-    "./state-storage": "./src/state-storage.ts",
-    "./state-value": "./src/state-value.ts",
-    "./worker-objects": "./src/worker-objects.ts"
+    ".": "./src/index.ts"
   },
   "dependencies": {
-    "@overstory/protocol": "workspace:*",
-    "@overstory/object-store": "workspace:*",
     "@overstory/apps-runtime": "workspace:*",
+    "@overstory/merge-protocol": "workspace:*",
+    "@overstory/object-store": "workspace:*",
+    "@overstory/protocol": "workspace:*",
     "saxes": "6.0.0",
     "tree-sitter-wasms": "0.1.13",
     "web-tree-sitter": "0.20.8",

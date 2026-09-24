@@ -1,4 +1,4 @@
-import type { MergeSummary as ToolSummary } from "@overstory/canopyd-merge";
+import type { MergeSummary as ToolSummary } from "@overstory/merge-protocol";
 import type { ObjectHash, UpdateConflict } from "@overstory/protocol";
 
 /** Rule evidence persisted beside an accepted merge: the merge worker's own,

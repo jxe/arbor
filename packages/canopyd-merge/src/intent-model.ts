@@ -4,143 +4,22 @@ import {
   decodeAuthoredCandidateIntent,
   decodeMaterialRef,
 } from "../../protocol/src/updates/authored-contract.ts";
-import type { MaterialRef, SourceOperation } from "@overstory/protocol";
+import type { MaterialRef } from "@overstory/protocol";
+import {
+  IntentError,
+  intentRequestSchema,
+  isIntentRequest,
+  traceOperations,
+  type DecisionReport,
+  type Frame,
+  type IntentEvaluation,
+  type IntentRequest,
+} from "@overstory/merge-protocol";
+export { IntentError, isIntentRequest, traceOperations, type Frame, type IntentRequest };
 
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
-const ref = z.object({ object: hash, state: hash.optional() }).strict();
-const schema = z
-  .object({
-    kind: z.literal("tree"),
-    tree: token,
-    // Host-supplied state/root pairs have already passed semantic validation.
-    // This internal contract never accepts client assertions of that fact.
-    base: ref,
-    current: ref,
-    incoming: z
-      .object({
-        change: token,
-        object: hash,
-        // The authored frame chain. A snapshot carries no evidence and
-        // arrives as an empty chain.
-        trace: z
-          .array(
-            z
-              .object({
-                before: hash,
-                after: hash,
-                operations: z.array(z.unknown()).max(1024),
-              })
-              .strict()
-          )
-          .max(64),
-        resolves: z.array(z.string().min(1)).max(1024).optional(),
-      })
-      .strict(),
-    rules: z
-      .object({
-        id: z.literal("tree-default"),
-        revision: z.literal(1),
-        config: z
-          .object({
-            contentChoices: z.enum(["source", "file"]).optional(),
-            conflictProjection: z.enum(["current", "incoming"]).optional(),
-            maxMillis: z.number().int().positive().max(30_000).optional(),
-            maxBytes: z
-              .number()
-              .int()
-              .positive()
-              .max(128 * 1024 * 1024)
-              .optional(),
-            formats: z
-              .record(
-                z.string(),
-                z
-                  .object({
-                    format: z
-                      .enum([
-                        "text",
-                        "markdown",
-                        "json",
-                        "jsonl",
-                        "yaml",
-                        "toml",
-                        "csv",
-                        "tsv",
-                        "typescript",
-                        "javascript",
-                        "swift",
-                        "python",
-                        "html",
-                        "xml",
-                        "css",
-                        "binary",
-                      ])
-                      .optional(),
-                    recordKey: z.string().min(1).optional(),
-                    proseInsertions: z
-                      .enum(["review", "preserve-both"])
-                      .optional(),
-                  })
-                  .strict()
-              )
-              .optional(),
-            maxNodes: z.number().int().positive().max(100_000).optional(),
-          })
-          .strict()
-          .optional(),
-      })
-      .strict(),
-    alternatives: z
-      .array(
-        z
-          .object({
-            ref: z.unknown(),
-            decision: z.string().min(1),
-            alternative: z.number().int().nonnegative(),
-            value: z
-              .object({ object: hash, kind: z.enum(["file", "directory"]) })
-              .strict(),
-          })
-          .strict()
-      )
-      .max(1024)
-      .optional(),
-  })
-  .strict();
-/** One tree-root to tree-root step of authored evidence. Basis references
- * inside a frame name objects in that frame's `before` tree; operation
- * references name an earlier key in the same change. Concatenating two traces
- * therefore needs no rebasing. */
-export interface Frame {
-  before: string;
-  after: string;
-  operations: SourceOperation[];
-}
-/** Every operation of a change in authored order. Keys are unique across the
- * whole trace, so a flat list carries the change's complete contribution. */
-export function traceOperations(incoming: {
-  trace: Frame[];
-}): SourceOperation[] {
-  return incoming.trace.flatMap((frame) => frame.operations);
-}
-export type IntentRequest = Omit<
-  z.infer<typeof schema>,
-  "incoming" | "alternatives"
-> & {
-  incoming: {
-    change: string;
-    object: string;
-    trace: Frame[];
-    resolves?: string[];
-  };
-  alternatives?: Array<{
-    ref: MaterialRef;
-    decision: string;
-    alternative: number;
-    value: { object: string; kind: "file" | "directory" };
-  }>;
-};
+const schema = intentRequestSchema;
 /** What a caller hands the engine, before `parseIntentRequest` checks it. */
 export type IntentRequestInput = IntentRequest;
 export function parseIntentRequest(raw: unknown): IntentRequest {
@@ -217,14 +96,6 @@ export function changeIdentity(request: IntentRequest) {
     alternatives: request.alternatives,
     rules: request.rules,
   };
-}
-export class IntentError extends Error {
-  constructor(
-    readonly code: "invalid" | "missing-context" | "unsupported" | "limit",
-    message: string
-  ) {
-    super(message);
-  }
 }
 export interface Piece {
   origin: string;
@@ -303,28 +174,11 @@ export interface IntentDecision {
   context?: string;
   placement?: { node: string; pieces: Piece[]; anchor: number };
 }
+/** The engine's in-process result. `decisions` are its retained records;
+ * `reports` are what crosses the worker boundary as the wire `decisions`. */
 export type IntentResponse =
-  | {
-      outcome: "evaluated";
-      result: { object: string; state: string };
-      authored: { object: string; state: string };
-      objects: string[];
-      decisions: IntentDecision[];
-      evidence: {
-        rule: { id: "tree-default"; revision: 1 };
-        /** The three tree roots the rule evaluated. The rule is deterministic,
-         * so these reproduce every object it read; a full read set is not kept. */
-        inputs: { base: string; current: string; incoming: string };
-        change: string;
-        operations: string[];
-        validation: "verified";
-        formats: import("./format-rules.ts").FormatEvidence[];
-      };
-    }
-  | {
-      outcome: "invalid" | "missing-context" | "unsupported" | "limit";
-      message: string;
-    };
+  | (Omit<IntentEvaluation, "decisions"> & { decisions: IntentDecision[]; reports: DecisionReport[] })
+  | { outcome: IntentError["code"]; message: string };
 export const keyOf = (change: string, operation: string) =>
   JSON.stringify([change, operation]);
 export const alternativeKey = (ref: MaterialRef) =>
@@ -484,74 +338,6 @@ export function parseIntentHistoryRecord(
   return state[field].record;
 }
 
-const intentResponseSchema = z
-  .object({
-    outcome: z.literal("evaluated"),
-    result: z.object({ object: hash, state: hash }).strict(),
-    authored: z.object({ object: hash, state: hash }).strict(),
-    objects: z.array(hash),
-    decisions: z.array(decisionSchema),
-    evidence: z
-      .object({
-        rule: z
-          .object({ id: z.literal("tree-default"), revision: z.literal(1) })
-          .strict(),
-        inputs: z.object({ base: hash, current: hash, incoming: hash }).strict(),
-        change: token,
-        operations: z.array(token),
-        validation: z.literal("verified"),
-        formats: z.array(
-          z
-            .object({
-              id: token,
-              revision: z.literal(1),
-              outcome: z.enum(["resolved", "unresolved"]),
-              reason: z.string(),
-              config: z.record(z.string(), z.unknown()),
-            })
-            .strict()
-        ),
-      })
-      .strict(),
-  })
-  .strict();
-export function parseIntentResponse(
-  raw: unknown,
-  request: IntentRequestInput
-): Extract<IntentResponse, { outcome: "evaluated" }> {
-  if (
-    raw &&
-    typeof raw === "object" &&
-    "outcome" in raw &&
-    ["invalid", "missing-context", "unsupported", "limit"].includes(
-      String(raw.outcome)
-    ) &&
-    "message" in raw &&
-    typeof raw.message === "string"
-  )
-    throw new IntentError(
-      raw.outcome as "invalid" | "missing-context" | "unsupported" | "limit",
-      raw.message
-    );
-  const value = intentResponseSchema.parse(raw);
-  if (
-    value.authored.object !== request.incoming.object ||
-    value.evidence.change !== request.incoming.change ||
-    JSON.stringify(value.evidence.operations) !==
-      JSON.stringify(
-        traceOperations(request.incoming).map((op) => op.key)
-      ) ||
-    new Set(value.objects).size !== value.objects.length
-  )
-    throw new Error("Intent response does not match request");
-  for (const decision of value.decisions) {
-    if (decision.selected >= decision.alternatives.length)
-      throw new Error("Invalid selected alternative");
-    if (decision.subject) decodeMaterialRef(decision.subject);
-  }
-  return value as Extract<IntentResponse, { outcome: "evaluated" }>;
-}
-
 /** Object dependencies only: change digests and nested TreeIDs are not objects. */
 export function intentDependencies(state: IntentState): Set<string> {
   const hashes = new Set<string>();
@@ -615,18 +401,4 @@ export function intentReferences(state: IntentState): Set<string> {
 export function intentHistoryReferences(field: "outputs" | "effects" | "origins" | "alternatives" | "changes", record: unknown): Set<string> {
   return intentReferences({format: "arbor-merge-intent-state", tree: "", root: "", nodes: {}, decisions: [],
     outputs: {}, effects: {}, origins: {}, alternatives: {}, changes: {}, [field]: {record}} as IntentState);
-}
-
-export function isIntentRequest(raw: unknown): raw is IntentRequestInput {
-  return (
-    !!raw &&
-    typeof raw === "object" &&
-    "kind" in raw &&
-    raw.kind === "tree" &&
-    "incoming" in raw &&
-    !!raw.incoming &&
-    typeof raw.incoming === "object" &&
-    // A frame trace, possibly empty, marks an intent request.
-    "trace" in raw.incoming
-  );
 }
