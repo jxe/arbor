@@ -54,7 +54,7 @@ import {
   type AccountConfigGraphV2,
 } from "./account-policy-v2.ts";
 import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
-import { AcceptedUpdateStore, type AcceptedUpdateInput, type StoredAcceptedResponse } from "./updates/store.ts";
+import { AcceptedUpdateStore } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "@overstory/object-store";
@@ -386,7 +386,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.acceptedStore.list(treeID);
   }
 
-  matchingRequestDigest(updateID: string, credentialSubject?: string): ObjectHash | null {
+  private matchingRequestDigest(updateID: string, credentialSubject?: string): ObjectHash | null {
     return credentialSubject ? this.acceptedStore.matchingRequestDigest(updateID, credentialSubject) : null;
   }
 
@@ -731,14 +731,10 @@ export class CanopyDaemon implements AsyncDisposable {
     return reservation ? { handle: match[1]!, ...reservation } : null;
   }
 
-  private firstWriterHandle(): string | null {
-    const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
-    return row?.value ?? null;
-  }
-
   /** The founder account's handle while it is still reserved for its profile and unclaimed; null once claimed or when the community was bootstrapped with token accounts. */
   unclaimedFounderHandle(): string | null {
-    return this.firstWriterHandle();
+    const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
+    return row?.value ?? null;
   }
 
   setCommunityHost(host: string, allowTestPortChange = false): void {
@@ -807,7 +803,7 @@ export class CanopyDaemon implements AsyncDisposable {
           [configID, snapshot.root, now, account.id],
         );
         this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [configID, snapshot.root, now]);
-        this.insertAcceptedUpdate({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes });
+        this.acceptedStore.insert({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now, entryChanges: changes });
         this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
       })();
     }
@@ -891,7 +887,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return readAccountConfigGraphV2(snapshot, tree.id);
   }
 
-  async activateTree(
+  private async activateTree(
     authentication: CanopyAuthentication,
     treeID: string,
     snapshot: TreeSnapshot,
@@ -918,7 +914,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const declaration = graphTrees(config)[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
     const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
-    if (requiredType) await this.validateProfileSnapshot(snapshot, requiredType);
+    if (requiredType) await this.validateProfileRoot(snapshot.root, snapshot.objects, requiredType);
     const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
     if (!parent) throw new Error("Canonical parent is unavailable");
     const activated = await this.insertTree(
@@ -1064,7 +1060,7 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("Initial configuration must contain exactly the joining device and matching label");
     }
     if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
-    const firstWriter = this.firstWriterHandle() === input.handle;
+    const firstWriter = this.unclaimedFounderHandle() === input.handle;
     await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configurationChanges = await this.entryChanges(null, input.configurationSnapshot.root);
     const accountID = generateArborID("ac");
@@ -1090,7 +1086,7 @@ export class CanopyDaemon implements AsyncDisposable {
       this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [
         input.configurationTree, input.configurationSnapshot.root, now,
       ]);
-      this.insertAcceptedUpdate({
+      this.acceptedStore.insert({
         tree: input.configurationTree,
         root: input.configurationSnapshot.root,
         previousRoot: null,
@@ -1117,10 +1113,6 @@ export class CanopyDaemon implements AsyncDisposable {
     return { account: this.account(accountID)!, configuration: this.get(input.configurationTree)! };
   }
 
-  private insertAcceptedUpdate(input: AcceptedUpdateInput): AcceptedUpdate {
-    return this.acceptedStore.insert(input);
-  }
-
   /** Attach the transition from the candidate root to the accepted root whenever the two differ. */
   private async withReconciliation(
     result: UpdateResult,
@@ -1140,10 +1132,6 @@ export class CanopyDaemon implements AsyncDisposable {
   /** The file entries an accepted update writes, read before its transaction. */
   private entryChanges(previousRoot: ObjectHash | null, root: ObjectHash): Promise<EntryChanges> {
     return entryChanges(previousRoot, root, (hash) => this.object(hash));
-  }
-
-  private acceptedRequest(tree: string, subject: string, digest: string): StoredAcceptedResponse | null {
-    return this.acceptedStore.acceptedRequest(tree, subject, digest);
   }
 
   async submitUpdate(
@@ -1219,7 +1207,7 @@ export class CanopyDaemon implements AsyncDisposable {
         ? this.accountConfigPolicy(retainedTree, request.updates[0]!, baseRoot ?? retainedTree.ref, account, credentialSubject)
         : this.ordinaryPolicy(retainedTree, request.updates[0]!, account, linkDigest, credentialSubject);
       for (let index = digests.length - 1; index >= 0; index--) {
-        if (this.acceptedRequest(treeID, policy.subject, digests[index]!)) { recordedThrough = index; break; }
+        if (this.acceptedStore.acceptedRequest(treeID, policy.subject, digests[index]!)) { recordedThrough = index; break; }
       }
     }
     markPhase("receipts");
@@ -1249,7 +1237,7 @@ export class CanopyDaemon implements AsyncDisposable {
             ).subject;
         const results = [];
         for (let index = 0; index < request.updates.length; index++) {
-          const receipt = this.acceptedRequest(
+          const receipt = this.acceptedStore.acceptedRequest(
             treeID,
             subject,
             digests[index]!
@@ -1280,7 +1268,7 @@ export class CanopyDaemon implements AsyncDisposable {
         if (index <= recordedThrough) {
           const tree = this.get(treeID)!;
           const subject = this.ordinaryPolicy(tree, update, account, linkDigest, credentialSubject).subject;
-          const receipt = this.acceptedRequest(treeID, subject, digests[index]!);
+          const receipt = this.acceptedStore.acceptedRequest(treeID, subject, digests[index]!);
           const retained = receipt && this.semantic.store.get(receipt.result.update.id);
           // A receipt binds this exact prefix to its credential. Continue from
           // the author's candidate, not the possibly merged accepted projection.
@@ -1349,7 +1337,7 @@ export class CanopyDaemon implements AsyncDisposable {
             linkDigest,
             credentialSubject
           ).subject;
-          const receipt = this.acceptedRequest(
+          const receipt = this.acceptedStore.acceptedRequest(
             treeID,
             subject,
             digests[index]!
@@ -1483,7 +1471,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const effects = await resourceEffects(baseRoot, request.candidate, hash => this.objects.load(hash, proposed));
       if (!this.execution.covered(execution) || effects.some(e => !this.execution.allows(treeID, e.path, e.operation, execution))) throw new Error("Execution effects are not allowed");
     }
-    const replay = this.acceptedRequest(treeID, subject, requestDigest);
+    const replay = this.acceptedStore.acceptedRequest(treeID, subject, requestDigest);
     if (!replay && execution && request.ifCurrent !== this.currentUpdate(treeID)?.id) throw new UpdateProtocolError("base-not-retained", "Execution guard is stale; recompute against a current authorized basis");
     if (replay) {
       return {
@@ -1532,10 +1520,9 @@ export class CanopyDaemon implements AsyncDisposable {
       const remoteTree = this.get(treeID)!;
       const remoteUpdate = this.currentUpdate(treeID);
       if (!remoteUpdate || remoteUpdate.root !== remoteTree.ref) {
-        throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
+        throw new Error(`Invariant violated: tree ${treeID} ref does not match its current accepted update`);
       }
       const preconditionFailed = request.ifCurrent !== undefined && request.ifCurrent !== remoteUpdate.id;
-      const history = null;
       const intentStore = new SourceIntentStore(this.db);
       let reconciled = preconditionFailed
         ? {
@@ -1602,7 +1589,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (
         ordinary && !preconditionFailed && (unresolved || authoredProjectionDiffers)
       ) {
-        const retained = history ?? this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id, Infinity);
+        const retained = this.acceptedStore.ancestry(basisUpdate!, remoteUpdate.id, Infinity);
         const bridge = acceptedBasis?.root !== baseRoot && authoredChainBase
           ? this.acceptedStore.ancestry(authoredChainBase, basisUpdate!, Infinity) : null;
         if (
@@ -2014,7 +2001,7 @@ export class CanopyDaemon implements AsyncDisposable {
     provenAcceptedPrefix = false,
   ): Promise<{ status: number; result: UpdateResult }> {
     if (!authentication) throw new Error("Account authentication is required to activate a tree");
-    const replay = this.acceptedRequest(treeID, authentication.subject, requestDigest);
+    const replay = this.acceptedStore.acceptedRequest(treeID, authentication.subject, requestDigest);
     if (replay) return replay;
     if (this.acceptedStore.acceptedChange(treeID, request.change)) throw new Error("Authored change identity is already bound to a different accepted request");
     const existing = this.get(treeID);
@@ -2148,7 +2135,7 @@ export class CanopyDaemon implements AsyncDisposable {
               this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
                 rewrite.parent.id, rewrite.nextRoot, rewrite.parent.ref, now,
               ]);
-              boundaryUpdates.push(this.insertAcceptedUpdate({
+              boundaryUpdates.push(this.acceptedStore.insert({
                 tree: rewrite.parent.id,
                 root: rewrite.nextRoot,
                 previousRoot: rewrite.parent.ref,
@@ -2174,10 +2161,6 @@ export class CanopyDaemon implements AsyncDisposable {
     listeners.add(listener);
     this.observationListeners.set(tree, listeners);
     return () => listeners.delete(listener);
-  }
-
-  observationForUpdate(update: string): ObservationRecord | null {
-    return this.observations.forUpdate(update);
   }
 
   observationPosition(tree: string, cursor: string | null) { return this.observations.position(tree, cursor); }
@@ -2313,15 +2296,6 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  /**
-   * Whether `hash` may be served through the named tree: the caller must be able
-   * to read the tree, and the object must be reachable from its current root or
-   * from any retained accepted root of that tree (nested-tree entries stop the
-   * walk). This per-request directory-edge scan shares its frontier across retained roots.
-   * It remains the reachability boundary that
-   * Security "Bound unauthenticated object reachability checks" and Speed
-   * "Canopy object reachability index" (plans/README.md) will later bound.
-   */
   /** The object route is gated on tree read access only. Objects are
    * content-addressed and shared across trees, so a caller who can read any
    * tree may fetch any retained object whose hash they know; the route does not
@@ -2378,7 +2352,7 @@ export class CanopyDaemon implements AsyncDisposable {
         "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)",
         [id, snapshot.root, now],
       );
-      this.insertAcceptedUpdate({
+      this.acceptedStore.insert({
         tree: id,
         root: snapshot.root,
         previousRoot: null,
@@ -2404,7 +2378,7 @@ export class CanopyDaemon implements AsyncDisposable {
           "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)",
           [attachment.parent.id, attachment.nextRoot, attachment.parent.ref, now],
         );
-        this.insertAcceptedUpdate({
+        this.acceptedStore.insert({
           tree: attachment.parent.id,
           root: attachment.nextRoot,
           previousRoot: attachment.parent.ref,
@@ -2507,10 +2481,6 @@ export class CanopyDaemon implements AsyncDisposable {
       }
       if (!valid) throw new ReservedBoundaryConflictError(child.path, child.tree_id);
     }
-  }
-
-  private async validateProfileSnapshot(snapshot: TreeSnapshot, kind: "person" | "group"): Promise<void> {
-    await this.validateProfileRoot(snapshot.root, snapshot.objects, kind);
   }
 
   private async validateProfileRoot(
