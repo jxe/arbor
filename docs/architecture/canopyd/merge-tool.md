@@ -174,10 +174,14 @@ must reproduce its own `after`. A trace is evidence the evaluator checks in
 full, never a hint; an absent trace is snapshot semantics. The protocol bounds
 a trace to 64 frames and 1024 operations. `undoOperation` is not in the
 grammar; editors express undo and redo as ordinary edits, and the evaluator
-answers `unsupported` if it sees the kind. `composeFrames` in
-`packages/canopyd/src/updates/source-edits.ts` collapses a run of plain
-`editSource` frames into one by executing the composition; the same rule lets
-clients compact a debounced burst (see [client state machines](../../implementing-editors/document-admission.md#trace-compaction)).
+answers `unsupported` if it sees the kind. Clients compact a debounced burst of
+plain `editSource` frames before admission: `compactTrace` in
+`packages/client/src/source-admission-queue.ts` (and the Swift queue) composes
+them with `composeSourceEdits` (see [trace compaction](../../implementing-editors/document-admission.md#trace-compaction)).
+The evaluator does not compact; it checks the trace it receives. canopyd's
+`composeFrames` in `packages/canopyd/src/updates/source-edits.ts` implements
+the same rule by executing the composition, and serves as a test reference
+for it.
 
 **Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
 `authored: { object, state }` for the exact candidate before reconciliation, a
