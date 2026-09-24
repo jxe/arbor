@@ -99,7 +99,7 @@ test("concurrent jobs share immutable inputs without publishing either output", 
   await expectNoStaging();
 });
 
-test("bad output, nonzero exit and timeout conservatively retain a whole-root decision", async () => {
+test("bad output, nonzero exit and timeout conservatively keep the current tree behind a whole-root decision", async () => {
   const base = snapshot("base"), current = snapshot("current"), incoming = snapshot("incoming");
   const { request, inputs } = await prepare(base, current, incoming);
   for (const [script, timeoutMs] of [
@@ -112,7 +112,7 @@ test("bad output, nonzero exit and timeout conservatively retain a whole-root de
     const broken = new MergeTool(directory, { command: [process.execPath, file], timeoutMs });
     await expect(broken.evaluate(request, inputs)).rejects.toThrow();
     const result = await broken.tree(base.root, incoming.root, current.root, inputs);
-    expect(result).toMatchObject({ root: incoming.root, conflicts: [{ path: "/", reason: "node-conflict" }], unresolvedDirectories: ["/"] });
+    expect(result).toMatchObject({ root: current.root, conflicts: [{ path: "/", reason: "node-conflict" }], unresolvedDirectories: ["/"] });
     await broken[Symbol.asyncDispose]();
     await expectNoStaging();
   }

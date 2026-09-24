@@ -66,9 +66,11 @@ export class MergeWorkerError extends Error {
     super(message);
     this.name = "MergeWorkerError";
   }
-  /** Budget failures (the worker's `limit` code) may pass on a retry once the host is less loaded. */
+  /** Budget failures (the worker's `limit` code) may pass on a retry once the
+   * host is less loaded; so may a worker that could not start, exited or timed
+   * out (`unavailable`). Nothing was accepted, so the client keeps its request. */
   get retryable(): boolean {
-    return this.code === "limit";
+    return this.code === "limit" || this.code === "unavailable";
   }
 }
 
@@ -285,11 +287,13 @@ export class MergeTool {
     let worker: PersistentMergeWorker | undefined;
     let healthy = false;
     try {
-      worker = await this.currentWorker();
+      const unavailable = (error: unknown) => new MergeWorkerError(
+        `Merge worker unavailable: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`, "unavailable");
+      worker = await this.currentWorker().catch((error) => { throw unavailable(error); });
       const staging = new ObjectStore(join(worker.directory, "objects"));
       await this.stageInputs(inputs, staging);
       mark("stage-inputs");
-      const stdout = await worker.request(request, this.options.timeoutMs ?? 30_000);
+      const stdout = await worker.request(request, this.options.timeoutMs ?? 30_000).catch((error) => { throw unavailable(error); });
       mark("worker-process");
       try {
         for (const [key, value] of Object.entries(worker.lastTimings ?? {})) {
@@ -520,10 +524,11 @@ export class MergeTool {
         "Merge tool unavailable; preserving ambiguity:",
         error instanceof Error ? error.message.split("\n")[0] : "invalid result"
       );
-      // Ordinary content becomes an accepted whole-root choice. Account policy
-      // retains its existing rejection semantics; no authorization is delegated.
+      // Ordinary content becomes an accepted whole-root choice that keeps the
+      // current tree displayed. Account policy retains its existing rejection
+      // semantics; no authorization is delegated.
       return {
-        root: candidate,
+        root: rule.startsWith("account-config") ? candidate : current,
         objects: new Map(),
         conflicts: [
           {

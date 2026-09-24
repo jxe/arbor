@@ -4,7 +4,9 @@ import type { CheckpointBatchRequest, CheckpointBatchResponse } from "./checkpoi
 
 export class CheckpointBatchLimitError extends Error {}
 
-/** Reuse exact immutable material across a bounded slice, publishing outputs once. */
+/** Reuse exact immutable material across a bounded slice, publishing outputs once.
+ * Replays accepted updates that recorded no merge state.
+ * Legacy rows only; deleted by migration 016 (plans/canopyd/015). */
 export async function checkpointBatch(request: CheckpointBatchRequest, objects: MergeObjects): Promise<CheckpointBatchResponse> {
   const generated = new Map<string, Uint8Array>();
   const cache = new Map<string, Uint8Array>();

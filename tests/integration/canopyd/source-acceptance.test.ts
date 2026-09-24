@@ -900,6 +900,13 @@ test("source admission preserves an existing snapshot conflict's public identiti
 });
 
 
+/** Make the tree's history look as it did before every acceptance recorded a
+ * merge state, so its states are rebuilt by replay. Run while stopped. */
+function forgetMergeStates() {
+  const db = new Database(`${dir}/canopy.sqlite3`);
+  try { db.run("DELETE FROM accepted_merge_states WHERE accepted_id IN (SELECT id FROM accepted_updates WHERE tree_id = ?)", [tree]); } finally { db.close(); }
+}
+
 test("cold history reads durable checkpoints without restaging its growing prefix", async () => {
   let current = root, accepted = base;
   for (let i = 0; i < 70; i++) {
@@ -910,7 +917,7 @@ test("cold history reads durable checkpoints without restaging its growing prefi
     current = result.results[0]!.update.root;
     accepted = result.results[0]!.update.id;
   }
-  await stop(); await start();
+  await stop(); forgetMergeStates(); await start();
   const tool = (running.canopy as unknown as {
     mergeTool: import("../../../packages/canopyd/src/merge-tool.ts").MergeTool;
   }).mergeTool;
@@ -944,7 +951,7 @@ test("large historical batches split without changing their accepted basis", asy
     const result=await client.submitUpdates(tree,{base:accepted,updates:[{...update,trace:null}]});
     current=result.results[0]!.update.root;accepted=result.results[0]!.update.id;
   }
-  await stop();await start();
+  await stop();forgetMergeStates();await start();
   const {CheckpointBatchLimitError}=await import("@overstory/canopyd-merge");
   const tool=(running.canopy as unknown as {mergeTool:import("../../../packages/canopyd/src/merge-tool.ts").MergeTool}).mergeTool;
   const evaluate=tool.evaluate.bind(tool);let splits=0,successfulSteps=0;

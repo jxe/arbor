@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { generateArborID, sha256, safeResourceRule, CanopyAccountStore, WireClient } from "@overstory/protocol";
 import { LocalAccountService } from "../../../packages/arborsync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
@@ -491,6 +492,15 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
   await client.submitUpdate(config, initial.update.id, policy(["read", "create-child"]));
   const merged = await client.submitUpdate(config, initial.update.id, policy(["read", "delete"]));
   expect(merged.update.conflicted).toBe(true);
+  {
+    // The policy choice is a merge-state decision; nothing writes accepted_conflicts.
+    const db = new Database(join(sandbox, "canopy", "canopy.sqlite3"), { readonly: true });
+    try {
+      expect(db.query("SELECT COUNT(*) AS n FROM accepted_conflicts").get()).toEqual({ n: 0 });
+      const record = db.query("SELECT record_json FROM accepted_merge_states WHERE accepted_id = ?").get(merged.update.id) as { record_json: string };
+      expect(JSON.parse(record.record_json).decisions).toHaveLength(1);
+    } finally { db.close(); }
+  }
   const accepted = readAccountConfigGraphV2(await client.snapshot(config, merged.update.root), config);
   expect(accepted.resources![bobProfileTree]!.access).toEqual([{ who: "everyone", via: "tr_supplies", allow: ["read"] }]);
   expect(running.canopy.execution.run(running.canopy.execution.resolve(token)!, () => running.canopy.execution.canSubmit(bobProfileTree))).toBe(false);

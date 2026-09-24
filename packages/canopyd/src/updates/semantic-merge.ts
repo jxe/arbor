@@ -56,6 +56,7 @@ export class SemanticMerge {
     this.store = new MergeStateStore(db);
     this.updates = new AcceptedUpdateStore(db);
   }
+  // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
   private async legacyDecisions(
     update: AcceptedUpdate,
     objects: Map<string, Uint8Array>
@@ -139,6 +140,10 @@ export class SemanticMerge {
     if (this.checkpoints.size > 256)
       this.checkpoints.delete(this.checkpoints.keys().next().value!);
   }
+  /** The merge state an accepted update recorded. An update accepted before
+   * every acceptance recorded one is rebuilt by replaying checkpoints from its
+   * nearest ancestor that has a state, or from the tree's first root.
+   * The replay: legacy rows only; deleted by migration 016 (plans/canopyd/015). */
   async state(
     update: AcceptedUpdate,
     objects: Map<string, Uint8Array>
@@ -187,6 +192,31 @@ export class SemanticMerge {
     return current as StateRef;
   }
 
+  /** Open decisions at an accepted update. */
+  openDecisions(update: AcceptedUpdate): number {
+    return this.store.get(update.id)?.decisions.length
+      // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
+      ?? new ConflictStore(this.db).get(update.id)?.decisions.length ?? 0;
+  }
+
+  /** The merge state of an acceptance the host makes itself (a tree's first
+   * root, pairing, a nested-tree boundary): `root` checkpointed onto `from`'s
+   * state, or imported as the tree's first state when there is no `from`.
+   * Generated objects join `objects`; the caller stores them before commit. */
+  async checkpoint(
+    tree: string,
+    from: AcceptedUpdate | null,
+    root: string,
+    change: string,
+    objects: Map<string, Uint8Array>
+  ): Promise<MergeStateRecord> {
+    const current = from ? await this.state(from, objects) : { object: root };
+    const evaluated = await this.tool.evaluate({ kind: "checkpoint", tree, current, projection: root, change, decisions: [] }, objects);
+    for (const [hash, bytes] of evaluated.objects) objects.set(hash, bytes);
+    const result = evaluated.response.result;
+    return this.record(tree, result, result, { change, candidate: root, trace: null, resolves: [] }, objects, null);
+  }
+
   async evaluate(
     tree: string,
     basis: StateRef,
@@ -206,6 +236,7 @@ export class SemanticMerge {
           throw new Error(
             "Alternative belongs to another tree or unavailable state"
           );
+        // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
         const previous = new ConflictStore(this.db)
           .get(material.state)
           ?.decisions.find((d) => d.id === material.conflict);
@@ -270,13 +301,14 @@ export class SemanticMerge {
     tree: string,
     result: StateRef,
     authored: StateRef,
-    request: CandidateUpdate,
+    request: MergeStateRecord["request"],
     objects: Map<string, Uint8Array>,
     evidence: Evaluated["evidence"] | null
   ): Promise<MergeStateRecord> {
     const state = this.tool.validatedState(tree, result)
       ?? await loadIntentState(result.state, (hash) => this.read(hash, objects));
     if (state.tree !== tree) throw new Error("Merge state tree mismatch");
+    // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
     const legacy = new Map(
       (state.decisions.length ? new ConflictStore(this.db)
         .forTree(tree)
@@ -391,6 +423,7 @@ export class SemanticMerge {
     const record = this.store.get(current.id);
     const keys: string[] = [];
     for (const guard of request.resolves) {
+      // Legacy rows only; deleted by migration 016 (plans/canopyd/015).
       const previous = new ConflictStore(this.db)
         .get(current.id)
         ?.decisions.find((d) => d.id === guard.conflict);

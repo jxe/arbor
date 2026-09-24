@@ -1,5 +1,5 @@
 import { MergeStateStore, type MergeStateRecord } from "./merge-state-store.ts";
-import { ConflictStore, type ConflictState } from "./conflict-store.ts";
+import { ConflictStore } from "./conflict-store.ts";
 import type { MergeSummary } from "./reconcile.ts";
 import { Database } from "bun:sqlite";
 import {
@@ -22,7 +22,6 @@ export interface AcceptedUpdateInput {
   tree: string;
   root: ObjectHash;
   previousRoot: ObjectHash | null;
-  conflicted?: boolean;
   kind: "initial" | "accepted" | "merged" | "restored";
   acceptedAt: number;
   subject?: string | null;
@@ -34,8 +33,9 @@ export interface AcceptedUpdateInput {
   requestDigest?: string;
   transition?: AcceptedTransitionPayload;
   change?: string;
-  conflicts?: ConflictState;
-  mergeState?: MergeStateRecord;
+  /** Every accepted update records its merge state; its decisions are the
+   * update's open conflicts. */
+  mergeState: MergeStateRecord;
   /** File entries this update wrote or removed (`entryChanges(previousRoot, root)`),
    * computed before the transaction because object reads are async. */
   entryChanges: EntryChanges;
@@ -213,10 +213,6 @@ export class AcceptedUpdateStore {
   private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
     const prior = this.current(input.tree);
     if (input.previousRoot !== (prior?.root ?? null)) throw new Error("Accepted predecessor does not match current state");
-    const conflicts = new ConflictStore(this.db);
-    const priorState = prior ? conflicts.get(prior.id) : null;
-    if (!input.mergeState && !input.conflicts && priorState?.decisions.length && input.root !== prior!.root) throw new Error("Conflict attribution is required before changing the projection");
-    const state = input.conflicts ?? (priorState ? { decisions: priorState.decisions, resolutions: [] } : null);
     // AUTOINCREMENT never reuses an ordinal, even after the newest row is pruned.
     const sequence = this.db.query("SELECT seq FROM sqlite_sequence WHERE name = 'accepted_updates'").get() as { seq: number } | null;
     const ordinal = (sequence?.seq ?? 0) + 1;
@@ -232,7 +228,7 @@ export class AcceptedUpdateStore {
       input.root,
       input.previousRoot,
       prior?.id ?? null,
-      (input.mergeState ? input.mergeState.decisions.length > 0 : state ? state.decisions.length > 0 : input.conflicted ?? prior?.conflicted ?? false) ? 1 : 0,
+      input.mergeState.decisions.length > 0 ? 1 : 0,
       input.kind,
       input.acceptedAt,
       input.subject ?? null,
@@ -245,8 +241,7 @@ export class AcceptedUpdateStore {
       input.change ?? null,
     ]);
     new EntryMetadataStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
-    if (state && !input.mergeState) conflicts.insert(id, state);
-    if (input.mergeState) new MergeStateStore(this.db).insert(id, input.mergeState);
+    new MergeStateStore(this.db).insert(id, input.mergeState);
     return this.get(id)!;
   }
 

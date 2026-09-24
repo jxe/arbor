@@ -9,6 +9,7 @@ import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableK
 import { serveCanopy } from "@overstory/canopyd";
 import type { AcceptedTransitionJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store.ts";
+import { MergeStateStore } from "../../../packages/canopyd/src/updates/merge-state-store.ts";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import {
   readAccountConfigGraphV2,
@@ -768,6 +769,13 @@ describe("governed account-configuration Canopy server", () => {
       label: "Peer again",
       credentialDigest: `sha256:${sha256("new-secret")}`,
     })).rejects.toThrow("Retired");
+    const db = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
+    try {
+      // Tree creation, pairing and configuration writes each record a merge state.
+      expect(db.query("SELECT subject FROM accepted_updates WHERE tree_id = ? AND subject LIKE 'pairing:%'").all(peerConfiguration.tree.id)).toHaveLength(1);
+      expect(db.query(`SELECT u.id, u.kind FROM accepted_updates u LEFT JOIN accepted_merge_states m ON m.accepted_id = u.id
+        WHERE m.accepted_id IS NULL`).all()).toEqual([]);
+    } finally { db.close(); }
   });
 
   test("rejects conflicting cursor sources on the shared SSE surface", async () => {
@@ -787,7 +795,7 @@ describe("governed account-configuration Canopy server", () => {
     const store = new AcceptedUpdateStore(db);
     const ids: string[] = [];
     const append = () => {
-      const update=store.insert({entryChanges:NO_ENTRY_CHANGES,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
+      const update=store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
       ids.push(update.id);
     };
     for(let i=0;i<130;i++) append();
@@ -838,12 +846,12 @@ describe("governed account-configuration Canopy server", () => {
   test("appends during net construction follow the captured destination", async () => {
     const baseline = await currentConfig(), tree = baseline.current.tree.id, root = baseline.current.tree.root;
     const db = new Database(join(dataRoot,"canopy.sqlite3")), store = new AcceptedUpdateStore(db);
-    for (let i=0;i<3;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
+    for (let i=0;i<3;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
     const original = running.canopy.netAcceptedTransition.bind(running.canopy);
     let appended: string | undefined;
     running.canopy.netAcceptedTransition = async (...args) => {
       const net = await original(...args);
-      appended = store.insert({entryChanges:NO_ENTRY_CHANGES,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}}).id;
+      appended = store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}}).id;
       return net;
     };
     try {
@@ -860,7 +868,7 @@ describe("governed account-configuration Canopy server", () => {
     const baseline=await currentConfig();
     const tree=baseline.current.tree.id, root=baseline.current.tree.root;
     const db=new Database(join(dataRoot,"canopy.sqlite3")), store=new AcceptedUpdateStore(db);
-    for(let i=0;i<513;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
+    for(let i=0;i<513;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[],deltas:[]}});
     const original=running.canopy.acceptedTransition.bind(running.canopy);
     let loaded=0;
     running.canopy.acceptedTransition=(...args)=>{loaded++;return original(...args);};
@@ -883,7 +891,7 @@ describe("governed account-configuration Canopy server", () => {
     const bytes=new Uint8Array(400_000);
     const hash=`sha256:${sha256(bytes)}`;
     try {
-      for(let i=0;i<16;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[{hash,bytes}],deltas:[]}});
+      for(let i=0;i<16;i++) store.insert({entryChanges:NO_ENTRY_CHANGES,mergeState:new MergeStateStore(db).get(store.current(tree)!.id)!,tree,root,previousRoot:root,kind:"accepted",acceptedAt:Date.now(),transition:{objects:[{hash,bytes}],deltas:[]}});
       const [frame]=await readWatchFrames(`${running.url}/.arbor/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
       expect(frame!.event).toBe("tree.update");
       expect(frame!.data.change.transitions).toHaveLength(1);

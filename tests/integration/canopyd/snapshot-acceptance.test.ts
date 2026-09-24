@@ -101,6 +101,10 @@ test("snapshot suffixes retain hidden attribution and unrelated accepted additio
   const decisions = (await client.conflicts(tree, accepted.id, accepted.root)).decisions;
   expect(decisions).toHaveLength(1);
   expect(decisions[0]!.alternatives.map(a => a.value)).toContainEqual({ file: file("local continued") });
+  // The suffix continues the prefix's hidden alternative: one choice, same identity.
+  const prefix = (await client.conflicts(tree, response.results[0]!.update.id, response.results[0]!.update.root)).decisions;
+  expect(decisions[0]!.id).toBe(prefix[0]!.id);
+  expect(decisions[0]!.alternatives.map(a => a.value)).not.toContainEqual({ file: file("local") });
   await stop(); await start();
   expect(await client.submitUpdates(tree, request)).toEqual(response);
   await running.canopy.verifyIntegrity();
@@ -149,7 +153,7 @@ test("root directory metadata has an inspectable whole-directory choice, continu
 });
 
 
-test("root choices retain coupled child decisions and hidden directory successors across restart", async () => {
+test("a batch that changes root metadata beside an open file choice continues that choice across restart", async () => {
   tree = (await client.account()).account.profileTree!;
   const initial = await client.descriptor(tree); root = initial.tree.root; base = initial.tree.update;
   await remember(root);
@@ -164,12 +168,16 @@ test("root choices retain coupled child decisions and hidden directory successor
   const second = snapshot(change(first.candidate, { "_index.md": { file: file(bodyFor("Hidden")) } }));
   const request = { base: childState.id, updates: [first, second] };
   const response = await client.submitUpdates(tree, request), accepted = response.results[1]!.update;
+  // Root metadata does not touch the file choice's material, so no root choice
+  // encloses it; the displayed file's edit continues the selected alternative.
+  expect(accepted.root).toBe(second.candidate); expect(accepted.conflicted).toBe(true);
+  const before = (await client.conflicts(tree, childState.id, childState.root)).decisions[0]!;
   const page = await client.conflicts(tree, accepted.id, accepted.root);
-  expect(page.decisions).toHaveLength(2);
-  const parent = page.decisions.find(d => d.kind === "directory")!, child = page.decisions.find(d => d.kind === "entry")!;
-  expect(parent.dependencies).toEqual([child.id]); expect(child.dependencies).toEqual([parent.id]);
-  expect(parent.alternatives.map(a => a.value)).toContainEqual({ directory: second.candidate });
-  await expect(submit({ ...snapshot(second.candidate), resolves: [guard(accepted.id, parent)] }, accepted.id)).rejects.toBeInstanceOf(WireUpdateConflict);
+  expect(page.decisions).toHaveLength(1);
+  const child = page.decisions[0]!;
+  expect(child.kind).toBe("entry"); expect(child.id).toBe(before.id);
+  expect(child.alternatives.find(a => a.id === child.selected)!.value).toEqual({ file: file(bodyFor("Hidden")) });
+  expect(child.alternatives.map(a => a.value)).toContainEqual(before.alternatives.find(a => a.id !== before.selected)!.value);
   await stop(); await start();
   expect((await client.submitUpdates(tree, request)).results).toEqual(response.results);
   const resolved = await submit({ ...snapshot(second.candidate), resolves: page.decisions.map(d => guard(accepted.id, d)) }, accepted.id);
@@ -186,6 +194,7 @@ test("an exact-state guard still rejects snapshot work without creating accepted
 });
 
 
+// Choices below the root are about files; a folder conflict is a whole-root choice.
 test.each([false, true])("divergent snapshot renames remain a coupled choice (nested: %s)", async nested => {
   const page = file("---\nid: pg_moving\n---\nExact bytes\r\n");
   const before = directory({ type: "directory", entries: [{ name: "before.md", file: page }] });
@@ -200,8 +209,9 @@ test.each([false, true])("divergent snapshot renames remain a coupled choice (ne
   expect(accepted.conflicted).toBe(true); expect(accepted.root).toBe(first.root);
   const decisions = (await client.conflicts(tree, accepted.id, accepted.root)).decisions;
   expect(decisions).toHaveLength(1);
+  expect(decisions[0]!.kind).toBe("directory");
   expect(decisions[0]!.alternatives.map(a => a.value)).toEqual(expect.arrayContaining([
-    { directory: nested ? left : a.candidate }, { directory: nested ? right : b.candidate },
+    { directory: a.candidate }, { directory: b.candidate },
   ]));
   const resolved = await submit({ ...snapshot(b.candidate), resolves: [guard(accepted.id, decisions[0]!)] }, accepted.id);
   expect(resolved.conflicted).toBe(false); expect(resolved.root).toBe(b.candidate);
@@ -226,12 +236,29 @@ test("snapshot ambiguity and accepted identity commit atomically", async () => {
   const right = snapshot(change(root, { "asset.bin": { file: file("right") } }));
   const prior = await submit(left), db = new Database(`${dir}/canopy.sqlite3`);
   try {
-    db.run("CREATE TRIGGER fail_snapshot_conflict AFTER INSERT ON accepted_conflicts BEGIN SELECT RAISE(ABORT, 'injected snapshot conflict failure'); END");
+    db.run("CREATE TRIGGER fail_snapshot_conflict AFTER INSERT ON accepted_merge_states BEGIN SELECT RAISE(ABORT, 'injected snapshot conflict failure'); END");
     await expect(submit(right)).rejects.toThrow("injected snapshot conflict failure");
     expect((await client.descriptor(tree)).tree.update).toBe(prior.id);
     db.run("DROP TRIGGER fail_snapshot_conflict");
     expect((await submit(right)).conflicted).toBe(true);
     await running.canopy.verifyIntegrity();
+  } finally { db.close(); }
+});
+
+test("every acceptance records a merge state and writes no conflict rows", async () => {
+  const left = snapshot(change(root, { "asset.bin": { file: file("left") } }));
+  const right = snapshot(change(root, { "asset.bin": { file: file("right") } }));
+  await submit(left); const accepted = await submit(right);
+  const refused = { ...snapshot(change(root, { "asset.bin": { file: file("refused") } })), ifCurrent: base };
+  await expect(submit(refused)).rejects.toBeInstanceOf(WireUpdateConflict);
+  const db = new Database(`${dir}/canopy.sqlite3`, { readonly: true });
+  try {
+    // Bootstrap trees, their boundary attachments and every snapshot.
+    expect(db.query(`SELECT u.id FROM accepted_updates u LEFT JOIN accepted_merge_states m ON m.accepted_id = u.id
+      WHERE m.accepted_id IS NULL`).all()).toEqual([]);
+    const record = JSON.parse((db.query("SELECT record_json FROM accepted_merge_states WHERE accepted_id = ?").get(accepted.id) as { record_json: string }).record_json);
+    expect(record.decisions).toHaveLength(1);
+    expect(db.query("SELECT COUNT(*) AS n FROM accepted_conflicts").get()).toEqual({ n: 0 });
   } finally { db.close(); }
 });
 

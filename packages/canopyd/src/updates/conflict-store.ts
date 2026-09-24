@@ -1,7 +1,11 @@
 import { Database } from "bun:sqlite";
-import type { ResolutionDeclaration, InspectedAlternative } from "@overstory/protocol";
+import type { ResolutionDeclaration, InspectedAlternative, WireDirectoryEntry } from "@overstory/protocol";
 
 export type EntryValue = Exclude<InspectedAlternative["value"], { text: string }>;
+/** The value a legacy whole-entry alternative names for a directory entry. */
+export function entryValue(entry?: WireDirectoryEntry): EntryValue {
+  return entry?.file ? { file: entry.file } : entry?.directory ? { directory: entry.directory } : entry?.tree ? { tree: entry.tree } : { absent: true };
+}
 export interface EntryAlternative { id: string; revision: string; value: EntryValue; contributions: InspectedAlternative["contributions"] }
 export type EntryDecision = { id: string; selected: string; alternatives: EntryAlternative[] } &
   ({ root: true; name?: never; parent?: never } | { root?: never; name: string; parent?: string[] });
@@ -17,7 +21,9 @@ export function decisionDependencies(decision: EntryDecision, decisions: EntryDe
 }
 export interface ConflictState { decisions: EntryDecision[]; resolutions: ResolutionDeclaration[] }
 
-/** Accepted-state snapshots of decisions. No cache or separate mutable head. */
+/** Whole-entry decisions of accepted updates written before every acceptance
+ * recorded a merge state. Read-only: nothing writes these rows any more.
+ * Legacy rows only; deleted by migration 016 (plans/canopyd/015). */
 export class ConflictStore {
   constructor(private readonly db: Database) {}
   static createSchema(db: Database): void {
@@ -29,10 +35,6 @@ export class ConflictStore {
   get(accepted: string): ConflictState | null {
     const row = this.db.query("SELECT state_json FROM accepted_conflicts WHERE accepted_id = ?").get(accepted) as { state_json: string } | null;
     return row ? JSON.parse(row.state_json) : null;
-  }
-  insert(accepted: string, state: ConflictState): void {
-    if (!this.db.inTransaction) throw new Error("Conflict state requires an accepted-update transaction");
-    this.db.run("INSERT INTO accepted_conflicts VALUES (?, ?)", [accepted, JSON.stringify(state)]);
   }
   /** Object-retention roots with explicit kinds; file bytes are never sniffed as directories. */
   objectDependencies(): Array<{ kind: "file" | "directory"; hash: string }> {

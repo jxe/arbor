@@ -7,6 +7,10 @@ import { AcceptedUpdateStore } from "../../../packages/canopyd/src/updates/store
 import { SourceIntentStore } from "../../../packages/canopyd/src/updates/source-intent-store.ts";
 import { executeExactSourceEdits } from "../../../packages/canopyd/src/updates/source-edits.ts";
 const NO_ENTRY_CHANGES = { set: [], removed: [] };
+/** A stand-in merge state: these tests read rows, never the state's objects. */
+const MERGE_STATE = { state: root0(), authored: root0(), decisions: [], retention: { version: 1 as const, roots: [root0()] }, evidence: null,
+  request: { change: "change", candidate: root0(), trace: null, resolves: [] } };
+function root0() { return hashObject(encodeWireDirectory({ type: "directory", entries: [] })); }
 
 // canopyd no longer writes authored_changes; these rows are retained history
 // the readers must keep serving until the planned migration folds them away.
@@ -20,12 +24,12 @@ const trace = [{ before: root, after: executed.root, operations }];
 
 function initialize(tree: string) {
   db.run("INSERT INTO trees VALUES (?, ?, 1)", [tree, root]);
-  store.insert({ entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
+  store.insert({ entryChanges: NO_ENTRY_CHANGES, mergeState: MERGE_STATE, tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
 }
 /** Accept one update of `tree` and seed a retained authored-change row for it. */
 function seed(tree: string, change: string, candidateRoot = root, digest = `sha256:${change}`) {
   const accepted = store.commit({
-    entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: root, expectedUpdate: store.current(tree)!.id,
+    entryChanges: NO_ENTRY_CHANGES, mergeState: MERGE_STATE, tree, root, previousRoot: root, expectedUpdate: store.current(tree)!.id,
     kind: "accepted", acceptedAt: 2, subject: "device:one", requestDigest: digest,
     baseRoot: root, candidateRoot, change,
   })!;
@@ -49,7 +53,7 @@ test("retained intent reads back by change and by accepted update, and survives 
   const record = new SourceIntentStore(db).get("one", "change-one")!;
   expect(record).toEqual({ tree: "one", change: "change-one", acceptedUpdate: accepted.id, basisRoot: root, candidateRoot: root, trace, evidence: executed.evidence });
   expect(new SourceIntentStore(db).forAccepted(accepted.id)).toEqual(record);
-  store.commit({ entryChanges: NO_ENTRY_CHANGES, tree: "one", root, previousRoot: root, expectedUpdate: accepted.id,
+  store.commit({ entryChanges: NO_ENTRY_CHANGES, mergeState: MERGE_STATE, tree: "one", root, previousRoot: root, expectedUpdate: accepted.id,
     kind: "accepted", acceptedAt: 3, subject: "device:one", requestDigest: "sha256:snapshot", change: "snapshot" });
   expect(new SourceIntentStore(db).get("one", "change-one")).toEqual(record);
   expect(new SourceIntentStore(db).forAccepted(store.current("one")!.id)).toBeNull();

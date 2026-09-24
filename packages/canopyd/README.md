@@ -20,7 +20,7 @@ depends on it except tests and the deployment tooling.
   the per-update object reader the transition and entry-change diffs share),
   `graph-validation.ts`, `source-edits.ts` (exact source
   execution and `composeFrames`), `conflict-store.ts`, `merge-state-store.ts`,
-  `source-intent-store.ts`, `entry-ambiguity.ts`, `semantic-merge.ts`.
+  `source-intent-store.ts`, `semantic-merge.ts`.
 - `merge-tool.ts`, `merge-worker.ts`: the sidecar adapter, staging, and the
   worker supervisor ([merge tool](../../docs/architecture/canopyd/merge-tool.md)).
 - `access.ts`, `accounts.ts`, `account-policy-v2.ts`, `profile.ts`,

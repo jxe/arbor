@@ -18,6 +18,7 @@ interface StoredSourceIntent {
  * candidate roots. Never translates snapshot correspondence into asserted
  * operations. The tree, change identity, basis and candidate are the owning
  * accepted update's own columns; this table adds only the trace and its evidence.
+ * Legacy rows only; deleted by migration 016 (plans/canopyd/015).
  */
 export class SourceIntentStore {
   constructor(private readonly db: Database) {}
