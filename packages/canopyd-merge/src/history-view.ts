@@ -75,9 +75,11 @@ export function isLazy(map: object): boolean {
 export async function need(map: object, keys: Iterable<string>) {
   const history = views.get(map);
   if (!history) return;
-  for (const key of keys)
-    if (!history.values.has(key))
-      history.values.set(key, await history.source.get(key));
+  const missing = [...new Set(keys)].filter((key) => !history.values.has(key));
+  const values = await Promise.all(missing.map((key) => history.source.get(key)));
+  missing.forEach((key, index) => {
+    if (!history.values.has(key)) history.values.set(key, values[index]);
+  });
 }
 
 /** Records in `map` that `base` lacks or holds differently, loading them (and

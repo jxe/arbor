@@ -1,18 +1,15 @@
-import { loadSharedValue, storeSharedValue } from "./state-value.ts";
-import { stableJSONString, hashObject } from "@overstory/protocol";
+import { boundedJSONSize, encodeJSON, keyHash, loadSharedValue, OBJECT_HASH, storeSharedValue } from "./state-value.ts";
+import { hashObject } from "@overstory/protocol";
 
 const format = "arbor-state-map-v1";
-const encoder = new TextEncoder();
-const hashPattern = /^sha256:[a-f0-9]{64}$/;
+const hashPattern = OBJECT_HASH;
 type Entry = [string, string];
 type Node =
   | { format: typeof format; entries: Entry[] }
   | { format: typeof format; children: (string | null)[] };
 type Read = (hash: string) => Promise<Uint8Array>;
 type Put = (bytes: Uint8Array) => string;
-const emit = (value: unknown, put: Put) =>
-  put(encoder.encode(stableJSONString(value)));
-const keyHash = (key: string) => hashObject(encoder.encode(key)).slice(7);
+const emit = (value: unknown, put: Put) => put(encodeJSON(value));
 const digit = (key: string, depth: number) =>
   parseInt(keyHash(key)[depth]!, 16);
 
@@ -87,7 +84,9 @@ function record(value: unknown, put: Put): string {
   // Large records contain growing before/after piece sequences. Chunk those
   // sequences so unchanged pages are shared between versions, not copied into
   // every historical effect. Small scalar records stay inline.
-  if (stableJSONString(value).length <= 2048)
+  // The threshold counts UTF-16 units of the canonical JSON, bounded rather
+  // than serializing a large record only to measure it.
+  if (boundedJSONSize(value, 2048, (json) => json.length) <= 2048)
     return emit({ format: "arbor-state-record-v1", value }, put);
   return emit(
     { format: "arbor-state-record-v2", value: storeSharedValue(value, put) },
@@ -116,15 +115,22 @@ export function storeStateMap(
     put,
   );
 }
+/** `nodes` caches validated nodes by hash and prefix across lookups. */
 export async function getStateMap(
   root: string,
   key: string,
   read: Read,
+  nodes?: Map<string, Promise<Node>>,
 ): Promise<unknown> {
   let hash = root,
     prefix = "";
   for (;;) {
-    const value = await node(hash, read, prefix);
+    let pending = nodes?.get(prefix + ":" + hash);
+    if (!pending) {
+      pending = node(hash, read, prefix);
+      nodes?.set(prefix + ":" + hash, pending);
+    }
+    const value = await pending;
     if ("entries" in value) {
       const entry = value.entries.find(([name]) => name === key);
       return entry ? readRecord(entry[1], read) : undefined;
@@ -450,6 +456,8 @@ export async function diffStateMap(
  * `touched` is every object hash read through this view. */
 export class LazyStateMap {
   private readonly values = new Map<string, unknown>();
+  /** Parsed nodes, so lookups share the path from the root. */
+  private readonly nodes = new Map<string, Promise<Node>>();
   readonly touched = new Set<string>();
   private readonly read: Read;
   constructor(readonly root: string, read: Read) {
@@ -460,7 +468,7 @@ export class LazyStateMap {
   }
   async get(key: string): Promise<unknown> {
     if (this.values.has(key)) return this.values.get(key);
-    const value = await getStateMap(this.root, key, this.read);
+    const value = await getStateMap(this.root, key, this.read, this.nodes);
     this.values.set(key, value);
     return value;
   }
