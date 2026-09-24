@@ -71,6 +71,8 @@ What remains:
 
 The browser uses the TypeScript runner with an IndexedDB `ChangeLog` and a
 TypeScript `EditorSource` that follows [editor sources](../../docs/implementing-editors/editor-source.md).
+It replaces `packages/canopy-web/src/editor-coordinator.ts`, which only the
+disabled web editor (`PageEditor.tsx`, outside the build) still imports.
 Web 025's own phases own the rest.
 
 ## Relationships
