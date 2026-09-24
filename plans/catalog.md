@@ -22,7 +22,7 @@ manual acceptance and soak gates. Check current source/tests before executing an
 
 `clients/` — The portable update machine, the change log, and the runners and sources that use them.
 
-- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **DESIGN AGREED; Swift first.** Editors (traced frames) and folders (`trace: null`) append local changes to one durable `ChangeLog`, and one `UpdateMachine` runner publishes them; the document admission machine, editor recovery journal and daemon conflict workspace are deleted, rejection is `held`, and shared runner vectors pin Swift and TypeScript before Web 025.
+- [Clients 001 — One update machine for every working tree](clients/001-reconcile-client-state-machines.md) — **PHASES 0–3 IMPLEMENTED, not installed; soak and install need Joe's go-ahead.** One `UpdateMachine`, an effect-driven Swift runner over a change log, and an editor that appends straight to it are done; remaining: Mac and iPhone soak, the TypeScript runner with a `FolderSource` for the daemon, and the Web 025 handoff.
 
 ## Web client
 

@@ -42,7 +42,7 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 | `protocol` | `model/` (types, identifiers, CBOR, hashing, logical paths and URLs, resource policy, errors, SSE), `objects.ts` and `snapshots.ts`, `updates/` (request and accepted contracts, JSON, intent digests, deltas), `transport.ts` (the HTTP client), `documents/` (Markdown and directory documents, child links, titles, document merge), `config/` (account, device, placement, resource configuration and the private data home) | `@noble/hashes`, `yaml` |
 | `object-store` | Immutable hash-sharded storage with verified reads, durable writes, and reachability walks | protocol |
 | `fs` | `WorkspaceFS`: discovery, the write journal, atomic file operations, materialization, watching ([README](../../packages/fs/README.md)) | protocol, `@parcel/watcher` |
-| `client` | Tree sync, sync state, account bootstrap and wire, the update machine, the document admission machine, the source admission queue, publisher, and document session, entry transfer | protocol, fs |
+| `client` | Tree sync, sync state, account bootstrap and wire, the update machine, the source admission queue, publisher, and document session, entry transfer | protocol, fs |
 | `canopyd` | Access and claims, accounts and profiles, boundaries, the public page, resource effects and execution authority, schema and the SQLite authority, `updates/` (decision, reconcile, graph validation, stores, observations, watch frames, source edits), the merge worker adapter, projection, the `canopyd` CLI ([README](../../packages/canopyd/README.md)) | protocol, object-store, apps-runtime, canopyd-merge |
 | `canopyd-merge` | The merge sidecar: contract, intent engine and model, format rules, Markdown and web formats, state maps and storage, retention, checkpoints, the `arbor-merge` CLI ([merge tool](canopyd/merge-tool.md)) | protocol, object-store, apps-runtime, tree-sitter, saxes |
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the QuickJS schema sandbox and the collection-file codec) ([README](../../packages/apps-runtime/README.md)) | protocol, `quickjs-emscripten`, `csv-parse` |
@@ -57,11 +57,11 @@ this: `Overstory` is a leaf, `OverstoryObjectStore` depends on it,
 |---|---|---|
 | `Overstory` | Protocol models, canonical CBOR, the SSE parser, the HTTP client, authored and accepted contracts, operations, transitions, resource policy, the network log | |
 | `OverstoryObjectStore` | The `ObjectStore` protocol with overlay, layered, directory, and host-backed stores; every store verifies bytes against their hash | Overstory |
-| `CanopyAppKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the document admission machine, the browser tab controller | |
+| `CanopyAppKit` | Workspace models and provider protocol, the workspace coordinator, logical URLs and display titles, the editor source, the browser tab controller | |
 | `CanopyWorkingTree` | `WorkingTree` and its state store, `UpdateMachine` and `UpdateCoordinator`, durability, the snapshot bridge, `SourceAdmissionQueue`, entry actions and transfer, conflict review | CanopyAppKit, OverstoryObjectStore, Overstory |
 | `OverstoryClient` | Credentials, the placement service, `CanopyWatchRunner`, account configuration YAML, resource consent | CanopyAppKit, CanopyWorkingTree, OverstoryObjectStore, Overstory, Yams |
 | `ArborSyncClient` | The loopback REST client for the daemon and its process supervisor | CanopyAppKit, OverstoryObjectStore, Overstory |
-| `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec, editor recovery, conflict analysis | ArborSyncClient, CanopyAppKit, Quagmire |
+| `CanopyEditor` | The Quagmire editor host and surface, document binding, the Markdown codec | ArborSyncClient, CanopyAppKit, Quagmire |
 
 `swift/Canopy.xcodeproj` is generated from `swift/project.yml`
 by xcodegen and committed; see [swift/README.md](../../swift/README.md).

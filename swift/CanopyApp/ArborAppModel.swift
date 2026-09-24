@@ -187,7 +187,6 @@ final class ArborWorkspaceState {
     private(set) var directoryError: String?
     private var directoryRefreshTask: Task<Void, Never>?
     var pendingProfileAction: ArborProfileAction?
-    private let editorRecoveryRoot: URL?
     private let nativePlacementStore = NativePlacementStore()
     private(set) var nativePlacements: [NativePlacementRecord] = []
     private let nativePathMonitor = NWPathMonitor()
@@ -195,7 +194,6 @@ final class ArborWorkspaceState {
     private var nativeTransportAvailable = false
 
     init(provider suppliedProvider: InMemoryWorkspaceProvider? = nil) {
-        self.editorRecoveryRoot = suppliedProvider == nil ? ArborSupportDirectories.root.appending(path: "EditorRecovery") : nil
         self.linkPreviewService = LinkPreviewService(
             cacheDirectory: ArborSupportDirectories.linkPreviews
         )
@@ -210,7 +208,7 @@ final class ArborWorkspaceState {
             )
         ])
         self.provider = provider
-        self.editorWorkspace = ArborEditorWorkspace(provider: provider, recoveryRoot: editorRecoveryRoot)
+        self.editorWorkspace = ArborEditorWorkspace(provider: provider)
         var initialHome = suppliedProvider == nil
             ? disconnectedHome
             : WorkspaceReference(tree: "tr_sample", path: "/")
@@ -1272,8 +1270,7 @@ final class ArborWorkspaceState {
                     ),
                     home: WorkspaceReference(tree: tree, path: "/"),
                     detail: "Connecting · \(record.displayName) · \(osPath)",
-                    canonicalPath: record.tree.canonicalPath,
-                    recoversEdits: false
+                    canonicalPath: record.tree.canonicalPath
                 )
                 launchPhase = .confirming(record.displayName)
             }
@@ -1803,8 +1800,7 @@ final class ArborWorkspaceState {
         launchLocation nextLaunchLocation: WorkspaceLocation? = nil,
         detail: String,
         canonicalPath: String? = nil,
-        preservingNavigation: Bool = false,
-        recoversEdits: Bool = true
+        preservingNavigation: Bool = false
     ) async {
 #if os(macOS)
         if let locator = openVisitLocator { navigationLocators[home.tree] = locator }
@@ -1812,8 +1808,7 @@ final class ArborWorkspaceState {
         await editorWorkspace.closeAll()
         conflictReview = nil
         provider = nextProvider
-        // A read-only preview never keeps editor recovery drafts.
-        editorWorkspace = ArborEditorWorkspace(provider: nextProvider, recoveryRoot: recoversEdits ? editorRecoveryRoot : nil)
+        editorWorkspace = ArborEditorWorkspace(provider: nextProvider)
         home = nextHome
         launchLocation = nextLaunchLocation ?? .reference(nextHome)
         providerDetail = detail
@@ -2456,10 +2451,10 @@ final class ArborAppModel {
         backlinks = loaded
     }
 
+    /// A session without history (a working tree today) shows the empty state.
     func loadHistory() async {
         guard let binding else { history = []; return }
-        do { history = try await binding.history() }
-        catch { errorMessage = error.localizedDescription }
+        history = (try? await binding.history()) ?? []
     }
 
     func inspectSource() async {
@@ -2482,25 +2477,6 @@ final class ArborAppModel {
 
     func dismissError() { errorMessage = nil }
 
-    func resolveEditorConflict(preferSubmitted: Bool) async {
-        guard let binding else { return }
-        do {
-            try await binding.resolveConflict(preferSubmitted: preferSubmitted)
-            await load()
-        } catch { errorMessage = error.localizedDescription }
-    }
-
-    func resolveEditorConflict(source: String) async {
-        guard let binding else { return }
-        do {
-            try await binding.resolveConflict(source: source)
-            await load()
-        } catch is WorkspaceDocumentConflict {
-            // The binding retained the live editor and conflict evidence; its
-            // banner remains the actionable error presentation.
-        } catch { errorMessage = error.localizedDescription }
-    }
-
     func retryDocumentSave() async {
         await binding?.retryLastSave()
     }
@@ -2509,7 +2485,7 @@ final class ArborAppModel {
         guard let binding, let node, node.isWritable,
               binding.reference.path != "/",
               !manuallyNamedPageKeys.contains(manualPageNameKey(binding.reference)),
-              binding.lastError == nil, binding.conflict == nil else {
+              binding.lastError == nil else {
             titleRenameProposal = nil
             return
         }
@@ -2547,7 +2523,7 @@ final class ArborAppModel {
               binding.reference.identity == proposal.reference.identity else { return }
         dismissTitleRenameProposal()
         await binding.flush()
-        guard binding.lastError == nil, binding.conflict == nil else { return }
+        guard binding.lastError == nil else { return }
         do {
             guard let renamed = try await workspace.perform(.rename(
                 reference: binding.reference,

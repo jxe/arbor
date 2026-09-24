@@ -26,7 +26,7 @@ working-tree client needs: `GET /v1/status`, `GET /v1/trees`,
 `GET /v1/events` (§5). The Swift package `ArborSyncClient` launches or
 attaches to the control-mode daemon (`arborsync --control`) and uses exactly
 these routes. The former node, children, search, backlinks, recovery, file,
-mutation, document-admission, asset, and import routes were deleted with the
+mutation, document, asset, and import routes were deleted with the
 daemon's editor path (Native 022 Phase 7): editors run the document admission
 and update machines against their own working tree. Those paths now answer
 `405 unsupported-operation` like any unknown `/v1/` route. **The web editor is

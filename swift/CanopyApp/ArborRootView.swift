@@ -755,7 +755,6 @@ struct ArborRootView: View {
     @State private var searchText = ""
     @State private var trashConfirmationPresented = false
     @State private var arborsyncLogs = ""
-    @State private var documentConflictExpanded = false
     @State private var voiceLaunchReady = false
     @AppStorage("pageOrder.sidebar") private var sidebarPageOrder = ArborSidebarPageOrder.alphabetical
     @State private var sidebarSearchText = ""
@@ -892,10 +891,6 @@ struct ArborRootView: View {
                review.selectedDecision?.path.map({ reviewLogicalPath($0) != model.currentReference.path }) == true {
                 review.expanded = false
             }
-            documentConflictExpanded = false
-        }
-        .onChange(of: model.binding?.conflict) { _, conflict in
-            if conflict == nil { documentConflictExpanded = false }
         }
         .onReceive(NotificationCenter.default.publisher(for: VoiceRecordingLaunchRequest.notificationName)) { _ in
             forwardPendingVoiceRecording()
@@ -1994,7 +1989,7 @@ struct ArborRootView: View {
         ArborSyncStatus.resolve(
             synchronization: workspace.syncPresentation.state,
             documentIsSaving: binding?.isSaving == true,
-            documentNeedsAttention: binding?.conflict != nil || binding?.lastError != nil
+            documentNeedsAttention: binding?.lastError != nil
         )
     }
 
@@ -2075,15 +2070,6 @@ struct ArborRootView: View {
             binding: model.binding,
             arborsyncProcessKind: workspace.arborsyncProcessKind,
             retrySave: { Task { await model.retryDocumentSave() } },
-            reviewDocumentConflict: {
-                documentConflictExpanded = true
-#if os(macOS)
-                managementPresented = false
-#else
-                accountPresented = false
-                presentedSheet = nil
-#endif
-            },
             syncNow: { Task { await workspace.syncNow() } },
             discardHeldChanges: { Task { await workspace.discardHeldChanges() } },
             reconnectArborSync: {
@@ -2192,7 +2178,7 @@ struct ArborRootView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
+        .animation(.easeInOut(duration: 0.2), value: model.binding?.lastError != nil)
 #if os(macOS)
         .navigationTitle("")
         .navigationBarBackButtonHidden(true)
@@ -2449,19 +2435,6 @@ struct ArborRootView: View {
                             )
                             Divider()
                         }
-                        if location == model.currentLocation,
-                           documentConflictExpanded,
-                           let conflict = lease.binding.conflict {
-                            ArborDocumentConflictView(
-                                conflict: conflict,
-                                resolve: { source in
-                                    Task { await model.resolveEditorConflict(source: source) }
-                                },
-                                close: { documentConflictExpanded = false }
-                            )
-                            .id(conflict)
-                            Divider()
-                        }
                         ArborEditorSurface(
                             binding: lease.binding,
                             host: host,
@@ -2591,20 +2564,7 @@ struct ArborRootView: View {
 
     @ViewBuilder
     private var attentionBanner: some View {
-        if let conflict = model.binding?.conflict {
-            let analysis = ArborDocumentConflictAnalysis(conflict)
-            ArborAttentionBanner(
-                message: analysis.headline,
-                systemImage: "exclamationmark.triangle",
-                primaryLabel: documentConflictExpanded ? "Hide" : "Review…",
-                primaryAction: { documentConflictExpanded.toggle() },
-                secondaryLabel: analysis.automaticMergeSource == nil ? nil : "Merge",
-                secondaryAction: analysis.automaticMergeSource.map { source in
-                    { Task { await model.resolveEditorConflict(source: source) } }
-                }
-            )
-            .help("\(analysis.explanation) Current revision: \(conflict.current.contentRevision)")
-        } else if let proposal = model.titleRenameProposal {
+        if let proposal = model.titleRenameProposal {
             ArborAttentionBanner(
                 message: "Rename this page to \"\(proposal.proposedName)\" to match its title?",
                 systemImage: "pencil",
@@ -2615,11 +2575,7 @@ struct ArborRootView: View {
             )
         } else if let diagnostic = ArborSaveDiagnostic.describe(
             model.binding?.lastError,
-            processKind: workspace.arborsyncProcessKind,
-            localRecovery: model.binding.map {
-                if $0.recoveryError != nil { return .failed }
-                return $0.latestEditIsRetainedInRecovery ? .retained : .unavailable
-            } ?? .unknown
+            processKind: workspace.arborsyncProcessKind
         ) {
             ArborAttentionBanner(
                 message: diagnostic.bannerMessage,

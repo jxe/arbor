@@ -280,7 +280,6 @@ public actor WorkingTreeDocumentSession: WorkspaceDocumentSession {
     private let readOnly: Bool
     private let coordinator: UpdateCoordinator?
     private var sourceSnapshots: [String: WorkspaceDocumentSnapshot] = [:]
-    public var admissionPolicy: WorkspaceAdmissionPolicy { coordinator == nil ? .compareAndSwap : .retainedBasis }
     private var terminal = false
 
     init(

@@ -392,7 +392,7 @@ public final class ArborEditorHost: EditorHost {
     ) async -> WorkspaceNode? {
         guard target.identity != source.identity else { return nil }
         await binding.flush()
-        guard binding.lastError == nil, binding.conflict == nil,
+        guard binding.lastError == nil,
               let node = try? await provider.resolve(target),
               node.isWritable, node.surface.supportsDocumentSession,
               let backlinks = try? await provider.backlinks(to: node.reference),
@@ -518,9 +518,11 @@ public final class ArborEditorHost: EditorHost {
         acceptAnyExisting: Bool, editorTransaction: String?
     ) async -> DocumentReference? {
         do {
-            if let editorTransaction, await binding.session.admissionPolicy == .retainedBasis {
+            if let editorTransaction {
                 await binding.flush()
                 guard binding.lastError == nil else { return nil }
+                // A working-tree session records the creation with the editor's
+                // transaction; other sessions return nil and use the structural action.
                 if let created = try await binding.session.createForEditor(parent: parent, name: name, source: source, transaction: editorTransaction) {
                     return await durableDocumentReference(for: created)
                 }
@@ -723,7 +725,7 @@ public final class ArborEditorHost: EditorHost {
         }
         guard let destination else { return false }
         await binding.flush()
-        guard binding.lastError == nil, binding.conflict == nil else { return false }
+        guard binding.lastError == nil else { return false }
         do {
             guard let moved = try await performStructuralAction(.move(reference: currentReference, destination: destination)) else {
                 return false
@@ -828,7 +830,7 @@ public final class ArborEditorHost: EditorHost {
         guard document === binding.document else { return }
         deferredPersistTask?.cancel()
         deferredPersistTask = nil
-        binding.admitCurrentGeneration()
+        binding.appendCurrentGeneration()
     }
 
     public func persistCommit(changes _: [DocumentChange], in document: Document, after delay: Duration) {
@@ -840,7 +842,7 @@ public final class ArborEditorHost: EditorHost {
             guard let self, let document, document === self.binding.document,
                   !Task.isCancelled else { return }
             self.deferredPersistTask = nil
-            self.binding.admitCurrentGeneration()
+            self.binding.appendCurrentGeneration()
         }
     }
 

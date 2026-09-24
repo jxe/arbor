@@ -226,8 +226,8 @@ An editor is a source like any other: it appends each generation to its
 working tree's change log and acknowledges the generation once the change is
 durable. A successful append acknowledges durable authored intent, not
 acceptance by the host and not agreement with the current projected document.
-The reference runner is described in
-[the update machine guide](../implementing-sync-services/update-machine.md).
+The reference editor source is described in
+[editor sources](../implementing-editors/editor-source.md).
 
 ### Exact authored basis
 
@@ -287,7 +287,7 @@ preserved lineage. A client MUST derive copy intent from an explicit authoring
 action, never from equal bytes alone. Equal candidate bytes MUST NOT erase captured operation identity.
 A claim MUST be stated in the frame whose basis it was captured against, so
 coalescing never forces a client to re-derive lineage or copies across generations.
-Editor recovery and publication retries MUST retain these claims unchanged.
+Restart recovery and publication retries MUST retain these claims unchanged.
 Clients MUST emit operation kinds only after the destination supports their
 execution; an authoritative operation cannot be recorded as an unvalidated hint.
 

@@ -1049,10 +1049,10 @@ directly. The normative client behavior is the update machine in
    root; the daemon's pending request is never adopted. Elsewhere it
    installs from the host. Either way it records the confirmed
    `{ root, update, cursor }` watchpoint.
-1. Each authored generation is admitted into the working tree and becomes
-   locally durable at once (the document admission machine); unsent
-   generations are compacted so that one candidate represents one
-   intentional accepted-history boundary.
+1. Each authored generation is appended to the working tree's change log
+   and becomes locally durable at once (the editor is a source of local
+   changes); unsent changes are published together so that one request
+   represents one intentional accepted-history boundary.
 2. After a short trailing delay it persists one exact request from the
    confirmed update to its latest durable head: a complete candidate graph
    omitting unchanged objects, using an `ObjectDelta` where that is smaller

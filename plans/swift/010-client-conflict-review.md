@@ -29,7 +29,7 @@ Before implementation inspect git status, current source and tests, especially
 [authored operations and resolution declarations](../../packages/protocol/src/updates/authored-contract.ts),
 and the [live change-log tests](../../swift/Packages/CanopyWorkingTree/Tests/CanopyWorkingTreeTests/LiveChangeLogTests.swift).
 Use the conflict inspection contract in [the reference implementation](../../docs/architecture/protocol/README.md#conflict-inspection)
-and the admission invariants in [client state machines](../../docs/implementing-editors/document-admission.md#7-admission-invariants-and-trace-compaction) for implementation
+and the change invariants in [editor sources](../../docs/implementing-editors/editor-source.md#6-change-invariants-and-trace-compaction) for implementation
 history, not as a substitute for checking current code.
 
 The shared client owns pinned inspection, durable drafts, guarded submission and

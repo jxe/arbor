@@ -89,9 +89,10 @@ an edit against an accepted file travels as a delta when that is smaller.
 Reconciliation replay runs on the change's sparse candidate plus every delta
 base, fetched once each through the working tree's object store.
 
-**One chain.** Successive editor generations are authored on each other, so a
-successor's request repeats the settled prefix without objects and appends
-the new changes once. Sibling branches (edits to different documents from the
+**One chain.** A change authored on a change that is not yet settled names it
+as its basis, so the request repeats that prefix exactly (without objects once
+it is settled) and appends the new changes once. A change made after its
+predecessor settled starts from the new accepted state. Sibling branches (edits to different documents from the
 same accepted basis) publish one after another; the host reconciles them.
 
 **Re-seed.** A working tree rebuilt from the host while the durable request
@@ -100,8 +101,9 @@ host's current state, and never re-submits from the seed.
 
 **Held.** A rejected or unsupported request stays durable with its reason and
 survives restart; later changes authored on it wait with it. The app offers
-"Discard Refused Changes", which is the explicit way out. A rejected review
-resolution is discarded automatically, because its draft is retained.
+"Discard Refused Changes", which is the explicit way out. A review resolution
+refused while it is being applied is discarded at once, because its draft is
+retained.
 
 **Watching.** `CanopyWatchRunner` (`OverstoryClient`) follows one tree's watch
 stream, feeds every event to the coordinator, reconnects with backoff, and

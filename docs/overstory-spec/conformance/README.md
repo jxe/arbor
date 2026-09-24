@@ -32,10 +32,9 @@ client synchronization machine, `working-tree-updates` (`UpdateMachine` in
 publishes the local changes in its change log, whether an editor or a folder
 appended them. Changes, roots, updates, cursors, and digests are tokens. The
 fixture pins the reducers only; in TypeScript nothing in production runs the
-reducer yet, and the daemon's folder synchronization runs its own loop. The
-`document-admission` section is retained only for the Swift editor machine
-that [Clients 001](../../../plans/clients/001-reconcile-client-state-machines.md)
-deletes; no TypeScript reducer executes it.
+reducer yet, and the daemon's folder synchronization runs its own loop. There
+is no editor-side machine: editors append local changes to the change log
+([editor sources](../../implementing-editors/editor-source.md)).
 
 `protocol-update-intent.json` also carries `envelopeIndependence`: several
 packings of object envelopes across the same plural request produce

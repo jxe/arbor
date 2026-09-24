@@ -948,7 +948,6 @@ struct ArborSyncStatusView: View {
     let binding: ArborDocumentBinding?
     let arborsyncProcessKind: ArborSyncProcessKind?
     let retrySave: () -> Void
-    let reviewDocumentConflict: () -> Void
     let syncNow: () -> Void
     /// Discard the change Canopy refused, and every change made on top of it.
     var discardHeldChanges: () -> Void = {}
@@ -992,9 +991,7 @@ struct ArborSyncStatusView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 16)
-                if binding?.conflict != nil {
-                    Button("Review Edit Conflict", systemImage: "exclamationmark.triangle", action: reviewDocumentConflict)
-                } else if diagnostic != nil {
+                if diagnostic != nil {
                     Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
                 } else if sync.state == .conflict {
                     Button("Discard Refused Changes…", systemImage: "trash", role: .destructive) { confirmingDiscard = true }
@@ -1037,14 +1034,9 @@ struct ArborSyncStatusView: View {
             .foregroundStyle(.secondary)
 #endif
         }
-        if binding?.isSaving == true || binding?.conflict != nil || diagnostic != nil {
+        if binding?.isSaving == true || diagnostic != nil {
             Section("Current document") {
                 LabeledContent("Save status", value: saveStatus)
-                if binding?.conflict != nil {
-                    Text("Your latest edits are still in this editor. Review the conflict to save them and resume synchronization.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
                 if let diagnostic {
                     Text(diagnostic.editSafetyDetail)
                         .font(.caption)
@@ -1068,35 +1060,19 @@ struct ArborSyncStatusView: View {
 
 
     var saveStatus: String {
+        if binding?.lastError != nil { return "Latest edit not retained locally" }
         if binding?.isSaving == true { return "Retaining edit locally" }
-        if binding?.conflict != nil { return "Conflict needs a choice" }
-        if binding?.lastError != nil {
-            if binding?.recoveryError != nil { return "Private recovery failed" }
-            return binding?.latestEditIsRetainedInRecovery == true
-                ? "Retained in recovery; working tree pending"
-                : "Latest edit not retained locally"
-        }
         return "Retained locally"
     }
 
     private var diagnostic: ArborSaveDiagnostic? {
-        ArborSaveDiagnostic.describe(
-            binding?.lastError,
-            processKind: arborsyncProcessKind,
-            localRecovery: localRecovery
-        )
-    }
-
-    private var localRecovery: ArborSaveDiagnostic.LocalRecovery {
-        guard let binding else { return .unknown }
-        if binding.recoveryError != nil { return .failed }
-        return binding.latestEditIsRetainedInRecovery ? .retained : .unavailable
+        ArborSaveDiagnostic.describe(binding?.lastError, processKind: arborsyncProcessKind)
     }
 
     var overallStatusTitle: String { overallStatusTitle(diagnostic) }
 
     private func overallStatusTitle(_ diagnostic: ArborSaveDiagnostic?) -> String {
-        if diagnostic != nil || binding?.conflict != nil { return "A document needs attention" }
+        if diagnostic != nil { return "A document needs attention" }
         if sync.state != .current { return diagnostic?.synchronizationOverride ?? sync.state.label }
         if binding?.isSaving == true { return "Retaining edit locally" }
         return "This Arbor client is up to date"
@@ -1104,7 +1080,6 @@ struct ArborSyncStatusView: View {
 
     private func overallStatusDetail(_ diagnostic: ArborSaveDiagnostic?) -> String {
         if let diagnostic { return diagnostic.bannerMessage }
-        if binding?.conflict != nil { return "Resolve the current document conflict to continue." }
         if sync.state != .current { return sync.detail ?? synchronizationDetail }
         return "This client has no unpublished document or working-tree changes."
     }
@@ -1125,7 +1100,7 @@ struct ArborSyncStatusView: View {
     }
 
     private func overallStatusSymbol(_ diagnostic: ArborSaveDiagnostic?) -> String {
-        if diagnostic != nil || binding?.conflict != nil {
+        if diagnostic != nil {
             return "exclamationmark.triangle"
         }
         if binding?.isSaving == true { return "arrow.trianglehead.2.clockwise.rotate.90" }
@@ -1134,7 +1109,6 @@ struct ArborSyncStatusView: View {
 
     private func overallStatusTint(_ diagnostic: ArborSaveDiagnostic?) -> Color {
         if diagnostic != nil { return .red }
-        if binding?.conflict != nil { return .orange }
         return sync.state == .current ? .green : .secondary
     }
 }
@@ -1215,8 +1189,8 @@ struct ArborSourceInspector: View {
 
 struct ArborHistoryView: View {
     static let title = "History"
-    static let unavailableTitle = "No local editor copies yet"
-    static let unavailableExplanation = "Local editor copies are saved on this device before synchronization. Restoring creates a new change and keeps the original copies."
+    static let unavailableTitle = "No history yet"
+    static let unavailableExplanation = "Canopy does not serve page history yet. Edits wait in this device's change log until Canopy accepts them."
 
     let entries: [WorkspaceHistoryEntry]
     let recover: (String) -> Void
@@ -1235,7 +1209,7 @@ struct ArborHistoryView: View {
                     Spacer()
                     Button("Restore as New Change") { pendingRecovery = entry }
                         .accessibilityLabel("Restore \(entry.title)")
-                        .accessibilityHint("Creates a new current revision without erasing later recovery history")
+                        .accessibilityHint("Creates a new current revision without erasing later history")
                 }
             }
             .overlay {
@@ -1360,95 +1334,6 @@ private struct ArborConflictReviewControl: View {
         .frame(maxHeight: 180)
         .padding(8)
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-struct ArborDocumentConflictView: View {
-    let conflict: WorkspaceDocumentConflict
-    let resolve: (String) -> Void
-    let close: () -> Void
-    /// Derived from `conflict` once, not on every keystroke in the merge editor.
-    private let analysis: ArborDocumentConflictAnalysis
-    @State private var mergedSource: String
-    @State private var choice: ArborConflictReviewChoice?
-
-    init(
-        conflict: WorkspaceDocumentConflict,
-        resolve: @escaping (String) -> Void,
-        close: @escaping () -> Void
-    ) {
-        self.conflict = conflict
-        self.resolve = resolve
-        self.close = close
-        let analysis = ArborDocumentConflictAnalysis(conflict)
-        self.analysis = analysis
-        _mergedSource = State(initialValue: analysis.automaticMergeSource ?? conflict.submittedSource)
-        _choice = State(initialValue: analysis.automaticMergeSource == nil ? .mine : .both)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Label("Resolve Document Conflict", systemImage: "exclamationmark.triangle")
-                    .font(.headline)
-                Spacer()
-                Button("Close", systemImage: "xmark", action: close)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            Divider()
-            Form {
-                Section("What happened") {
-                    Text(analysis.headline).font(.headline)
-                    Text(analysis.explanation).foregroundStyle(.secondary)
-                    if let context = conflict.context {
-                        LabeledContent("Reported by", value: context.kind ?? context.code)
-                        if !context.paths.isEmpty {
-                            LabeledContent("Conflicting paths", value: context.paths.joined(separator: ", "))
-                        }
-                        ForEach(Array(context.conflicts.enumerated()), id: \.offset) { _, conflict in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(conflict.path).font(.headline)
-                                Text(conflict.reason).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                Section("Resolution choices") {
-                    ArborConflictReviewControl(
-                        content: .init(
-                            base: conflict.base?.source,
-                            current: conflict.current.source,
-                            mine: conflict.submittedSource,
-                            both: analysis.automaticMergeSource,
-                            editable: true
-                        ),
-                        choice: $choice,
-                        editedSource: $mergedSource
-                    )
-                    Button("Apply Choice") { submitChoice() }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-        }
-#if os(macOS)
-        .frame(maxWidth: 820, maxHeight: 520)
-#else
-        .frame(maxHeight: 460)
-#endif
-        .background(.background)
-    }
-
-    private func submitChoice() {
-        switch choice {
-        case .current: resolve(conflict.current.source)
-        case .mine: resolve(conflict.submittedSource)
-        case .both: resolve(analysis.automaticMergeSource ?? conflict.submittedSource)
-        case .edit: resolve(mergedSource)
-        case nil: break
-        }
     }
 }
 

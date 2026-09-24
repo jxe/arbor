@@ -19,6 +19,6 @@ already processed, `failedIndex` identifies the element under review, and
 the suffix remains unattempted. Resolution submits the reviewed element
 against the verified current descriptor, then guardedly replays the retained
 suffix in order. The machines, their invariants, and trace compaction are in
-[client state machines](../../implementing-editors/document-admission.md).
+[editor sources](../../implementing-editors/editor-source.md).
 
 See [implementing sync services](../../implementing-sync-services/README.md) and the [filesystem package](../../../packages/fs/README.md).

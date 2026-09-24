@@ -185,7 +185,7 @@ grammar; editors express undo and redo as ordinary edits, and the evaluator
 answers `unsupported` if it sees the kind. `composeFrames` in
 `packages/canopyd/src/updates/source-edits.ts` collapses a run of plain
 `editSource` frames into one by executing the composition; the same rule lets
-clients compact a debounced burst (see [client state machines](../../implementing-editors/document-admission.md#trace-compaction)).
+clients compact a burst of generations (see [editor sources](../../implementing-editors/editor-source.md#trace-compaction)).
 
 **Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
 `authored: { object, state }` for the exact candidate before reconciliation, a

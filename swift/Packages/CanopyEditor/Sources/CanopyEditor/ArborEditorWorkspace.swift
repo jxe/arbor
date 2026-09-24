@@ -17,12 +17,10 @@ public final class ArborEditorWorkspace {
     }
 
     public let provider: any WorkspaceProvider
-    private let recoveryRoot: URL?
     private let coordinator: WorkspaceCoordinator
     private var entries: [WorkspaceIdentity: Entry] = [:]
 
-    public init(provider: any WorkspaceProvider, recoveryRoot: URL? = nil) {
-        self.recoveryRoot = recoveryRoot
+    public init(provider: any WorkspaceProvider) {
         self.provider = provider
         self.coordinator = WorkspaceCoordinator(provider: provider)
     }
@@ -35,7 +33,7 @@ public final class ArborEditorWorkspace {
             entries[workspaceLease.identity] = entry
             return ArborEditorLease(id: id, identity: workspaceLease.identity, binding: entry.binding)
         }
-        let binding = try await ArborDocumentBinding.open(reference: reference, session: workspaceLease.session, recoveryRoot: recoveryRoot)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: workspaceLease.session)
         entries[workspaceLease.identity] = Entry(binding: binding, workspaceLeases: [id: workspaceLease])
         return ArborEditorLease(id: id, identity: workspaceLease.identity, binding: binding)
     }
@@ -53,7 +51,7 @@ public final class ArborEditorWorkspace {
     }
 
     public func retryFailedSaves() async {
-        for entry in entries.values where entry.binding.lastError != nil && entry.binding.conflict == nil {
+        for entry in entries.values where entry.binding.lastError != nil {
             await entry.binding.retryLastSave()
         }
     }
@@ -202,7 +200,7 @@ public final class ArborEditorWorkspace {
             // mounted surface, so admit the same generation here if no host
             // callback observed it.
             if binding.generation == priorGeneration {
-                binding.admitCurrentGeneration()
+                binding.appendCurrentGeneration()
             }
             await binding.flush()
             if let error = binding.lastError { throw error }
