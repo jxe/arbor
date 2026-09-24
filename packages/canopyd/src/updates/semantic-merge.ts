@@ -370,12 +370,7 @@ export class SemanticMerge {
       };
       return { key: d.key, inspection };
     }));
-    const proofs = new Map();
-    for (const ref of [result, authored]) {
-      const proof = this.tool.validationProof(tree, ref);
-      if (proof) proofs.set(ref.state, proof);
-    }
-    await this.tool.verifyRetention([result.state, authored.state], objects, proofs);
+    await this.tool.verifyRetention([result.state, authored.state], objects);
     return {
       state: result.state,
       authored: authored.state,

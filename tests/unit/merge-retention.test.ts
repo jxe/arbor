@@ -1,5 +1,4 @@
 import { test, expect } from "bun:test";
-import { StateMapValidationCache } from "../../packages/canopyd-merge/src/state-map.ts";
 import { encodeWireDirectory, hashObject } from "@overstory/protocol";
 import {
   RetentionCache,
@@ -10,6 +9,7 @@ import {
   loadIntentState,
   storeIntentState,
 } from "../../packages/canopyd-merge/src/state-storage.ts";
+import type { IntentState } from "../../packages/canopyd-merge/src/intent-model.ts";
 
 function fixture() {
   const objects = new Map<string, Uint8Array>();
@@ -25,30 +25,29 @@ function fixture() {
       entries: [{ name: "note", file }],
     }),
   );
-  const state = put(
-    new TextEncoder().encode(
-      JSON.stringify({
-        format: "arbor-merge-intent-state",
-        tree: "tr_test",
-        root: "root",
-        nodes: {
-          root: {
-            id: "root",
-            parent: null,
-            name: "",
-            kind: "directory",
-            object: directory,
-            active: true,
-          },
+  const state = storeIntentState(
+    {
+      format: "arbor-merge-intent-state",
+      tree: "tr_test",
+      root: "root",
+      nodes: {
+        root: {
+          id: "root",
+          parent: null,
+          name: "",
+          kind: "directory",
+          object: directory,
+          active: true,
         },
-        outputs: {},
-        alternatives: {},
-        origins: {},
-        effects: {},
-        changes: {},
-        decisions: [],
-      }),
-    ),
+      },
+      outputs: {},
+      alternatives: {},
+      origins: {},
+      effects: {},
+      changes: {},
+      decisions: [],
+    } as IntentState,
+    put,
   );
   let reads = 0;
   const load = async (hash: string) => {
@@ -57,7 +56,7 @@ function fixture() {
     if (!bytes) throw Error("Missing object");
     return bytes;
   };
-  return { objects, file, state, load, reads: () => reads, directoryOf: () => directory };
+  return { objects, file, state, load, put, reads: () => reads, directoryOf: () => directory };
 }
 
 test("warm typed dependency validation reads no old bytes and returns the exact closure", async () => {
@@ -199,58 +198,15 @@ test("a cached file does not certify the same bytes as a directory or state", as
     cache,
     durable: () => true,
   });
-  const invalid = JSON.parse(new TextDecoder().decode(f.objects.get(f.state)!));
-  invalid.nodes.root.object = f.file;
-  const bytes = new TextEncoder().encode(JSON.stringify(invalid)),
-    root = hashObject(bytes);
-  f.objects.set(root, bytes);
+  const invalid = await loadIntentState(f.state, f.load);
+  invalid.nodes.root!.object = f.file;
+  const root = storeIntentState(invalid, f.put);
   await expect(
     verifyIntentRetention([root], f.load, { cache, durable: () => true }),
   ).rejects.toThrow();
   await expect(
     verifyIntentRetention([f.file], f.load, { cache, durable: () => true }),
   ).rejects.toThrow();
-});
-
-test("reusing a decoded state preserves the exact closure and still requires its chunks", async () => {
-  const f = fixture();
-  const original = await loadIntentState(f.state, f.load);
-  const root = storeIntentState(original, (bytes) => {
-    const hash = hashObject(bytes);
-    f.objects.set(hash, bytes);
-    return hash;
-  });
-  const dependencies = new Set<string>();
-  const historyCache = new StateMapValidationCache();
-  await loadIntentState(root, f.load, undefined, historyCache);
-  const value = await loadIntentState(
-    root,
-    f.load,
-    (hash) => dependencies.add(hash),
-    historyCache,
-  );
-  const expected = await verifyIntentRetention([root], f.load);
-  const options = {
-    cache: new RetentionCache(),
-    durable: () => false,
-    state: (hash: string) =>
-      hash === root ? { value, dependencies } : undefined,
-  };
-  expect(await verifyIntentRetention([root], f.load, options)).toEqual(
-    expected,
-  );
-  const manifest = JSON.parse(new TextDecoder().decode(f.objects.get(root)!));
-  f.objects.delete(manifest.maps.changes);
-  // Test both a cached closure and a fresh walk using the semantic proof.
-  await expect(verifyIntentRetention([root], f.load, options)).rejects.toThrow(
-    "Missing object",
-  );
-  await expect(
-    verifyIntentRetention([root], f.load, {
-      ...options,
-      cache: new RetentionCache(),
-    }),
-  ).rejects.toThrow("Missing object");
 });
 
 test("successive states reach the prior frontier without rereading their history", async () => {
@@ -271,13 +227,18 @@ test("successive states reach the prior frontier without rereading their history
       incoming: { object: state.nodes.root!.object, change: `edit-${i}` },
     });
     state.changes[`edit-${i}`] = envelope;
-    root = put(state);
+    root = storeIntentState(state, f.put);
     const reads = f.reads();
+    // As the host walks: durable change records were walked by the job that
+    // published them, so only the new envelope leads back to the prior state.
     await verifyIntentRetention([root], f.load, {
       cache,
       durable: (hash) => hash !== root && hash !== envelope,
+      trusted: (ref) => ref.kind === "change",
     });
-    expect(f.reads() - reads).toBeLessThan(10);
+    // The root, its active part, the changed map path and one rewritten
+    // leaf's records (17 when a leaf splits); never the rest of history.
+    expect(f.reads() - reads).toBeLessThan(32);
     const retained = await verifyIntentRetention([root], f.load, {
       cache,
       durable: () => true,
@@ -298,13 +259,14 @@ test("fresh audit shares history across records and union traversal without trus
   for (let i=0;i<32;i++) {
     const change=put({base:{object:state.nodes.root!.object,state:roots.at(-1)},incoming:{object:state.nodes.root!.object}});
     state.changes[`change-${i}`]=change;
-    roots.push(put(state));
+    roots.push(storeIntentState(state, f.put));
   }
   const expected = await verifyIntentRetention([roots.at(-1)!], f.load);
   const audit = retentionAudit(f.load);
   const before = f.reads();
   for (const root of roots) await audit([root]);
-  expect(f.reads()-before).toBeLessThan(roots.length*4);
+  // Per root: its own parts plus one rewritten map leaf, not every earlier change.
+  expect(f.reads()-before).toBeLessThan(roots.length*16);
   expect(await audit(roots,true)).toEqual(expected);
   const unionAudit=retentionAudit(f.load);
   expect(await unionAudit(roots,true)).toEqual(expected);
@@ -320,11 +282,7 @@ test("a trusted accepted input state stops the history walk; a requested root is
   const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); f.objects.set(hash, bytes); return hash; };
   const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
   const change = put(encode({ base: { state: f.state, object: f.directoryOf() }, incoming: { object: f.directoryOf() } }));
-  const later = put(encode({
-    format: "arbor-merge-intent-state", tree: "tr_test", root: "root",
-    nodes: { root: { id: "root", parent: null, name: "", kind: "directory", object: f.directoryOf(), active: true } },
-    outputs: {}, alternatives: {}, origins: {}, effects: {}, changes: { edit: change }, decisions: [],
-  }));
+  const later = storeIntentState({ ...await loadIntentState(f.state, f.load), changes: { edit: change } }, put);
   const walked = await verifyIntentRetention([later], f.load, { cache: new RetentionCache(), durable: () => true });
   expect(walked.has(f.state)).toBe(true);
   expect(walked.has(f.file)).toBe(true);
@@ -427,7 +385,6 @@ test("validated indexed retention visits changed branches, not flattened history
     let visits = 0;
     const options = { cache, durable: (h: string) => !staged.has(h), staged, frontierOnly: true,
       onCount: (name: string, n: number) => { if (name === "retention-visits") visits = n; },
-      state: () => ({ value: state, dependencies: { *[Symbol.iterator](): Generator<string> { throw Error("Flattened history"); } } }),
     };
     await verifyIntentRetention([root], f.load, options);
     const old = new Set(f.objects.keys());

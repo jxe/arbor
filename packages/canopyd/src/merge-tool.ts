@@ -1,30 +1,31 @@
-import type { ValidatedMaterial } from "../../canopyd-merge/src/intent-engine.ts";
-import type { IntentState } from "../../canopyd-merge/src/intent-model.ts";
-import { RetentionCache, verifyIntentRetention } from "../../canopyd-merge/src/retention.ts";
-import { CHECKPOINT_BATCH_TOO_LARGE_EXIT } from "../../canopyd-merge/src/checkpoint.ts";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { stableJSONString, hashObject, type ObjectHash } from "@overstory/protocol";
+import { ObjectStore } from "@overstory/object-store";
+import {
+  CheckpointBatchLimitError,
+  parseResponse,
+  type IntentRequestInput,
+  type IntentResponse,
+  type MergeObjects,
+  type MergeRequest,
+  type MergeResult,
+  type ProjectionRequest,
+  type ProjectionResponse,
+} from "@overstory/canopyd-merge";
 import type {
   CheckpointBatchRequest, CheckpointBatchResponse,
   CheckpointRequest,
   CheckpointResponse,
-} from "../../canopyd-merge/src/checkpoint.ts";
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { ObjectStore } from "@overstory/object-store";
-import {
-  parseResponse,
-  type MergeRequest,
-  type ProjectionRequest,
-  type ProjectionResponse,
-  type IntentRequestInput,
-  type IntentResponse,
-} from "@overstory/canopyd-merge";
-import { changeIdentity, parseIntentRequest } from "../../canopyd-merge/src/intent-model.ts";
-import { CheckpointBatchLimitError, type MergeResult } from "@overstory/canopyd-merge";
+} from "@overstory/canopyd-merge/checkpoint";
+import type { ValidatedMaterial } from "@overstory/canopyd-merge/intent-engine";
+import { changeIdentity, parseIntentRequest, type IntentState } from "@overstory/canopyd-merge/intent-model";
+import { RetentionCache, verifyIntentRetention } from "@overstory/canopyd-merge/retention";
+import { StateMapValidationCache, type MapProof } from "@overstory/canopyd-merge/state-map";
+import { jsonHash } from "@overstory/canopyd-merge/state-value";
+import { absentFrom, holdsObject } from "@overstory/canopyd-merge/worker-objects";
 import { PersistentMergeWorker } from "./merge-worker.ts";
-import { StateMapValidationCache, type MapProof } from "../../canopyd-merge/src/state-map.ts";
 
 type EvaluatedResponse =
   | CheckpointResponse
@@ -32,10 +33,9 @@ type EvaluatedResponse =
   | ProjectionResponse
   | Extract<IntentResponse, { outcome: "evaluated" }>;
 export interface MergeToolOptions {
-  /** Executable and fixed arguments. No shell interpretation. */
+  /** Executable and fixed arguments, run as `<command> serve --objects DIR
+   * --staging DIR`: one sequential JSON-lines worker. No shell interpretation. */
   command?: string[];
-  /** Reuse one sequential stdin worker. Canopy enables this for the built-in tool. */
-  persistent?: boolean;
   /** Optional phase timings; no request content or object identities. */
   onTiming?: (phase: string, milliseconds: number) => void;
   /** Shared object store to read through (Canopy passes its cached store). */
@@ -57,7 +57,7 @@ export interface MergeToolOptions {
   contentChoices?: "source" | "file";
 }
 
-type StateProof = {hash: string; object: string; state: IntentState; bytes: number; dependencies: Set<string>; material: ValidatedMaterial; references: ReadonlySet<string>; history: readonly MapProof[]};
+type StateProof = {hash: string; object: string; state: IntentState; bytes: number; material: ValidatedMaterial; history: readonly MapProof[]};
 
 /** The merge worker evaluated the request and failed: a budget, an invalid
  * state or an unsupported input. Its message is the worker's own. */
@@ -118,16 +118,32 @@ export class MergeTool {
   validatedState(tree: string, ref: {object: string; state: string}): IntentState | undefined {
     return this.validationProof(tree, ref)?.state;
   }
-  verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, proofs: ReadonlyMap<string, StateProof> = this.validatedStates, trusted: ReadonlySet<string> = new Set()) {
+  verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, trusted: ReadonlySet<string> = new Set()) {
     return verifyIntentRetention(roots, (hash) => this.shared.load(hash, available), {
       cache: this.retentionCache, durable: (hash) => !available.has(hash),
       staged: available, frontierOnly: true, onCount: this.options.onCount,
       trusted: (ref) => ref.kind === "change" || trusted.has(ref.hash),
-      state: (hash) => {
-        for (const proof of proofs.values())
-          if (proof.hash === hash) return {value: proof.state, dependencies: proof.dependencies, references: proof.references};
-      },
     });
+  }
+  /** Validate one state. Retention walks the stored graph itself, so only the
+   * active state, its material and its shared history proofs are kept. */
+  private async proveState(
+    tree: string,
+    ref: {object: string; state: string},
+    objects: MergeObjects,
+    previous?: ValidatedMaterial,
+  ): Promise<StateProof> {
+    const { validateIntentState } = await import("@overstory/canopyd-merge/intent-engine");
+    let stateBytes = 0;
+    let history: readonly MapProof[] = [];
+    const material: ValidatedMaterial = new Map();
+    const state = await validateIntentState(ref, tree, objects, {
+      historyCache: this.historyValidation, retained: () => {},
+      material: {previous, next: material},
+      summary: {bytes: count => {stateBytes = count;}, references: () => {}, history: proofs => {history = proofs;}},
+      maxMillis: this.validationMillis,
+    });
+    return {hash: ref.state, object: ref.object, state, bytes: stateBytes * 2 + material.size * 256, material, history};
   }
   /** Remove job and worker directories left by an earlier process. Each job
    * removes its own directory when it settles, so anything present at startup
@@ -148,20 +164,12 @@ export class MergeTool {
     const started = performance.now();
     const before = this.shared.readCounters.reads;
     const key = JSON.stringify([tree, ref.object, ref.state]);
-    if (!this.validatedStates.has(key)) {
-      const { validateIntentState } = await import("../../canopyd-merge/src/intent-engine.ts");
-      const dependencies = new Set<string>();
-      let stateBytes = 0, references: ReadonlySet<string> = new Set();
-      let history: readonly MapProof[] = [];
-      const material: ValidatedMaterial = new Map();
-      const state = await validateIntentState(ref, tree, {
+    if (!this.validatedStates.has(key))
+      this.rememberProof(key, await this.proveState(tree, ref, {
         read: (hash) => this.shared.read(hash),
         store: async () => {},
-      }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}, history: proofs => {history = proofs;}}, maxMillis: this.validationMillis});
-      const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
-      this.rememberProof(key, {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references, history});
-    }
-    await this.verifyRetention([ref.state], new Map(), this.validatedStates, new Set());
+      }));
+    await this.verifyRetention([ref.state], new Map());
     return { reads: this.shared.readCounters.reads - before, milliseconds: performance.now() - started };
   }
   private readonly shared: ObjectStore;
@@ -271,86 +279,20 @@ export class MergeTool {
     const retained = ["base" in request ? request.base : undefined, "current" in request ? request.current : undefined]
       .flatMap((ref) => ref && typeof ref === "object" && "state" in ref && typeof ref.state === "string" ? [ref.state] : []);
     const trusted = new Set<string>();
-    for (const state of new Set(retained)) {
-      if (await this.shared.find(state)) trusted.add(state);
-    }
+    for (const state of new Set(retained))
+      if (await holdsObject(this.shared, state)) trusted.add(state);
     mark("retained-inputs");
-    const jobs = join(this.dataRoot, "merge-jobs");
-    await mkdir(jobs, { recursive: true });
-    const job = await mkdtemp(join(jobs, "job-"));
     let worker: PersistentMergeWorker | undefined;
     let healthy = false;
     try {
-      const command = this.options.command ?? (process.env.ARBOR_MERGE_EXECUTABLE
-        ? [process.env.ARBOR_MERGE_EXECUTABLE]
-        : [process.execPath, fileURLToPath(new URL("../../canopyd-merge/src/cli.ts", import.meta.url))]);
-      if (!command.length) throw new Error("Empty merge command");
-      if (this.options.persistent) {
-        worker = this.worker;
-        if (worker && !worker.alive) {
-          await worker.close(); await rm(worker.directory, {recursive: true, force: true});
-          this.worker = worker = undefined;
-        }
-        if (!worker) {
-          const parent = join(this.dataRoot, "merge-workers");
-          await mkdir(parent, {recursive: true});
-          const directory = await mkdtemp(join(parent, "worker-"));
-          worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"));
-          this.worker = worker;
-        }
-      }
-      const stagingPath = join(worker?.directory ?? job, "objects");
-      const staging = new ObjectStore(stagingPath);
-      for (const [hash, bytes] of inputs) {
-        if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
-        if (!(await this.shared.find(hash))) await staging.stage([{ hash, bytes }]);
-      }
-      // Retained history is currently append-only (no object GC). This manifest
-      // names live job inputs for a future collector; a collector must honor it.
-      await writeFile(join(job, "request.json"), JSON.stringify(request));
+      worker = await this.currentWorker();
+      const staging = new ObjectStore(join(worker.directory, "objects"));
+      await this.stageInputs(inputs, staging);
       mark("stage-inputs");
-      const stdout = worker ? await worker.request(request, this.options.timeoutMs ?? 30_000) : await new Promise<string>((resolve, reject) => {
-        let inputError: Error | undefined;
-        const child = execFile(
-          command[0]!,
-          [
-            ...command.slice(1),
-            "evaluate",
-            "--objects",
-            join(this.dataRoot, "objects"),
-            "--staging",
-            stagingPath,
-          ],
-          {
-            timeout: this.options.timeoutMs ?? 30_000,
-            killSignal: "SIGKILL",
-            maxBuffer: 8 * 1024 * 1024,
-            encoding: "utf8",
-            env: {
-              PATH: process.env.PATH,
-              TMPDIR: process.env.TMPDIR,
-              LANG: process.env.LANG,
-              TZ: process.env.TZ,
-            },
-          },
-          (error, stdout) => {
-            if (request.kind === "checkpoint-batch" && (error as (Error & {code?:unknown}) | null)?.code === CHECKPOINT_BATCH_TOO_LARGE_EXIT)
-              reject(new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget"));
-            else if (error || inputError) reject(error ?? inputError);
-            else resolve(stdout);
-          }
-        );
-        // Wait for process exit before removing staging or releasing the slot,
-        // even if the worker closes stdin before reading the entire request.
-        child.stdin!.on("error", (error) => {
-          inputError = error;
-          child.kill("SIGKILL");
-        });
-        child.stdin!.end(JSON.stringify(request));
-      });
+      const stdout = await worker.request(request, this.options.timeoutMs ?? 30_000);
       mark("worker-process");
       try {
-        for (const [key, value] of Object.entries(worker?.lastTimings ?? {})) {
+        for (const [key, value] of Object.entries(worker.lastTimings ?? {})) {
           if (key.endsWith("-ms")) this.options.onTiming?.(`w-${key.slice(0, -3)}`, value);
           else this.options.onCount?.(`w-${key}`, value);
         }
@@ -375,7 +317,7 @@ export class MergeTool {
       const available = new Map([...inputs, ...objects]);
       // Semantic retention below already checks the complete typed graph. Do
       // not walk the same material tree again before validating that state.
-      if (!("state" in response.result) && request.kind !== "source")
+      if (!("state" in response.result))
         await this.shared.verifyReachable([response.result.object], available);
       else await this.shared.load(response.result.object, available);
       mark("output-objects");
@@ -383,9 +325,6 @@ export class MergeTool {
         "state" in response.result &&
         typeof response.result.state === "string"
       ) {
-        const { validateIntentState } = await import(
-          "../../canopyd-merge/src/intent-engine.ts"
-        );
         const tree = "tree" in request ? request.tree : undefined;
         if (!tree) throw new Error("Semantic result without tree scope");
         const reads = new Map<string, Uint8Array>();
@@ -408,22 +347,13 @@ export class MergeTool {
           const known = jobProofs.get(key);
           if (known) { this.proofStats.hits++; return known.state; }
           this.proofStats.validated++;
-          const dependencies = new Set<string>();
-          let stateBytes = 0, references: ReadonlySet<string> = new Set();
-          let history: readonly MapProof[] = [];
           const priorRef = "current" in request ? request.current : undefined;
           const prior = priorRef && "state" in priorRef
             ? jobProofs.get(JSON.stringify([tree, priorRef.object, priorRef.state])) : undefined;
-          const material: ValidatedMaterial = new Map();
-          const state = await validateIntentState(ref, tree, {
-            read: access.read,
-            store: access.store,
-          }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {previous: prior?.material, next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}, history: proofs => {history = proofs;}}, maxMillis: this.validationMillis});
-          const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
-          const proof = {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references, history};
+          const proof = await this.proveState(tree, ref, access, prior?.material);
           jobProofs.set(key, proof);
           this.rememberProof(key, proof);
-          return state;
+          return proof.state;
         };
         const retained = await validate({ object: response.result.object, state: response.result.state });
         const roots = [response.result.state];
@@ -452,9 +382,7 @@ export class MergeTool {
             stableJSONString(response.decisions)
           )
             throw new Error("Decision response differs from retained state");
-          const signature = hashObject(
-            new TextEncoder().encode(stableJSONString(changeIdentity(intent)))
-          );
+          const signature = jsonHash(changeIdentity(intent));
           if (
             authored.changes[intent.incoming.change] !== signature ||
             retained.changes[intent.incoming.change] !== signature
@@ -491,34 +419,62 @@ export class MergeTool {
             count("proof-bytes-last", Math.round((jobProofs.get(JSON.stringify([tree, response.result.object, response.result.state]))?.bytes ?? 0) / 1048576));
           }
         } catch { /* diagnostics only */ }
-        await this.verifyRetention(roots, available, jobProofs, trusted);
+        await this.verifyRetention(roots, available, trusted);
         mark("retention");
       }
       healthy = true;
       return { response, objects };
     } finally {
-      try {
-        if (worker) {
-          if (!healthy || !worker.alive) {
+      if (worker) {
+        if (!healthy || !worker.alive) {
+          this.worker = undefined;
+          await worker.close();
+          await rm(worker.directory, {recursive: true, force: true});
+        } else {
+          try {
+            await rm(join(worker.directory, "objects"), {recursive: true, force: true});
+          } catch (error) {
+            // Never let a cleanup failure expose an earlier job's proposal to
+            // its successor. Retire the process before releasing the queue.
             this.worker = undefined;
             await worker.close();
-            await rm(worker.directory, {recursive: true, force: true});
-          } else {
-            try {
-              await rm(join(worker.directory, "objects"), {recursive: true, force: true});
-            } catch (error) {
-              // Never let a cleanup failure expose an earlier job's proposal to
-              // its successor. Retire the process before releasing the queue.
-              this.worker = undefined;
-              await worker.close();
-              throw error;
-            }
+            throw error;
           }
         }
-      } finally {
-        await rm(job, { recursive: true, force: true });
       }
     }
+  }
+
+  /** The live worker, replacing one that exited or failed. */
+  private async currentWorker(): Promise<PersistentMergeWorker> {
+    let worker = this.worker;
+    if (worker && !worker.alive) {
+      await worker.close(); await rm(worker.directory, {recursive: true, force: true});
+      this.worker = worker = undefined;
+    }
+    if (worker) return worker;
+    const command = this.options.command ?? (process.env.ARBOR_MERGE_EXECUTABLE
+      ? [process.env.ARBOR_MERGE_EXECUTABLE]
+      : [process.execPath, fileURLToPath(new URL("../../canopyd-merge/src/cli.ts", import.meta.url))]);
+    if (!command.length) throw new Error("Empty merge command");
+    const parent = join(this.dataRoot, "merge-workers");
+    await mkdir(parent, {recursive: true});
+    const directory = await mkdtemp(join(parent, "worker-"));
+    worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"));
+    this.worker = worker;
+    return worker;
+  }
+
+  /** Stage the inputs durable storage lacks, in one publish. Every input is
+   * hash-checked: those already durable here, the rest as they are staged. */
+  private async stageInputs(inputs: ReadonlyMap<ObjectHash, Uint8Array>, staging: ObjectStore): Promise<void> {
+    const values = [...inputs].map(([hash, bytes]) => ({hash, bytes}));
+    const missing = await absentFrom(this.shared, values);
+    const staged = new Set(missing);
+    for (const value of values)
+      if (!staged.has(value) && hashObject(value.bytes) !== value.hash)
+        throw new Error(`Object hash mismatch: ${value.hash}`);
+    await staging.stage(missing);
   }
 
   async tree(

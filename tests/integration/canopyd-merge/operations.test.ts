@@ -6,7 +6,7 @@ import { ObjectStore } from "@overstory/object-store";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
 import { Fixture } from "../../unit/canopyd-merge/fixture.ts";
 
-test("operation evaluation is identical through library, fresh worker, persistent worker and Canopy staging validation", async () => {
+test("operation evaluation is identical through library, worker process and Canopy staging validation", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.txt": "one two" });
   const first = await f.run(
@@ -45,43 +45,35 @@ test("operation evaluation is identical through library, fresh worker, persisten
     await new ObjectStore(shared).store(
       [...f.objects].map(([hash, bytes]) => ({ hash, bytes }))
     );
-    const tool = new MergeTool(directory),
-      actual = await tool.evaluate(request, f.objects);
+    await using tool = new MergeTool(directory);
+    const actual = await tool.evaluate(request, f.objects);
     expect(actual.response).toEqual(expected);
-    for (const mode of ["evaluate", "serve"]) {
-      const child = Bun.spawn(
-        [
-          process.execPath,
-          "packages/canopyd-merge/src/cli.ts",
-          mode,
-          "--objects",
-          shared,
-          "--staging",
-          join(directory, mode),
-        ],
-        { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" }
-      );
-      child.stdin.write(
-        JSON.stringify(request) +
-          "\n" +
-          (mode === "serve" ? JSON.stringify(request) + "\n" : "")
-      );
-      child.stdin.end();
-      const lines = (await new Response(child.stdout).text())
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
-      expect(await child.exited).toBe(0);
-      expect(lines).toEqual(
-        mode === "serve" ? [expected, expected] : [expected]
-      );
-    }
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "packages/canopyd-merge/src/cli.ts",
+        "serve",
+        "--objects",
+        shared,
+        "--staging",
+        join(directory, "serve"),
+      ],
+      { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" }
+    );
+    child.stdin.write(JSON.stringify(request) + "\n" + JSON.stringify(request) + "\n");
+    child.stdin.end();
+    const lines = (await new Response(child.stdout).text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(await child.exited).toBe(0);
+    expect(lines).toEqual([expected, expected]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("typed evaluation refusals match library and executable modes", async () => {
+test("typed evaluation refusals match the library in shared and fresh worker processes", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.txt": "old" });
   const valid = f.request(base, f.tree({ "a.txt": "new" }), [
@@ -117,19 +109,18 @@ test("typed evaluation refusals match library and executable modes", async () =>
     await new ObjectStore(shared).store(
       [...f.objects].map(([hash, bytes]) => ({ hash, bytes }))
     );
-    for (const mode of ["evaluate", "serve"]) {
-      for (const batch of mode === "serve"
-        ? [requests]
-        : requests.map((r) => [r])) {
+    // One process serving every request, then a fresh process per request.
+    for (const [index, batch] of [requests, ...requests.map((r) => [r])].entries()) {
+      {
         const child = Bun.spawn(
           [
             process.execPath,
             "packages/canopyd-merge/src/cli.ts",
-            mode,
+            "serve",
             "--objects",
             shared,
             "--staging",
-            join(directory, mode),
+            join(directory, `staging-${index}`),
           ],
           { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "pipe" }
         );
@@ -172,11 +163,11 @@ test("authority rejects missing inverse material and a forged result projection"
     // All hashes exist, but the claimed root is not the projection of its state.
     await Bun.write(
       script,
-      `console.log(${JSON.stringify(
+      `for await (const _ of console) console.log(${JSON.stringify(
         JSON.stringify({ ...reply, result: { ...reply.result, object: base } })
       )});`
     );
-    const tool = new MergeTool(directory, {
+    await using tool = new MergeTool(directory, {
       command: [process.execPath, script],
     });
     await expect(tool.evaluate(request, new Map())).rejects.toThrow(
@@ -187,7 +178,7 @@ test("authority rejects missing inverse material and a forged result projection"
     await rm(join(directory, "objects", old.slice(0, 2), old.slice(2)));
     await Bun.write(
       script,
-      `console.log(${JSON.stringify(JSON.stringify(reply))});`
+      `for await (const _ of console) console.log(${JSON.stringify(JSON.stringify(reply))});`
     );
     await expect(tool.evaluate(request, new Map())).rejects.toThrow();
   } finally {

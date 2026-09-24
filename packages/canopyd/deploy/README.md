@@ -93,7 +93,7 @@ canopyd reads these variables at start; all are optional.
 | `ARBOR_STATE_PROOF_MB` | 64 | Ceiling for one retained-state proof. Live proofs weigh about 36 MB; a lower ceiling silently rejects every proof and re-validates each request. |
 | `ARBOR_HISTORY_CACHE_MB` | 256 | History validation cache. A 16 MB cache thrashed and gave no benefit. |
 | `ARBOR_CANOPY_NO_WARMUP` | unset | Set to skip the background warm-up of every tree's current semantic state at startup; the first edit after a restart then pays that cost. |
-| `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge worker; see [the merge tool](../../../docs/architecture/canopyd/merge-tool.md#running-and-configuring). |
+| `ARBOR_MERGE_EXECUTABLE` | the workspace `arbor-merge` | Alternate merge worker implementing `serve`; see [the merge tool](../../../docs/architecture/canopyd/merge-tool.md#running-and-configuring). |
 
 ### Health and readiness
 

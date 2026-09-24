@@ -1,4 +1,4 @@
-export interface MarkdownLayout {
+interface MarkdownLayout {
   units: Array<{ key: string; start: number; end: number }>;
   embedded: Array<{
     key: string;

@@ -1,5 +1,6 @@
 import { z } from "zod";
-const hash = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+import { OBJECT_HASH } from "./state-value.ts";
+const hash = z.string().regex(OBJECT_HASH);
 const material = z.object({ object: hash, state: hash.optional() }).strict();
 /** Trusted caller supplies accepted projection/legacy decisions, never authored operations. */
 export const checkpointSchema = z
@@ -56,7 +57,6 @@ export type CheckpointResponse = z.infer<typeof checkpointResponseSchema>;
 
 /** A bounded linear slice of already-accepted history; no authored execution. */
 export const MAX_CHECKPOINT_BATCH = 64;
-export const CHECKPOINT_BATCH_TOO_LARGE_EXIT = 75;
 export const checkpointBatchSchema = z.object({
   kind: z.literal("checkpoint-batch"),
   tree: z.string().min(1),

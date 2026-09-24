@@ -306,4 +306,33 @@ describe("reference Canopy merge fixtures", () => {
     });
   }
 
+  test("Markdown line merge conflicts rather than diffing past its budget", async () => {
+    const lines = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, i) => `${prefix} ${i}\n`).join("");
+    // Under 256 KiB, but a 5000 x 5000 line table exceeds the diff budget.
+    for (const [base, candidate, remote] of [
+      [lines("base", 5000), lines("candidate", 5000), lines("base", 5000) + "remote\n"],
+      // Over the byte budget before any diff.
+      ["x".repeat(300 * 1024), "y", "z"],
+    ] as const) {
+      const objects = new Map<string, Uint8Array>();
+      const roots = {
+        base: markdownSnapshot(base, objects).root,
+        candidate: markdownSnapshot(candidate, objects).root,
+        remote: markdownSnapshot(remote, objects).root,
+      };
+      const { result, source } = await mergedSource(roots, objects);
+      expect(result.conflicts).toEqual([{ path: "/note.md", reason: "node-conflict" }]);
+      expect(source).toBe(candidate);
+    }
+    // Within budget the same shape still merges line by line.
+    const objects = new Map<string, Uint8Array>();
+    const { result, source } = await mergedSource({
+      base: markdownSnapshot(lines("base", 100), objects).root,
+      candidate: markdownSnapshot(lines("base", 100) + "candidate\n", objects).root,
+      remote: markdownSnapshot("remote\n" + lines("base", 100), objects).root,
+    }, objects);
+    expect(result.conflicts).toEqual([]);
+    expect(source).toBe("remote\n" + lines("base", 100) + "candidate\n");
+  });
 });

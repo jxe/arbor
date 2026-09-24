@@ -21,7 +21,6 @@ const head = heads[0]!;
 const objects = new ObjectStore(join(dataRoot, "objects"));
 let timings: Record<string, number> = {}, counts: Record<string, number> = {};
 const tool = new MergeTool(dataRoot, {
-  persistent: true,
   objects,
   onTiming: (phase, ms) => { timings[phase] = (timings[phase] ?? 0) + ms; },
   onCount: (name, value) => { counts[name] = value; },

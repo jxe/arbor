@@ -24,70 +24,6 @@ export interface RuleContext {
   conflicts: UpdateConflict[];
 }
 
-/** Source-intent rules validate a causally reconstructed proposal. They do not
- * infer correspondence or turn a snapshot diff into authored operations. */
-export interface SourceMergeInput {
-  tree: string;
-  path: string;
-  basis: Uint8Array;
-  current: Uint8Array;
-  candidate: Uint8Array;
-  proposed: Uint8Array;
-  changes?: Array<{ change: string; operations: import("@overstory/protocol").SourceOperation[] }>;
-  contributions: ReadonlyArray<{ change: string; operation: string }>;
-}
-export interface SourceMergeDecision {
-  outcome: "resolved" | "unresolved" | "inapplicable";
-  reason: string;
-}
-/** Inputs and decisions are self-contained data. Evaluation may be local or
- * delegated later; authorization and commit never belong to the rule process. */
-export interface SourceMergeRule {
-  id: string;
-  revision: number;
-  evaluate(input: SourceMergeInput): SourceMergeDecision | Promise<SourceMergeDecision>;
-}
-export type SourceMergeRuleSelector = (tree: string, path: string) => SourceMergeRule | null;
-
-function sourceTexts(input: SourceMergeInput): string[] | null {
-  try {
-    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-    return [input.basis, input.current, input.candidate, input.proposed].map(bytes => decoder.decode(bytes));
-  } catch { return null; }
-}
-export const plainTextSourceRule: SourceMergeRule = {
-  id: "plain-text-disjoint", revision: 1,
-  evaluate(input) {
-    return sourceTexts(input)
-      ? { outcome: "resolved", reason: "Disjoint authored selections in scalar text" }
-      : { outcome: "inapplicable", reason: "Source is not scalar UTF-8 text" };
-  },
-};
-export const markdownProseSourceRule: SourceMergeRule = {
-  id: "markdown-prose-disjoint", revision: 1,
-  evaluate(input) {
-    const texts = sourceTexts(input);
-    if (!texts) return { outcome: "inapplicable", reason: "Source is not scalar UTF-8 text" };
-    // A conservative first Markdown rule. Richer rules can validate frontmatter,
-    // code, links and embedded structures without changing causal reconciliation.
-    const prose = (text: string) => !/[`~*_<>{}\[\]\\|#$]/.test(text) &&
-      !/^\ufeff?---(?:\r?\n|$)/.test(text) &&
-      !/^[ \t]*(?:[-=]{2,}|[+]{3,})[ \t]*$/m.test(text) &&
-      !/^(?: {4}|\t|\s*(?:[-+]|\d+[.)])\s)/m.test(text);
-    return texts.every(prose)
-      ? { outcome: "resolved", reason: "Disjoint authored selections preserve plain Markdown prose" }
-      : { outcome: "inapplicable", reason: "Structured Markdown requires another source rule" };
-  },
-};
-
-/** Built-in selection policy. Future Canopy/tree configuration selects rules at
- * this boundary; extensions are defaults, while each rule examines the source. */
-export const defaultSourceMergeRule: SourceMergeRuleSelector = (_tree, path) => {
-  if (/\.txt$/i.test(path)) return plainTextSourceRule;
-  if (/\.(md|markdown)$/i.test(path)) return markdownProseSourceRule;
-  return null;
-};
-
 function splitLines(source: string): string[] {
   return source.match(/.*?(?:\r\n|\n|\r|$)/g)?.filter(Boolean) ?? [];
 }
@@ -98,9 +34,17 @@ interface Edit {
   replacement: string[];
 }
 
-function editsFrom(base: string[], changed: string[]): Edit[] {
+/** Sources the line merge accepts, as the format rules bound their analysis. */
+const MAX_LINE_MERGE_BYTES = 256 * 1024;
+/** LCS table cells one line diff may allocate: a 64 MiB table. */
+const MAX_DIFF_CELLS = 16 * 1024 * 1024;
+
+/** Line edits from `base` to `changed`, or null when the LCS table would
+ * exceed its budget. */
+function editsFrom(base: string[], changed: string[]): Edit[] | null {
   const rows = base.length + 1;
   const columns = changed.length + 1;
+  if (rows * columns > MAX_DIFF_CELLS) return null;
   const lcs = new Uint32Array(rows * columns);
   for (let left = base.length - 1; left >= 0; left--) {
     for (let right = changed.length - 1; right >= 0; right--) {
@@ -154,10 +98,12 @@ function sequenceOffsets(lines: string[], sequence: string[]): number[] {
 function collapseDuplicateMoves(
   base: string[],
   candidate: string[],
+  candidateEdits: Edit[],
   remote: string[],
+  remoteEdits: Edit[],
 ): { candidate: string[]; approximate: number } {
-  const localDeletions = editsFrom(base, candidate).filter((edit) => edit.end > edit.start && !edit.replacement.length);
-  const remoteDeletions = editsFrom(base, remote).filter((edit) => edit.end > edit.start && !edit.replacement.length);
+  const localDeletions = candidateEdits.filter((edit) => edit.end > edit.start && !edit.replacement.length);
+  const remoteDeletions = remoteEdits.filter((edit) => edit.end > edit.start && !edit.replacement.length);
   const shared = localDeletions
     .filter((local) => remoteDeletions.some((accepted) => accepted.start === local.start && accepted.end === local.end))
     .sort((left, right) => (right.end - right.start) - (left.end - left.start));
@@ -176,10 +122,17 @@ function collapseDuplicateMoves(
   return { candidate: reduced, approximate };
 }
 
-function mergeLines(base: string[], candidate: string[], remote: string[]): { lines: string[]; approximate: number } {
-  const collapsed = collapseDuplicateMoves(base, candidate, remote);
-  const localEdits = editsFrom(base, collapsed.candidate).map((edit) => ({ ...edit, side: "candidate" as const }));
-  const remoteEdits = editsFrom(base, remote).map((edit) => ({ ...edit, side: "remote" as const }));
+/** Null when either diff exceeds its budget. */
+function mergeLines(base: string[], candidate: string[], remote: string[]): { lines: string[]; approximate: number } | null {
+  const candidateDiff = editsFrom(base, candidate), remoteDiff = editsFrom(base, remote);
+  if (!candidateDiff || !remoteDiff) return null;
+  const collapsed = collapseDuplicateMoves(base, candidate, candidateDiff, remote, remoteDiff);
+  // A collapsed candidate is shorter than the original, so its diff fits too.
+  const collapsedDiff = collapsed.candidate.length === candidate.length
+    ? candidateDiff
+    : editsFrom(base, collapsed.candidate)!;
+  const localEdits = collapsedDiff.map((edit) => ({ ...edit, side: "candidate" as const }));
+  const remoteEdits = remoteDiff.map((edit) => ({ ...edit, side: "remote" as const }));
   const edits = [...localEdits, ...remoteEdits].sort((left, right) => left.start - right.start || left.end - right.end || (left.side === "remote" ? -1 : 1));
   const result: string[] = [];
   let cursor = 0;
@@ -258,6 +211,13 @@ export async function markdownAdditiveV1(
   const [baseObject, candidateObject, currentObject] = await Promise.all([
     context.file(baseHash), context.file(candidateHash), context.file(currentHash),
   ]);
+  // Beyond the analysis budget the node conflicts, as it would with no rule.
+  const tooLarge = () => {
+    context.conflicts.push({ path, reason: "node-conflict" });
+    return { hash: candidateHash, approximate: 0 };
+  };
+  if ([baseObject, candidateObject, currentObject].some((bytes) => bytes.length > MAX_LINE_MERGE_BYTES))
+    return tooLarge();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let baseSource: string;
   let candidateSource: string;
@@ -271,6 +231,7 @@ export async function markdownAdditiveV1(
     return { hash: candidateHash, approximate: 0 };
   }
   const merged = mergeLines(splitLines(baseSource), splitLines(candidateSource), splitLines(currentSource));
+  if (!merged) return tooLarge();
   const source = merged.lines.join("");
   if (divergentFrontmatter(baseSource, candidateSource, currentSource)) context.conflicts.push({ path, reason: "frontmatter-conflict" });
   if (!balancedFences(source)) context.conflicts.push({ path, reason: "invalid-markdown-fence" });

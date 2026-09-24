@@ -3,7 +3,18 @@
   "version": "0.1.0",
   "description": "canopyd's merge sidecar: tree merging, format rules, account-configuration merge, checkpoints, and the arbor-merge command.",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./account-v2": "./src/account-v2.ts",
+    "./checkpoint": "./src/checkpoint.ts",
+    "./intent-engine": "./src/intent-engine.ts",
+    "./intent-model": "./src/intent-model.ts",
+    "./retention": "./src/retention.ts",
+    "./state-map": "./src/state-map.ts",
+    "./state-storage": "./src/state-storage.ts",
+    "./state-value": "./src/state-value.ts",
+    "./worker-objects": "./src/worker-objects.ts"
+  },
   "dependencies": {
     "@overstory/protocol": "workspace:*",
     "@overstory/object-store": "workspace:*",

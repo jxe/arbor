@@ -1,17 +1,10 @@
-import type { ObjectHash } from "@overstory/protocol";
-export interface SourceReconciliation {
-  version: "exact-source-disjoint-v1";
-  basis: { id: string; root: ObjectHash };
-  contributions: Array<{ change: string; operation: string }>;
-  /** Absent on the earliest shared-basis records; never reinterpret old decisions. */
-  rules?: Array<{ path: string; rule: string; revision: number; outcome: "resolved"; reason: string;
-    inputs: { basis: ObjectHash; current: ObjectHash; candidate: ObjectHash; proposed: ObjectHash } }>;
+import { z } from "zod";
 
-}
-
-export type MergeSummary =
-  | SourceReconciliation
-  | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "account-config-v2"; mergedFields: number }
-  | { version: "collection-file-rows-v1"; mergedRows: number };
-
+/** Rule evidence persisted beside an accepted merge. Worker output is
+ * validated against this schema; no other summary shape is accepted. */
+export const mergeSummarySchema = z.discriminatedUnion("version", [
+  z.object({ version: z.literal("markdown-additive-v1"), approximatePlacements: z.number().int().nonnegative() }).strict(),
+  z.object({ version: z.literal("collection-file-rows-v1"), mergedRows: z.number().int().nonnegative() }).strict(),
+  z.object({ version: z.literal("account-config-v2"), mergedFields: z.number().int().nonnegative() }).strict(),
+]);
+export type MergeSummary = z.infer<typeof mergeSummarySchema>;

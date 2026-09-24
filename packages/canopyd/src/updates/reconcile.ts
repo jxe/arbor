@@ -1,5 +1,5 @@
 import type { MergeSummary } from "@overstory/canopyd-merge";
-export type { MergeSummary, SourceReconciliation } from "@overstory/canopyd-merge";
+export type { MergeSummary } from "@overstory/canopyd-merge";
 import type { ObjectHash, UpdateConflict } from "@overstory/protocol";
 import type { MergeResult } from "@overstory/canopyd-merge";
 

@@ -5,7 +5,6 @@ import { ObjectStore } from "@overstory/object-store";
 import { merge } from "./index.ts";
 import { workerObjects } from "./worker-objects.ts";
 import { CheckpointBatchLimitError } from "./checkpoint-batch.ts";
-import { CHECKPOINT_BATCH_TOO_LARGE_EXIT } from "./checkpoint.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
 import type { MergeObjects } from "./index.ts";
 
@@ -33,32 +32,31 @@ async function timed<T>(objects: MergeObjects, work: (objects: MergeObjects) => 
 }
 
 const maxRequestBytes = 8 * 1024 * 1024;
-async function* requests(lines: boolean): AsyncGenerator<string> {
-  let pending = Buffer.alloc(0);
-  for await (const chunk of process.stdin) {
-    pending = Buffer.concat([pending, Buffer.from(chunk)]);
-    if (lines) {
-      let end: number;
-      while ((end = pending.indexOf(10)) !== -1) {
-        if (end > maxRequestBytes)
-          throw new Error("Merge request exceeds byte budget");
-        yield pending.subarray(0, end).toString("utf8");
-        pending = pending.subarray(end + 1);
-      }
+/** One request per stdin line. Chunks are kept as a list until a line ends. */
+async function* requests(): AsyncGenerator<string> {
+  let chunks: Buffer[] = [], bytes = 0;
+  for await (const input of process.stdin) {
+    let chunk = Buffer.from(input), end: number;
+    while ((end = chunk.indexOf(10)) !== -1) {
+      if (bytes + end > maxRequestBytes)
+        throw new Error("Merge request exceeds byte budget");
+      chunks.push(chunk.subarray(0, end));
+      yield Buffer.concat(chunks).toString("utf8");
+      chunks = []; bytes = 0;
+      chunk = chunk.subarray(end + 1);
     }
-    if (pending.length > maxRequestBytes)
+    chunks.push(chunk); bytes += chunk.length;
+    if (bytes > maxRequestBytes)
       throw new Error("Merge request exceeds byte budget");
   }
-  if (pending.length || !lines) yield pending.toString("utf8");
+  if (bytes) yield Buffer.concat(chunks).toString("utf8");
 }
 
 /** Storage paths are process configuration, never request-controlled capabilities. */
 export async function run(args = process.argv.slice(2)): Promise<void> {
   const mode = args.shift();
-  if (mode !== "evaluate" && mode !== "serve")
-    throw new Error(
-      "Usage: arbor-merge evaluate|serve --objects DIR --staging DIR",
-    );
+  if (mode !== "serve")
+    throw new Error("Usage: arbor-merge serve --objects DIR --staging DIR");
   const options = new Map<string, string>();
   while (args.length) {
     const key = args.shift()!,
@@ -77,37 +75,30 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   const shared = new ObjectStore(options.get("--objects")!, { cacheBytes: (Number.isFinite(cacheMB) && cacheMB >= 0 ? cacheMB : 256) * 1024 * 1024 });
   const staging = new ObjectStore(options.get("--staging")!);
   const objects = workerObjects(shared, staging);
-  if (mode === "evaluate") {
-    for await (const text of requests(false))
+  // Sequential JSON-lines request/response. No IDs or multiplexing are needed.
+  for await (const line of requests()) {
+    try {
       process.stdout.write(
-        JSON.stringify(await merge(JSON.parse(text), objects)) + "\n",
+        JSON.stringify(await timed(objects, (counted) => merge(JSON.parse(line), counted))) + "\n",
       );
-  } else {
-    // Sequential JSON-lines request/response. No IDs or multiplexing are needed.
-    for await (const line of requests(true)) {
-      try {
-        process.stdout.write(
-          JSON.stringify(await timed(objects, (counted) => merge(JSON.parse(line), counted))) + "\n",
-        );
-      } catch (error) {
-        process.stdout.write(
-          JSON.stringify({
-            error: {
-              ...(error instanceof CheckpointBatchLimitError ? {code: "checkpoint-batch-too-large"}
-                : error instanceof IntentError ? {code: error.code} : {}),
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Merge evaluation failed",
-            },
-          }) + "\n",
-        );
-      }
+    } catch (error) {
+      process.stdout.write(
+        JSON.stringify({
+          error: {
+            ...(error instanceof CheckpointBatchLimitError ? {code: "checkpoint-batch-too-large"}
+              : error instanceof IntentError ? {code: error.code} : {}),
+            message:
+              error instanceof Error
+                ? error.message
+                : "Merge evaluation failed",
+          },
+        }) + "\n",
+      );
     }
   }
 }
 if (import.meta.main)
   run().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
-    process.exitCode = error instanceof CheckpointBatchLimitError ? CHECKPOINT_BATCH_TOO_LARGE_EXIT : 1;
+    process.exitCode = 1;
   });

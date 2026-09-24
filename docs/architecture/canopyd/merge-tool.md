@@ -12,20 +12,19 @@ worker, not an OS sandbox for arbitrary plugins.
 ## API and execution
 
 ```sh
-bun run arbor-merge evaluate --objects /data/objects --staging /data/merge-jobs/example/objects
-bun run arbor-merge serve --objects /data/objects --staging /data/merge-jobs/example/objects
+bun run arbor-merge serve --objects /data/objects --staging /data/merge-workers/worker-example/objects
 ```
 
-`evaluate` accepts one JSON request on stdin and writes one JSON response on
-stdout. Failures exit nonzero with diagnostics on stderr. `serve` accepts one
-JSON request per line and returns one response per line, in order; an invalid
-request returns `{ "error": { "message": "..." } }` and leaves the process usable.
-Persistent callers own staging lifetime and serialization. canopyd
-adapter keeps the worker alive across jobs, validates each result, then clears
-staging before starting the next job. Timeouts and crashes are reaped before
-cleanup; queued successors can start a replacement. canopyd shutdown drains the
-active job, rejects queued work, and closes its worker. Custom executables retain
-one-shot mode unless `persistent: true` is explicitly configured.
+`serve` accepts one JSON request per line on stdin and returns one response
+per line on stdout, in order; a failed evaluation returns
+`{ "error": { "message": "...", "code"?: "..." } }` and leaves the process
+usable. Each request's timings go to stderr as one `{"timings": ...}` line.
+Callers own staging lifetime and serialization. canopyd keeps one worker
+alive across jobs, validates each result, then clears staging before starting
+the next job. Timeouts and crashes are reaped before cleanup; queued
+successors can start a replacement. canopyd shutdown drains the active job,
+rejects queued work, and closes its worker. A custom executable speaks the
+same protocol.
 
 The [typed and validated contract](../../../packages/canopyd-merge/src/contract.ts) is the
 source of truth. For example, a tree merge takes these fields (replace abbreviated
@@ -47,18 +46,8 @@ reason, and entry or coupled-directory scope. A successful partial merge may
 contain unresolved decisions. Empty decisions do not clear existing canopyd choices.
 canopyd reifies the rule output with retained alternatives and origins, assigning
 durable identities itself. Account merge selection uses `account-config-v2`; authorization remains in canopyd before and after evaluation.
-
-A `kind: "source"` request carries the same object-reference inputs plus `tree`,
-`path`, and `proposal: { object }`. Its incoming material also carries exact
-`changes: [{ change, operations }]` and ordered `contributions: [{ change, operation }]`.
-The two lists must agree. canopyd proves the causal history and reconstructs the
-proposal before asking a format rule whether it is valid. The source result is
-that proposal with a resolved/unresolved/inapplicable decision and reason. Existing
-plain-text and Markdown-prose rules validate it conservatively; they do not infer
-operations from snapshots. Authored execution and unresolved alternatives use the operation-bearing
+Authored execution and unresolved alternatives use the operation-bearing
 tree request described under [operation evaluation](#operation-evaluation).
-The proposal-only source rule remains a diagnostic API; it is not canopyd's
-source acceptance path.
 
 The rule revision identifies algorithm semantics; it is not a versioned client API.
 Unrecognized rules, invalid responses or missing material fail evaluation. There
@@ -91,19 +80,22 @@ canopyd checks each against its accepted projection, then validates their combin
 retention closure once before persisting objects and caching references.
 
 Each batch retains at most 128 MiB of generated objects and 32 MiB of cached input
-bytes. Exceeding the generated-object budget exits with code 75; canopyd retries a
-smaller slice against the same basis. Other failures remain failures. These are
+bytes. Exceeding the generated-object budget returns the error code
+`checkpoint-batch-too-large`; canopyd retries a smaller slice against the same
+basis. Other failures remain failures. These are
 internal worker requests, with no public Overstory or database schema change.
 Bun uses native SHA-256 with the same object identities as the portable fallback.
 
 ## Incremental retained state
 
-Indexed state maps retain large history records through shared value pages.
-Before/after piece sequences share unchanged pages across effects instead of
-embedding a complete copy in every record. Readers retain compatibility with
-inline history records and legacy state roots. These are internal object formats,
-not changes to public update requests; old deployed binaries cannot read the new
-formats after they have been written.
+Every stored state is indexed (`arbor-merge-intent-state-v3`): an active part
+beside five hash-partitioned history maps. Migration 013 rewrote the earlier
+full-copy states, and readers no longer accept them. A history record of at
+most 2048 canonical JSON characters is stored inline (`arbor-state-record-v1`);
+a larger one is chunked into shared value pages (`arbor-state-record-v2`), so
+before/after piece sequences share unchanged pages across effects instead of
+embedding a complete copy in every record. Both record forms are current.
+These are internal object formats, not changes to public update requests.
 
 canopyd validates new history records and carries their typed dependencies with
 that validation. Per-evaluation proofs survive until acceptance even when they
@@ -125,8 +117,8 @@ uses the existing 256 MiB history budget; active state and material proofs use
 the existing 64 MiB state budget. A lease that cannot fit is declined. Neither
 budget was enlarged.
 
-Retention always traverses indexed history as typed map nodes, including when a
-semantic state proof is available. Durable subtrees are reusable by both hash
+Retention always traverses indexed history as typed map nodes; a semantic
+state proof never stands in for that walk. Durable subtrees are reusable by both hash
 and history-field type. A staged sibling does not prevent an independent durable
 branch from being certified. Pending publication obligations propagate to their
 parents; repeated proposal checks cannot promote unpublished dependencies.
@@ -145,8 +137,8 @@ are summed.
 ## Operation evaluation
 
 A tree request may carry authored operations. There is one evaluator; snapshot
-requests, source-proposal validation, and account rules are different inputs
-to the same executable, not separately deployed engines.
+requests, checkpoints, and account rules are different inputs to the same
+executable, not separately deployed engines.
 
 ```ts
 {
@@ -182,10 +174,14 @@ must reproduce its own `after`. A trace is evidence the evaluator checks in
 full, never a hint; an absent trace is snapshot semantics. The protocol bounds
 a trace to 64 frames and 1024 operations. `undoOperation` is not in the
 grammar; editors express undo and redo as ordinary edits, and the evaluator
-answers `unsupported` if it sees the kind. `composeFrames` in
-`packages/canopyd/src/updates/source-edits.ts` collapses a run of plain
-`editSource` frames into one by executing the composition; the same rule lets
-clients compact a debounced burst (see [client state machines](../../implementing-editors/document-admission.md#trace-compaction)).
+answers `unsupported` if it sees the kind. Clients compact a debounced burst of
+plain `editSource` frames before admission: `compactTrace` in
+`packages/client/src/source-admission-queue.ts` (and the Swift queue) composes
+them with `composeSourceEdits` (see [trace compaction](../../implementing-editors/document-admission.md#trace-compaction)).
+The evaluator does not compact; it checks the trace it receives. canopyd's
+`composeFrames` in `packages/canopyd/src/updates/source-edits.ts` implements
+the same rule by executing the composition, and serves as a test reference
+for it.
 
 **Results.** Success returns `outcome: "evaluated"`, `result: { object, state }`,
 `authored: { object, state }` for the exact candidate before reconciliation, a
@@ -253,13 +249,6 @@ are the automatic subsets; other simultaneous changes retain alternatives.
 | CSS | Different unique declaration values with stable selectors/properties/order | Duplicate declarations, variables, unsupported selectors and cascade-changing structure |
 | Binary/media | Entry move/copy and independent tree changes | Competing opaque content; no byte concatenation |
 
-The `exact-source-disjoint-v1` rule merges concurrent disjoint edits from the
-same accepted basis when complete history is retained, with at most 64
-intervening accepted states and 4096 combined operations; automatic
-concurrency is limited to `.txt` and uncomplicated Markdown paragraphs, and
-both the original and the combined source must pass a conservative recognition
-check.
-
 The `markdown-source-transfer` rule replays identity-verified moves and copies
 of plain and self-contained formatted paragraphs, including across documents,
 when basis, current, authored, and replayed versions all preserve protected
@@ -311,13 +300,14 @@ hashes. Durable writes flush files and atomically link them into place;
 disposable staging uses atomic publication without fsync. A merge job reads
 shared storage first, falling back to staging only when an object is absent.
 Corrupt shared bytes fail validation. Generated objects are written only into
-staging. Generated hashes already present in the shared store
-reuse those verified bytes; canopyd reads returned hashes from staging or shared
-storage. Neither process recopies existing immutable material into every job.
+staging. Generated hashes already present in the shared store are not staged
+again; canopyd reads returned hashes from staging or shared storage and verifies
+them. Neither process recopies existing immutable material into every job.
 Request JSON contains no object-store filesystem paths.
 
-canopyd creates a unique `/data/merge-jobs/job-*` directory, stages uncommitted input
-objects, and records the request. The worker receives fixed paths, with a minimal
+The worker owns a unique `/data/merge-workers/worker-*` directory. For each job
+canopyd stages the uncommitted input objects in its `objects/` staging store,
+in one publish. The worker receives fixed paths, with a minimal
 environment rather than inherited server credentials. canopyd validates the response
 shape, rule identity, object hashes and result closure, then applies its normal
 schema, boundary, authorization and guarded-acceptance checks. Returned objects are
@@ -325,11 +315,11 @@ retained in memory until canopyd durably stores them before the accepted transac
 Writing an object alone never creates accepted state.
 
 Normal and failed jobs remove staging in `finally`. A host crash can leave an
-unaccepted job directory; after confirming no worker uses it, it can be removed.
+unaccepted worker directory; canopyd removes `merge-workers/` (and any
+`merge-jobs/` left by older releases) at startup, before any job runs.
 The existing retained object store has no garbage collector: accepted input history
 is not pruned during evaluation. A future collector must pin job inputs, staged
-inputs, results awaiting commit, hidden alternatives and provenance dependencies;
-the job manifest alone is not a completed GC lease protocol.
+inputs, results awaiting commit, hidden alternatives and provenance dependencies.
 
 canopyd uses one worker, at most 64 queued evaluations, a
 30-second worker timeout with forced termination, and an 8 MiB stdout/stderr buffer
@@ -347,8 +337,9 @@ usual durable retry behavior for unrelated storage or transaction failures.
 The default invocation runs the TypeScript CLI with the current Bun runtime. The
 workspace exposes `bun run arbor-merge`; its executable script has a Bun shebang.
 No compilation or signing is needed. A custom `ARBOR_MERGE_EXECUTABLE` may name an
-absolute executable script or program; programmatic options also accept fixed
-arguments and worker limits. Arguments are never interpreted by a shell.
+absolute executable script or program that implements `serve`; programmatic
+options also accept fixed arguments and worker limits. Arguments are never
+interpreted by a shell.
 
 Install workspace dependencies with `bun install`. Collection schema compilation
 resolves the worker's installed Zod, uses private temporary files, and evaluates
@@ -357,14 +348,13 @@ caller's working directory or execute authored schemas in the host runtime.
 
 Ported behavior: Markdown additive merging and frontmatter/fence checks; stable-page
 rename and directory reconciliation; keyed collection rows and schema/constraint
-checks; plain-text and Markdown source-proposal validation; account configuration
-v2 merging. Exact authored-operation execution, nested choices, and the
+checks; account configuration v2 merging. Exact authored-operation execution, nested choices, and the
 conservative format rules are described next.
 
 ## Verification
 
 ```sh
-bun test tests/integration/canopyd-merge tests/unit/canopyd/update-merge.test.ts tests/unit/canopyd/source-reconciliation.test.ts
+bun test tests/integration/canopyd-merge tests/unit/canopyd/update-merge.test.ts
 bun test tests/unit/canopyd-merge
 bun tests/performance/benchmark-merge-tool.ts
 bun run typecheck
@@ -372,8 +362,9 @@ bun run test:protocol
 ```
 
 The corpus compares exact roots, bytes, decisions, and evidence against the
-ported rules, exercises both execution modes, and checks concurrent staging,
-corrupt objects, malformed output, nonzero exits, and forced timeouts. A real
+ported rules, exercises shared and fresh worker processes, and checks
+concurrent staging, corrupt objects, malformed output, worker exits, and forced
+timeouts. A real
 HTTP case verifies accepted ambiguity, replay, continued publication, restart,
 and integrity with a missing worker. A process test runs a collection merge
 with an empty environment from a working directory outside the checkout.

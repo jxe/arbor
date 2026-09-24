@@ -11,7 +11,8 @@ export class PersistentMergeWorker {
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   };
-  private output = Buffer.alloc(0);
+  private output: Buffer[] = [];
+  private outputBytes = 0;
   private stderrBytes = 0;
   private stderrPending = "";
   /** Diagnostics the worker reported for its most recent request, if any. */
@@ -59,22 +60,27 @@ export class PersistentMergeWorker {
         this.fail(new Error("Unsolicited merge worker output"));
         return;
       }
-      if (this.output.length + chunk.length > this.limit) {
+      if (this.outputBytes + chunk.length > this.limit) {
         this.fail(new Error("Merge worker output exceeds byte budget"));
         return;
       }
-      this.output = Buffer.concat([this.output, chunk]);
-      const end = this.output.indexOf(10);
-      if (end < 0) return;
-      if (end !== this.output.length - 1) {
+      // Earlier chunks hold no newline, so this chunk ends the response.
+      const end = chunk.indexOf(10);
+      if (end < 0) {
+        this.output.push(chunk);
+        this.outputBytes += chunk.length;
+        return;
+      }
+      if (end !== chunk.length - 1) {
         this.fail(new Error("Multiple merge worker responses"));
         return;
       }
       const pending = this.pending;
       clearTimeout(pending.timer);
       this.pending = undefined;
-      const line = this.output.subarray(0, end).toString("utf8");
-      this.output = Buffer.alloc(0);
+      const line = Buffer.concat([...this.output, chunk.subarray(0, end)]).toString("utf8");
+      this.output = [];
+      this.outputBytes = 0;
       pending.resolve(line);
     });
     this.child.stderr.on("data", (chunk: Buffer) => {

@@ -3,7 +3,7 @@ import { LazyStateMap, updateStateMap } from "./state-map.ts";
 /** Thrown when evaluation reads a history record it did not load first. It is a
  * bug in the evaluator, never a merge outcome: silently answering "absent" would
  * change results without any test noticing. */
-export class HistoryMiss extends Error {
+class HistoryMiss extends Error {
   constructor(field: string, key: string) {
     super(`History record read before it was loaded: ${field}/${key}`);
   }
@@ -66,18 +66,16 @@ export function lazyHistory(field: string, root: string, read: Read) {
   return view(new History(field, new LazyStateMap(root, read)));
 }
 
-export function isLazy(map: object): boolean {
-  return views.has(map);
-}
-
 /** Load `keys` so later synchronous reads of them succeed. Plain maps already
  * hold everything. */
 export async function need(map: object, keys: Iterable<string>) {
   const history = views.get(map);
   if (!history) return;
-  for (const key of keys)
-    if (!history.values.has(key))
-      history.values.set(key, await history.source.get(key));
+  const missing = [...new Set(keys)].filter((key) => !history.values.has(key));
+  const values = await Promise.all(missing.map((key) => history.source.get(key)));
+  missing.forEach((key, index) => {
+    if (!history.values.has(key)) history.values.set(key, values[index]);
+  });
 }
 
 /** Records in `map` that `base` lacks or holds differently, loading them (and
@@ -93,14 +91,13 @@ export async function since(
   if (!mine) candidates = map;
   else {
     const other = views.get(base);
-    candidates = other
-      ? await mine.source.since(other.source.root)
-      : await mine.source.since(emptyRoot(mine));
+    if (!other) throw new HistoryMiss(mine.field, "since a plain map");
+    candidates = await mine.source.since(other.source.root);
     // Records written since load count whether or not the stored map has them.
     for (const key of mine.dirty) candidates[key] = mine.values.get(key);
     for (const [key, value] of Object.entries(candidates))
       if (!mine.dirty.has(key)) mine.values.set(key, value);
-    if (other) for (const key of other.dirty) {
+    for (const key of other.dirty) {
       if (!mine.values.has(key)) mine.values.set(key, await mine.source.get(key));
       if (mine.values.get(key) !== undefined) candidates[key] = mine.values.get(key);
     }
@@ -111,10 +108,6 @@ export async function since(
     if (value !== undefined && !(Object.hasOwn(base, key) && same(base[key], value)))
       out[key] = value;
   return out;
-}
-
-function emptyRoot(_history: History): string {
-  throw new HistoryMiss(_history.field, "since a plain map");
 }
 
 /** A copy that shares the stored map and copies what was loaded or written. */
@@ -134,14 +127,6 @@ export function storeHistory(map: object, read: Read, put: Put): Promise<string>
   const updates: Record<string, unknown> = Object.create(null);
   for (const key of history.dirty) updates[key] = history.values.get(key);
   return updateStateMap(history.source.root, updates, read, put);
-}
-
-/** Every stored object read through these maps, for proof weight. */
-export function touched(...maps: object[]): Set<string> {
-  const out = new Set<string>();
-  for (const map of maps)
-    for (const hash of views.get(map)?.source.touched ?? []) out.add(hash);
-  return out;
 }
 
 /** `upper` with every record of `lower` it lacks, as `{...lower, ...upper}`.

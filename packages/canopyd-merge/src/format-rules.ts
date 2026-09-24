@@ -1,5 +1,5 @@
 import { markdownLayout, markdownProseInsertion, markdownTransferShape, markdownListEdit } from "./markdown-format.ts";
-import { xmlUnits, webUnits } from "./web-formats.ts";
+import { byte, xmlUnits, webUnits } from "./web-formats.ts";
 import Parser from "web-tree-sitter";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, join } from "node:path";
@@ -86,8 +86,6 @@ async function parse(language: string, source: string): Promise<Parser.Tree> {
   }
 }
 type Unit = { key: string; start: number; end: number };
-const byte = (source: string, offset: number) =>
-  Buffer.byteLength(source.slice(0, offset));
 const range = (source: string, n: Parser.SyntaxNode) => ({
   start: byte(source, n.startIndex),
   end: byte(source, n.endIndex),

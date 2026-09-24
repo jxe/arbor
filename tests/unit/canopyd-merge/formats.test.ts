@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Fixture } from "./fixture.ts";
 import type { Format } from "../../../packages/canopyd-merge/src/format-rules.ts";
+import { byte } from "../../../packages/canopyd-merge/src/web-formats.ts";
 const cases: Array<{
   name: string;
   source: string;
@@ -190,3 +191,14 @@ for (const c of [
     }
   });
 }
+
+test("byte offsets match encoding each prefix, including split and lone surrogates", () => {
+  const alphabet = ["a", "é", "日", "😀", "\ud83d", "\ude00", "\n"];
+  let seed = 7;
+  for (let n = 0; n < 200; n++) {
+    let source = "";
+    for (let i = 0; i < n % 40; i++) source += alphabet[(seed = (seed * 31 + 11) % 997) % alphabet.length];
+    for (let offset = 0; offset <= source.length; offset++)
+      expect(byte(source, offset)).toBe(Buffer.byteLength(source.slice(0, offset)));
+  }
+});
