@@ -34,9 +34,17 @@ interface Edit {
   replacement: string[];
 }
 
-function editsFrom(base: string[], changed: string[]): Edit[] {
+/** Sources the line merge accepts, as the format rules bound their analysis. */
+const MAX_LINE_MERGE_BYTES = 256 * 1024;
+/** LCS table cells one line diff may allocate: a 64 MiB table. */
+const MAX_DIFF_CELLS = 16 * 1024 * 1024;
+
+/** Line edits from `base` to `changed`, or null when the LCS table would
+ * exceed its budget. */
+function editsFrom(base: string[], changed: string[]): Edit[] | null {
   const rows = base.length + 1;
   const columns = changed.length + 1;
+  if (rows * columns > MAX_DIFF_CELLS) return null;
   const lcs = new Uint32Array(rows * columns);
   for (let left = base.length - 1; left >= 0; left--) {
     for (let right = changed.length - 1; right >= 0; right--) {
@@ -90,10 +98,12 @@ function sequenceOffsets(lines: string[], sequence: string[]): number[] {
 function collapseDuplicateMoves(
   base: string[],
   candidate: string[],
+  candidateEdits: Edit[],
   remote: string[],
+  remoteEdits: Edit[],
 ): { candidate: string[]; approximate: number } {
-  const localDeletions = editsFrom(base, candidate).filter((edit) => edit.end > edit.start && !edit.replacement.length);
-  const remoteDeletions = editsFrom(base, remote).filter((edit) => edit.end > edit.start && !edit.replacement.length);
+  const localDeletions = candidateEdits.filter((edit) => edit.end > edit.start && !edit.replacement.length);
+  const remoteDeletions = remoteEdits.filter((edit) => edit.end > edit.start && !edit.replacement.length);
   const shared = localDeletions
     .filter((local) => remoteDeletions.some((accepted) => accepted.start === local.start && accepted.end === local.end))
     .sort((left, right) => (right.end - right.start) - (left.end - left.start));
@@ -112,10 +122,17 @@ function collapseDuplicateMoves(
   return { candidate: reduced, approximate };
 }
 
-function mergeLines(base: string[], candidate: string[], remote: string[]): { lines: string[]; approximate: number } {
-  const collapsed = collapseDuplicateMoves(base, candidate, remote);
-  const localEdits = editsFrom(base, collapsed.candidate).map((edit) => ({ ...edit, side: "candidate" as const }));
-  const remoteEdits = editsFrom(base, remote).map((edit) => ({ ...edit, side: "remote" as const }));
+/** Null when either diff exceeds its budget. */
+function mergeLines(base: string[], candidate: string[], remote: string[]): { lines: string[]; approximate: number } | null {
+  const candidateDiff = editsFrom(base, candidate), remoteDiff = editsFrom(base, remote);
+  if (!candidateDiff || !remoteDiff) return null;
+  const collapsed = collapseDuplicateMoves(base, candidate, candidateDiff, remote, remoteDiff);
+  // A collapsed candidate is shorter than the original, so its diff fits too.
+  const collapsedDiff = collapsed.candidate.length === candidate.length
+    ? candidateDiff
+    : editsFrom(base, collapsed.candidate)!;
+  const localEdits = collapsedDiff.map((edit) => ({ ...edit, side: "candidate" as const }));
+  const remoteEdits = remoteDiff.map((edit) => ({ ...edit, side: "remote" as const }));
   const edits = [...localEdits, ...remoteEdits].sort((left, right) => left.start - right.start || left.end - right.end || (left.side === "remote" ? -1 : 1));
   const result: string[] = [];
   let cursor = 0;
@@ -194,6 +211,13 @@ export async function markdownAdditiveV1(
   const [baseObject, candidateObject, currentObject] = await Promise.all([
     context.file(baseHash), context.file(candidateHash), context.file(currentHash),
   ]);
+  // Beyond the analysis budget the node conflicts, as it would with no rule.
+  const tooLarge = () => {
+    context.conflicts.push({ path, reason: "node-conflict" });
+    return { hash: candidateHash, approximate: 0 };
+  };
+  if ([baseObject, candidateObject, currentObject].some((bytes) => bytes.length > MAX_LINE_MERGE_BYTES))
+    return tooLarge();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let baseSource: string;
   let candidateSource: string;
@@ -207,6 +231,7 @@ export async function markdownAdditiveV1(
     return { hash: candidateHash, approximate: 0 };
   }
   const merged = mergeLines(splitLines(baseSource), splitLines(candidateSource), splitLines(currentSource));
+  if (!merged) return tooLarge();
   const source = merged.lines.join("");
   if (divergentFrontmatter(baseSource, candidateSource, currentSource)) context.conflicts.push({ path, reason: "frontmatter-conflict" });
   if (!balancedFences(source)) context.conflicts.push({ path, reason: "invalid-markdown-fence" });
