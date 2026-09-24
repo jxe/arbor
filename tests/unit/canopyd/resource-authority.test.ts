@@ -31,7 +31,7 @@ test("author/user contributions are bounded by caller rules and nonrecursive und
     const access = new AccessControl(db, {
       tree: () => tree,
       rootProfileType: () => null,
-      profileMemberHandles: () => new Set(),
+      isProfileMember: () => false,
     });
     const context: ExecutionContext = {
       code: "tr_code",

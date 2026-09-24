@@ -157,7 +157,6 @@ export class AccountDirectory {
     const digest = sha256(token);
     const now = Date.now();
     this.db.transaction(() => {
-      this.db.run("UPDATE accounts SET token_digest = ? WHERE id = ?", [digest, account.id]);
       this.db.run("UPDATE devices SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL", [now, account.id]);
       this.db.run(
         "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Recovered device', ?, ?)",

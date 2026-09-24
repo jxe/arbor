@@ -8,8 +8,12 @@ private actor MemoryAccountCredentialStore: AccountCredentialStore {
     var pending: [String: PendingPairingClaim] = [:]
     var pendingAccounts: [String: PendingAccountClaim] = [:]
     var accountValues: [String: NativeCanopyAccount] = [:]
+    var loads = 0
 
-    func load(configurationTree: String) -> String? { values[configurationTree] }
+    func load(configurationTree: String) -> String? {
+        loads += 1
+        return values[configurationTree]
+    }
     func save(_ credential: String, configurationTree: String) { values[configurationTree] = credential }
     func forget(configurationTree: String) { values[configurationTree] = nil }
 
@@ -564,4 +568,33 @@ func emptyPolicyEditing() throws {
         rule: WireResourceAccessRule(who: .me, via: "tr_supplies", allow: [.read]), source: "{}\n")
     #expect(review.after.contains("tr_notes:"))
     #expect(!review.after.contains("canonical:"))
+}
+
+@Test("Keychain saves replace an existing credential in place")
+func keychainSavesReplaceInPlace() async throws {
+    let store = KeychainDeviceCredentialStore(service: "org.nxhx.Arbor.test.\(UUID().uuidString)")
+    let origin = URL(string: "https://canopy.test")!
+    try await store.save("first", configurationTree: "tr_config")
+    try await store.save("second", configurationTree: "tr_config")
+    #expect(try await store.load(configurationTree: "tr_config") == "second")
+    try await store.save("first", origin: origin)
+    try await store.save("second", origin: origin)
+    #expect(try await store.load(origin: origin) == "second")
+    try await store.forget(configurationTree: "tr_config")
+    try await store.forget(origin: origin)
+    #expect(try await store.load(configurationTree: "tr_config") == nil)
+}
+
+@Test("The account credential provider reads the store once until the credential is rejected")
+func accountCredentialProviderCaches() async throws {
+    let store = MemoryAccountCredentialStore()
+    await store.save("first", configurationTree: "tr_config")
+    let provider = AccountStoredCredentialProvider(configurationTree: "tr_config", store: store)
+    #expect(try await provider.credential() == "first")
+    #expect(try await provider.credential() == "first")
+    #expect(await store.loads == 1)
+    await store.save("second", configurationTree: "tr_config")
+    await provider.invalidate()
+    #expect(try await provider.credential() == "second")
+    #expect(await store.loads == 2)
 }

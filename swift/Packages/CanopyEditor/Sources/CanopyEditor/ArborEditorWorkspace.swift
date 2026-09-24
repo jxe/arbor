@@ -149,20 +149,15 @@ public final class ArborEditorWorkspace {
         movedFrom oldPath: String,
         to moved: WorkspaceReference
     ) async -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#) else {
-            return source
-        }
-        let matches = regex.matches(in: source, range: NSRange(source.startIndex..., in: source))
         var replacements: [(Range<String.Index>, String)] = []
-        for match in matches {
-            guard let hrefRange = Range(match.range(at: 1), in: source) else { continue }
+        for hrefRange in markdownLinkHrefRanges(in: source) {
             let href = String(source[hrefRange])
             guard let target = resolveNodeTarget(base: base, href: href),
                   target.tree == nil || target.tree == tree.rawValue else { continue }
             let newPath: String?
             if target.path == oldPath || target.path.hasPrefix(oldPath + "/") {
                 newPath = moved.path + target.path.dropFirst(oldPath.count)
-            } else if let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey),
+            } else if let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey),
                       let resolved = try? await provider.resolve(WorkspaceReference(
                         tree: tree,
                         path: target.path,
@@ -217,17 +212,7 @@ public final class ArborEditorWorkspace {
         let reference = WorkspaceReference(tree: tree, path: "/", stableKey: stableKey)
         let lease = try await coordinator.leaseDocument(reference)
         do {
-            let snapshot = try await lease.session.snapshot()
-            let opened = ArborMarkdownCodec.open(
-                source: snapshot.source,
-                revision: snapshot.contentRevision,
-                identitySeed: String(describing: snapshot.reference.identity)
-            )
-            var blocks = opened.blocks
-            Self.appendTranscript(block, to: &blocks)
-            let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
-            let confirmed = try await lease.session.admit(patch: admission.patch)
-            try await lease.session.flush()
+            let confirmed = try await admitBlockEdit(in: lease.session) { Self.appendTranscript(block, to: &$0) }
             if let binding = entries.values.lazy.map(\.binding).first(where: {
                 $0.reference.tree == tree && $0.reference.stableKey == stableKey
             }) {

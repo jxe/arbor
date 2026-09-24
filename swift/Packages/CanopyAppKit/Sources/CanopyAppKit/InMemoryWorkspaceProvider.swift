@@ -112,14 +112,6 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             }
     }
 
-    /// The `(?<!!)` guard keeps `![alt](/Page)` from counting as a link to `/Page`.
-    private func markdownLinkHrefs(in source: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#) else { return [] }
-        return regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
-            Range(match.range(at: 1), in: source).map { String(source[$0]) }
-        }
-    }
-
     public func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] {
         backlinkResults(to: reference)
     }
@@ -129,7 +121,8 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         let targetKey = reference.stableKey
         return nodesByIdentity.values.compactMap { node in
             let base = node.surface.isDirectoryLike ? node.reference.path : (node.reference.parent?.path ?? "/")
-            let links = markdownLinkHrefs(in: source(of: node)).compactMap { resolveNodeTarget(base: base, href: $0) }
+            let text = source(of: node)
+            let links = markdownLinkHrefRanges(in: text).compactMap { resolveNodeTarget(base: base, href: String(text[$0])) }
             guard links.contains(where: { link in
                 guard link.tree == nil || link.tree == reference.tree.rawValue else { return false }
                 return link.path == target || (targetKey != nil && link.stableKey == targetKey)

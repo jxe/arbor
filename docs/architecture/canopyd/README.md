@@ -11,6 +11,31 @@ acceptance. Table definitions, the schema stamp, and the startup schema
 assertion live in `schema.ts`; the [schema history](../../../packages/canopyd/migrations/README.md#schema-history)
 lists every stamp.
 
+## Accounts and canonical paths
+
+The spec leaves placement to each host; this is canopyd's policy.
+
+- **Community profile.** The tree canonical at `/` is the community's
+  membership profile and keeps `type: group`. Accounts that can write it are
+  the Canopy's administrators.
+- **Accounts.** A community `members` entry's `handle` reserves `/~handle`
+  for exactly that entry's person Profile TreeID; that person claims the
+  account with their profile key ([accounts §1.2](../../overstory-spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
+  Removing the entry disables the account. An account's profile tree, once
+  hosted, is the tree at `/~handle`.
+- **Paths an account may declare.** Any path below its own `/~handle`. An
+  administrator may also declare paths below any `/~name` that no person has
+  reserved or claimed, so a top-level name can address a group or any other
+  tree. Other paths are refused.
+- **One rule for `/~name`.** A name is either a person's (reserved or
+  claimed) or held by trees (a tree, active or declared, at or below
+  `/~name` that the `~name` account does not administer). Reserving a handle
+  or claiming an account is refused while trees hold the name, and declaring a
+  tree under another person's name is refused.
+- **Group membership.** A profile subject that is a `type: group` tree grants
+  its access to every member whose Profile TreeID its `members` list names;
+  a legacy scalar `/~handle` member still matches by handle.
+
 ## Durability and observation
 
 canopyd runs SQLite in WAL mode with `synchronous = NORMAL`; objects are

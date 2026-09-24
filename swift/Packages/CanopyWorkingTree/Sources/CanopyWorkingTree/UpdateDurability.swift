@@ -1,10 +1,13 @@
 import Overstory
 import Darwin
 import Foundation
+import OSLog
 
 /// `<root>/sync/update-control.json` plus `<root>/sync/objects/<hash>` for head
 /// objects too large to carry inline in the control file.
 struct UpdateControlFiles: Sendable {
+    private static let log = Logger(subsystem: "org.arbor.native", category: "Sync")
+
     let directory: URL
     let controlURL: URL
     let objectsDirectory: URL
@@ -15,7 +18,7 @@ struct UpdateControlFiles: Sendable {
         controlURL = directory.appending(path: "update-control.json")
         objectsDirectory = directory.appending(path: "objects", directoryHint: .isDirectory)
         sourceAdmissionsURL = directory.appending(path: "source-admissions.json")
-        try Self.createPrivateDirectory(directory)
+        try DurableFile.createPrivateDirectory(directory)
     }
 
     func lockSourceAdmissions() throws -> Int32 {
@@ -39,14 +42,9 @@ struct UpdateControlFiles: Sendable {
     }
 
     func writeSourceAdmissions<T: Encodable>(_ value: T) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        try atomicWrite(try encoder.encode(value), to: sourceAdmissionsURL)
+        try atomicWrite(try sortedKeysJSON(value), to: sourceAdmissionsURL)
         // Persist a newly created sync directory as well as its journal entry.
-        let parent = Darwin.open(directory.deletingLastPathComponent().path, O_RDONLY)
-        guard parent >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        defer { Darwin.close(parent) }
-        guard Darwin.fsync(parent) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        try DurableFile.syncDirectory(directory.deletingLastPathComponent())
     }
 
     func load() throws -> UpdateControl {
@@ -61,11 +59,9 @@ struct UpdateControlFiles: Sendable {
     }
 
     func write(_ control: UpdateControl) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
         var value = control
         value.schema = UpdateControl.currentSchema
-        try atomicWrite(try encoder.encode(value), to: controlURL)
+        try atomicWrite(try sortedKeysJSON(value), to: controlURL)
         // Retain scheduling/persistence evidence after successful requests have
         // cleared the live control. Never put authored source or credentials in
         // this diagnostic stream; editor recovery holds the exact source.
@@ -90,10 +86,10 @@ struct UpdateControlFiles: Sendable {
     }
 
     func writeObject(_ envelope: WireObjectEnvelope) throws {
-        try Self.createPrivateDirectory(objectsDirectory)
+        try DurableFile.createPrivateDirectory(objectsDirectory)
         let destination = objectsDirectory.appending(path: Self.fileName(envelope.hash))
         if FileManager.default.fileExists(atPath: destination.path) { return }
-        try atomicWrite(envelope.bytes, to: destination, in: objectsDirectory)
+        try atomicWrite(envelope.bytes, to: destination)
     }
 
     func readObject(_ hash: String) throws -> WireObjectEnvelope {
@@ -101,12 +97,21 @@ struct UpdateControlFiles: Sendable {
         return WireObjectEnvelope(hash: hash, bytes: bytes)
     }
 
-    /// Drop spilled objects no durable record references.
+    /// Drop spilled objects no durable record references. Collection is best
+    /// effort: a leftover object only costs space.
     func retainObjects(_ hashes: Set<String>) {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: objectsDirectory.path) else { return }
+        // The directory exists only once a head has spilled.
+        guard FileManager.default.fileExists(atPath: objectsDirectory.path) else { return }
+        let names: [String]
+        do { names = try FileManager.default.contentsOfDirectory(atPath: objectsDirectory.path) } catch {
+            Self.log.error("spilled objects unreadable: \(String(describing: error), privacy: .public)")
+            return
+        }
         let keep = Set(hashes.map(Self.fileName))
         for name in names where !keep.contains(name) {
-            try? FileManager.default.removeItem(at: objectsDirectory.appending(path: name))
+            do { try FileManager.default.removeItem(at: objectsDirectory.appending(path: name)) } catch {
+                Self.log.error("spilled object not removed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
@@ -115,34 +120,6 @@ struct UpdateControlFiles: Sendable {
     }
 
     func atomicWrite(_ data: Data, to destination: URL) throws {
-        try atomicWrite(data, to: destination, in: directory)
-    }
-
-    private func atomicWrite(_ data: Data, to destination: URL, in directory: URL) throws {
-        let temporary = directory.appending(path: ".\(UUID().uuidString).tmp")
-        guard FileManager.default.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        do {
-            let handle = try FileHandle(forWritingTo: temporary)
-            try handle.write(contentsOf: data)
-            try handle.synchronize()
-            try handle.close()
-            if Darwin.rename(temporary.path, destination.path) != 0 {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-            let descriptor = Darwin.open(directory.path, O_RDONLY)
-            guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-            defer { Darwin.close(descriptor) }
-            guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        } catch {
-            try? FileManager.default.removeItem(at: temporary)
-            throw error
-        }
-    }
-
-    private static func createPrivateDirectory(_ url: URL) throws {
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        try DurableFile.atomicWrite(data, to: destination)
     }
 }

@@ -20,19 +20,18 @@ function initialize(tree: string) {
   store.insert({entryChanges:NO_ENTRY_CHANGES, tree, root, previousRoot: null, kind: "initial", acceptedAt: 1 });
 }
 function input(tree = "one", digest = "sha256:request") {
-  return { entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: root, expectedRoot: root, expectedUpdate: store.current(tree)!.id,
+  return { entryChanges: NO_ENTRY_CHANGES, tree, root, previousRoot: root, expectedUpdate: store.current(tree)!.id,
     kind: "accepted" as const, acceptedAt: 2, subject: "device:one", requestDigest: digest,
     baseRoot: root, candidateRoot: root, sourceIntent };
 }
 function state() {
-  return ["trees", "reflog", "accepted_updates", "observations", "authored_changes"].map(table => db.query(`SELECT * FROM ${table}`).all());
+  return ["trees", "accepted_updates", "authored_changes"].map(table => db.query(`SELECT * FROM ${table}`).all());
 }
 beforeEach(() => {
   dir = mkdtempSync(`${tmpdir()}/arbor-intent-`);
   db = new Database(`${dir}/state.sqlite`);
   db.run("PRAGMA foreign_keys = ON");
   db.run("CREATE TABLE trees (id TEXT PRIMARY KEY, ref TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-  db.run("CREATE TABLE reflog (tree_id TEXT NOT NULL, ref TEXT NOT NULL, previous_ref TEXT, changed_at INTEGER NOT NULL)");
   AcceptedUpdateStore.createSchema(db);
   store = new AcceptedUpdateStore(db);
   initialize("one");

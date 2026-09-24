@@ -1,6 +1,7 @@
 import CanopyAppKit
 import Foundation
 import Observation
+import OSLog
 import Quagmire
 import QuagmireExtras
 
@@ -23,6 +24,14 @@ public struct ArborStructuralDestination: Identifiable, Hashable, Sendable {
     public let modifiedAt: Date?
     public let backlinkCount: Int
     public var id: WorkspaceIdentity { reference.identity }
+
+    /// Whether a page or folder at `path` can receive `moving`: it is neither
+    /// the moving page, one of its descendants, nor its current parent.
+    public static func canReceive(_ moving: WorkspaceReference, at path: String) -> Bool {
+        let containsTarget = path == moving.path || path.hasPrefix(moving.path + "/")
+        let sameParent = moving.parent?.path == path
+        return !containsTarget && !sameParent
+    }
 
     public init(
         reference: WorkspaceReference,
@@ -73,6 +82,24 @@ public struct ArborMoveDocument: Identifiable, Hashable, Sendable {
         self.modifiedAt = modifiedAt
         self.backlinkCount = backlinkCount
     }
+
+    /// A row for the document at `reference`, linked through its `arbor://`
+    /// locator and subtitled with its path.
+    public init(
+        _ reference: WorkspaceReference,
+        title: String,
+        modifiedAt: Date? = nil,
+        backlinkCount: Int = 0
+    ) {
+        self.init(
+            reference: ArborDocumentReferenceCodec.encode(reference),
+            title: title,
+            subtitle: reference.path,
+            isHome: reference.path == "/",
+            modifiedAt: modifiedAt,
+            backlinkCount: backlinkCount
+        )
+    }
 }
 
 /// Document-link rows carry their target as an `arbor://` locator in the canonical grammar
@@ -91,14 +118,45 @@ public enum ArborDocumentReferenceCodec {
 
     public static func decode(_ value: DocumentReference) -> WorkspaceReference? {
         guard let target = resolveNodeTarget(base: "/", href: value.rawValue), let tree = target.tree else { return nil }
-        let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+        let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
         return WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: stableKey)
     }
+}
+
+/// Parse the session's current source, let `change` rewrite its blocks, and
+/// admit and flush the result against that exact snapshot.
+@MainActor
+@discardableResult
+func admitBlockEdit(
+    in session: any WorkspaceDocumentSession,
+    foreignCopies: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:],
+    _ change: (inout [Block]) -> Void
+) async throws -> WorkspaceDocumentSnapshot {
+    let snapshot = try await session.snapshot()
+    let opened = ArborMarkdownCodec.open(
+        source: snapshot.source,
+        revision: snapshot.contentRevision,
+        identitySeed: String(describing: snapshot.reference.identity)
+    )
+    var blocks = opened.blocks
+    change(&blocks)
+    let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger, foreignCopies: foreignCopies)
+    let confirmed = try await session.admit(patch: admission.patch)
+    try await session.flush()
+    return confirmed
 }
 
 @MainActor
 @Observable
 public final class ArborEditorHost: EditorHost {
+    private static let diagnosticLog = Logger(subsystem: "org.arbor.native", category: "EditorHost")
+    /// Distinct nodes a destination walk resolves before it stops.
+    private static let treeWalkLimit = 500
+    /// Search results a Move To query resolves into writable destinations.
+    private static let moveDocumentLimit = 200
+    /// Numbered filename suffixes page creation tries before giving up.
+    private static let filenameSuffixLimit = 1_000
+
     public let binding: ArborDocumentBinding
     public private(set) var moveRequest: ArborMoveRequest?
     public private(set) var structuralMoveRequest: ArborStructuralMoveRequest?
@@ -167,40 +225,39 @@ public final class ArborEditorHost: EditorHost {
 
     public func moveDocuments(matching rawQuery: String) async -> [ArborMoveDocument] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let allResults = try? await provider.search("", in: binding.reference.tree) {
-            let results = query.isEmpty ? allResults : allResults.filter {
-                $0.title.localizedCaseInsensitiveContains(query)
-                    || $0.reference.path.localizedCaseInsensitiveContains(query)
+        do {
+            let results = try await provider.search("", in: binding.reference.tree).filter {
+                Self.matches(query, title: $0.title, path: $0.reference.path)
             }
             var documents: [ArborMoveDocument] = []
-            for result in results.prefix(200) {
+            for result in results.prefix(Self.moveDocumentLimit) {
                 guard let node = try? await provider.resolve(result.reference),
                       node.isWritable,
                       node.surface.supportsDocumentSession,
                       node.reference.identity != binding.reference.identity else { continue }
                 documents.append(ArborMoveDocument(
-                    reference: ArborDocumentReferenceCodec.encode(node.reference),
+                    node.reference,
                     title: result.title,
-                    subtitle: node.reference.path,
-                    isHome: node.reference.path == "/",
                     modifiedAt: result.modifiedAt,
                     backlinkCount: result.backlinkCount
                 ))
             }
             if query.isEmpty { cachedMoveDocuments = documents }
             return documents
+        } catch {
+            Self.diagnosticLog.notice("move destination search failed; walking the tree: \(String(describing: error), privacy: .public)")
         }
 
-        let documents = await enumerateDocumentNodes()
-            .filter { $0.reference.identity != binding.reference.identity }
-            .map { node in
-                ArborMoveDocument(
-                    reference: ArborDocumentReferenceCodec.encode(node.reference),
-                    title: node.title,
-                    subtitle: node.reference.path,
-                    isHome: node.reference.path == "/"
-                )
+        func hasChildren(_ node: WorkspaceNode) -> Bool {
+            switch node.surface {
+            case .directory, .directoryDocument, .collection: return true
+            default: return false
             }
+        }
+        let current = binding.reference.identity
+        let documents = await walkTree(binding.reference.tree, descendsInto: hasChildren)
+            .filter { $0.isWritable && $0.surface.supportsDocumentSession && $0.reference.identity != current }
+            .map { ArborMoveDocument($0.reference, title: $0.title) }
         if query.isEmpty { cachedMoveDocuments = documents }
         return documents
     }
@@ -208,10 +265,13 @@ public final class ArborEditorHost: EditorHost {
     public func staleMoveDocuments(matching rawQuery: String) -> [ArborMoveDocument] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return cachedMoveDocuments }
-        return cachedMoveDocuments.filter {
-            $0.title.localizedCaseInsensitiveContains(query)
-                || $0.subtitle.localizedCaseInsensitiveContains(query)
-        }
+        return cachedMoveDocuments.filter { Self.matches(query, title: $0.title, path: $0.subtitle) }
+    }
+
+    private static func matches(_ query: String, title: String, path: String) -> Bool {
+        query.isEmpty
+            || title.localizedCaseInsensitiveContains(query)
+            || path.localizedCaseInsensitiveContains(query)
     }
 
     public func suggestDocuments(_ rawQuery: String, in _: Document) async -> [MentionItem] {
@@ -261,36 +321,23 @@ public final class ArborEditorHost: EditorHost {
         do {
             let node = try await provider.resolve(decoded)
             guard node.isWritable, node.surface.supportsDocumentSession else { return false }
-            let session = try await provider.openDocument(node.reference)
-            do {
-                let snapshot = try await session.snapshot()
-                let opened = ArborMarkdownCodec.open(
-                    source: snapshot.source,
-                    revision: snapshot.contentRevision,
-                    identitySeed: String(describing: snapshot.reference.identity)
-                )
-                var blocks = opened.blocks
-                let title: String
-                if let titleIndex = blocks.firstIndex(where: { block in
-                    if case .heading(.h1, _) = block.kind { return true }
-                    return false
-                }), case .heading(.h1, let titleText) = blocks[titleIndex].kind {
-                    title = pageTitle(String(titleText.characters), settingEmoji: emoji)
-                    blocks[titleIndex].kind = .heading(level: .h1, text: AttributedString(title))
-                } else {
-                    title = pageTitle(node.title, settingEmoji: emoji)
-                    blocks = [.heading(level: .h1, text: AttributedString(title), children: blocks)]
+            var title = ""
+            _ = try await withDocumentSession(node.reference) { session in
+                try await admitBlockEdit(in: session) { blocks in
+                    if let titleIndex = blocks.firstIndex(where: { block in
+                        if case .heading(.h1, _) = block.kind { return true }
+                        return false
+                    }), case .heading(.h1, let titleText) = blocks[titleIndex].kind {
+                        title = pageTitle(String(titleText.characters), settingEmoji: emoji)
+                        blocks[titleIndex].kind = .heading(level: .h1, text: AttributedString(title))
+                    } else {
+                        title = pageTitle(node.title, settingEmoji: emoji)
+                        blocks = [.heading(level: .h1, text: AttributedString(title), children: blocks)]
+                    }
                 }
-                let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
-                _ = try await session.admit(patch: admission.patch)
-                try await session.flush()
-                await session.close()
-                lookups[reference] = .present(.init(title: title, capabilities: documentCapabilities(for: node)))
-                return true
-            } catch {
-                await session.close()
-                throw error
             }
+            lookups[reference] = .present(.init(title: title, capabilities: documentCapabilities(for: node)))
+            return true
         } catch {
             errorAction("Couldn't set the page icon: \(error.localizedDescription)")
             return false
@@ -370,7 +417,7 @@ public final class ArborEditorHost: EditorHost {
             href: url.absoluteString
         ) else { return nil }
         let tree = target.tree.map(TreeID.init(rawValue:)) ?? binding.reference.tree
-        let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+        let stableKey = target.stableKey ?? target.legacyPageID.map(markdownStableKey)
         return WorkspaceReference(tree: tree, path: target.path, stableKey: stableKey)
     }
 
@@ -433,7 +480,7 @@ public final class ArborEditorHost: EditorHost {
             guard let name = node.reference.path.split(separator: "/").last.map(String.init) else { continue }
             siblingsByName[name.lowercased()] = node
         }
-        for suffix in 1...1_000 {
+        for suffix in 1...Self.filenameSuffixLimit {
             let name = suffix == 1 ? baseName : "\(baseName)-\(suffix)"
             if let existing = siblingsByName[name.lowercased()] {
                 if page(existing, hasExactTitle: title) {
@@ -512,19 +559,12 @@ public final class ArborEditorHost: EditorHost {
             return ArborDocumentReferenceCodec.encode(node.reference)
         }
         do {
-            let session = try await provider.openDocument(node.reference)
-            do {
-                let snapshot = try await session.snapshot()
-                await session.close()
-                guard snapshot.reference.stableKey != nil else {
-                    errorAction("Failed to create a durable page link: the workspace returned no identity")
-                    return nil
-                }
-                return ArborDocumentReferenceCodec.encode(snapshot.reference)
-            } catch {
-                await session.close()
-                throw error
+            let snapshot = try await withDocumentSession(node.reference) { try await $0.snapshot() }
+            guard snapshot.reference.stableKey != nil else {
+                errorAction("Failed to create a durable page link: the workspace returned no identity")
+                return nil
             }
+            return ArborDocumentReferenceCodec.encode(snapshot.reference)
         } catch {
             errorAction("Failed to create a durable page link: \(error.localizedDescription)")
             return nil
@@ -545,11 +585,7 @@ public final class ArborEditorHost: EditorHost {
         default:
             return node.title == title
         }
-        if let first = ArborMarkdownCodec.parseBlocks(source).first,
-           case let .heading(level, text) = first.kind,
-           level == .h1 {
-            return String(text.characters) == title
-        }
+        if let heading = ArborMarkdownCodec.leadingH1Text(source) { return heading == title }
         return node.title == title
     }
 
@@ -565,9 +601,7 @@ public final class ArborEditorHost: EditorHost {
 
     public func loadDocumentBlocks(_ reference: DocumentReference) async -> [Block]? {
         guard let decoded = workspaceReference(for: reference),
-              let session = try? await provider.openDocument(decoded),
-              let snapshot = try? await session.snapshot() else { return nil }
-        await session.close()
+              let snapshot = try? await withDocumentSession(decoded, { try await $0.snapshot() }) else { return nil }
         return ArborMarkdownCodec.parseBlocks(snapshot.source, identitySeed: String(describing: snapshot.reference.identity))
     }
 
@@ -592,28 +626,21 @@ public final class ArborEditorHost: EditorHost {
                 return await appendToDocument(reference, blocks.map { $0.withFreshIDs() })
             }
             guard origin.source == ledger.source else { return false }
-            let session = try await provider.openDocument(destination)
-            do {
-                let snapshot = try await session.snapshot()
-                let opened = ArborMarkdownCodec.open(source: snapshot.source, revision: snapshot.contentRevision, identitySeed: String(describing: snapshot.reference.identity))
-                let copies = blocks.map { $0.withFreshIDs() }
-                var mapping: [BlockID: BlockID] = [:]
-                func map(_ source: Block, _ copy: Block) {
-                    mapping[copy.id] = source.id
-                    for (a, b) in zip(source.children, copy.children) { map(a, b) }
-                }
-                for (a, b) in zip(blocks, copies) { map(a, b) }
-                var foreign: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]
-                for (id, sourceID) in mapping {
-                    if let record = ledger.records[sourceID] { foreign[id] = (record, origin) }
-                }
-                let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks + copies,
-                    ledger: opened.ledger, foreignCopies: foreign)
-                _ = try await session.admit(patch: admission.patch)
-                try await session.flush()
-                await session.close()
-                return true
-            } catch { await session.close(); throw error }
+            let copies = blocks.map { $0.withFreshIDs() }
+            var mapping: [BlockID: BlockID] = [:]
+            func map(_ source: Block, _ copy: Block) {
+                mapping[copy.id] = source.id
+                for (a, b) in zip(source.children, copy.children) { map(a, b) }
+            }
+            for (a, b) in zip(blocks, copies) { map(a, b) }
+            var foreign: [BlockID: (record: SourceRecord, document: WorkspaceCopyDocument)] = [:]
+            for (id, sourceID) in mapping {
+                if let record = ledger.records[sourceID] { foreign[id] = (record, origin) }
+            }
+            _ = try await withDocumentSession(destination) { session in
+                try await admitBlockEdit(in: session, foreignCopies: foreign) { $0 += copies }
+            }
+            return true
         } catch {
             errorAction("Couldn't copy blocks: \(error.localizedDescription)")
             return false
@@ -621,23 +648,30 @@ public final class ArborEditorHost: EditorHost {
     }
 
     public func appendToDocument(_ reference: DocumentReference, _ blocks: [Block]) async -> Bool {
-        guard let decoded = workspaceReference(for: reference),
-              let session = try? await provider.openDocument(decoded),
-              let snapshot = try? await session.snapshot() else { return false }
-        let opened = ArborMarkdownCodec.open(
-            source: snapshot.source,
-            revision: snapshot.contentRevision,
-            identitySeed: String(describing: snapshot.reference.identity)
-        )
-        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks + blocks, ledger: opened.ledger)
+        guard let decoded = workspaceReference(for: reference) else { return false }
         do {
-            _ = try await session.admit(patch: admission.patch)
-            try await session.flush()
-            await session.close()
+            _ = try await withDocumentSession(decoded) { session in
+                try await admitBlockEdit(in: session) { $0 += blocks }
+            }
             return true
         } catch {
-            await session.close()
             return false
+        }
+    }
+
+    /// Open a provider session for one operation and always close it.
+    private func withDocumentSession<T>(
+        _ reference: WorkspaceReference,
+        _ body: (any WorkspaceDocumentSession) async throws -> T
+    ) async throws -> T {
+        let session = try await provider.openDocument(reference)
+        do {
+            let value = try await body(session)
+            await session.close()
+            return value
+        } catch {
+            await session.close()
+            throw error
         }
     }
 
@@ -725,41 +759,39 @@ public final class ArborEditorHost: EditorHost {
 
     public func structuralDestinations(for reference: WorkspaceReference, matching rawQuery: String) async -> [ArborStructuralDestination] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let searchResults = (try? await provider.search(query, in: reference.tree)) ?? []
+        let searchResults: [WorkspaceSearchResult]
+        do {
+            searchResults = try await provider.search(query, in: reference.tree)
+        } catch {
+            // Destinations still come from the tree walk; only their dates
+            // and backlink counts are unavailable.
+            Self.diagnosticLog.notice("structural destination search failed: \(String(describing: error), privacy: .public)")
+            searchResults = []
+        }
         let searchResultByIdentity = Dictionary(
             searchResults.map { ($0.reference.identity, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let root = WorkspaceReference(tree: reference.tree, path: "/")
-        var queue = [root]
-        var visited = Set<WorkspaceIdentity>()
-        var result: [ArborStructuralDestination] = []
-        while !queue.isEmpty, visited.count < 500 {
-            let candidate = queue.removeFirst()
-            guard let node = try? await provider.resolve(candidate), visited.insert(node.id).inserted else { continue }
-            guard node.reference.tree == reference.tree else { continue }
-            if node.surface.isDirectory || node.surface.supportsDocumentSession,
-               let children = try? await provider.children(of: node.reference) {
-                queue.append(contentsOf: children.map(\.reference))
+        func isContainer(_ node: WorkspaceNode) -> Bool {
+            node.reference.tree == reference.tree
+                && (node.surface.isDirectory || node.surface.supportsDocumentSession)
+        }
+        let result = await walkTree(reference.tree, descendsInto: isContainer)
+            .filter {
+                isContainer($0) && $0.isWritable
+                    && ArborStructuralDestination.canReceive(reference, at: $0.reference.path)
+                    && Self.matches(query, title: $0.title, path: $0.reference.path)
             }
-            guard node.surface.isDirectory || node.surface.supportsDocumentSession else { continue }
-            let path = node.reference.path
-            let containsTarget = path == reference.path || path.hasPrefix(reference.path + "/")
-            let sameParent = reference.parent?.path == path
-            let matches = query.isEmpty
-                || node.title.localizedCaseInsensitiveContains(query)
-                || path.localizedCaseInsensitiveContains(query)
-            if node.isWritable, !containsTarget, !sameParent, matches {
+            .map { node in
                 let searchResult = searchResultByIdentity[node.reference.identity]
-                result.append(ArborStructuralDestination(
+                return ArborStructuralDestination(
                     reference: node.reference,
                     title: node.title,
                     isDirectory: node.surface.isDirectory,
                     modifiedAt: searchResult?.modifiedAt,
                     backlinkCount: searchResult?.backlinkCount ?? 0
-                ))
+                )
             }
-        }
         let ordered = result.sorted {
             if $0.reference.path == "/" { return true }
             if $1.reference.path == "/" { return false }
@@ -785,13 +817,8 @@ public final class ArborEditorHost: EditorHost {
         }
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         return candidates.filter { destination in
-            let path = destination.reference.path
-            let containsTarget = path == reference.path || path.hasPrefix(reference.path + "/")
-            let sameParent = reference.parent?.path == path
-            let matches = query.isEmpty
-                || destination.title.localizedCaseInsensitiveContains(query)
-                || path.localizedCaseInsensitiveContains(query)
-            return !containsTarget && !sameParent && matches
+            ArborStructuralDestination.canReceive(reference, at: destination.reference.path)
+                && Self.matches(query, title: destination.title, path: destination.reference.path)
         }
     }
 
@@ -947,23 +974,24 @@ public final class ArborEditorHost: EditorHost {
             && reference.identity != binding.reference.identity
     }
 
-    private func enumerateDocumentNodes() async -> [WorkspaceNode] {
-        let root = WorkspaceReference(tree: binding.reference.tree, path: "/")
-        var queue = [root]
+    /// Breadth-first nodes of `tree` from its root, resolving at most
+    /// `treeWalkLimit` distinct nodes. Unresolvable references and unreadable
+    /// children are skipped; `descendsInto` chooses whose children to read.
+    private func walkTree(
+        _ tree: TreeID,
+        descendsInto: (WorkspaceNode) -> Bool
+    ) async -> [WorkspaceNode] {
+        var queue = [WorkspaceReference(tree: tree, path: "/")]
+        var cursor = 0
         var visited = Set<WorkspaceIdentity>()
         var nodes: [WorkspaceNode] = []
-
-        while !queue.isEmpty, visited.count < 500 {
-            let reference = queue.removeFirst()
+        while cursor < queue.count, visited.count < Self.treeWalkLimit {
+            let reference = queue[cursor]
+            cursor += 1
             guard let node = try? await provider.resolve(reference), visited.insert(node.id).inserted else { continue }
-            if node.isWritable, node.surface.supportsDocumentSession { nodes.append(node) }
-            switch node.surface {
-            case .directory, .directoryDocument, .collection:
-                if let children = try? await provider.children(of: node.reference) {
-                    queue.append(contentsOf: children.map(\.reference))
-                }
-            default:
-                break
+            nodes.append(node)
+            if descendsInto(node), let children = try? await provider.children(of: node.reference) {
+                queue.append(contentsOf: children.map(\.reference))
             }
         }
         return nodes

@@ -81,7 +81,7 @@ describe("REST v1 protocol fixtures", () => {
     const credential = await json<TreeCredential>("credential.json");
     expect(clean.tree.id).toBe("tr_notes7f3q2ab7c");
     expect(clean.accepted.cursor).toBeNull();
-    expect(clean.modifiedAtByPath).toEqual({ "/": 1789473600000 });
+    expect("modifiedAtByPath" in clean).toBe(false);
     // The spine is sparse: the root directory and its Markdown child are present, the binary is not.
     const spine = decodeSparseSnapshotBundle(Buffer.from(clean.spine, "base64"));
     const root = decodeWireDirectory(spine.get(clean.accepted.root as never)!);

@@ -182,13 +182,7 @@ struct ArborNetworkLogView: View {
     private func reload() { entries = log?.entries() ?? [] }
 
     private func copyAll() {
-        let text = WireNetworkLog.text(Array(visible.reversed()))
-#if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-#else
-        UIPasteboard.general.string = text
-#endif
+        arborCopyToPasteboard(WireNetworkLog.text(Array(visible.reversed())))
         copied = true
         Task { try? await Task.sleep(for: .seconds(2)); copied = false }
     }
@@ -198,4 +192,15 @@ struct ArborNetworkLogView: View {
         formatter.dateFormat = "HH:mm:ss.SSS"
         return formatter
     }()
+}
+
+/// Replace the general pasteboard's contents with `text`.
+@MainActor
+func arborCopyToPasteboard(_ text: String) {
+#if os(macOS)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+#else
+    UIPasteboard.general.string = text
+#endif
 }

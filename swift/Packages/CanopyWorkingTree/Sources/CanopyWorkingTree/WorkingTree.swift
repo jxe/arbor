@@ -2,12 +2,14 @@ import CanopyAppKit
 import OverstoryObjectStore
 import Overstory
 import Foundation
+import OSLog
 
 /// The node index of one tree plus the local objects it has produced, over a
 /// state store (disk on iOS, memory on the Mac) and a layered object store
 /// (the tree's own overlay in front of the platform's accepted bytes).
 public actor WorkingTree {
     public typealias Clock = @Sendable () -> Date
+    private static let log = Logger(subsystem: "org.arbor.native", category: "WorkingTree")
 
     private let store: any WorkingTreeStateStore
     private let overlay: any ObjectOverlay
@@ -15,6 +17,9 @@ public actor WorkingTree {
     private let faultInjector: any WorkingTreeFaultInjector
     private let clock: Clock
     private var state: WorkingTreeState
+    /// Positions in `state.nodes` by parent path, built on first use after a
+    /// transaction. Derived metadata written in place keeps positions valid.
+    private var childPositions: [String: [Int]]?
     private var control: WorkingTreeControl
     private var index: WorkingTreeSearchIndex
     private var terminal = false
@@ -207,7 +212,7 @@ public actor WorkingTree {
 
     /// The current graph with every object's bytes, fetching referenced file
     /// objects through the object store.
-    public func completeSnapshot() async throws -> WireSnapshot {
+    func completeSnapshot() async throws -> WireSnapshot {
         let sparse = try currentSnapshot()
         var objects: [WireObjectEnvelope] = []
         objects.reserveCapacity(sparse.objects.count)
@@ -254,7 +259,10 @@ public actor WorkingTree {
         for node in state.nodes where node.kind == .file {
             if case let .hash(hash, _, _)? = node.ref { files.insert(hash) }
         }
-        try? overlay.retain(reachableFrom: roots, files: files)
+        do { try overlay.retain(reachableFrom: roots, files: files) } catch {
+            // Collection is best effort: unreachable bytes only cost space.
+            Self.log.error("overlay collection failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     public func recordAccepted(root: String, update: String, cursor: String? = nil) throws {
@@ -312,7 +320,8 @@ public actor WorkingTree {
             mutation: mutation,
             pageKey: "_system",
             accepted: (replacement.root, replacement.update, replacement.cursor),
-            recordsModificationDates: mutation != "initialize-from-system"
+            recordsModificationDates: mutation != "initialize-from-system",
+            changedAt: replacement.acceptedAt
         ) { next in
             next = replacementState
         }
@@ -333,6 +342,24 @@ public actor WorkingTree {
             control: control,
             index: index
         )
+    }
+
+    /// Dates from Canopy's entry metadata, keyed by entry path. They describe
+    /// `update`: when that is this tree's accepted, materialized state they
+    /// are authoritative; otherwise they only date nodes that have no date.
+    /// Content and hashes are untouched.
+    public func applyEntryDates(_ dates: [String: Date], update: String) throws {
+        try requireOpen()
+        let exact = control.acceptedUpdate == update && control.acceptedRoot == control.materializedRoot
+        var next = state, changed = false
+        for index in next.nodes.indices {
+            guard let entry = next.nodes[index].bodyEntryPath, let date = dates[entry],
+                  exact || next.nodes[index].modifiedAt == nil, next.nodes[index].modifiedAt != date else { continue }
+            next.nodes[index].modifiedAt = date
+            changed = true
+        }
+        guard changed else { return }
+        try transact(mutation: "entry-metadata", pageKey: "_system", recordsModificationDates: false) { $0 = next }
     }
 
     /// Replace a fork's nodes with a local candidate. Unlike an accepted
@@ -357,17 +384,17 @@ public actor WorkingTree {
                     childrenSource: node.childrenSource,
                     directoryBodyPlacement: node.directoryBodyPlacement,
                     shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource,
-                    modifiedAt: node.modifiedAt
+                    metadata: node.metadata
                 )
             case let .markdown(source):
-                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, modifiedAt: node.modifiedAt)
+                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, metadata: node.metadata)
             case let .file(ref, mediaType):
                 var reference = ref
                 if case let .hash(hash, size, type) = ref, size == nil,
                    let previous = state.nodes.first(where: { $0.path == node.path && $0.ref?.objectHash == hash })?.ref {
                     reference = .hash(hash, size: previous.size, mediaType: type ?? previous.mediaType)
                 }
-                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType)
+                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType, metadata: node.metadata)
             case let .boundary(tree):
                 return WorkingTreeNode(path: node.path, kind: .boundary, boundaryTree: tree.rawValue)
             }
@@ -375,7 +402,7 @@ public actor WorkingTree {
         return WorkingTreeState(tree: state.tree, nodes: nodes)
     }
 
-    public func deleteRebuildableIndexes() throws {
+    func deleteRebuildableIndexes() throws {
         try requireOpen()
         try store.removeIndexes()
         index = WorkingTreeSearchIndex(generation: -1, entries: [])
@@ -431,9 +458,21 @@ public actor WorkingTree {
     func children(of reference: WorkspaceReference) throws -> [WorkingTreeNode] {
         let parent = try resolve(reference)
         guard parent.kind == .directory else { throw WorkingTreeError.notDirectory(reference) }
-        return state.nodes.filter {
-            WorkingTreeSemantics.parent(of: $0.path) == parent.path && !WorkingTreeSemantics.isStoreFile($0)
-        }.sorted { WorkingTreeSemantics.compareUTF8($0.path, $1.path) }
+        return childNodes(of: parent.path).filter { !WorkingTreeSemantics.isStoreFile($0) }
+            .sorted { WorkingTreeSemantics.compareUTF8($0.path, $1.path) }
+    }
+
+    private func childNodes(of path: String) -> [WorkingTreeNode] {
+        let positions: [String: [Int]]
+        if let childPositions { positions = childPositions } else {
+            var built: [String: [Int]] = [:]
+            for (position, node) in state.nodes.enumerated() {
+                if let parent = WorkingTreeSemantics.parent(of: node.path) { built[parent, default: []].append(position) }
+            }
+            childPositions = built
+            positions = built
+        }
+        return (positions[path] ?? []).map { state.nodes[$0] }
     }
 
     func completeSource(for node: WorkingTreeNode) -> String? {
@@ -445,14 +484,12 @@ public actor WorkingTree {
     }
 
     func revision(for node: WorkingTreeNode) -> String {
-        WorkingTreeSemantics.documentRevision(node: node, state: state)
+        WorkingTreeSemantics.documentRevision(node: node, children: node.kind == .directory ? childNodes(of: node.path) : [])
     }
 
     func collection(for directory: WorkingTreeNode) async -> (kind: String, rows: Int?)? {
         guard directory.kind == .directory else { return nil }
-        guard let storeFile = state.nodes.first(where: {
-            WorkingTreeSemantics.parent(of: $0.path) == directory.path && WorkingTreeSemantics.isStoreFile($0)
-        }) else { return nil }
+        guard let storeFile = childNodes(of: directory.path).first(where: WorkingTreeSemantics.isStoreFile) else { return nil }
         let name = WorkingTreeSemantics.name(of: storeFile.path)
         switch name {
         case "_store.sqlite3": return ("SQLite", nil)
@@ -473,8 +510,6 @@ public actor WorkingTree {
         case "_store.jsonl":
             guard let bytes else { return ("JSONL", nil) }
             return ("JSONL", String(decoding: bytes, as: UTF8.self).split(whereSeparator: \.isNewline).count)
-        case "_store.sqlite3": return ("SQLite", nil)
-        case "_store.postgres": return ("Postgres", nil)
         default: return nil
         }
     }
@@ -591,7 +626,7 @@ public actor WorkingTree {
         try WorkingTreeSemantics.validateName(asset.name)
         let parentNode = try resolve(parent)
         guard parentNode.kind == .directory || parentNode.kind == .markdown else { throw WorkingTreeError.notDirectory(parent) }
-        let digest = String(WorkingTreeSemantics.sha256(asset.bytes).dropFirst("sha256:".count))
+        let digest = String(WireObjectCodec.hash(asset.bytes).dropFirst("sha256:".count))
         let uniqueName = "\(digest.prefix(16))-\(asset.name)"
         let path = WorkingTreeSemantics.child(uniqueName, of: parentNode.path)
         if let existing = state.nodes.first(where: { $0.path == path }) {
@@ -843,8 +878,6 @@ public actor WorkingTree {
             source: submitted,
             baseRevision: patch.baseContentRevision
         )
-        let baseObject = WorkingTreeWireCodec.file(Data(current.source.utf8))
-        let resultObject = WorkingTreeWireCodec.file(Data(snapshot.source.utf8))
         return (
             snapshot,
             WorkingTreePatchAdmission(
@@ -852,8 +885,8 @@ public actor WorkingTree {
                 baseRoot: before.materializedRoot,
                 candidateRoot: control.materializedRoot,
                 generation: control.generation,
-                baseFile: WorkingTreeWireCodec.hash(baseObject),
-                resultFile: WorkingTreeWireCodec.hash(resultObject),
+                baseFile: WireObjectCodec.hash(Data(current.source.utf8)),
+                resultFile: WireObjectCodec.hash(Data(snapshot.source.utf8)),
                 patch: patch,
                 baseWasAccepted: before.pendingRoot == nil && before.acceptedRoot == before.materializedRoot
             )
@@ -889,12 +922,13 @@ public actor WorkingTree {
         accepted: (root: String, update: String, cursor: String?)? = nil,
         retainsPendingAgainstAcceptedBase: Bool = false,
         recordsModificationDates: Bool = true,
+        changedAt: Date? = nil,
         change: (inout WorkingTreeState) throws -> Void
     ) throws {
         try requireOpen()
         var next = state
         try change(&next)
-        let changedAt = clock()
+        let changedAt = changedAt ?? clock()
         if recordsModificationDates {
             applyModificationDates(from: state, to: &next, changedAt: changedAt)
         }
@@ -936,17 +970,16 @@ public actor WorkingTree {
             let candidate = next.nodes[index]
             let old = candidate.pageID.flatMap { previousByPageID[$0] }
                 ?? previousByPath[candidate.path]
+            // A date the change itself carries (Canopy's accepted time) stands.
+            let stamp = candidate.modifiedAt ?? changedAt
             guard let old else {
-                next.nodes[index].modifiedAt = changedAt
+                next.nodes[index].modifiedAt = stamp
                 continue
             }
-            var oldContent = old
-            var candidateContent = candidate
-            oldContent.modifiedAt = nil
-            candidateContent.modifiedAt = nil
-            next.nodes[index].modifiedAt = oldContent == candidateContent
-                ? old.modifiedAt
-                : changedAt
+            // Unchanged content keeps all of its metadata; a change keeps the
+            // other descriptive fields and moves only the date.
+            next.nodes[index].metadata = old.metadata
+            if old.withoutMetadata != candidate.withoutMetadata { next.nodes[index].modifiedAt = stamp }
         }
     }
 
@@ -1012,6 +1045,7 @@ public actor WorkingTree {
         try store.writeIndex(try Self.encode(nextIndex))
         try store.removeJournal(token: journalToken)
         state = nextState
+        childPositions = nil
         control = nextControl
         index = nextIndex
         if intent.acceptedRoot != nil { retainOverlay(nextControl, state: nextState) }
@@ -1095,11 +1129,13 @@ public actor WorkingTree {
         }
         let pageIDs = state.nodes.compactMap(\.pageID)
         guard Set(pageIDs).count == pageIDs.count else { throw WorkingTreeError.corruptState("Duplicate PageID") }
+        let directories = Set(state.nodes.lazy.filter { $0.kind == .directory }.map(\.path))
+        let parents = Set(state.nodes.lazy.compactMap { WorkingTreeSemantics.parent(of: $0.path) })
         for node in state.nodes {
             guard try WorkingTreeSemantics.normalizePath(node.path) == node.path else { throw WorkingTreeError.corruptState("Noncanonical path") }
             if node.path != "/" { try WorkingTreeSemantics.validateName(WorkingTreeSemantics.name(of: node.path)) }
             if node.path != "/", let parent = WorkingTreeSemantics.parent(of: node.path) {
-                guard state.nodes.contains(where: { $0.path == parent && $0.kind == .directory }) else {
+                guard directories.contains(parent) else {
                     throw WorkingTreeError.corruptState("Missing parent directory for \(node.path)")
                 }
             }
@@ -1140,7 +1176,7 @@ public actor WorkingTree {
                 guard node.boundaryTree?.isEmpty == false, node.source == nil, node.ref == nil else {
                     throw WorkingTreeError.corruptState("Malformed nested tree boundary")
                 }
-                guard !state.nodes.contains(where: { WorkingTreeSemantics.parent(of: $0.path) == node.path }) else {
+                guard !parents.contains(node.path) else {
                     throw WorkingTreeError.corruptState("Nested tree boundary has local children")
                 }
             }

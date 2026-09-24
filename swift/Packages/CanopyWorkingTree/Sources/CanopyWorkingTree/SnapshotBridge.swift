@@ -12,7 +12,8 @@ public enum SnapshotBridge {
         update: String,
         cursor: String? = nil,
         mode: WireObjectGraph.ValidationMode = .complete,
-        modifiedAtByPath: [String: Date] = [:]
+        entryMetadata: [String: EntryMetadata] = [:],
+        acceptedAt: Date? = nil
     ) throws -> WorkingTreeSystemReplacement {
         let sparse = mode == .sparseFiles
         let objects = try WireObjectGraph.validate(snapshot, mode: mode)
@@ -43,7 +44,7 @@ public enum SnapshotBridge {
                 throw ArborWireValidationError.invalidValue("Duplicate logical path \(node.path)")
             }
             var node = node
-            node.modifiedAt = modifiedAtByPath[node.path]
+            if let entry = node.bodyEntryPath, let metadata = entryMetadata[entry] { node.metadata = metadata }
             nodes.append(node)
         }
 
@@ -76,17 +77,7 @@ public enum SnapshotBridge {
             try appendNode(WorkingTreeSystemNode(
                 path: path,
                 content: .directory(source: source),
-                childrenSource: childrenSource.map {
-                    WorkingTreeCollectionFileDescriptor(
-                        version: $0.version,
-                        type: $0.type,
-                        format: $0.format,
-                        source: $0.source,
-                        schemaSource: $0.schemaSource,
-                        schemaFingerprint: $0.schemaFingerprint,
-                        childSetHash: $0.childSetHash
-                    )
-                },
+                childrenSource: childrenSource,
                 directoryBodyPlacement: indexSource == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
                 shadowedSiblingMarkdownSource: indexSource != nil ? siblingMarkdownSource : nil
             ))
@@ -146,7 +137,7 @@ public enum SnapshotBridge {
         }
 
         try visitDirectory(snapshot.root, path: "/")
-        return WorkingTreeSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes)
+        return WorkingTreeSystemReplacement(root: snapshot.root, update: update, cursor: cursor, nodes: nodes, acceptedAt: acceptedAt)
     }
 
     public static func inferredMediaType(for name: String) -> String? {

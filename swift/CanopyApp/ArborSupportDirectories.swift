@@ -14,6 +14,13 @@ enum ArborSupportDirectories {
 #endif
 
     static let root: URL = {
+#if os(macOS)
+        // A redirected data home (tests, the conflict lab) keeps app state
+        // beside it, so it never touches the real Application Support.
+        if let override = ProcessInfo.processInfo.environment["ARBOR_DATA_HOME"], !override.isEmpty {
+            return dataHome.appending(path: "Application Support/Arbor", directoryHint: .isDirectory)
+        }
+#endif
         let fileManager = FileManager.default
         let base = (try? fileManager.url(
             for: .applicationSupportDirectory,

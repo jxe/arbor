@@ -18,6 +18,12 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [Native 011 — Unify Mac account management and fold daemon clients into their callers](swift/011-unify-mac-accounts-and-fold-daemon-clients.md) — **NEEDS DESIGN REVIEW; approved in principle.** Accounts, placements, and accepted-choice review go through the iOS path on the Mac; the daemon keeps folder materialization, objects, bootstrap, and supervision; the claim, pair, identity, and forget routes and their client methods are removed.
 - [Native 010 — Extend accepted-choice review](swift/010-client-conflict-review.md) — **REVIEW UI IMPLEMENTED; release verification outstanding.** Remaining implementation is richer previews, finer source mapping and additional fault coverage. Installation and hands-on gates live in verification/.
 
+## Client state machines
+
+`clients/` — The portable client state machines and the runners that execute them.
+
+- [Clients 001 — Reconcile the client state machines with the clients that run them](clients/001-reconcile-client-state-machines.md) — **NEEDS DESIGN.** Neither TypeScript reducer runs in production, and the Swift runners bypass their machines' effects and phases; decide per behaviour whether the machine or the runner is right, revise spec 09 and the vectors, make the runners effect-driven, and add runner conformance before Web 025 needs them.
+
 ## Web client
 
 `canopy-web/` — Restore the browser working-tree client, then its interface and editor features.
@@ -40,11 +46,11 @@ manual acceptance and soak gates. Check current source/tests before executing an
 - [canopyd 001](canopyd/001-pack-object-storage.md): measure storage before choosing packing or pruning.
 - [canopyd 002](canopyd/002-composable-conflict-fragments.md): reassess only residual fragment-representation gaps against schema 12.
 - [canopyd 006 — Attribute accepted updates and show line provenance](canopyd/006-line-provenance.md) — **P2 · PLANNED; depends on canopyd 007 and coordinates retained-root policy with canopyd 001.** Reuse canopyd's document-version index for Git-blame-like current-line provenance without adding a revision DAG.
-- [canopyd 007 — Surface accepted document history from canopyd](canopyd/007-canopy-document-history.md) — **P1 · PLANNED; execute before canopyd 006 and coordinate retained-root policy with canopyd 001.** Surface accepted document history and restore-as-new-change from canopyd while keeping Arbor Sync filesystem repair separate; replica archive removal was completed in `b610d40`.
-- [canopyd 009](canopyd/009-canopy-provenance-merges.md): format policies, transfer proofs and measured server costs.
-- [canopyd 011 — Traced page creation with an `addEntry` authored operation](canopyd/011-add-entry-traced-page-creation.md) — **IMPLEMENTED, not yet deployed.** Page creation publishes a snapshot because no authored operation can add an entry; a new `addEntry` kind across protocol, merge engine, Swift and web clients puts creations on the fast-forward path with mergeable evidence.
-- [canopyd 012 — Effect records store piece deltas](canopyd/012-effect-record-piece-deltas.md) — **IMPLEMENTED, not yet deployed.** Effects copy whole piece arrays twice per edit (75% of a tree's state DAG); store the piece delta that deletion enforcement, move detection and retention actually read, with legacy records still readable.
-- [canopyd 013 — Entry metadata and the document-version index](canopyd/013-entry-metadata.md) — **PLANNED.** Directly placed trees (always on iPhone) have no page dates; canopyd keeps a per-entry side table of last-accepted change times outside the hashes, served by a new `entry-metadata` read, plus canopyd 007's `document_versions` index, both filled by one change walk and backfilled by one migration (014).
+- [canopyd 007 — Document history routes, restore, and the History view](canopyd/007-document-history-routes-and-restore.md) — **P1 · PLANNED; execute before canopyd 006.** The `document_versions` index is live (canopyd 013, migration 014); what remains is the write-credential-only history routes over it, restore as an ordinary new change, and the native History view.
+- [canopyd 009 — Merge rule selection per host and per tree](canopyd/009-merge-rule-selection.md) — **P3 · PLANNED.** Governed host and per-tree choice among the merge tool's existing rules, recorded in each merge's evidence.
+- [canopyd 014 — Merge moved and copied text beyond paragraphs](canopyd/014-merge-moved-text.md) — **P3 · PLANNED.** Structural proofs for Markdown list/table/link transfers, same-anchor ordering, and keyed JSON/YAML and code moves.
+- [canopyd 015 — One merge-state model, then squash retained history](canopyd/015-squash-history-and-one-merge-state-model.md) — **P2 · PLANNED.** Route every acceptance through merge states, then migration 016 squashes history to head roots and drops the legacy tables, columns and readers.
+- **Sidebar creations as `addEntry`** — candidate. Editor page creation and a directory's first body are traced (canopyd 011, [closeout](../status.md#canopyd-011-012-and-013-closeout--2026-09-22)); the sidebar's `createMarkdown`/`createDirectory` actions still publish snapshots because their admission records carry no editor document. Emit `addEntry` from `retainStructure` for those actions too.
 
 ## CLI and external agents
 
@@ -118,7 +124,6 @@ or a concrete implementation trigger; they are not new executor plans.
 
 - **Product gaps awaiting design** — These outcomes need interaction, ownership, recovery, and acceptance decisions before receiving numbered executor plans.
   - **Name-based sharing and profile avatars** — **NEEDS DESIGN.** Define user lookup, ambiguous-name selection, visibility and avatar ownership before writing an executor plan.
-  - **First-party group creation and membership management** — **NEEDS DESIGN.** Create, place, and own a group profile coherently; add and remove structured profile members without teaching users to edit YAML; preserve canopyd reservation and account-disable semantics.
   - **Profile/device recovery, claim disputes, and administrator reset** — **NEEDS DESIGN.** Preserve the same self-certifying Profile TreeID and provide auditable proof of control rather than raw-credential transfer.
   - **Claimed-member removal/restoration and access-history recovery** — **NEEDS DESIGN.** Define confirmation, revocation, historical visibility, and restoration without a parallel group database.
   - **Persistent-host administration** — **NEEDS DESIGN.** Productize permanent domains, graceful restart, replacement-host restore, and verification while keeping migration scripts procedural.

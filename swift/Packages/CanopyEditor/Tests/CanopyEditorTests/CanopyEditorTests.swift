@@ -1,5 +1,6 @@
 import CanopyAppKit
 @testable import CanopyEditor
+import Overstory
 import Foundation
 import Quagmire
 import QuagmireExtras
@@ -66,6 +67,41 @@ struct CanopyEditorTests {
         #expect(admission.source.contains("Untouched **raw style**."))
         #expect(admission.patch.edits.count == 1)
         #expect(try admission.patch.applying(to: source) == admission.source)
+    }
+
+    @Test("Source patches are byte-exact and never split a grapheme cluster")
+    func graphemeSafePatch() throws {
+        // Adding a combining accent or a skin-tone modifier changes the last
+        // shared cluster, so the edit starts at that cluster, not mid-way.
+        let accent = ArborMarkdownCodec.patch(from: "cafe\n", to: "cafe\u{301}\n", revision: "r1")
+        #expect(accent.edits.map(\.utf8Range) == [3..<4])
+        #expect(accent.edits.map(\.expected) == ["e"])
+        #expect(accent.edits.map(\.replacement) == ["e\u{301}"])
+        let emoji = ArborMarkdownCodec.patch(from: "👍 ok 👍\n", to: "👍 ok 👍🏽\n", revision: "r1")
+        #expect(emoji.edits.map(\.utf8Range) == [8..<12])
+        #expect(try emoji.applying(to: "👍 ok 👍\n") == "👍 ok 👍🏽\n")
+        // Canonically equivalent spellings are still different bytes.
+        let precomposed = "caf\u{E9}\n", decomposed = "cafe\u{301}\n"
+        let respelled = ArborMarkdownCodec.patch(from: precomposed, to: decomposed, revision: "r1")
+        #expect(respelled.edits.count == 1)
+        #expect(try respelled.applying(to: precomposed).utf8.elementsEqual(decomposed.utf8))
+        #expect(ArborMarkdownCodec.patch(from: decomposed, to: decomposed, revision: "r1").edits.isEmpty)
+    }
+
+    @Test("The leading H1 scan reads the first parsed block's title")
+    func leadingH1Text() {
+        let sources = [
+            "", "\n\n", "# Title\n\nBody\n", "  # *Styled* \\_title\\_\r\nBody\r\n", "#\n", "## Second\n# Title\n",
+            "Paragraph\n# Title\n", "---\nid: pg\n---\n\n# Front\n", "---\nunterminated\n# Title\n",
+            "\t \n# After blanks\n", "```\n# not a heading\n```\n", "#Hashtag\n", "- # item\n",
+        ]
+        for source in sources {
+            let parsed: String? = ArborMarkdownCodec.parseBlocks(source).first.flatMap { block in
+                guard case let .heading(level, text) = block.kind, level == .h1 else { return nil }
+                return String(text.characters)
+            }
+            #expect(ArborMarkdownCodec.leadingH1Text(source) == parsed, "\(source.debugDescription)")
+        }
     }
 
     @Test("First edit after frontmatter keeps one envelope and unique rebased BlockIDs")
@@ -415,6 +451,31 @@ struct CanopyEditorTests {
         #expect(label.runs.contains { $0[InlineAttributes.BoldAttribute.self] == true })
         #expect(reference.rawValue == "Calendar.md#h31mlm")
         #expect(ArborMarkdownCodec.serializeBlocks([block]).contains("[🗓️ **Calendar**](Calendar.md#h31mlm)"))
+    }
+
+    @MainActor
+    @Test("Source ranges of a known object map to the blocks they cover, never guessed")
+    func sourceRangeBlocks() async throws {
+        let source = "---\nid: pg_errands\n---\n\n# Errands\n\nPick up the bike.\n\n- Once here\n  - Run\n\nCall the landlord.\n"
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/errands", stableKey: markdownStableKey("pg_errands"))
+        let session = RecordingAdmissionSession(snapshot: .init(reference: reference, source: source, contentRevision: "opaque-r1"))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let object = WireObjectCodec.hash(Data(source.utf8))
+        func text(_ ids: [BlockID]?) -> [String]? {
+            ids?.map { id in binding.document.find(id).map { String($0.text.characters) } ?? "?" }
+        }
+        let bytes = Array(source.utf8)
+        func offset(_ needle: String) -> Int {
+            let target = Array(needle.utf8)
+            return (0...(bytes.count - target.count)).first { Array(bytes[$0..<($0 + target.count)]) == target }!
+        }
+        let list = offset("- Once here"), after = offset("Call the")
+        #expect(text(binding.blocks(overlapping: list..<after, inSource: object)) == ["Once here", "Run"])
+        // A retained deletion sits after the block that ends at its anchor.
+        #expect(text(binding.blocks(overlapping: after..<after, inSource: object)) == ["Run"])
+        #expect(binding.blocks(overlapping: list..<after, inSource: WireObjectCodec.hash(Data("other".utf8))) == nil)
+        // Frontmatter has no block to stand beside.
+        #expect(binding.blocks(overlapping: 4..<18, inSource: object) == nil)
     }
 
     @MainActor
@@ -1846,7 +1907,7 @@ func boundEqualByteReorder() async throws {
         _ = binding.document.replaceChildrenReconciled(Array(binding.document.children.reversed()))
     }
     binding.admitCurrentGeneration()
-    try await binding.flush()
+    await binding.flush()
     let patches = await session.admittedPatches()
     #expect(patches.count == 1)
     #expect(patches.first?.edits.first?.lineage?.count == 2)

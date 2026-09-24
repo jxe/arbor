@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SourceOperation } from "@overstory/protocol";
 import { engineDiagnostics } from "../../../packages/canopyd-merge/src/intent-engine.ts";
+import { loadIntentState } from "../../../packages/canopyd-merge/src/state-storage.ts";
 import { Fixture } from "./fixture.ts";
 
 const add = (f: Fixture, root: string, name: string, value: { file: string } | { directory: string }, key = "add"): SourceOperation =>
@@ -52,4 +53,24 @@ test("concurrent additions of one name leave an explicit choice", async () => {
   const remote = await f.run(f.request(start.result, theirs, [add(f, base, "n.md", { file: f.put("theirs") })], "theirs"));
   const merged = await f.run(f.request(start.result, mine, [add(f, base, "n.md", { file: f.put("mine") })], "mine", remote.result));
   expect(merged.decisions.length).toBeGreaterThan(0);
+});
+
+test("an entry operation's result keeps only its subtree, and later operations read through it", async () => {
+  const f = new Fixture(), base = f.tree({ "a.md": "A", "b.md": "B" });
+  const child = f.tree({ "_index.md": "Body", "note.md": "Note" });
+  const copied = f.dir([
+    { name: "a.md", file: f.put("A") }, { name: "b.md", file: f.put("B") },
+    { name: "copy.md", file: f.put("Note") }, { name: "dir", directory: child },
+  ]);
+  const created = await f.run(f.request(base, copied, [
+    add(f, base, "dir", { directory: child }),
+    { key: "copy", kind: "copyEntry", source: { ...f.op("create", "add"), within: ["note.md"] },
+      destination: { parent: f.root(base), name: "copy.md" } },
+  ], "create"));
+  expect(created.result.object).toBe(copied);
+  const state = await loadIntentState(created.result.state, async (hash) => f.objects.get(hash)!);
+  const output = Object.values(state.outputs).find((material) => material.view && state.nodes[material.node]?.name === "dir")!;
+  const names = Object.values(output.view!.nodes).map((node) => node.name).sort();
+  expect(output.view!.root).toBe(output.node);
+  expect(names).toEqual(["_index.md", "dir", "note.md"]);
 });

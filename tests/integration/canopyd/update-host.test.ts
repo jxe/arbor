@@ -402,10 +402,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(publicObject.headers.get("vary")).toBe("Authorization, Arbor-Access-Link");
 
     const database = new Database(join(dataRoot, "canopy.sqlite3"));
-    database.transaction(() => {
-      database.run("DELETE FROM observations WHERE update_id = ?", [advanced.update.id]);
-      database.run("DELETE FROM accepted_updates WHERE id = ?", [advanced.update.id]);
-    })();
+    database.run("DELETE FROM accepted_updates WHERE id = ?", [advanced.update.id]);
     database.close();
     const pruned = await fetch(snapshotURL(advanced.update.root), { headers: authenticated });
     expect(pruned.status).toBe(404);
@@ -439,7 +436,10 @@ describe("governed account-configuration Canopy server", () => {
     if (second.outcome !== "accepted") throw new Error("Expected an accepted update");
 
     const database = new Database(join(dataRoot, "canopy.sqlite3"));
-    database.run("UPDATE observations SET cursor = 'observation-batch' WHERE update_id = ?", [second.update.id]);
+    // Move the newest row's cursor (its ordinal) away from its id.
+    const batchCursor = String(Number(second.update.id) + 1000);
+    database.run("UPDATE accepted_updates SET ordinal = ? WHERE id = ?", [Number(batchCursor), second.update.id]);
+    database.run("UPDATE sqlite_sequence SET seq = ? WHERE name = 'accepted_updates'", [Number(batchCursor)]);
     database.close();
     const abort = new AbortController();
     const response = await fetch(
@@ -470,11 +470,11 @@ describe("governed account-configuration Canopy server", () => {
     expect(event.change.transitions.map(({ update }) => update.id)).toEqual([second.update.id]);
     expect(event.change.transitions[0]!.from).toEqual({id: baseline.current.tree.update, root: baseline.current.tree.root});
     expect(event.change.transitions[0]!.update.previous).toEqual({id: first.update.id, root: first.update.root});
-    expect(event.cursor).toBe("observation-batch");
+    expect(event.cursor).toBe(batchCursor);
     expect(event.cursor).not.toBe(second.update.id);
     const replayAbort = new AbortController();
     for await (const decoded of client.watch(baseline.current.tree.id, baseline.current.observedThrough, { signal: replayAbort.signal })) {
-      expect(decoded.cursor).toBe("observation-batch");
+      expect(decoded.cursor).toBe(batchCursor);
       if (decoded.kind === "tree.update") expect(decoded.descriptor.update).toBe(second.update.id);
       else throw new Error("Expected accepted transition replay");
       replayAbort.abort();

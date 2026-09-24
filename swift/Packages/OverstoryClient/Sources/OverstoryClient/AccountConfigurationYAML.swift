@@ -184,31 +184,47 @@ public enum NativeTreeAccessTarget: Hashable, Sendable {
     case existing(ArborAccountAccessSubject)
 }
 
-public struct NativeAccessLink: Hashable, Sendable {
-    public var url: URL
-
-    public init(url: URL) { self.url = url }
-}
-
 public enum ArborAccountConfigurationYAML {
-    public static func trees(from source: String) throws -> [String: ArborHostedTreeDeclaration] {
-        try validatePolicyYAML(source)
-        if let resources = try? YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source) {
-            return resources.compactMapValues { value in
-                value.canonical.map { ArborHostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
+    private enum TreesSource {
+        case resources([String: ArborResourceDeclaration])
+        case legacy([String: ArborHostedTreeDeclaration])
+
+        var trees: [String: ArborHostedTreeDeclaration] {
+            switch self {
+            case .resources(let resources):
+                resources.compactMapValues { value in
+                    value.canonical.map { ArborHostedTreeDeclaration(canonical: $0, resourceAccess: value.access) }
+                }
+            case .legacy(let trees): trees
             }
         }
-        return try YAMLDecoder().decode([String: ArborHostedTreeDeclaration].self, from: source)
+    }
+
+    /// Parse trees.yaml in the resource format, falling back to the legacy
+    /// hosted-tree format; a file that is neither reports the resource-format error.
+    private static func parseTrees(_ source: String) throws -> TreesSource {
+        try validatePolicyYAML(source)
+        do {
+            return .resources(try YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source))
+        } catch {
+            guard let legacy = try? YAMLDecoder().decode([String: ArborHostedTreeDeclaration].self, from: source) else { throw error }
+            return .legacy(legacy)
+        }
+    }
+
+    public static func trees(from source: String) throws -> [String: ArborHostedTreeDeclaration] {
+        try parseTrees(source).trees
     }
 
     public static func replacingTrees(
         in source: String,
         with change: (inout [String: ArborHostedTreeDeclaration]) throws -> Void
     ) throws -> String {
-        let original = try trees(from: source)
+        let parsed = try parseTrees(source)
+        let original = parsed.trees
         var changed = original
         try change(&changed)
-        if var resources = try? YAMLDecoder().decode([String: ArborResourceDeclaration].self, from: source) {
+        if case var .resources(resources) = parsed {
             let wasEmpty = resources.isEmpty
             let keys = Set(original.keys).union(changed.keys).filter { original[$0] != changed[$0] }
             for key in keys {

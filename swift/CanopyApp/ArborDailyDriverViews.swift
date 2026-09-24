@@ -13,7 +13,6 @@ enum ArborPresentedSheet: String, Identifiable {
     case history
     case arborsyncLogs
     case networkLog
-    case syncStatus
 
     var id: String { rawValue }
 }
@@ -227,7 +226,8 @@ func arborSidebarContextPath(_ path: String) -> String? {
     return "/" + components.dropLast().joined(separator: "/")
 }
 
-private func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: String) {
+/// A title's leading emoji apart from its text; the text alone is also its alphabetical sort key.
+func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: String) {
     guard let first = title.first, WorkspaceDisplayTitle.isEmoji(first) else {
         return (nil, title)
     }
@@ -300,7 +300,7 @@ struct ArborSearchPalette: View {
                 isLoading = false
                 return
             }
-            do { try await Task.sleep(for: .milliseconds(140)) }
+            do { try await Task.sleep(for: arborQueryDebounce) }
             catch { return }
             guard !Task.isCancelled else { return }
             isLoading = true
@@ -404,6 +404,9 @@ struct ArborSearchPalette: View {
     }
 }
 
+/// The typing pause before a palette or picker runs its query.
+private let arborQueryDebounce = Duration.milliseconds(140)
+
 struct ArborMoveDestinationSheet: View {
     let host: ArborEditorHost
     let request: ArborMoveRequest
@@ -411,7 +414,8 @@ struct ArborMoveDestinationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var searchFocused: Bool
     @State private var query = ""
-    @State private var documents: [ArborMoveDocument] = []
+    /// Writable destination pages, decoded from their `arbor://` rows once per load.
+    @State private var documentResults: [WorkspaceSearchResult] = []
     @State private var isLoading = false
     @State private var showAllInDocument = false
     @AppStorage("pageOrder.moveTo") private var order = ArborSidebarPageOrder.alphabetical
@@ -429,18 +433,9 @@ struct ArborMoveDestinationSheet: View {
         let current = host.binding.reference.identity
         let indexed = stalePageResults
             .filter { $0.reference.identity != current }
-            .map {
-                ArborMoveDocument(
-                    reference: ArborDocumentReferenceCodec.encode($0.reference),
-                    title: $0.title,
-                    subtitle: $0.reference.path,
-                    isHome: $0.reference.path == "/",
-                    modifiedAt: $0.modifiedAt,
-                    backlinkCount: $0.backlinkCount
-                )
-            }
+            .map { ArborMoveDocument($0.reference, title: $0.title, modifiedAt: $0.modifiedAt, backlinkCount: $0.backlinkCount) }
         let cached = host.staleMoveDocuments(matching: "")
-        _documents = State(initialValue: cached.isEmpty ? indexed : cached)
+        _documentResults = State(initialValue: Self.searchResults(cached.isEmpty ? indexed : cached))
     }
 
     var body: some View {
@@ -482,9 +477,9 @@ struct ArborMoveDestinationSheet: View {
                         documentSections
                     }
                     .overlay {
-                        if isLoading, documents.isEmpty {
+                        if isLoading, documentResults.isEmpty {
                             ProgressView("Finding destinations")
-                        } else if visibleInDocument.isEmpty, documents.isEmpty {
+                        } else if visibleInDocument.isEmpty, documentResults.isEmpty {
                             ContentUnavailableView(
                                 "No matching destinations",
                                 systemImage: "arrow.turn.down.right"
@@ -508,17 +503,18 @@ struct ArborMoveDestinationSheet: View {
         .task { searchFocused = true }
         .task(id: query) {
             if !query.isEmpty {
-                do { try await Task.sleep(for: .milliseconds(140)) }
+                do { try await Task.sleep(for: arborQueryDebounce) }
                 catch { return }
             }
             guard !Task.isCancelled else { return }
             isLoading = true
-            documents = await host.moveDocuments(matching: query)
+            let documents = await host.moveDocuments(matching: query)
+            documentResults = Self.searchResults(documents)
             isLoading = false
         }
         .onChange(of: query) { _, _ in keyboardSelection = nil }
         .onChange(of: order) { _, _ in keyboardSelection = nil }
-        .onChange(of: documents) { _, _ in keyboardSelection = nil }
+        .onChange(of: documentResults) { _, _ in keyboardSelection = nil }
         .onDisappear {
             if host.moveRequest?.id == request.id { host.resolveMoveRequest(with: nil) }
         }
@@ -536,7 +532,7 @@ struct ArborMoveDestinationSheet: View {
             : Array(visibleInDocument.prefix(Self.collapsedLimit))
     }
 
-    private var documentResults: [WorkspaceSearchResult] {
+    private static func searchResults(_ documents: [ArborMoveDocument]) -> [WorkspaceSearchResult] {
         documents.compactMap { document in
             guard let reference = ArborDocumentReferenceCodec.decode(document.reference) else { return nil }
             return WorkspaceSearchResult(
@@ -672,11 +668,7 @@ struct ArborStructuralMoveSheet: View {
             matching: ""
         )
         let indexed = stalePageResults.compactMap { result -> ArborStructuralDestination? in
-            let path = result.reference.path
-            let containsTarget = path == request.reference.path
-                || path.hasPrefix(request.reference.path + "/")
-            let sameParent = request.reference.parent?.path == path
-            guard !containsTarget, !sameParent else { return nil }
+            guard ArborStructuralDestination.canReceive(request.reference, at: result.reference.path) else { return nil }
             return ArborStructuralDestination(
                 reference: result.reference,
                 title: result.title,
@@ -728,7 +720,7 @@ struct ArborStructuralMoveSheet: View {
         .task { searchFocused = true }
         .task(id: query) {
             if !query.isEmpty {
-                do { try await Task.sleep(for: .milliseconds(140)) }
+                do { try await Task.sleep(for: arborQueryDebounce) }
                 catch { return }
             }
             guard !Task.isCancelled else { return }
@@ -755,29 +747,28 @@ struct ArborStructuralMoveSheet: View {
         }
     }
 
+    private var destinationsByIdentity: [WorkspaceIdentity: ArborStructuralDestination] {
+        Dictionary(destinations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     private var orderedDestinations: [ArborStructuralDestination] {
-        let byIdentity = Dictionary(
-            destinations.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let byIdentity = destinationsByIdentity
         return ArborSidebarPages.sorted(destinationResults, by: order).compactMap { byIdentity[$0.id] }
     }
 
     @ViewBuilder
     private var destinationSections: some View {
+        // One lookup table per render rather than a linear search per row.
+        let byIdentity = destinationsByIdentity
         ArborOrderedPageSections(
             results: destinationResults,
             order: order,
             alphabeticalSectionTitle: nil
         ) { result, showsBacklinkCount in
-            if let destination = destination(with: result.id) {
+            if let destination = byIdentity[result.id] {
                 destinationRow(destination, showsBacklinkCount: showsBacklinkCount)
             }
         }
-    }
-
-    private func destination(with identity: WorkspaceIdentity) -> ArborStructuralDestination? {
-        destinations.first { $0.id == identity }
     }
 
     private func destinationRow(
@@ -983,15 +974,17 @@ struct ArborSyncStatusView: View {
 
     @ViewBuilder
     var sections: some View {
+        // One save diagnosis per render; every row below reads the same value.
+        let diagnostic = self.diagnostic
         Section {
             HStack(alignment: .center, spacing: 14) {
-                Image(systemName: overallStatusSymbol)
+                Image(systemName: overallStatusSymbol(diagnostic))
                     .font(.title2)
-                    .foregroundStyle(overallStatusTint)
+                    .foregroundStyle(overallStatusTint(diagnostic))
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(overallStatusTitle).font(.headline)
-                    Text(overallStatusDetail)
+                    Text(overallStatusTitle(diagnostic)).font(.headline)
+                    Text(overallStatusDetail(diagnostic))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1090,14 +1083,16 @@ struct ArborSyncStatusView: View {
         return binding.latestEditIsRetainedInRecovery ? .retained : .unavailable
     }
 
-    var overallStatusTitle: String {
+    var overallStatusTitle: String { overallStatusTitle(diagnostic) }
+
+    private func overallStatusTitle(_ diagnostic: ArborSaveDiagnostic?) -> String {
         if diagnostic != nil || binding?.conflict != nil { return "A document needs attention" }
-        if sync.state != .current { return synchronizationLabel }
+        if sync.state != .current { return diagnostic?.synchronizationOverride ?? sync.state.label }
         if binding?.isSaving == true { return "Retaining edit locally" }
         return "This Arbor client is up to date"
     }
 
-    private var overallStatusDetail: String {
+    private func overallStatusDetail(_ diagnostic: ArborSaveDiagnostic?) -> String {
         if let diagnostic { return diagnostic.bannerMessage }
         if binding?.conflict != nil { return "Resolve the current document conflict to continue." }
         if sync.state != .current { return sync.detail ?? synchronizationDetail }
@@ -1119,7 +1114,7 @@ struct ArborSyncStatusView: View {
         }
     }
 
-    private var overallStatusSymbol: String {
+    private func overallStatusSymbol(_ diagnostic: ArborSaveDiagnostic?) -> String {
         if diagnostic != nil || binding?.conflict != nil {
             return "exclamationmark.triangle"
         }
@@ -1127,14 +1122,10 @@ struct ArborSyncStatusView: View {
         return sync.state == .current ? "checkmark.circle.fill" : sync.state.symbol
     }
 
-    private var overallStatusTint: Color {
+    private func overallStatusTint(_ diagnostic: ArborSaveDiagnostic?) -> Color {
         if diagnostic != nil { return .red }
         if binding?.conflict != nil { return .orange }
         return sync.state == .current ? .green : .secondary
-    }
-
-    private var synchronizationLabel: String {
-        diagnostic?.synchronizationOverride ?? sync.state.label
     }
 }
 
@@ -1366,6 +1357,8 @@ struct ArborDocumentConflictView: View {
     let conflict: WorkspaceDocumentConflict
     let resolve: (String) -> Void
     let close: () -> Void
+    /// Derived from `conflict` once, not on every keystroke in the merge editor.
+    private let analysis: ArborDocumentConflictAnalysis
     @State private var mergedSource: String
     @State private var choice: ArborConflictReviewChoice?
 
@@ -1378,12 +1371,12 @@ struct ArborDocumentConflictView: View {
         self.resolve = resolve
         self.close = close
         let analysis = ArborDocumentConflictAnalysis(conflict)
+        self.analysis = analysis
         _mergedSource = State(initialValue: analysis.automaticMergeSource ?? conflict.submittedSource)
         _choice = State(initialValue: analysis.automaticMergeSource == nil ? .mine : .both)
     }
 
     var body: some View {
-        let analysis = ArborDocumentConflictAnalysis(conflict)
         VStack(spacing: 0) {
             HStack {
                 Label("Resolve Document Conflict", systemImage: "exclamationmark.triangle")
@@ -1442,7 +1435,7 @@ struct ArborDocumentConflictView: View {
         switch choice {
         case .current: resolve(conflict.current.source)
         case .mine: resolve(conflict.submittedSource)
-        case .both: resolve(ArborDocumentConflictAnalysis(conflict).automaticMergeSource ?? conflict.submittedSource)
+        case .both: resolve(analysis.automaticMergeSource ?? conflict.submittedSource)
         case .edit: resolve(mergedSource)
         case nil: break
         }

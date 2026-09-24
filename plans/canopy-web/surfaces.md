@@ -197,7 +197,7 @@ provenance in the underlying directory data.
 |---|---|---|
 | Menu bar, `@FocusedValue` command routing | `ArborApp.swift` | keyboard map and in-page menus |
 | Sheets and popovers as a concept, the Mac dismiss-handoff dance | `ArborRootView.swift:1687–1740` | ordinary modal stack |
-| Titlebar-accessory search, `NSPopUpButton` order picker, `NSEvent` key monitor, hover washes | `ArborRootView.swift:274, 525, 466, 501` | a field above the list, a native `<select>`-style menu |
+| Search in the sidebar's toolbar section, `NSPopUpButton` order picker, hover washes | `ArborRootView.swift:1545, 404, 279` | a field above the list, a native `<select>`-style menu |
 | iOS edge-drawer gestures, top-overscroll `Pull for Trees` (opens sidebar Trees mode) | `ArborRootView.swift:1058–1113, 1999, 3498` | sidebar toggle, Home link |
 | Pinch-to-insert, three-finger cycling, swipe-to-extend selection | Quagmire | keyboard structural editing |
 | Voice recording, transcription, pending-recording recovery, Siri and App Intents | `ArborRootView.swift:52`, `VoiceRecordingIntents.swift` | none; the `🎙` heading convention still renders |

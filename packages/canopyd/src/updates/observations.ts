@@ -1,126 +1,80 @@
 import type { Database } from "bun:sqlite";
 
-/** One accepted update in a tree's ordered observation log. */
+/** One accepted update at its position in a tree's observation order. */
 export interface ObservationRecord {
   ordinal: number;
   cursor: string;
   tree: string;
-  updateID?: string;
-}
-
-export interface ObservationReplay {
-  /** False when the cursor is not retained in this tree's log. */
-  retained: boolean;
-  /** Highest ordinal covered by this replay, including an empty one. */
-  through: number;
-  records: ObservationRecord[];
+  updateID: string;
 }
 
 interface ObservationRow {
   ordinal: number;
-  cursor: string;
   tree_id: string;
-  update_id: string | null;
+  id: string;
 }
+
+const COLUMNS = "ordinal, tree_id, id";
 
 function toRecord(row: ObservationRow): ObservationRecord {
-  return {
-    ordinal: row.ordinal,
-    cursor: row.cursor,
-    tree: row.tree_id,
-    ...(row.update_id ? { updateID: row.update_id } : {}),
-  };
+  return { ordinal: row.ordinal, cursor: String(row.ordinal), tree: row.tree_id, updateID: row.id };
 }
 
-/** Append-only per-tree observation log; the sole source of cursor order. */
+/** The ordinal a cursor names, or null for anything that is not a positive decimal ordinal. */
+function ordinalOf(cursor: string): number | null {
+  if (!/^[1-9][0-9]*$/.test(cursor)) return null;
+  const ordinal = Number(cursor);
+  return Number.isSafeInteger(ordinal) ? ordinal : null;
+}
+
+/**
+ * Cursor order over accepted updates, the sole source of watch order. An
+ * accepted update's cursor is its decimal `accepted_updates.ordinal`, a
+ * server-wide AUTOINCREMENT position that is never reused; the update's `id`
+ * is its separate wire identity. A cursor that names no retained accepted
+ * update of the tree is not retained.
+ */
 export class ObservationLog {
   constructor(private readonly db: Database) {}
 
-  static createSchema(db: Database): void {
-    db.run(`
-      CREATE TABLE IF NOT EXISTS observations (
-        ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
-        cursor TEXT NOT NULL UNIQUE,
-        tree_id TEXT NOT NULL REFERENCES trees(id),
-        kind TEXT NOT NULL,
-        update_id TEXT REFERENCES accepted_updates(id),
-        change_json TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `);
-    db.run("CREATE INDEX IF NOT EXISTS observations_tree_order ON observations(tree_id, ordinal)");
-  }
-
-  /** Append one accepted-update observation and reserve its decimal cursor. */
-  appendAccepted(input: { tree: string; createdAt: number }): ObservationRecord {
-    const inserted = this.db.run(
-      "INSERT INTO observations (cursor, tree_id, kind, update_id, change_json, created_at) VALUES ('', ?, ?, ?, ?, ?)",
-      [input.tree, "tree.update", null, null, input.createdAt],
-    );
-    const cursor = String(inserted.lastInsertRowid);
-    this.db.run("UPDATE observations SET cursor = ? WHERE ordinal = ?", [cursor, Number(inserted.lastInsertRowid)]);
-    return this.get(cursor)!;
-  }
-
-  /** Bind an accepted update to the observation that recorded it. */
-  bindUpdate(cursor: string, updateID: string): void {
-    this.db.run("UPDATE observations SET update_id = ? WHERE cursor = ?", [updateID, cursor]);
-  }
-
   get(cursor: string): ObservationRecord | null {
-    const row = this.db.query("SELECT * FROM observations WHERE cursor = ?").get(cursor) as ObservationRow | null;
+    const ordinal = ordinalOf(cursor);
+    if (ordinal === null) return null;
+    const row = this.db.query(`SELECT ${COLUMNS} FROM accepted_updates WHERE ordinal = ?`).get(ordinal) as ObservationRow | null;
     return row ? toRecord(row) : null;
   }
 
   forUpdate(update: string): ObservationRecord | null {
-    const row = this.db.query("SELECT * FROM observations WHERE update_id = ? ORDER BY ordinal DESC LIMIT 1").get(update) as ObservationRow | null;
+    const row = this.db.query(`SELECT ${COLUMNS} FROM accepted_updates WHERE id = ?`).get(update) as ObservationRow | null;
     return row ? toRecord(row) : null;
   }
 
   latestCursor(tree?: string): string | null {
     const row = (tree
-      ? this.db.query("SELECT cursor FROM observations WHERE tree_id = ? AND update_id IS NOT NULL ORDER BY ordinal DESC LIMIT 1").get(tree)
-      : this.db.query("SELECT cursor FROM observations WHERE update_id IS NOT NULL ORDER BY ordinal DESC LIMIT 1").get()) as { cursor: string } | null;
-    return row?.cursor ?? null;
+      ? this.db.query("SELECT MAX(ordinal) AS ordinal FROM accepted_updates WHERE tree_id = ?").get(tree)
+      : this.db.query("SELECT MAX(ordinal) AS ordinal FROM accepted_updates").get()) as { ordinal: number | null };
+    return row.ordinal === null ? null : String(row.ordinal);
   }
 
-  /** Starting position only; the durable log is the watch's backlog queue. */
-  position(tree: string, cursor: string | null): {retained: boolean; through: number} {
+  /** Starting position only; the durable history is the watch's backlog queue. */
+  position(tree: string, cursor: string | null): { retained: boolean; through: number } {
     if (cursor === null) {
-      const row = this.db.query("SELECT MAX(ordinal) AS ordinal FROM observations WHERE tree_id = ? AND update_id IS NOT NULL").get(tree) as {ordinal: number | null};
-      return {retained: true, through: row.ordinal ?? 0};
+      const row = this.db.query("SELECT MAX(ordinal) AS ordinal FROM accepted_updates WHERE tree_id = ?").get(tree) as { ordinal: number | null };
+      return { retained: true, through: row.ordinal ?? 0 };
     }
-    const row = this.db.query("SELECT ordinal FROM observations WHERE cursor = ? AND tree_id = ?").get(cursor, tree) as {ordinal: number} | null;
-    return {retained: row !== null, through: row?.ordinal ?? 0};
+    const record = this.get(cursor);
+    return record?.tree === tree ? { retained: true, through: record.ordinal } : { retained: false, through: 0 };
   }
 
-  /** Accepted state at an observation boundary, including legacy status cursors. */
+  /** Accepted state at an observation boundary. */
   atOrBefore(tree: string, through: number): ObservationRecord | null {
-    const row = this.db.query("SELECT ordinal, cursor, tree_id, update_id FROM observations WHERE tree_id = ? AND ordinal <= ? AND update_id IS NOT NULL ORDER BY ordinal DESC LIMIT 1")
+    const row = this.db.query(`SELECT ${COLUMNS} FROM accepted_updates WHERE tree_id = ? AND ordinal <= ? ORDER BY ordinal DESC LIMIT 1`)
       .get(tree, through) as ObservationRow | null;
     return row ? toRecord(row) : null;
   }
 
   page(tree: string, after: number, limit = 64): ObservationRecord[] {
-    return (this.db.query("SELECT ordinal, cursor, tree_id, update_id FROM observations WHERE tree_id = ? AND ordinal > ? AND update_id IS NOT NULL ORDER BY ordinal LIMIT ?")
+    return (this.db.query(`SELECT ${COLUMNS} FROM accepted_updates WHERE tree_id = ? AND ordinal > ? ORDER BY ordinal LIMIT ?`)
       .all(tree, after, limit) as ObservationRow[]).map(toRecord);
-  }
-
-  /**
-   * Accepted updates strictly after `cursor` for one tree. A cursor belonging
-   * to a legacy status observation remains a valid anchor, but those old rows
-   * are never replayed.
-   */
-  after(tree: string, cursor: string | null): ObservationReplay {
-    if (cursor === null) {
-      const latest = this.db.query("SELECT MAX(ordinal) AS ordinal FROM observations WHERE tree_id = ? AND update_id IS NOT NULL").get(tree) as { ordinal: number | null };
-      return { retained: true, through: latest.ordinal ?? 0, records: [] };
-    }
-    const anchor = this.db.query("SELECT ordinal FROM observations WHERE cursor = ? AND tree_id = ?").get(cursor, tree) as { ordinal: number } | null;
-    if (!anchor) return { retained: false, through: 0, records: [] };
-    const records = (this.db.query(
-      "SELECT * FROM observations WHERE tree_id = ? AND ordinal > ? AND update_id IS NOT NULL ORDER BY ordinal",
-    ).all(tree, anchor.ordinal) as ObservationRow[]).map(toRecord);
-    return { retained: true, through: records.at(-1)?.ordinal ?? anchor.ordinal, records };
   }
 }

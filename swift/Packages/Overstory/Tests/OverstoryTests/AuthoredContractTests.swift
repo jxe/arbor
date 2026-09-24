@@ -16,7 +16,10 @@ struct AuthoredContractTests {
                 let value = try JSONDecoder().decode(WireAuthoredRequestIntent.self, from: bytes)
                 #expect(try JSONDecoder().decode(WireAuthoredRequestIntent.self, from: JSONEncoder().encode(value)) == value)
                 let expected = try #require(c["identities"] as? [[String: String]])
-                let actual = try value.identities(tree: tree)
+                let updates = try #require(value.fields["updates"]?.items).map { raw in
+                    try WireAuthoredCandidate(intent: #require(raw.fields), payload: .init(objects: [], deltas: []))
+                }
+                let actual = try WireAuthoredUpdateRequest(base: value.fields["base"]?.text, updates: updates).identities(tree: tree)
                 #expect(actual.count == expected.count)
                 for (a, e) in zip(actual, expected) {
                     #expect(a.digest == e["digest"], "\(c["name"] ?? "case")")

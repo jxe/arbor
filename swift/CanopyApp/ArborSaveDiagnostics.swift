@@ -194,7 +194,7 @@ struct ArborSaveDiagnostic: Equatable {
         )
     }
 
-    private static func urlErrorCode(_ error: Error) -> URLError.Code? {
+    static func urlErrorCode(_ error: Error) -> URLError.Code? {
         if let urlError = error as? URLError { return urlError.code }
         let value = error as NSError
         guard value.domain == NSURLErrorDomain else { return nil }

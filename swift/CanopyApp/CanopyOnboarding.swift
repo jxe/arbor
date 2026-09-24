@@ -67,10 +67,7 @@ struct CanopyMacOnboarding: View {
                     Section("Your public identity") {
                         Text(identity.profileTree).font(.caption.monospaced()).textSelection(.enabled)
                         ShareLink("Share Public Identity", item: "arbor://\(identity.profileTree)/")
-                        Button("Copy Public Identity") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("arbor://\(identity.profileTree)/", forType: .string)
-                        }
+                        Button("Copy Public Identity") { arborCopyToPasteboard("arbor://\(identity.profileTree)/") }
                         Text("Send this public ID to a community administrator. Once they add you, enter the community address below.")
                         if !identity.keyAvailable {
                             Text("The private key is unavailable. Recover this identity from its backup to claim new accounts.").foregroundStyle(.red)
@@ -132,9 +129,9 @@ struct CanopyMacOnboarding: View {
                             Button(state.pendingClaim == nil ? "Connect" : "Resume Connection") {
                                 run { client in
                                     let target = state.pendingClaim?.account ?? community.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let known = Set(state.accounts.filter(\.credentialAvailable).map(\.configurationTree))
                                     try await client.claimAccount(account: target, path: state.pendingClaim?.path ?? profilePath)
                                     try await reload()
-                                    let known = Set(state.accounts.filter(\.credentialAvailable).map(\.configurationTree))
                                     if let account = self.state?.accounts.first(where: { !known.contains($0.configurationTree) && $0.credentialAvailable }) {
                                         try await chooseTrees(account)
                                     }

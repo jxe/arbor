@@ -50,7 +50,8 @@ final class ForkedObjectOverlay: ObjectOverlay, @unchecked Sendable {
         lock.lock()
         let own = objects[hash]
         lock.unlock()
-        if let own { return try verifyObject(own, hash: hash) }
+        // `store` verified these bytes against their hash on the way in.
+        if let own { return own }
         return try parent.storedBytes(hash)
     }
 

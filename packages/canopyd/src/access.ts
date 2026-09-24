@@ -1,19 +1,41 @@
 import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, type AccessOperation, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
+
+type ResourceRules = ReturnType<typeof parseResourceRules>;
+/** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
+const PARSED_RULES_LIMIT = 256;
 import type { ExecutionContext, ExecutionGrant } from "./execution-authority.ts";
 import type { Database } from "bun:sqlite";
 import type { CanopyAccessEntry, CanopyAccount, CanopyTree } from "./model.ts";
 
 export interface AccessHost {
   tree(id: string): CanopyTree | null;
-  /** Handles of every member of a group profile tree. */
-  profileMemberHandles(treeID: string): Set<string>;
+  /**
+   * Whether a group profile tree lists this person: by Profile TreeID, or by
+   * handle for a legacy scalar `/~handle` member locator.
+   */
+  isProfileMember(groupTree: string, profileTree: string, handle: string | undefined): boolean;
   /** The tree root's frontmatter `type`, or null when the root declares neither profile kind. */
   rootProfileType(treeID: string): "person" | "group" | null;
 }
 
 /** Tree access rules and the read/write/administer decisions derived from them. */
 export class AccessControl {
+  private readonly parsedRules = new Map<string, ResourceRules>();
+
   constructor(private readonly db: Database, private readonly host: AccessHost) {}
+
+  /** The account's governed rules for a tree, parsed once per distinct policy text. */
+  private rules(account: string, tree: string): ResourceRules | undefined {
+    const row = this.db.query("SELECT rules_json FROM resource_policy WHERE account_id = ? AND tree_id = ?").get(account, tree) as { rules_json: string } | null;
+    if (!row) return undefined;
+    let rules = this.parsedRules.get(row.rules_json);
+    if (!rules) {
+      rules = parseResourceRules(JSON.parse(row.rules_json));
+      if (this.parsedRules.size >= PARSED_RULES_LIMIT) this.parsedRules.delete(this.parsedRules.keys().next().value!);
+      this.parsedRules.set(row.rules_json, rules);
+    }
+    return rules;
+  }
 
   entries(tree: string): CanopyAccessEntry[] {
     return this.db.query("SELECT * FROM access WHERE tree_id = ? ORDER BY subject_kind, subject")
@@ -54,8 +76,7 @@ export class AccessControl {
   }
 
   safePolicy(account: string, tree: string) {
-    const row = this.db.query("SELECT rules_json FROM resource_policy WHERE account_id = ? AND tree_id = ?").get(account, tree) as { rules_json: string } | null;
-    return row ? parseResourceRules(JSON.parse(row.rules_json)).map(safeResourceRule) : undefined;
+    return this.rules(account, tree)?.map(safeResourceRule);
   }
 
   private profile(account: string): string | null {
@@ -66,14 +87,14 @@ export class AccessControl {
     if (!policyAccount) return false;
     const ownerProfile = this.profile(policyAccount);
     if (!ownerProfile) return false;
-    const row = this.db.query("SELECT rules_json FROM resource_policy WHERE account_id = ? AND tree_id = ?").get(policyAccount, tree) as { rules_json: string } | null;
-    if (!row) return false;
-    return rulesAllow(parseResourceRules(JSON.parse(row.rules_json)), {
+    const rules = this.rules(policyAccount, tree);
+    if (!rules) return false;
+    return rulesAllow(rules, {
       ownerProfile, callerProfile: caller, via, linkDigest,
       isGroupMember: (group, profile) => {
         if (this.host.rootProfileType(group) !== "group") return false;
         const member = this.db.query("SELECT handle FROM accounts WHERE profile_tree = ? AND enabled = 1").get(profile) as { handle: string } | null;
-        return !!member && this.host.profileMemberHandles(group).has(member.handle);
+        return !!member && this.host.isProfileMember(group, profile, member.handle);
       },
     }, path, operation);
   }
@@ -81,12 +102,12 @@ export class AccessControl {
   directExecution(account: CanopyAccount | null, treeID: string, subject: string, active: () => boolean, linkDigest?: string): ExecutionContext | undefined {
     const tree = this.host.tree(treeID);
     if (!tree?.accountID || tree.policy !== "ordinary") return undefined;
-    const row = this.db.query("SELECT rules_json FROM resource_policy WHERE account_id = ? AND tree_id = ?").get(tree.accountID, treeID) as { rules_json: string } | null;
+    const policy = this.rules(tree.accountID, treeID);
     const ownerProfile = this.profile(tree.accountID);
-    if (!row || !ownerProfile) return undefined;
-    const rules = parseResourceRules(JSON.parse(row.rules_json)).filter(rule => !rule.via && ruleMatches(rule, {
+    if (!policy || !ownerProfile) return undefined;
+    const rules = policy.filter(rule => !rule.via && ruleMatches(rule, {
       ownerProfile, callerProfile: account?.profileTree ?? null, linkDigest,
-      isGroupMember: (group, profile) => this.host.rootProfileType(group) === "group" && profile === account?.profileTree && this.host.profileMemberHandles(group).has(account.handle),
+      isGroupMember: (group, profile) => this.host.rootProfileType(group) === "group" && profile === account?.profileTree && this.host.isProfileMember(group, profile, account.handle),
     }));
     return { code: "", version: "direct", caller: account?.id ?? null, sponsor: tree.accountID, subject, linkDigest,
       expiresAt: Date.now() + 60000, active,
@@ -168,7 +189,7 @@ export class AccessControl {
     for (const entry of this.entries(treeID)) {
       if (entry.subjectKind !== "profile") continue;
       if (this.host.rootProfileType(entry.subject) !== "group") continue;
-      if (this.host.profileMemberHandles(entry.subject).has(account.handle)) {
+      if (this.host.isProfileMember(entry.subject, account.profileTree, account.handle)) {
         if (entry.access === "write") return "write";
         result = "read";
       }

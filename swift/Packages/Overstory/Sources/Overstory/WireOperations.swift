@@ -26,10 +26,22 @@ public indirect enum WireSemanticValue: Codable, Sendable, Equatable {
     var number: Int? { if case .integer(let n) = self { return n }; return nil }
     var items: [WireSemanticValue]? { if case .array(let a) = self { return a }; return nil }
     var fields: [String: WireSemanticValue]? { if case .object(let o) = self { return o }; return nil }
+    static func text(_ value: WireSemanticValue?) throws -> String {
+        guard let text = value?.text else { throw ArborWireValidationError.invalidValue("Expected text") }
+        return text
+    }
+    static func items(_ value: WireSemanticValue?) throws -> [WireSemanticValue] {
+        guard let items = value?.items else { throw ArborWireValidationError.invalidValue("Expected array") }
+        return items
+    }
+    static func fields(_ value: WireSemanticValue?) throws -> [String: WireSemanticValue] {
+        guard let fields = value?.fields else { throw ArborWireValidationError.invalidValue("Expected semantic object") }
+        return fields
+    }
     var cbor: CanonicalCBORValue {
         switch self {
         case .string(let v): .text(v)
-        case .integer(let v): v >= 0 ? .unsigned(v) : .negative(v)
+        case .integer(let v): CanonicalCBORValue.integer(v)
         case .array(let v): .array(v.map(\.cbor))
         case .object(let v): .map(v.map { ($0.key, $0.value.cbor) })
         case .null: .null

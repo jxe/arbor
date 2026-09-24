@@ -280,9 +280,26 @@ test("delete versus edit retains alternatives", async () => {
     ),
   );
   expect(r.decisions).toHaveLength(1);
-  expect(r.decisions[0]!.alternatives.map((a) => a.object)).toContain(
-    current.result.object,
-  );
+  const decision = r.decisions[0]!;
+  expect(decision.kind).toBe("existence");
+  // The kept side is the edited file itself; the deleted side names no node.
+  expect(decision.alternatives.map((a) => a.node !== undefined)).toEqual([true, false]);
+  expect(decision.alternatives[0]!.object).toBe(f.put("new"));
+});
+test("delete versus edit is a choice about that file while other changes merge", async () => {
+  const f = new Fixture(),
+    base = f.tree({ "a.txt": "old", "b.txt": "bee", "c.txt": "sea" });
+  const remote = await f.run(f.request(base, f.tree({ "a.txt": "new", "b.txt": "BEE", "c.txt": "sea" }), [
+    { key: "edit", kind: "editSource", source: f.ref("/a.txt", "old"), text: "new" },
+    { key: "b", kind: "editSource", source: f.ref("/b.txt", "bee"), text: "BEE" },
+  ], "remote"));
+  const r = await f.run(f.request(base, f.tree({ "b.txt": "bee", "c.txt": "SEA" }), [
+    { key: "delete", kind: "removeEntry", source: f.ref("/a.txt", "old") },
+    { key: "c", kind: "editSource", source: f.ref("/c.txt", "sea"), text: "SEA" },
+  ], "local", remote.result));
+  expect(r.decisions.map((d) => [d.kind, d.affected.length])).toEqual([["existence", 1]]);
+  // Both unrelated edits are in the projection; the file shows the incoming side.
+  expect(r.result.object).toBe(f.tree({ "b.txt": "BEE", "c.txt": "SEA" }));
 });
 test("basis references follow source moved into another file within a batch", async () => {
   const f = new Fixture(),
@@ -1061,7 +1078,7 @@ test("an old source move cannot claim lineage through equal-byte opaque replacem
   );
   expect(late.decisions.length).toBeGreaterThan(0);
 });
-test("structural alternative references support exact descendant reads and hidden edits", async () => {
+test("the kept file of a delete-versus-edit choice accepts hidden edits", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.txt": "old" });
   const current = await f.run(
@@ -1103,25 +1120,24 @@ test("structural alternative references support exact descendant reads and hidde
       {
         key: "edit",
         kind: "editSource",
-        source: { ...ref, within: ["a.txt"] },
+        source: ref,
         text: "NEW",
       },
     ],
     "hidden",
   );
+  // Delete versus edit is a choice about the file: its kept alternative is the file.
   request.alternatives = [
     {
       ref,
       decision: removed.decisions[0]!.key,
       alternative: 0,
-      value: { object: current.result.object, kind: "directory" },
+      value: { object: f.put("new"), kind: "file" },
     },
   ];
   const result = await f.run(request);
   expect(result.result.object).toBe(removed.result.object);
-  expect(result.decisions[0]!.alternatives[0]!.object).toBe(
-    f.tree({ "a.txt": "NEW" }),
-  );
+  expect(result.decisions[0]!.alternatives[0]!.object).toBe(f.put("NEW"));
   const again = f.request(
     result.result,
     result.result.object,
@@ -1129,7 +1145,7 @@ test("structural alternative references support exact descendant reads and hidde
       {
         key: "edit",
         kind: "editSource",
-        source: { ...ref, within: ["a.txt"] },
+        source: ref,
         text: "NEWER",
       },
     ],
@@ -1140,14 +1156,12 @@ test("structural alternative references support exact descendant reads and hidde
       ref,
       decision: result.decisions[0]!.key,
       alternative: 0,
-      value: { object: f.tree({ "a.txt": "NEW" }), kind: "directory" },
+      value: { object: f.put("NEW"), kind: "file" },
     },
   ];
-  expect((await f.run(again)).decisions[0]!.alternatives[0]!.object).toBe(
-    f.tree({ "a.txt": "NEWER" }),
-  );
+  expect((await f.run(again)).decisions[0]!.alternatives[0]!.object).toBe(f.put("NEWER"));
 });
-test("selected structural alternatives continue and retained nested choices remain usable", async () => {
+test("a delete-versus-edit choice stays scoped to its file while unrelated edits merge", async () => {
   const f = new Fixture(),
     base = f.tree({ "a.txt": "old", "b.txt": "same" });
   const current = await f.run(
@@ -1189,7 +1203,9 @@ test("selected structural alternatives continue and retained nested choices rema
       "next",
     ),
   );
-  expect(next.decisions[0]!.alternatives[1]!.object).toBe(next.result.object);
+  // The file's choice stays as it was while unrelated edits merge.
+  expect(next.decisions.map((d) => d.kind)).toEqual(["existence"]);
+  expect(next.result.object).toBe(f.tree({ "b.txt": "NEXT" }));
   await f.run(
     f.request(
       next.result,
@@ -2051,3 +2067,78 @@ test("nested enclosures retain readable alternatives as a source branch advances
   expect(f.content(next.result.object, "a.txt")).toBe("FOUR");
   expect(next.decisions.map(d => d.key)).toEqual(edited.decisions.map(d => d.key));
 });
+test("later edits follow a selected deletion's anchor without enclosing it", async () => {
+  const f = new Fixture(),
+    text = "intro\n\nblock one\n\ntail\n",
+    base = f.tree({ "p.md": text });
+  const remote = await f.run(
+    f.request(
+      base,
+      f.tree({ "p.md": "intro\n\nblock ONE\n\ntail\n" }),
+      [{ key: "edit", kind: "editSource", source: f.ref("/p.md", text, [13, 16]), text: "ONE" }],
+      "remote",
+    ),
+  );
+  let previous = await f.run(
+    f.request(
+      base,
+      f.tree({ "p.md": "intro\n\ntail\n" }),
+      [{ key: "delete", kind: "editSource", source: f.ref("/p.md", text, [7, 18]), text: "" }],
+      "local",
+      remote.result,
+    ),
+  );
+  expect(previous.decisions).toHaveLength(1);
+  const decision = previous.decisions[0]!;
+  expect(decision.context).toBeUndefined();
+  let current = "intro\n\ntail\n",
+    anchor = decision.placement!.anchor;
+  // Before the anchor, after it, and before it again.
+  for (const [index, at] of [0, current.length, 0].entries()) {
+    const insert = `M${index}\n`,
+      next = current.slice(0, at) + insert + current.slice(at);
+    const r = await f.run(
+      f.request(
+        previous.result,
+        f.tree({ "p.md": next }),
+        [{ key: "insert", kind: "editSource", source: f.ref("/p.md", current, [at, at]), text: insert }],
+        `local-${index}`,
+      ),
+    );
+    if (at < anchor) anchor += insert.length;
+    expect(r.decisions.map((d) => d.key)).toEqual([decision.key]);
+    expect(r.decisions[0]!.context).toBeUndefined();
+    expect(r.decisions[0]!.placement!.anchor).toBe(anchor);
+    expect(await f.content(r.result.object, "p.md")).toBe(next);
+    previous = r;
+    current = next;
+  }
+});
+test.each(["edit-first", "delete-first"])(
+  "a deletion never cuts into the selected side of its own choice (%s)",
+  async (order) => {
+    const f = new Fixture(),
+      text = "intro\n\nblock one\n\ntail\n",
+      base = f.tree({ "p.md": text });
+    const edit = { key: "edit", kind: "editSource" as const, source: f.ref("/p.md", text, [13, 16]), text: "ONE" },
+      remove = { key: "delete", kind: "editSource" as const, source: f.ref("/p.md", text, [7, 18]), text: "" },
+      edited = f.tree({ "p.md": "intro\n\nblock ONE\n\ntail\n" }),
+      removed = f.tree({ "p.md": "intro\n\ntail\n" });
+    const [first, second] = order === "edit-first"
+      ? [{ ops: [edit], tree: edited }, { ops: [remove], tree: removed }]
+      : [{ ops: [remove], tree: removed }, { ops: [edit], tree: edited }];
+    const current = await f.run(f.request(base, first.tree, first.ops, "first"));
+    const r = await f.run(f.request(base, second.tree, second.ops, "second", current.result));
+    expect(r.decisions).toHaveLength(1);
+    const decision = r.decisions[0]!,
+      selected = decision.alternatives[decision.selected]!;
+    const projected = await f.content(r.result.object, "p.md");
+    // The page is exactly the base with the selected side in the choice's range.
+    expect([
+      "intro\n\nblock ONE\n\ntail\n",
+      "intro\n\ntail\n",
+    ]).toContain(projected);
+    expect(selected.object).toBe(f.put(projected === "intro\n\ntail\n" ? "" : "block ONE\n\n"));
+    expect(decision.context).toBeUndefined();
+  },
+);

@@ -1,4 +1,5 @@
 import { semantic, same, type AccountConfigGraphV2 } from "../../canopyd-merge/src/account-v2.ts";
+import { PermissionDeniedError } from "./errors.ts";
 export * from "../../canopyd-merge/src/account-v2.ts";
 
 export function authorizeAccountConfigTransitionV2(
@@ -9,10 +10,10 @@ export function authorizeAccountConfigTransitionV2(
   resourceFormat = !!current.resources,
 ): void {
   if (resourceFormat && !next.resources && Object.values(next.trees).some(tree => tree.access.length)) {
-    throw new Error("Legacy policy writes are not allowed after resource-policy conversion");
+    throw new PermissionDeniedError("Legacy policy writes are not allowed after resource-policy conversion");
   }
   const currentDevice = current.devices[deviceID];
-  if (!currentDevice) throw new Error("Submitting device is not active in the accepted configuration");
+  if (!currentDevice) throw new PermissionDeniedError("Submitting device is not active in the accepted configuration");
   const accepted = semantic(current);
   const base = semantic(changesFrom);
   const candidate = semantic(next);
@@ -20,7 +21,7 @@ export function authorizeAccountConfigTransitionV2(
     throw new Error("account.yaml changes require an account lifecycle transition");
   }
   if (!currentDevice.administrator && (!same(base.trees, candidate.trees) || !same(base.resources, candidate.resources)) && (!same(accepted.trees, candidate.trees) || !same(accepted.resources, candidate.resources))) {
-    throw new Error("Only an administrator may edit trees.yaml");
+    throw new PermissionDeniedError("Only an administrator may edit trees.yaml");
   }
   for (const id of new Set([...Object.keys(base.devices), ...Object.keys(candidate.devices)])) {
     const before = base.devices[id];

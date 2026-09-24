@@ -1,6 +1,5 @@
 import CanopyAppKit
 import Overstory
-import CryptoKit
 import Foundation
 
 /// A read-only working tree built from a placed folder on disk, for showing a
@@ -61,7 +60,6 @@ public enum LocalFolderPreview {
             let source = index ?? siblingMarkdownSource
             nodes.append(WorkingTreeSystemNode(
                 path: path,
-                modifiedAt: nil,
                 content: .directory(source: source),
                 directoryBodyPlacement: index == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
                 shadowedSiblingMarkdownSource: index != nil ? siblingMarkdownSource : nil
@@ -75,7 +73,7 @@ public enum LocalFolderPreview {
                     guard let source = markdown(url) else { continue }
                     nodes.append(WorkingTreeSystemNode(
                         path: childPath(logicalName, parent: path),
-                        modifiedAt: values?.contentModificationDate,
+                        metadata: EntryMetadata(modifiedAt: values?.contentModificationDate),
                         content: .markdown(source: source)
                     ))
                 } else {
@@ -102,7 +100,7 @@ public enum LocalFolderPreview {
     /// unavailable instead of hashing every non-Markdown file at launch.
     static func standInHash(for url: URL, size: Int?, modified: Date?) -> String {
         let key = "preview\u{0}\(url.path)\u{0}\(size ?? -1)\u{0}\(modified?.timeIntervalSince1970 ?? 0)"
-        return "sha256:" + SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        return WireObjectCodec.hash(Data(key.utf8))
     }
 }
 

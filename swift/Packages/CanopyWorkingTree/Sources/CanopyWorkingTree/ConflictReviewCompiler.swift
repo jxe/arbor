@@ -20,7 +20,7 @@ enum ConflictReviewCompiler {
         }
         func parts(_ path: String) throws -> [String] {
             let parts = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard path.hasPrefix("/"), path != "/", parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") && !$0.contains("\0") }) else {
+            guard path.hasPrefix("/"), path != "/", parts.allSatisfy(WireGraph.isPathComponent) else {
                 throw ConflictReviewProposalError("Choose a valid absolute destination within this tree.")
             }
             return parts
@@ -63,10 +63,19 @@ enum ConflictReviewCompiler {
         var rangeEdits: [String: [RangeEdit]] = [:]
         var rangeOperations: [WireSourceOperation] = []
         let onlyRanges = draft.decisions.allSatisfy { $0.sourceRange != nil }
+        // Files a whole-file choice in this group assigns; a source choice
+        // inside one is decided by that file's chosen version.
+        let wholeFiles = Set(draft.decisions.filter { $0.sourceRange == nil }.compactMap(\.path))
         for decision in draft.decisions {
             guard let selection = draft.selection(for: decision.id),
                   let alternative = decision.alternatives.first(where: { $0.id == selection.alternative }),
                   let old = decision.path else { throw ConflictReviewError.unsupported }
+            if decision.sourceRange != nil, wholeFiles.contains(old) {
+                guard selection.source == nil, selection.remove != true, selection.alternative == decision.selected else {
+                    throw ConflictReviewProposalError("This part lies within a whole-file choice. Choose that file's version instead.")
+                }
+                continue
+            }
             if let range = decision.sourceRange {
                 let currentFile = try entry(old, in: base.root)?.file
                 guard let projected = decision.affected[0].material.object,
@@ -136,8 +145,17 @@ enum ConflictReviewCompiler {
             assignments.append(.init(decision: first.decision, old: path, destination: destination,
                 value: removesFile ? nil : .init(name: "", file: try store(.file(bytes)))))
         }
+        // Linked choices that give one entry the same value agree; keep one.
+        var agreed: [Assignment] = []
+        for assignment in assignments where !agreed.contains(where: {
+            $0.old == assignment.old && $0.destination == assignment.destination && $0.value == assignment.value
+        }) { agreed.append(assignment) }
+        assignments = agreed
         let nonabsent = assignments.filter { $0.value != nil }
-        guard Set(nonabsent.map(\.destination)).count == nonabsent.count else {
+        for (destination, count) in Dictionary(nonabsent.map { ($0.destination, 1) }, uniquingKeysWith: +) where count > 1 {
+            if nonabsent.filter({ $0.destination == destination }).allSatisfy({ $0.old == destination }) {
+                throw ConflictReviewProposalError("Linked choices give \(destination) different versions. Keep the same version in each.")
+            }
             throw ConflictReviewProposalError("Two chosen entries have the same destination. Choose distinct destinations.")
         }
         if let whole = assignments.first(where: { $0.old == "/" }), let directory = whole.value?.directory { root = directory }
@@ -197,16 +215,7 @@ enum ConflictReviewCompiler {
             }
         }
         try compare(.init(name: "", directory: base.root), .init(name: "", directory: root), path: "/")
-        var reachable = Set<String>()
-        func visit(_ hash: String, kind: WireEntryKind) throws {
-            guard reachable.insert(hash).inserted else { return }
-            guard let bytes = objects[hash] else { throw ConflictReviewError.unavailable }
-            if kind == .directory, case let .directory(children, _) = try WireObjectCodec.decode(bytes, kind: kind) {
-                for child in children { if let hash = child.hash, let kind = child.kind { try visit(hash, kind: kind) } }
-            }
-        }
-        try visit(root, kind: .directory)
-        let candidate = WireSnapshot(root: root, objects: reachable.sorted().map { .init(hash: $0, bytes: objects[$0]!) })
+        let candidate = try WireGraph.reachable(from: root, in: objects) { _, _ in throw ConflictReviewError.unavailable }
         _ = try WireObjectGraph.validate(candidate)
         return .init(fingerprint: try draft.fingerprint(), changes: changes, candidate: candidate, operations: onlyRanges ? rangeOperations : nil)
     }
