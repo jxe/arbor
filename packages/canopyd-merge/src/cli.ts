@@ -5,7 +5,7 @@ import { MergeRefusal } from "@overstory/merge-protocol";
 import { EvaluationFailure } from "./engine-contract.ts";
 import { IntentError } from "./intent-model.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
-import { Sidecar } from "./sidecar.ts";
+import { REPLAY_MILLIS, Sidecar } from "./sidecar.ts";
 
 const maxRequestBytes = 8 * 1024 * 1024;
 /** One request per stdin line. Chunks are kept as a list until a line ends. */
@@ -51,10 +51,12 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
   const shared = new ObjectStore(options.get("--objects")!, { cacheBytes: (Number.isFinite(cacheMB) && cacheMB >= 0 ? cacheMB : 256) * 1024 * 1024 });
   const staging = new ObjectStore(options.get("--staging")!);
   const stateMB = Number(process.env.ARBOR_MERGE_CACHE_MB);
+  const replayMS = Number(process.env.ARBOR_MERGE_REPLAY_MS);
   const sidecar = new Sidecar({
     shared: { find: (hash) => shared.find(hash), has: (hash) => holdsObject(shared, hash) },
     staging: { find: (hash) => staging.find(hash), stage: (values) => staging.stage(values) },
-  }, (Number.isFinite(stateMB) && stateMB >= 0 ? stateMB : 512) * 1024 * 1024, testing.treeMerge);
+  }, (Number.isFinite(stateMB) && stateMB >= 0 ? stateMB : 512) * 1024 * 1024, testing.treeMerge,
+  Number.isFinite(replayMS) && replayMS > 0 ? replayMS : REPLAY_MILLIS);
   // One question per line, one response per line, in order.
   for await (const line of requests()) {
     for (const key of Object.keys(engineDiagnostics)) delete engineDiagnostics[key];
@@ -64,8 +66,9 @@ export async function run(args = process.argv.slice(2), testing: { treeMerge?: C
       response = await sidecar.answer(JSON.parse(line));
     } catch (error) {
       // A refusal is a property of the question; anything else is a failure
-      // to answer it. A time budget is such a failure, reported with its
-      // `limit` code so canopyd can offer a retry.
+      // to answer it. A time budget (`limit`) or an unfinished rebuild
+      // (`unavailable`) is such a failure, reported with its code so canopyd
+      // offers a retry.
       response = error instanceof MergeRefusal || error instanceof IntentError
         ? { refusal: { code: error.code, message: error.message } }
         : { error: {

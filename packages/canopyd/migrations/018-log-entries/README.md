@@ -2,7 +2,7 @@
 
 One cutover from the live schema 18, which migration 016 (deleted; `016-squash-history/README.md` at `d15ddce`)
 deployed on 2026-09-24. It is step 7 of
-[canopyd 016](../../../../plans/canopyd/016-sidecar-on-objects-and-history.md). The build
+canopyd 016 (completed; see [status](../../../../status.md#log-entries-and-one-merge-question--2026-09-24)). The build
 that needs it stores each accepted update as an immutable log entry in the object store
 and asks the merge sidecar one question; see
 [writing a sidecar](../../../../docs/architecture/canopyd/writing-a-sidecar.md).

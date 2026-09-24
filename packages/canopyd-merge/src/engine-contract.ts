@@ -113,7 +113,7 @@ export class IntentError extends Error {
  * question, so the answer could differ on a retry. The sidecar reports it as
  * `{error}`, and no fallback inside the engine absorbs it. */
 export class EvaluationFailure extends Error {
-  constructor(message: string, readonly code?: "limit", options?: ErrorOptions) {
+  constructor(message: string, readonly code?: "limit" | "unavailable", options?: ErrorOptions) {
     super(message, options);
     this.name = "EvaluationFailure";
   }

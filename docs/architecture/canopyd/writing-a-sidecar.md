@@ -117,6 +117,9 @@ Stderr lines starting `{"timings":` are read as diagnostics; anything else is ig
 
 ## Rules for a sidecar
 
+- **Rebuild across questions if you must.** canopyd ends a process that exceeds its
+  timeout. If rebuilding a cache takes longer, answer `{"error": {"code": "unavailable"}}`
+  and keep what you built: canopyd tells the client to retry.
 - **Be deterministic.** Answer as a function of objects and the rules. A cache must be
   rebuildable from entries, and a rebuild must answer the same.
 - **Entries are facts.** When you replay history, derive each entry's state from its

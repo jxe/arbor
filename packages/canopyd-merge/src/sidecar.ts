@@ -10,7 +10,7 @@ import {
   type MergeQuestion,
   type MergeRules,
 } from "@overstory/merge-protocol";
-import { treeDefaultConfig, type CheckpointRequest, type IntentRequest, type MergeObjects } from "./engine-contract.ts";
+import { EvaluationFailure, treeDefaultConfig, type CheckpointRequest, type IntentRequest, type MergeObjects } from "./engine-contract.ts";
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import { IntentError, type Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
@@ -49,6 +49,11 @@ const CLIENT_CHANGE = /^[A-Za-z0-9_-]{1,128}$/;
  * objects its answers generate, all held in memory only. A cache wipe
  * changes no answer.
  */
+/** How long one question may replay history before it answers retryably
+ * (`ARBOR_MERGE_REPLAY_MS` overrides it). With canopyd's evaluation budget
+ * it stays inside canopyd's 30-second timeout. */
+export const REPLAY_MILLIS = 10_000;
+
 export class Sidecar {
   private memory = new Map<string, Uint8Array>();
   private memoryBytes = 0;
@@ -66,12 +71,15 @@ export class Sidecar {
   private solved = new Map<string, Cached>();
   /** Entries the current question replayed (a solved question reused counts); a diagnostic. */
   replayed = 0;
+  private replayDeadline = Infinity;
 
   constructor(
     private readonly stores: SidecarStores,
     private readonly cacheBytes = 512 * 1024 * 1024,
     /** The snapshot tree merge; replaceable so a test can make it fail. */
     private readonly treeMerge = mergeWireTrees,
+    /** How long one question may spend replaying history (see `stateOf`). */
+    private readonly replayMillis = REPLAY_MILLIS,
   ) {}
 
   /** Drop every cached state and object. */
@@ -135,6 +143,7 @@ export class Sidecar {
     const rules = this.rules(question);
     if (this.memoryBytes > this.cacheBytes) this.clear();
     this.replayed = 0;
+    this.replayDeadline = performance.now() + this.replayMillis;
     const { result, evidence } = await this.solve(question, rules);
     const { decisions } = await this.cached(result);
     this.rememberSolved(question, { ...result, decisions });
@@ -185,7 +194,15 @@ export class Sidecar {
       at = (await this.entry(at)).previous;
     }
     let previous = at ? this.states.get(at)! : null;
-    for (const entry of chain.reverse()) {
+    chain.reverse();
+    for (const [index, entry] of chain.entries()) {
+      // A long rebuild (a cold cache over a long chain) stops at the budget,
+      // keeping every state it built, and asks canopyd to retry: the next
+      // attempt continues from there. A canopyd timeout would instead end
+      // the process and lose them, so a long chain could never be rebuilt.
+      // Every attempt replays at least one entry, so retries always progress.
+      if (index > 0 && performance.now() > this.replayDeadline)
+        throw new EvaluationFailure(`Rebuilding accepted history: ${index} of ${chain.length} entries replayed; retry to continue`, "unavailable");
       previous = await this.replay(entry, previous, rules);
       this.states.set(entry, previous);
       this.replayed++;

@@ -25,13 +25,14 @@ export function recordedQuestion(entry: LogEntry): MergeQuestion {
   };
 }
 
-function sidecar(dataRoot: string): Sidecar {
+/** An in-process sidecar over a data root's object store. */
+export function sidecar(dataRoot: string, replayMillis?: number): Sidecar {
   const shared = new ObjectStore(join(dataRoot, "objects"));
   const staged = new Map<string, Uint8Array>();
   return new Sidecar({
     shared: { find: (hash) => shared.find(hash), has: (hash) => holdsObject(shared, hash) },
     staging: { find: async (hash) => staged.get(hash) ?? null, stage: async (values) => { for (const v of values) staged.set(v.hash, v.bytes); } },
-  });
+  }, undefined, undefined, replayMillis);
 }
 
 /** Entries are facts a sidecar can reproduce: asking each entry's recorded

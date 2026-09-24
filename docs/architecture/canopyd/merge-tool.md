@@ -131,8 +131,18 @@ cached entry, or to the chain's start, and replays forward:
 Replay is how every state is built, warm or cold, so a cache wipe changes no answer.
 The last 32 solved questions are kept, so replaying the entry canopyd just recorded from
 an answer reuses that answer's state. The cache is dropped whole when its objects and
-the estimated size of its states exceed `ARBOR_MERGE_CACHE_MB` (default 512); rebuilds
-are bounded by each chain's start.
+the estimated size of its states exceed `ARBOR_MERGE_CACHE_MB` (default 512).
+
+A cold rebuild (after a restart, a crash or a dropped cache) replays each chain from its
+start, and chains only grow: about 17 ms an entry at 110 files, locally. So one question
+replays for at most `ARBOR_MERGE_REPLAY_MS` (default 10 s, which with canopyd's 20-second
+evaluation budget stays inside its 30-second timeout), then answers
+`{"error": {"code": "unavailable"}}` and keeps every state it rebuilt; canopyd answers a
+retryable 503 and the client's retry continues the rebuild. Every attempt replays at
+least one entry. Without the budget canopyd's timeout would end the process and lose the
+partial rebuild, and a long enough chain could never be rebuilt. Replay never starts
+partway along a chain: an imported start would lose the retained history a later merge
+reads, including the attribution of the current side of a choice.
 
 What replay cannot recover is recorded as fact: an entry that migration 018 wrote from
 a schema-18 record has no `asked`, so a concurrent merge in it is aligned to rather than
