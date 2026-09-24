@@ -1,6 +1,7 @@
 import { canonicalArborLocator, type TreeID } from "@overstory/protocol";
 import type { CanopyDaemon } from "./canopy.ts";
 import type { CanopyAccount, CanopyTree } from "./model.ts";
+import { profileLocatorTree } from "./profile.ts";
 
 export type DirectorySource = "community" | `group:${TreeID}` | "access";
 
@@ -31,15 +32,15 @@ export async function buildDirectory(canopy: CanopyDaemon, account: CanopyAccoun
   };
 
   for (const member of canopy.communityMembers()) {
-    const match = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/.exec(member.profile);
-    if (match) include(match[1]!, "community", member.handle);
+    const profile = profileLocatorTree(member.profile);
+    if (profile) include(profile, "community", member.handle);
   }
   for (const group of canopy.readableGroupTrees(account)) {
     include(group.id, `group:${group.id}`);
     const facts = await canopy.profileCard(group.ref);
     for (const member of facts.members) {
-      const match = /^arbor:\/\/(tr_[a-z2-7]+)\/?$/.exec(member.profile);
-      if (match) include(match[1]!, `group:${group.id}`, member.handle);
+      const profile = profileLocatorTree(member.profile);
+      if (profile) include(profile, `group:${group.id}`, member.handle);
     }
   }
   for (const tree of canopy.administeredTrees(account)) {

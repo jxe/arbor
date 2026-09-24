@@ -1,4 +1,4 @@
-import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, type AccessOperation, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
+import { rulesAllow, parseResourceRules, safeResourceRule, ruleMatches, type AccessOperation, type AccessRule, generateArborID, type ReadWriteAccess } from "@overstory/protocol";
 
 type ResourceRules = ReturnType<typeof parseResourceRules>;
 /** Parsed rules by their exact stored JSON: a policy row changes by replacement, so no entry is ever stale. */
@@ -16,6 +16,16 @@ export interface AccessHost {
   isProfileMember(groupTree: string, profileTree: string, handle: string | undefined): boolean;
   /** The tree root's frontmatter `type`, or null when the root declares neither profile kind. */
   rootProfileType(treeID: string): "person" | "group" | null;
+}
+
+/** A stored access entry as the configuration rule that declares it. */
+export function accessRule(entry: CanopyAccessEntry): AccessRule {
+  return {
+    subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
+      : entry.subjectKind === "profile" ? { kind: "profile", tree: entry.subject }
+        : { kind: "link", digest: entry.subject as `sha256:${string}` },
+    access: entry.access,
+  };
 }
 
 /** Tree access rules and the read/write/administer decisions derived from them. */
@@ -72,6 +82,14 @@ export class AccessControl {
         "INSERT INTO access (id, tree_id, subject_kind, subject, access) VALUES (?, ?, ?, ?, ?)",
         [generateArborID("ax"), treeID, subjectKind, subject, access],
       );
+    }
+  }
+
+  /** Store each declared rule as an access entry; callers run this inside their own transaction. */
+  setRules(treeID: string, rules: readonly AccessRule[]): void {
+    for (const rule of rules) {
+      const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
+      this.set(treeID, rule.subject.kind, subject, rule.access);
     }
   }
 
