@@ -1514,7 +1514,7 @@ class Engine {
   }
   /** Read history on demand when the basis is an editable state: its nodes
    * already reflect every deletion in its effects, so evaluation only needs
-   * the records it touches. Non-editable states (transported, kept-current, imported beside history) load eagerly. */
+   * the records it touches. Non-editable states (transported, imported beside history, or kept from a non-editable current) load eagerly. */
   async detectLazy(ref: { state?: string }): Promise<boolean> {
     this.lazy = !this.eager && !!ref.state &&
       await isEditableState(ref.state, (hash) => this.read(hash));
@@ -2590,7 +2590,12 @@ class Engine {
       if (rootChoice) {
         resultState.nodes = clone(current.nodes);
         resultState.root = current.root;
-        enforced = false;
+        // The kept nodes are current's. The effects added below that they do
+        // not reflect are the candidate's, which this choice declined: a
+        // complete scan would enforce those deletions on the kept tree. So
+        // the result is exactly as editable as current was.
+        enforced = !request.current.state ||
+          await isEditableState(request.current.state, (hash) => this.read(hash));
         rootChoice.selected = 0;
         for (const map of [
           "outputs",

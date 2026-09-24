@@ -167,9 +167,12 @@ together with the merge boundary below (canopyd 016 steps 1 to 7 and the documen
 - **Conflict lab** (`swift/scripts/conflict-lab.ts`, local canopyd on this build): every
   scenario merges or records its decisions on a fresh tree, and `keep-editing`
   fast-forwards three plain edits over an open decision. A traced edit after
-  `delete-edit` on a tree already holding the earlier scenarios' open decisions is
-  refused with "Operations do not reproduce the complete candidate"; the pre-cutover
-  build `0fa5c565` refuses the same sequence identically, so it predates this release.
+  `kind` then `delete-edit` was refused with "Operations do not reproduce the complete
+  candidate" (the pre-cutover build `0fa5c565` too). Cause, in the sidecar: with an
+  entry-kind choice open, the delete/edit became a root choice keeping the current
+  tree, recorded as not editable, so the next evaluation's complete scan enforced the
+  declined deletion on the kept tree. Fixed after this deploy (a kept result is as
+  editable as current), with an acceptance test; not yet deployed.
 - Not deployed with it: the iPhone app (no wire change was required).
 
 - **Log entries.** Every acceptance path (client updates, tree creation, pairing,

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveCanopy } from "@overstory/canopyd";
-import { WireClient, WireHTTPError, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate } from "@overstory/protocol";
+import { WireClient, WireHTTPError, decodeWireDirectory, encodeWireDirectory, hashObject, type CandidateUpdate, type WireDirectoryEntry } from "@overstory/protocol";
 import { writeFile } from "node:fs/promises";
 
 async function scenario(run: (context: {
@@ -96,5 +96,61 @@ test("an unavailable worker accepts nothing, retryably, and the retry succeeds o
     const accepted = (await client().submitUpdates(tree, request)).results[0]!;
     expect(accepted.outcome).toBe("accepted");
     expect(accepted.update.root).toBe(request.updates[0]!.candidate);
+  });
+});
+
+test("an edit after a kept root choice leaves the deletion it declined unapplied", async () => {
+  // The conflict lab's `kind`, `delete-edit`, `list-item` sequence: with an
+  // entry-kind choice open, a delete/edit conflict becomes a root choice that
+  // keeps the current tree. Its candidate's deletion is recorded but declined,
+  // so the next traced edit must not have it enforced on the kept tree.
+  await scenario(async ({ start, client, host }) => {
+    await start();
+    const tree = (await client().account()).account.community.id;
+    const objects = new Map((await client().snapshot(tree, (await client().descriptor(tree)).tree.root)).objects);
+    const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
+    const text = (hash: string) => new TextDecoder().decode(objects.get(hash)!);
+    const directory = (entries: WireDirectoryEntry[]) =>
+      put(encodeWireDirectory({ type: "directory", entries: entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) }));
+    const entries = (root: string) => decodeWireDirectory(objects.get(root)!).entries;
+    const file = (root: string, name: string) => (entries(root).find(entry => entry.name === name) as { file: string }).file;
+    const update = (candidate: string, trace: CandidateUpdate["trace"]): CandidateUpdate =>
+      ({ change: crypto.randomUUID(), candidate, trace, resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) });
+    const snapshot = (root: string, name: string, value: WireDirectoryEntry) =>
+      update(directory([...entries(root).filter(entry => entry.name !== name), value]), null);
+    const traced = (root: string, name: string, find: string, replacement: string) => {
+      const object = file(root, name), source = Buffer.from(objects.get(object)!), at = source.indexOf(find);
+      const next = put(Buffer.concat([source.subarray(0, at), Buffer.from(replacement), source.subarray(at + Buffer.byteLength(find))]));
+      const candidate = directory([...entries(root).filter(entry => entry.name !== name), { name, file: next }]);
+      return update(candidate, [{ before: root, after: candidate, operations: [{ key: "edit", kind: "editSource",
+        source: { material: { kind: "basis", path: `/${name}`, object }, range: [at, at + Buffer.byteLength(find)] }, text: replacement }] }]);
+    };
+    const submit = async (base: string, candidate: CandidateUpdate) => {
+      const result = (await client().submitUpdates(tree, { base, updates: [candidate] })).results[0]!;
+      expect(result.outcome).toBe("accepted");
+      for (const [hash, bytes] of (await client().snapshot(tree, result.update.root)).objects) objects.set(hash, bytes);
+      return result.update;
+    };
+    const block = "- Once Rebecca is here\n  - Run\n  - Tips for each of the cleaners €40\n  - Groceries\n\n";
+    const head = (await client().descriptor(tree)).tree;
+    const kindBase = await submit(head.update, update(directory([...entries(head.root),
+      { name: "Assets", file: put(new TextEncoder().encode("Assets is a file for now.\n")) },
+      { name: "Errands.md", file: put(new TextEncoder().encode(`# Errands\n\n${block}Call the landlord.\n`)) },
+      { name: "List.md", file: put(new TextEncoder().encode("- Milk\n- Eggs from the farm stand\n")) },
+    ]), null));
+    // An entry-kind choice: a file edited on one side, a folder on the other.
+    await submit(kindBase.id, snapshot(kindBase.root, "Assets", { name: "Assets", file: put(new TextEncoder().encode("Assets, edited.\n")) }));
+    const kind = await submit(kindBase.id, snapshot(kindBase.root, "Assets",
+      { name: "Assets", directory: directory([{ name: "logo.txt", file: put(new TextEncoder().encode("logo\n")) }]) }));
+    // A delete/edit of the same block, each traced from the same head.
+    const edited = await submit(kind.id, traced(kind.root, "Errands.md", "€40", "€50"));
+    const kept = await submit(kind.id, traced(kind.root, "Errands.md", block, ""));
+    expect(kept.root).toBe(edited.root);
+    const choices = await client().conflicts(tree, kept.id, kept.root);
+    expect(choices.decisions.filter(decision => decision.kind === "directory").length).toBeGreaterThan(1);
+    const later = await submit(kept.id, traced(kept.root, "List.md", "Eggs from the farm stand", "Eggs (a dozen)"));
+    expect(text(file(later.root, "Errands.md"))).toContain("cleaners €50\n  - Groceries");
+    expect(text(file(later.root, "List.md"))).toContain("Eggs (a dozen)");
+    await host().canopy.verifyIntegrity();
   });
 });

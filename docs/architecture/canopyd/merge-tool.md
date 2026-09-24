@@ -299,9 +299,12 @@ Retained state has active material (nodes, decisions) and five history maps
 (`outputs`, `effects`, `origins`, `alternatives`, `changes`), each a
 hash-partitioned map of immutable records. A state is `editable` when the
 evaluation that recorded it enforced every deletion in its effects map on its
-nodes. Transported results, results kept under `conflictProjection:
-"current"`, and states imported beside existing history are not editable and
-take one complete scan, after which their result is editable. A tree's first
+nodes. Transported results and states imported beside existing history are
+not editable and take one complete scan, after which their result is
+editable. A result kept under `conflictProjection: "current"` is exactly as
+editable as the current state it keeps: its nodes are current's, and the
+effects they do not reflect are the declined candidate's, whose deletions a
+complete scan would wrongly enforce on the kept tree. A tree's first
 import has no history and is editable. A checkpoint (snapshot candidate) of an
 editable state inherits editability: it adds no effects, unchanged files keep
 their enforced pieces, and replaced files get fresh origins. Every state root
