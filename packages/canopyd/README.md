@@ -17,8 +17,7 @@ depends on it except tests and the deployment tooling.
   `transition.ts`, `store.ts` (private accepted history, the
   accepted-row transaction, and the only writer of `trees.ref`),
   `observations.ts` (cursor order over accepted updates, the only source of
-  watch order), `watch-frames.ts`
-  (net catch-up), `tree-diff.ts` (the one paired walk over two roots, and
+  watch order), `tree-diff.ts` (the one paired walk over two roots, and
   the per-update object reader), `entry-metadata.ts` (entry dates and
   document versions), `graph-validation.ts`, `merge-history.ts` (each
   accepted update's log entry in the object store, the only conflict record;

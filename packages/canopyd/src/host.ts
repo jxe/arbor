@@ -16,8 +16,6 @@ import {
   type CanopyBootstrapAccount,
 } from "./canopy.ts";
 import { handleOfPath } from "./profile.ts";
-import { encodeWatchFrames } from "./updates/watch-frames.ts";
-import type { ObservationRecord } from "./updates/observations.ts";
 import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
 import {
   decodeUpdateRequestJSON,
@@ -126,8 +124,6 @@ function watchDescriptor(
   };
 }
 
-const MAX_WATCH_TRANSITIONS_PER_FRAME = 64;
-const MAX_WATCH_TRANSITION_FRAME_BYTES = 1024 * 1024;
 
 function updateJSON(value: UpdateResponse | UpdateConflictResult): unknown {
   if ("error" in value) return encodeUpdateConflictJSON(value);
@@ -617,26 +613,6 @@ export async function serveCanopy(options: {
           }
           const lastEventID = queryCursor ?? headerCursor;
           const keepaliveRequested = request.headers.get("arbor-watch-keepalive") === "1";
-          /** Encode a contiguous run of accepted updates as bounded `tree.update` frames, or null when any transition is unavailable. */
-          const refFrames = async (records: ObservationRecord[]): Promise<string[] | null> => {
-            const transitions: AcceptedTransition[] = [];
-            for (const record of records) {
-              const transition = await canopy.acceptedTransition(record.id, credentialSubject);
-              if (!transition) return null;
-              transitions.push(transition);
-            }
-            const current = canopy.get(tree.id) ?? tree;
-            const frame = (items: AcceptedTransition[]) => {
-              // An update's id is its watch cursor.
-              const cursor = items.at(-1)!.update.id;
-              return encodeSSEFrame({
-                id: cursor,
-                event: "tree.update",
-                data: watchDescriptor(publicOrigin, current, items, access, cursor),
-              });
-            };
-            return encodeWatchFrames(transitions, frame, MAX_WATCH_TRANSITIONS_PER_FRAME, MAX_WATCH_TRANSITION_FRAME_BYTES);
-          };
           let closed = false;
           let delivered = 0;
           let frames: string[] = [];
@@ -709,21 +685,20 @@ export async function serveCanopy(options: {
                     await new Promise<void>(resolve => { wake = resolve; });
                     continue;
                   }
-                  const encoded = records.length > 1 ? null : await refFrames(records);
+                  // One update is sent as itself; a backlog is sent as one net
+                  // transition from the last delivered update to the head.
+                  const single = records.length === 1 ? await canopy.acceptedTransition(records[0]!.id, credentialSubject) : null;
                   if (closed) return;
                   if (!authorized()) return resync("Authorization was revoked");
-                  if (!encoded) {
-                    const net = await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject).catch(() => null);
-                    if (closed) return;
-                    if (!authorized()) return resync("Authorization was revoked");
-                    if (!net) return resync("The requested accepted basis is no longer retained");
-                    delivered = net.record.ordinal;
-                    frames = [encodeSSEFrame({id: net.record.id, event: "tree.update",
-                      data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [net.transition], access, net.record.id)})];
-                    continue;
-                  }
-                  delivered = records.at(-1)!.ordinal;
-                  frames = encoded;
+                  const next = single
+                    ? {record: records[0]!, transition: single}
+                    : await canopy.netAcceptedTransition(tree.id, delivered, credentialSubject).catch(() => null);
+                  if (closed) return;
+                  if (!authorized()) return resync("Authorization was revoked");
+                  if (!next) return resync("The requested accepted basis is no longer retained");
+                  delivered = next.record.ordinal;
+                  frames = [encodeSSEFrame({id: next.record.id, event: "tree.update",
+                    data: watchDescriptor(publicOrigin, canopy.get(tree.id) ?? tree, [next.transition], access, next.record.id)})];
                 }
               } catch (error) { closed = true; stop(); controller.error(error); }
             },
