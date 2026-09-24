@@ -1,6 +1,6 @@
-import { semantic, same, type AccountConfigGraphV2 } from "../../canopyd-merge/src/account-v2.ts";
+import { semantic, same, type AccountConfigGraphV2 } from "@overstory/canopyd-merge/account-v2";
 import { PermissionDeniedError } from "./errors.ts";
-export * from "../../canopyd-merge/src/account-v2.ts";
+export * from "@overstory/canopyd-merge/account-v2";
 
 export function authorizeAccountConfigTransitionV2(
   current: AccountConfigGraphV2,

@@ -171,7 +171,7 @@ evaluator never invents operations from a diff.
 operations }` frames from the request's base root to the candidate. References
 are frame-local, operation keys are unique across the trace, and every frame
 must reproduce its own `after`. A trace is evidence the evaluator checks in
-full, never a hint; an absent trace is snapshot semantics. The protocol bounds
+full, never a hint; an empty trace is snapshot semantics. The protocol bounds
 a trace to 64 frames and 1024 operations. `undoOperation` is not in the
 grammar; editors express undo and redo as ordinary edits, and the evaluator
 answers `unsupported` if it sees the kind. Clients compact a debounced burst of

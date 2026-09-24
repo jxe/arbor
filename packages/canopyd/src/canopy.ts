@@ -4,7 +4,7 @@ import { validateGraphChange, type ValidatedGraph } from "./updates/graph-valida
 import { ExecutionAuthority } from "./execution-authority.ts";
 import { resourceEffects, type ResourceEffect } from "./resource-effects.ts";
 import { SemanticMerge, type StateRef, type Evaluated } from "./updates/semantic-merge.ts";
-import { IntentError } from "../../canopyd-merge/src/intent-model.ts";
+import { IntentError } from "@overstory/canopyd-merge/intent-model";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { decisionDependencies, ConflictStore, type ConflictState } from "./updates/conflict-store.ts";
 import { reconcileEntryAmbiguity, entryValue, authoredConflictBasis, changedEntryPaths } from "./updates/entry-ambiguity.ts";
@@ -2232,7 +2232,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (dependency.kind === "directory") await this.objects.verifyReachable([dependency.hash]);
       else if (hashObject(await this.objects.load(dependency.hash)) !== dependency.hash) throw new Error("Invalid alternative object");
     }
-    const { retentionAudit } = await import("../../canopyd-merge/src/retention.ts");
+    const { retentionAudit } = await import("@overstory/canopyd-merge/retention");
     const auditRetention = retentionAudit(hash => this.objects.load(hash));
     const compactRoots = new Set<string>();
     for (const { accepted, record } of this.semantic.store.entries()) {

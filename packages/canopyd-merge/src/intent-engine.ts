@@ -2,6 +2,7 @@ import { isEditableState, loadEditableIntentState, loadIntentState, loadLazyInte
 import { cloneHistory, need, since, union } from "./history-view.ts";
 import type { MapProof, StateMapValidationCache } from "./state-map.ts";
 import { stableJSONString } from "@overstory/protocol";
+import { encodeJSON } from "./state-value.ts";
 import {
   decodeWireDirectory,
   encodeWireDirectory,
@@ -1186,7 +1187,7 @@ class Engine {
     }
     const effect: Effect = {
       authored: {
-        operation: this.put(encoder.encode(stableJSONString(operation))),
+        operation: this.put(encodeJSON(operation)),
         basis: validatedBasisObject ?? await this.project(basis),
       },
       change,
@@ -1526,9 +1527,7 @@ class Engine {
     await this.prefetch(base, current);
     engineDiagnostics["load-ms"] = performance.now() - startedLoad;
     if (this.lazy) this.appliedDeletions = base.effects;
-    const signature = this.put(
-      encoder.encode(stableJSONString(changeIdentity(request)))
-    );
+    const signature = this.put(encodeJSON(changeIdentity(request)));
     const prior = Object.hasOwn(current.changes, request.incoming.change)
       ? current.changes[request.incoming.change]
       : undefined;
@@ -2742,7 +2741,7 @@ class Engine {
       };
     }
     if (object !== request.incoming.object) return fail("Operations do not reproduce the complete candidate");
-    authored.changes[request.incoming.change] = this.put(encoder.encode(stableJSONString(changeIdentity(request))));
+    authored.changes[request.incoming.change] = this.put(encodeJSON(changeIdentity(request)));
     const state = await partial.store(authored, bytes => this.put(bytes));
     return this.response({object, state}, authored);
   }

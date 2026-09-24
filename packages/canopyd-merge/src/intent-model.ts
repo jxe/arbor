@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { OBJECT_HASH } from "./state-value.ts";
 import {
   decodeAuthoredCandidateIntent,
   decodeMaterialRef,
 } from "../../protocol/src/updates/authored-contract.ts";
 import type { MaterialRef, SourceOperation } from "@overstory/protocol";
 
-const hash = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
 const ref = z.object({ object: hash, state: hash.optional() }).strict();
 const schema = z
@@ -454,7 +455,7 @@ export function parseIntentState(raw: unknown): IntentState {
         id !== node.id ||
         (node.kind === "tree"
           ? !/^tr_[a-z0-9]+$/.test(node.object)
-          : !/^sha256:[a-f0-9]{64}$/.test(node.object))
+          : !OBJECT_HASH.test(node.object))
       )
         throw new Error("Invalid retained node identity");
     }
