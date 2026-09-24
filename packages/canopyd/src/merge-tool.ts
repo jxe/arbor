@@ -1,15 +1,13 @@
 import type { ValidatedMaterial } from "../../canopyd-merge/src/intent-engine.ts";
 import type { IntentState } from "../../canopyd-merge/src/intent-model.ts";
 import { RetentionCache, verifyIntentRetention } from "../../canopyd-merge/src/retention.ts";
-import { CHECKPOINT_BATCH_TOO_LARGE_EXIT } from "../../canopyd-merge/src/checkpoint.ts";
 import { stableJSONString, hashObject, type ObjectHash } from "@overstory/protocol";
 import type {
   CheckpointBatchRequest, CheckpointBatchResponse,
   CheckpointRequest,
   CheckpointResponse,
 } from "../../canopyd-merge/src/checkpoint.ts";
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ObjectStore } from "@overstory/object-store";
@@ -24,6 +22,7 @@ import {
 import { changeIdentity, parseIntentRequest } from "../../canopyd-merge/src/intent-model.ts";
 import { CheckpointBatchLimitError, type MergeResult } from "@overstory/canopyd-merge";
 import { PersistentMergeWorker } from "./merge-worker.ts";
+import { absentFrom, holdsObject } from "../../canopyd-merge/src/worker-objects.ts";
 import { StateMapValidationCache, type MapProof } from "../../canopyd-merge/src/state-map.ts";
 
 type EvaluatedResponse =
@@ -32,10 +31,9 @@ type EvaluatedResponse =
   | ProjectionResponse
   | Extract<IntentResponse, { outcome: "evaluated" }>;
 export interface MergeToolOptions {
-  /** Executable and fixed arguments. No shell interpretation. */
+  /** Executable and fixed arguments, run as `<command> serve --objects DIR
+   * --staging DIR`: one sequential JSON-lines worker. No shell interpretation. */
   command?: string[];
-  /** Reuse one sequential stdin worker. Canopy enables this for the built-in tool. */
-  persistent?: boolean;
   /** Optional phase timings; no request content or object identities. */
   onTiming?: (phase: string, milliseconds: number) => void;
   /** Shared object store to read through (Canopy passes its cached store). */
@@ -271,86 +269,20 @@ export class MergeTool {
     const retained = ["base" in request ? request.base : undefined, "current" in request ? request.current : undefined]
       .flatMap((ref) => ref && typeof ref === "object" && "state" in ref && typeof ref.state === "string" ? [ref.state] : []);
     const trusted = new Set<string>();
-    for (const state of new Set(retained)) {
-      if (await this.shared.find(state)) trusted.add(state);
-    }
+    for (const state of new Set(retained))
+      if (await holdsObject(this.shared, state)) trusted.add(state);
     mark("retained-inputs");
-    const jobs = join(this.dataRoot, "merge-jobs");
-    await mkdir(jobs, { recursive: true });
-    const job = await mkdtemp(join(jobs, "job-"));
     let worker: PersistentMergeWorker | undefined;
     let healthy = false;
     try {
-      const command = this.options.command ?? (process.env.ARBOR_MERGE_EXECUTABLE
-        ? [process.env.ARBOR_MERGE_EXECUTABLE]
-        : [process.execPath, fileURLToPath(new URL("../../canopyd-merge/src/cli.ts", import.meta.url))]);
-      if (!command.length) throw new Error("Empty merge command");
-      if (this.options.persistent) {
-        worker = this.worker;
-        if (worker && !worker.alive) {
-          await worker.close(); await rm(worker.directory, {recursive: true, force: true});
-          this.worker = worker = undefined;
-        }
-        if (!worker) {
-          const parent = join(this.dataRoot, "merge-workers");
-          await mkdir(parent, {recursive: true});
-          const directory = await mkdtemp(join(parent, "worker-"));
-          worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"));
-          this.worker = worker;
-        }
-      }
-      const stagingPath = join(worker?.directory ?? job, "objects");
-      const staging = new ObjectStore(stagingPath);
-      for (const [hash, bytes] of inputs) {
-        if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
-        if (!(await this.shared.find(hash))) await staging.stage([{ hash, bytes }]);
-      }
-      // Retained history is currently append-only (no object GC). This manifest
-      // names live job inputs for a future collector; a collector must honor it.
-      await writeFile(join(job, "request.json"), JSON.stringify(request));
+      worker = await this.currentWorker();
+      const staging = new ObjectStore(join(worker.directory, "objects"));
+      await this.stageInputs(inputs, staging);
       mark("stage-inputs");
-      const stdout = worker ? await worker.request(request, this.options.timeoutMs ?? 30_000) : await new Promise<string>((resolve, reject) => {
-        let inputError: Error | undefined;
-        const child = execFile(
-          command[0]!,
-          [
-            ...command.slice(1),
-            "evaluate",
-            "--objects",
-            join(this.dataRoot, "objects"),
-            "--staging",
-            stagingPath,
-          ],
-          {
-            timeout: this.options.timeoutMs ?? 30_000,
-            killSignal: "SIGKILL",
-            maxBuffer: 8 * 1024 * 1024,
-            encoding: "utf8",
-            env: {
-              PATH: process.env.PATH,
-              TMPDIR: process.env.TMPDIR,
-              LANG: process.env.LANG,
-              TZ: process.env.TZ,
-            },
-          },
-          (error, stdout) => {
-            if (request.kind === "checkpoint-batch" && (error as (Error & {code?:unknown}) | null)?.code === CHECKPOINT_BATCH_TOO_LARGE_EXIT)
-              reject(new CheckpointBatchLimitError("Historical checkpoint batch exceeds its byte budget"));
-            else if (error || inputError) reject(error ?? inputError);
-            else resolve(stdout);
-          }
-        );
-        // Wait for process exit before removing staging or releasing the slot,
-        // even if the worker closes stdin before reading the entire request.
-        child.stdin!.on("error", (error) => {
-          inputError = error;
-          child.kill("SIGKILL");
-        });
-        child.stdin!.end(JSON.stringify(request));
-      });
+      const stdout = await worker.request(request, this.options.timeoutMs ?? 30_000);
       mark("worker-process");
       try {
-        for (const [key, value] of Object.entries(worker?.lastTimings ?? {})) {
+        for (const [key, value] of Object.entries(worker.lastTimings ?? {})) {
           if (key.endsWith("-ms")) this.options.onTiming?.(`w-${key.slice(0, -3)}`, value);
           else this.options.onCount?.(`w-${key}`, value);
         }
@@ -497,28 +429,56 @@ export class MergeTool {
       healthy = true;
       return { response, objects };
     } finally {
-      try {
-        if (worker) {
-          if (!healthy || !worker.alive) {
+      if (worker) {
+        if (!healthy || !worker.alive) {
+          this.worker = undefined;
+          await worker.close();
+          await rm(worker.directory, {recursive: true, force: true});
+        } else {
+          try {
+            await rm(join(worker.directory, "objects"), {recursive: true, force: true});
+          } catch (error) {
+            // Never let a cleanup failure expose an earlier job's proposal to
+            // its successor. Retire the process before releasing the queue.
             this.worker = undefined;
             await worker.close();
-            await rm(worker.directory, {recursive: true, force: true});
-          } else {
-            try {
-              await rm(join(worker.directory, "objects"), {recursive: true, force: true});
-            } catch (error) {
-              // Never let a cleanup failure expose an earlier job's proposal to
-              // its successor. Retire the process before releasing the queue.
-              this.worker = undefined;
-              await worker.close();
-              throw error;
-            }
+            throw error;
           }
         }
-      } finally {
-        await rm(job, { recursive: true, force: true });
       }
     }
+  }
+
+  /** The live worker, replacing one that exited or failed. */
+  private async currentWorker(): Promise<PersistentMergeWorker> {
+    let worker = this.worker;
+    if (worker && !worker.alive) {
+      await worker.close(); await rm(worker.directory, {recursive: true, force: true});
+      this.worker = worker = undefined;
+    }
+    if (worker) return worker;
+    const command = this.options.command ?? (process.env.ARBOR_MERGE_EXECUTABLE
+      ? [process.env.ARBOR_MERGE_EXECUTABLE]
+      : [process.execPath, fileURLToPath(new URL("../../canopyd-merge/src/cli.ts", import.meta.url))]);
+    if (!command.length) throw new Error("Empty merge command");
+    const parent = join(this.dataRoot, "merge-workers");
+    await mkdir(parent, {recursive: true});
+    const directory = await mkdtemp(join(parent, "worker-"));
+    worker = new PersistentMergeWorker(command, directory, join(this.dataRoot, "objects"), join(directory, "objects"));
+    this.worker = worker;
+    return worker;
+  }
+
+  /** Stage the inputs durable storage lacks, in one publish. Every input is
+   * hash-checked: those already durable here, the rest as they are staged. */
+  private async stageInputs(inputs: ReadonlyMap<ObjectHash, Uint8Array>, staging: ObjectStore): Promise<void> {
+    const values = [...inputs].map(([hash, bytes]) => ({hash, bytes}));
+    const missing = await absentFrom(this.shared, values);
+    const staged = new Set(missing);
+    for (const value of values)
+      if (!staged.has(value) && hashObject(value.bytes) !== value.hash)
+        throw new Error(`Object hash mismatch: ${value.hash}`);
+    await staging.stage(missing);
   }
 
   async tree(

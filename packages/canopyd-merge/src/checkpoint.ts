@@ -56,7 +56,6 @@ export type CheckpointResponse = z.infer<typeof checkpointResponseSchema>;
 
 /** A bounded linear slice of already-accepted history; no authored execution. */
 export const MAX_CHECKPOINT_BATCH = 64;
-export const CHECKPOINT_BATCH_TOO_LARGE_EXIT = 75;
 export const checkpointBatchSchema = z.object({
   kind: z.literal("checkpoint-batch"),
   tree: z.string().min(1),

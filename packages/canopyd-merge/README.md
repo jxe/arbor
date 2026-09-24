@@ -15,8 +15,8 @@ has no database connection or credentials.
   lazy history, and retention closure.
 - `checkpoint.ts`, `checkpoint-batch.ts`: reconstructing legacy semantic
   states.
-- `account.ts`, `account-v2.ts`: account-configuration merge rules.
-- `cli.ts`, `worker-objects.ts`: `evaluate` and `serve` modes and staged
+- `account-v2.ts`: account-configuration merge rules.
+- `cli.ts`, `worker-objects.ts`: the JSON-lines `serve` worker and staged
   objects.
 
 The process contract, limits, and failure behavior are in

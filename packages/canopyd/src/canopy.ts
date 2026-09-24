@@ -219,7 +219,6 @@ export class CanopyDaemon implements AsyncDisposable {
     this.db = db;
     this.objects = new ObjectStore(join(dataRoot, "objects"), { cacheBytes: objectCacheBytes() });
     this.mergeTool = new MergeTool(dataRoot, {
-      persistent: !mergeTool?.command && !process.env.ARBOR_MERGE_EXECUTABLE,
       onTiming: (phase, ms) => phaseTimer()?.add(`worker-${phase}`, ms),
       onCount: (name, value) => phaseTimer()?.count(name, value),
       objects: this.objects,
