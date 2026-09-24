@@ -1,6 +1,5 @@
 import { stableJSONString, type WireDirectoryEntry } from "@overstory/protocol";
 import type { LogDecision } from "@overstory/merge-protocol";
-import type { CheckpointRequest } from "./engine-contract.ts";
 import { entryAt, entryValue, withEntry, type TreeIO } from "./trees.ts";
 
 type Contribution = { change: string; operation: null };
@@ -32,7 +31,7 @@ export async function snapshotDecisions(
   conflicts: Array<{ path: string }>,
   folders: string[],
   concurrent: (path: string) => Contribution[],
-): Promise<{ projection: string; decisions: CheckpointRequest["decisions"]; replaces: string[] }> {
+): Promise<{ projection: string; decisions: LogDecision[]; replaces: string[] }> {
   const own = [{ change, operation: null }];
   const roots = [...new Set([current.root, candidate, merged])];
   const whole = {
@@ -40,6 +39,7 @@ export async function snapshotDecisions(
     replaces: [],
     decisions: [{
       key: `snapshot:${change}`,
+      dependencies: [],
       selected: 0,
       alternatives: roots.map((object) => ({
         object,
@@ -71,7 +71,7 @@ export async function snapshotDecisions(
   const placed = (d: LogDecision) => (d.path ? `/${d.path.join("/")}` : null);
   const entryPath = (d: LogDecision) => (d.path && !d.range ? placed(d) : null);
   let projection = merged;
-  const decisions: CheckpointRequest["decisions"] = [], replaces: string[] = [];
+  const decisions: LogDecision[] = [], replaces: string[] = [];
   for (const path of [...scopes].filter((p) => ![...scopes].some((q) => q !== p && within(p, q))).sort()) {
     const names = namesOf(path);
     const [mine, theirs, before] = await Promise.all([current.root, candidate, base].map((root) => entryAt(io, root, names)));
@@ -105,7 +105,7 @@ export async function snapshotDecisions(
           path: names,
           selected: prior.selected,
           alternatives,
-          ...(dependencies.length ? { dependencies } : {}),
+          dependencies,
         });
         continue;
       }
@@ -118,7 +118,7 @@ export async function snapshotDecisions(
         { object: current.root, contributions: concurrent(path) },
         { object: candidate, contributions: own },
       ],
-      ...(dependencies.length ? { dependencies } : {}),
+      dependencies,
     });
   }
   return { projection, decisions, replaces };

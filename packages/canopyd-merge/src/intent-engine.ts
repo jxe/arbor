@@ -1,4 +1,3 @@
-import { decisionReports } from "./reports.ts";
 import { cloneState, copy, loadState, lookup, own, retainState, same, since, union, viewState, type RetainedState, type RetainedStates } from "./retained-state.ts";
 import { stableJSONString } from "@overstory/protocol";
 import {
@@ -2727,7 +2726,6 @@ class Engine {
       authored: this.authoredResult ?? result,
       objects: [...this.generated.keys()],
       decisions: state.decisions,
-      reports: decisionReports(state),
       evidence: {
         rule: { id: "tree-default", revision: 1 },
         inputs: {
@@ -3271,6 +3269,5 @@ export async function checkpointIntent(
   // the complete scan an imported or transported state needs.
   const result = await engine.record(state, editable);
   await keep(engine, objects);
-  const decisions = decisionReports(state);
-  return { kind: "checkpoint", result, objects: [...engine.generated.keys()], decisions };
+  return { kind: "checkpoint", result, objects: [...engine.generated.keys()] };
 }

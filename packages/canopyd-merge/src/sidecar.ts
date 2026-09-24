@@ -14,10 +14,10 @@ import {
 import type { MergeObjects } from "./index.ts";
 import type { CheckpointRequest, IntentRequest } from "./engine-contract.ts";
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
-import { IntentError } from "./intent-model.ts";
+import { IntentError, type Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
 import { mergeWireTrees } from "./merge.ts";
-import type { RetainedState } from "./retained-state.ts";
+import { lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";
 
@@ -137,8 +137,8 @@ export class Sidecar {
     const rules = this.rules(question);
     if (this.memoryBytes > this.cacheBytes) this.clear();
     this.replayed = 0;
-    const { result, reports, evidence } = await this.solve(question, rules);
-    const decisions = await logDecisions(this.io, result.object, reports);
+    const { result, evidence } = await this.solve(question, rules);
+    const { decisions } = await this.cached(result);
     this.rememberSolved(question, { ...result, decisions });
     return { root: result.object, objects: await this.export(result.object, decisions), decisions, evidence };
   }
@@ -166,7 +166,7 @@ export class Sidecar {
     if (candidate.trace === null) return this.snapshot(question, head, basis.object, current);
     const evaluated = await this.evaluate(head.tree, basis, current, candidate, rules);
     if (evaluated.outcome !== "evaluated") throw new MergeRefusal(evaluated.outcome, evaluated.message);
-    return { result: evaluated.result, reports: evaluated.reports, evidence: evaluated.evidence as unknown };
+    return { result: evaluated.result, evidence: evaluated.evidence as unknown };
   }
 
   private rules({ rules }: { rules: MergeRules }): IntentRequest["rules"] {
@@ -204,7 +204,7 @@ export class Sidecar {
     if (!previous) {
       const imported = await this.checkpoint({
         kind: "checkpoint", tree: entry.tree, current: { object: entry.root }, projection: entry.root,
-        change: entry.change, decisions: entry.decisions.map(checkpointDecision), align: true,
+        change: entry.change, decisions: entry.decisions, align: true,
       });
       return this.align(entry, imported);
     }
@@ -226,7 +226,7 @@ export class Sidecar {
       if (known) state = known;
       else {
         const solved = await this.solve(question, asked ? this.rules(asked) : rules);
-        state = { ...solved.result, decisions: await logDecisions(this.io, solved.result.object, solved.reports) };
+        state = await this.cached(solved.result);
       }
     } catch (error) {
       // An entry its question no longer explains (a refusal, which is a
@@ -261,14 +261,23 @@ export class Sidecar {
     return this.checkpoint({
       kind: "checkpoint", tree: entry.tree, current: state, projection: entry.root, change: entry.change,
       resolves: state.decisions.filter((d) => !kept.has(d.key)).map((d) => d.key),
-      decisions: entry.decisions.filter((d) => !kept.has(d.key)).map(checkpointDecision),
+      decisions: entry.decisions.filter((d) => !kept.has(d.key)),
       align: true,
     });
   }
 
+  /** A result as the cache keeps it: with its recorded state's decisions as
+   * a log entry records them. */
+  private async cached(result: { object: string; state: string }): Promise<Cached> {
+    const recorded = this.recorded.get(result.state);
+    if (!recorded) throw new Error(`Unrecorded engine state ${result.state}`);
+    const nodeOf = (id: string) => lookup(recorded.nodes, id) as Node | undefined;
+    return { ...result, decisions: await logDecisions(this.io, result.object, recorded.decisions, nodeOf) };
+  }
+
   private async checkpoint(request: CheckpointRequest): Promise<Cached> {
     const response = await checkpointIntent(request, this.objects);
-    return { ...response.result, decisions: await logDecisions(this.io, response.result.object, response.decisions) };
+    return this.cached(response.result);
   }
 
   private evaluate(
@@ -333,7 +342,7 @@ export class Sidecar {
       candidate: candidate.root, continueSelected: baseRoot === head.root, conflictProjection,
       change: candidate.change, resolves: [...candidate.resolves, ...replaces], decisions,
     }, this.objects);
-    return { result: response.result, reports: response.decisions, evidence: { rule, ...(merged.summary ? { summary: merged.summary } : {}) } };
+    return { result: response.result, evidence: { rule, ...(merged.summary ? { summary: merged.summary } : {}) } };
   }
 
   /** Attribution for the current side of a snapshot choice: each change
@@ -377,16 +386,4 @@ export class Sidecar {
     await this.stores.staging.stage(values);
     return values.map((v) => v.hash);
   }
-}
-
-function checkpointDecision(d: LogDecision): CheckpointRequest["decisions"][number] {
-  return {
-    key: d.key,
-    ...(d.path ? { path: d.path } : {}),
-    ...(d.range ? { range: d.range } : {}),
-    ...(d.at ? { at: d.at } : {}),
-    dependencies: d.dependencies,
-    selected: d.selected,
-    alternatives: d.alternatives,
-  };
 }

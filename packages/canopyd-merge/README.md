@@ -11,8 +11,8 @@ has no database connection or credentials.
   contract canopyd sees.
 - `snapshot.ts`, `trees.ts`: a snapshot's choices (one per conflicting entry
   or folder, continuing a hidden alternative) and path-copying tree edits.
-- `log-decisions.ts`, `reports.ts`: the engine's decisions as log decisions,
-  with node identities resolved to logical paths.
+- `log-decisions.ts`: a retained state's decisions as log decisions, with
+  node identities resolved to paths; checkpoints take log decisions back.
 - `engine-contract.ts`: the engine's own request and result shapes: an
   authored evaluation and a checkpoint, which records an accepted root (and
   its choices) onto a retained state; replay aligns with it.

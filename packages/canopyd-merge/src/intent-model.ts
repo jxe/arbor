@@ -7,12 +7,11 @@ import {
   IntentError,
   intentRequestSchema,
   traceOperations,
-  type DecisionReport,
   type Frame,
-  type IntentEvaluation,
+  type IntentResponse,
   type IntentRequest,
 } from "./engine-contract.ts";
-export { IntentError, traceOperations, type Frame, type IntentRequest };
+export { IntentError, traceOperations, type Frame, type IntentRequest, type IntentResponse };
 const schema = intentRequestSchema;
 /** What a caller hands the engine, before `parseIntentRequest` checks it. */
 export type IntentRequestInput = IntentRequest;
@@ -179,11 +178,6 @@ export interface IntentDecision {
   context?: string;
   placement?: { node: string; pieces: Piece[]; anchor: number };
 }
-/** The engine's in-process result. `decisions` are its retained records;
- * `reports` are what crosses the worker boundary as the wire `decisions`. */
-export type IntentResponse =
-  | (Omit<IntentEvaluation, "decisions"> & { decisions: IntentDecision[]; reports: DecisionReport[] })
-  | { outcome: IntentError["code"]; message: string };
 export const keyOf = (change: string, operation: string) =>
   JSON.stringify([change, operation]);
 export const alternativeKey = (ref: MaterialRef) =>

@@ -56,7 +56,7 @@ test("a traced question gives the engine's result through canopyd and a fresh pr
     await using tool = new MergeTool(directory);
     const { answer } = await tool.ask(asked, f.objects);
     expect(answer.root).toBe(expected.result.object);
-    expect(answer.decisions.length).toBe(expected.reports.length);
+    expect(answer.decisions.length).toBe(expected.decisions.length);
     const lines = await serve(shared, join(directory, "serve"), [asked, asked]) as Array<{ root: string }>;
     expect(lines[0]!.root).toBe(expected.result.object);
     expect(lines[1]).toEqual(lines[0]);

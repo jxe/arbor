@@ -63,7 +63,7 @@ test("a whole-tree choice continues its displayed tree through a snapshot", asyn
   const remote = await f.run(f.request(base, f.tree({ "a.txt": "new" }),
     [{ key: "edit", kind: "editSource", source: f.ref("/a.txt", "old"), text: "new" }], "remote"));
   const open = await snapshot(f, remote.result, { "a.txt": "new" }, "legacy", [{
-    key: "whole", selected: 0,
+    key: "whole", dependencies: [], selected: 0,
     alternatives: [{ object: remote.result.object, contributions: [] }, { object: base, contributions: [] }],
   }]);
   expect(open.decisions.map((d) => d.kind)).toEqual(["directory"]);
@@ -81,7 +81,7 @@ test("a legacy delete-versus-edit becomes a choice about the file", async () => 
   const initial = start.result;
   const kept = f.tree({ "a.txt": "new", "b.txt": "bee" }), removed = f.tree({ "b.txt": "bee" });
   const next = await snapshot(f, initial, { "a.txt": "new", "b.txt": "bee" }, "legacy", [{
-    key: "legacy-a", path: ["a.txt"], selected: 0,
+    key: "legacy-a", path: ["a.txt"], dependencies: [], selected: 0,
     alternatives: [{ object: kept, contributions: [] }, { object: removed, contributions: [] }],
   }]);
   expect(next.decisions.map((d) => [d.kind, d.key])).toEqual([["existence", "legacy-a"]]);
@@ -112,7 +112,7 @@ async function folderChoice(f: Fixture) {
   const initial = await checkpoint(f, { object: root(folder("old")) }, root(folder("old")), "initial");
   const shown = root(folder("mine")), incoming = root(folder("theirs"));
   const open = await checkpoint(f, initial.result, shown, "conflict", [{
-    key: "folder", path: ["docs"], selected: 0,
+    key: "folder", path: ["docs"], dependencies: [], selected: 0,
     alternatives: [{ object: shown, contributions: [] }, { object: incoming, contributions: [{ change: "conflict", operation: null }] }],
   }]);
   return { folder, root, open };

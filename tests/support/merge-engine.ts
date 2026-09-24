@@ -34,6 +34,5 @@ export async function evaluateIntent(
     },
   });
   if (response.outcome !== "evaluated") throw new Error(`${response.outcome}: ${response.message}`);
-  const { decisions: _records, reports, ...rest } = response;
-  return { response: { ...rest, decisions: reports }, objects };
+  return { response, objects };
 }

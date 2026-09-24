@@ -3,34 +3,17 @@
  * to the sidecar; canopyd asks the one question in `@overstory/merge-protocol`. */
 import { z } from "zod";
 import type { MaterialRef, SourceOperation } from "@overstory/protocol";
+import type { LogDecision } from "@overstory/merge-protocol";
+import type { IntentDecision } from "./intent-model.ts";
 
 export const OBJECT_HASH = /^sha256:[a-f0-9]{64}$/;
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
-const contribution = z.object({ change: z.string(), operation: z.string().nullable() }).strict();
 
 /** Rule evidence a snapshot tree merge reports beside its result. */
 export type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
   | { version: "collection-file-rows-v1"; mergedRows: number };
-
-// ---- Decision reports ----------------------------------------------------
-
-/** One retained decision as canopyd needs it: the worker resolves its own
- * node identities into logical paths, so its retained state stays opaque.
- * `placement` is present when the decision has a placement; its `path` names
- * the placed file when that node still exists, and `range` is its affected
- * byte range when the node is active and the decision has no context. */
-export interface DecisionReport {
-  key: string;
-  kind: "content" | "placement" | "existence" | "directory";
-  reason: string;
-  selected: number;
-  dependencies: string[];
-  alternatives: Array<{ object: string; state: string; present: boolean; contributions: Array<{ change: string; operation: string | null }> }>;
-  subject?: MaterialRef;
-  placement?: { path?: string; range?: [number, number] };
-}
 
 // ---- Authored (intent) evaluation ---------------------------------------
 
@@ -145,13 +128,13 @@ export class EvaluationFailure extends Error {
 }
 
 /** An authored evaluation's result: the merged state, the author's own
- * state, the objects it generated and its decisions as reports. */
+ * state, the objects it generated, and the decisions the result retains. */
 export interface IntentEvaluation {
   outcome: "evaluated";
   result: { object: string; state: string };
   authored: { object: string; state: string };
   objects: string[];
-  decisions: DecisionReport[];
+  decisions: IntentDecision[];
   evidence: {
     rule: { id: "tree-default"; revision: 1 };
     inputs: { base: string; current: string; incoming: string };
@@ -165,46 +148,25 @@ export type IntentResponse = IntentEvaluation | { outcome: IntentError["code"]; 
 
 // ---- Checkpoints ---------------------------------------------------------
 
-/** Trusted caller supplies an accepted projection and its decisions, never
- * authored operations. */
-export const checkpointSchema = z
-  .object({
-    kind: z.literal("checkpoint"),
-    tree: z.string().min(1),
-    current: stateRef,
-    projection: hash,
-    candidate: hash.optional(),
-    continueSelected: z.boolean().optional(),
-    conflictProjection: z.enum(["current", "incoming"]).optional(),
-    change: z.string().min(1),
-    resolves: z.array(z.string()).optional(),
-    /** Replaying an accepted entry: `resolves` removes decisions without the
-     * guard a client resolution needs. */
-    align: z.literal(true).optional(),
-    decisions: z
-      .array(
-        z
-          .object({
-            key: z.string().min(1),
-            path: z.array(z.string()).optional(),
-            /** With `path`: a source choice about this byte range of that file
-             * (of `at`, when the choice is enclosed), whose alternatives are
-             * each version's bytes for the range. */
-            range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
-            at: hash.optional(),
-            dependencies: z.array(z.string()).optional(),
-            selected: z.number().int().nonnegative(),
-            alternatives: z.array(z.object({ object: hash, contributions: z.array(contribution) }).strict()).min(2),
-          })
-          .strict()
-      )
-      .default([]),
-  })
-  .strict();
-export type CheckpointRequest = z.infer<typeof checkpointSchema>;
+/** An accepted projection recorded onto a retained state, with the decisions
+ * it keeps open as a log entry records them; never authored operations. */
+export interface CheckpointRequest {
+  kind: "checkpoint";
+  tree: string;
+  current: { object: string; state?: string };
+  projection: string;
+  candidate?: string;
+  continueSelected?: boolean;
+  conflictProjection?: "current" | "incoming";
+  change: string;
+  resolves?: string[];
+  /** Replaying an accepted entry: `resolves` removes decisions without the
+   * guard a client resolution needs. */
+  align?: true;
+  decisions: LogDecision[];
+}
 export interface CheckpointResponse {
   kind: "checkpoint";
   result: { object: string; state: string };
   objects: string[];
-  decisions: DecisionReport[];
 }
