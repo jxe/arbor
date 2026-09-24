@@ -145,8 +145,17 @@ enum ConflictReviewCompiler {
             assignments.append(.init(decision: first.decision, old: path, destination: destination,
                 value: removesFile ? nil : .init(name: "", file: try store(.file(bytes)))))
         }
+        // Linked choices that give one entry the same value agree; keep one.
+        var agreed: [Assignment] = []
+        for assignment in assignments where !agreed.contains(where: {
+            $0.old == assignment.old && $0.destination == assignment.destination && $0.value == assignment.value
+        }) { agreed.append(assignment) }
+        assignments = agreed
         let nonabsent = assignments.filter { $0.value != nil }
-        guard Set(nonabsent.map(\.destination)).count == nonabsent.count else {
+        for (destination, count) in Dictionary(nonabsent.map { ($0.destination, 1) }, uniquingKeysWith: +) where count > 1 {
+            if nonabsent.filter({ $0.destination == destination }).allSatisfy({ $0.old == destination }) {
+                throw ConflictReviewProposalError("Linked choices give \(destination) different versions. Keep the same version in each.")
+            }
             throw ConflictReviewProposalError("Two chosen entries have the same destination. Choose distinct destinations.")
         }
         if let whole = assignments.first(where: { $0.old == "/" }), let directory = whole.value?.directory { root = directory }

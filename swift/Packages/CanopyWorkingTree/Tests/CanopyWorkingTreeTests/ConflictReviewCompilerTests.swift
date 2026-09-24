@@ -89,8 +89,15 @@ struct ConflictReviewCompilerTests {
         let root = try f.directory([.init(name: "page.md", file: current)])
         let inner = try sourceDecision("inner", range: [11, 19], file: older, alternatives: [removed, block])
         let outer = try f.decision("outer", path: "/page.md", values: [["file": current], ["file": previous]], dependencies: ["inner"], root: root)
-        var proposal = draft(root, [inner, outer])
+        let again = try f.decision("again", path: "/page.md", values: [["file": current], ["file": previous]], dependencies: ["inner"], root: root)
+        var proposal = draft(root, [inner, outer, again])
         try proposal.choose(outer.id, alternative: "outer-0")
+        try proposal.choose(again.id, alternative: "again-1")
+        // Linked whole-file choices must agree on the file's version.
+        #expect(throws: ConflictReviewProposalError.self) {
+            try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        }
+        try proposal.choose(again.id, alternative: "again-0")
         let kept = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
         #expect(kept.changes.allSatisfy { $0.after?.file == current || $0.path != "/page.md" })
         // Only the whole file's version can change the file.
