@@ -55,6 +55,9 @@ export class Sidecar {
   private memoryBytes = 0;
   private states = new Map<string, Cached>();
   private entries = new Map<string, LogEntry>();
+  /** Paths each entry changed from its previous entry's root. Entries are
+   * immutable, so this is a cache; it is counted in `memoryBytes`. */
+  private changed = new Map<string, string[]>();
   /** Recently solved questions. The next question's head is usually the entry
    * canopyd recorded from the last answer, and replaying it asks the same
    * question again: the same inputs give the same state, so it is reused. */
@@ -75,6 +78,7 @@ export class Sidecar {
     this.memoryBytes = 0;
     this.states.clear();
     this.entries.clear();
+    this.changed.clear();
     this.solved.clear();
   }
 
@@ -305,11 +309,12 @@ export class Sidecar {
         merged = { root: head.root, conflicts: [{ path: "/" }], folders: ["/"] };
       }
     }
-    const concurrent = await this.concurrentChanges(question.base, question.head);
     const conflictProjection = (question.rules.config as { conflictProjection?: "current" | "incoming" } | undefined)?.conflictProjection ?? "current";
+    // Attribution is needed only for a choice.
     const { projection, decisions, replaces } = !merged.conflicts.length && !merged.folders.length
       ? { projection: merged.root, decisions: [], replaces: [] }
-      : await snapshotDecisions(this.io, candidate.change, head, baseRoot, candidate.root, merged.root, merged.conflicts, merged.folders, concurrent);
+      : await snapshotDecisions(this.io, candidate.change, head, baseRoot, candidate.root, merged.root, merged.conflicts, merged.folders,
+        await this.concurrentChanges(question.base, question.head));
     const response = await checkpointIntent({
       kind: "checkpoint", tree: head.tree, current: { object: current.object, state: current.state }, projection,
       candidate: candidate.root, continueSelected: baseRoot === head.root, conflictProjection,
@@ -328,11 +333,21 @@ export class Sidecar {
       if (!entry.previous) break;
       const previous = await this.entry(entry.previous);
       if (CLIENT_CHANGE.test(entry.change))
-        touched.unshift({ change: entry.change, paths: await changedEntryPaths(this.io, previous.root, entry.root) });
+        touched.unshift({ change: entry.change, paths: await this.changedPaths(at, previous.root, entry.root) });
       at = entry.previous;
     }
     const related = (a: string, b: string) => a === "/" || b === "/" || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
     return (path: string) => touched.filter((t) => t.paths.some((p) => related(p, path))).map((t) => ({ change: t.change, operation: null }));
+  }
+
+  private async changedPaths(hash: string, before: string, after: string): Promise<string[]> {
+    let paths = this.changed.get(hash);
+    if (!paths) {
+      paths = await changedEntryPaths(this.io, before, after);
+      this.changed.set(hash, paths);
+      this.memoryBytes += paths.reduce((bytes, path) => bytes + 2 * path.length + 32, 64);
+    }
+    return paths;
   }
 
   /** Stage every object the answer names that canopyd does not hold. */
