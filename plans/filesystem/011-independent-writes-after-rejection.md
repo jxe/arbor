@@ -2,6 +2,10 @@
 
 Split from **Reliability 011 / Sync 011**. Status: NEEDS DESIGN; priority selection is open.
 [Verification 011](../verification/011-client-compatibility.md) owns the separate compatibility audit.
+[Clients 001](../clients/001-reconcile-client-state-machines.md) first rebuilds the daemon on the shared
+change log and update machine, where a definitive rejection enters `held` instead of opening a conflict
+workspace; this plan then adds independent publication as a rule of that `held` state, in the shared
+machine rather than the daemon's own scheduler.
 
 ## User-visible problem
 
