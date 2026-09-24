@@ -192,6 +192,31 @@ final class ArborConflictReviewModel {
         return (contents, directories, message)
     }
 
+    /// The decision whose inline card is open beside its paragraph.
+    var inlineID: String?
+
+    func openInline(_ decision: ConflictReviewDecision) async {
+        inlineID = decision.id
+        if selectedID != decision.id { await select(decision, expand: false) }
+    }
+
+    /// Resolve the selected decision with `alternative` in one step. Dependent
+    /// members nobody chose keep what they show now. The preview still runs and
+    /// guards the submission, exactly as when the person asks for it.
+    func keep(_ alternative: String) async {
+        guard var value = draft, let decision = selectedDecision else { return }
+        do {
+            try value.choose(decision.id, alternative: alternative)
+            for member in value.decisions where value.selection(for: member.id) == nil {
+                try value.choose(member.id, alternative: member.selected)
+            }
+        } catch { message = error.localizedDescription; return }
+        draft = value; save(value)
+        do { try await flushDraft() } catch { message = error.localizedDescription; return }
+        await previewResult()
+        await apply()
+    }
+
     func selectMember(_ id: String) async {
         guard let draft, draft.decisions.contains(where: { $0.id == id }) else { return }
         await show(draft, selecting: id, expand: expanded)
@@ -673,5 +698,115 @@ struct ArborSourceLineComparison {
         status = changedLines.isEmpty
             ? "Changes appear in the other version"
             : "\(changedLines.count) changed line\(changedLines.count == 1 ? "" : "s") highlighted"
+    }
+}
+
+/// One source-range choice, shown beside the paragraph it concerns. Each
+/// alternative is a card with its own Keep button; lines that differ from the
+/// other alternative are tinted. Everything else stays in the full panel.
+struct ArborInlineChoice: View {
+    @Bindable var review: ArborConflictReviewModel
+    let decision: ConflictReviewDecision
+    var moreOptions: () -> Void
+
+    private var loaded: Bool { review.selectedID == decision.id && review.draft != nil }
+
+    private func text(_ alternative: ConflictReviewAlternative) -> String? {
+        review.contents[alternative.id].flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    private var headline: String {
+        guard loaded else { return "Changed in two places" }
+        let selected = decision.alternatives.first { $0.id == decision.selected }
+        let removedHere = selected.flatMap(text)?.isEmpty == true
+        let removedElsewhere = decision.alternatives.contains { $0.id != decision.selected && text($0)?.isEmpty == true }
+        if removedHere { return "Removed here · another edit kept it" }
+        if removedElsewhere { return "Another edit removed this" }
+        return "Changed in two places"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(headline, systemImage: "arrow.triangle.branch")
+                .font(.callout.weight(.semibold))
+            if review.showingAppliedResult && review.completedID == decision.id {
+                Label("Resolved", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+            } else if !loaded {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 60)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 10) { cards }
+                    VStack(alignment: .leading, spacing: 10) { cards }
+                }
+                if review.stale {
+                    Label("This choice changed. Review the latest versions.", systemImage: "arrow.clockwise").font(.caption)
+                }
+                HStack {
+                    if review.applying || review.previewing { ProgressView().controlSize(.small) }
+                    if let message = review.message { Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                    Spacer()
+                    Button("More options…", action: moreOptions).buttonStyle(.link).font(.caption)
+                }
+            }
+        }
+        .padding(12)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.orange.opacity(0.35)))
+        .task(id: decision.id) { await review.openInline(decision) }
+    }
+
+    @ViewBuilder private var cards: some View {
+        let others = decision.alternatives.map { text($0) ?? "" }
+        ForEach(Array(decision.alternatives.enumerated()), id: \.element.id) { index, alternative in
+            let source = others[index]
+            let other = others.enumerated().first { $0.offset != index }?.element
+            ArborInlineAlternative(
+                title: alternative.id == decision.selected ? "Showing now" : "Other version",
+                source: source, baseline: other,
+                keepTitle: source.isEmpty ? "Keep removed" : "Keep this",
+                busy: review.applying || review.previewing || review.pending || review.stale
+            ) { Task { await review.keep(alternative.id) } }
+        }
+    }
+}
+
+private struct ArborInlineAlternative: View {
+    let title: String
+    let source: String
+    let baseline: String?
+    let keepTitle: String
+    let busy: Bool
+    let keep: () -> Void
+
+    var body: some View {
+        let comparison = ArborSourceLineComparison(displayed: source, baseline: baseline)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            if source.isEmpty {
+                Text("Removed").italic().foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(trimmed(comparison.lines).enumerated()), id: \.offset) { index, line in
+                        Text(line.isEmpty ? " " : line)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(comparison.changedLines.contains(index) && baseline?.isEmpty == false
+                                        ? Color.orange.opacity(0.18) : .clear)
+                    }
+                }
+            }
+            Button(keepTitle, action: keep).disabled(busy).controlSize(.small)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Source ranges usually end in their separating blank line; it carries no meaning here.
+    private func trimmed(_ lines: [String]) -> [String] {
+        var lines = lines
+        while lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
+        return lines
     }
 }

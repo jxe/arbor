@@ -70,6 +70,34 @@ public final class ArborDocumentBinding {
     /// The machine state, for lifecycle callers and tests.
     public var admissionState: DocumentAdmissionMachine.State { machine }
 
+    /// Object hashes of ledger sources, by ledger revision; revisions are opaque.
+    @ObservationIgnored private var sourceObjects: [String: String] = [:]
+
+    /// The blocks, in document order, whose source overlaps `range` (UTF-8
+    /// bytes) of the source stored as `object`. An empty range names the
+    /// block ending at it, or the one it sits in. Nil when this editor holds
+    /// no ledger for exactly that source or none of those blocks is still in
+    /// the document: callers never guess a location.
+    public func blocks(overlapping range: Range<Int>, inSource object: String) -> [BlockID]? {
+        let ledgers = [ledger] + basisLedgers.values
+        guard let basis = ledgers.first(where: { candidate in
+            let hash = sourceObjects[candidate.revision] ?? WireObjectCodec.hash(Data(candidate.source.utf8))
+            sourceObjects[candidate.revision] = hash
+            return hash == object
+        }) else { return nil }
+        let records = basis.records.values.filter { !$0.range.isEmpty && document.find($0.block.id) != nil }
+        if range.isEmpty {
+            // Removed material sat after the block ending at its anchor.
+            let before = records.filter { $0.range.upperBound == range.lowerBound }.max { $0.depth < $1.depth }
+            let within = records.filter { $0.range.contains(range.lowerBound) }.max { $0.depth < $1.depth }
+            return (before ?? within).map { [$0.block.id] }
+        }
+        // A container and its first child can share a start; parents come first.
+        let ordered = records.filter { $0.range.overlaps(range) }
+            .sorted { ($0.range.lowerBound, $0.depth) < ($1.range.lowerBound, $1.depth) }
+        return ordered.isEmpty ? nil : ordered.map(\.block.id)
+    }
+
     public static func open(
         reference: WorkspaceReference,
         session: any WorkspaceDocumentSession,

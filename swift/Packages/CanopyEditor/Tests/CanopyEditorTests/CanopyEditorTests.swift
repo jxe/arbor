@@ -1,5 +1,6 @@
 import CanopyAppKit
 @testable import CanopyEditor
+import Overstory
 import Foundation
 import Quagmire
 import QuagmireExtras
@@ -450,6 +451,31 @@ struct CanopyEditorTests {
         #expect(label.runs.contains { $0[InlineAttributes.BoldAttribute.self] == true })
         #expect(reference.rawValue == "Calendar.md#h31mlm")
         #expect(ArborMarkdownCodec.serializeBlocks([block]).contains("[🗓️ **Calendar**](Calendar.md#h31mlm)"))
+    }
+
+    @MainActor
+    @Test("Source ranges of a known object map to the blocks they cover, never guessed")
+    func sourceRangeBlocks() async throws {
+        let source = "---\nid: pg_errands\n---\n\n# Errands\n\nPick up the bike.\n\n- Once here\n  - Run\n\nCall the landlord.\n"
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/errands", stableKey: markdownStableKey("pg_errands"))
+        let session = RecordingAdmissionSession(snapshot: .init(reference: reference, source: source, contentRevision: "opaque-r1"))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let object = WireObjectCodec.hash(Data(source.utf8))
+        func text(_ ids: [BlockID]?) -> [String]? {
+            ids?.map { id in binding.document.find(id).map { String($0.text.characters) } ?? "?" }
+        }
+        let bytes = Array(source.utf8)
+        func offset(_ needle: String) -> Int {
+            let target = Array(needle.utf8)
+            return (0...(bytes.count - target.count)).first { Array(bytes[$0..<($0 + target.count)]) == target }!
+        }
+        let list = offset("- Once here"), after = offset("Call the")
+        #expect(text(binding.blocks(overlapping: list..<after, inSource: object)) == ["Once here", "Run"])
+        // A retained deletion sits after the block that ends at its anchor.
+        #expect(text(binding.blocks(overlapping: after..<after, inSource: object)) == ["Run"])
+        #expect(binding.blocks(overlapping: list..<after, inSource: WireObjectCodec.hash(Data("other".utf8))) == nil)
+        // Frontmatter has no block to stand beside.
+        #expect(binding.blocks(overlapping: 4..<18, inSource: object) == nil)
     }
 
     @MainActor

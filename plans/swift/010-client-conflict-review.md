@@ -70,21 +70,31 @@ and the relevant [development gates](../../DEVELOPMENT.md). Distinguish
 built/tested from installed/verified. Record completed evidence in the checkpoint
 and status, and remove completed executor work from this active plan.
 
-## Phase 2: Contextual review in the editor — later
+## Phase 2: Contextual review in the editor
 
-Ship Phase 1 independently. Add contextual affordances only where canopyd evidence
-and the editor's exact source mapping support them.
+Source-range choices that canopyd places in the current file now appear
+beside their blocks: a margin marker and an inline card per choice
+(`ArborInlineChoice`), resolved with one Keep per alternative through the same
+draft, preview guard and submission. `ArborDocumentBinding.blocks(overlapping:inSource:)`
+maps the range only through a ledger whose source hashes to the named object;
+anything else, and every non-range choice, stays in the page panel.
+`swift/scripts/conflict-lab.ts` reproduces each case against a local canopyd.
 
-- Place compact inline markers at affected source locations and navigate between
-  them from the tree list. Reuse the same review model and submission path.
+Remaining:
+
+- Show each alternative within its surrounding sentence or block; the card
+  shows only the retained fragment.
+- Tint the affected blocks (needs a Quagmire accessory highlight) and anchor
+  the marker at the first affected block.
+- Choices retained in their own context report base coordinates and cannot be
+  placed; relocate them through piece origins or keep them in the panel.
 - Show alternatives beside relevant paragraphs, list items, table cells, frontmatter
   or fenced code with enough surrounding context. Preserve exact raw-source access.
 - Map authoritative source ranges through editor refreshes; validate the mapping
   before presenting a location. Fall back to page/directory review when placement
   is uncertain, rather than guessing or mutating the document to insert markers.
-- Attach independently resolvable source choices to their verified block locations.
-  The range compiler and canopyd operations are implemented; contextual block mapping
-  remains. Keep coupled decisions grouped even when markers appear far apart.
+- Keep coupled decisions grouped even when their markers appear far apart; the
+  inline card resolves unchosen group members with what they show now.
 - Explain verified actions such as moves, copies, deletion and hidden-alternative
   edits. Keep uncertain correspondence and unknown authors explicit.
 - Offer rule-provided combination previews and richer format-specific controls as

@@ -1455,6 +1455,13 @@ struct ArborRootView: View {
             await review.select(decision, expand: false)
             guard review.selectedID == decision.id else { return }
             if let page { await model.navigate(to: page) }
+            if let binding = model.pagePresentation(for: model.currentLocation)?.editorLease?.binding,
+               inlineBlocks(for: decision, in: binding) != nil {
+                review.expanded = false
+                await review.openInline(decision)
+                reviewAccessoryReveal = EditorAccessoryReveal("choice-\(decision.id)")
+                return
+            }
             review.expanded = true
             reviewAccessoryReveal = EditorAccessoryReveal("accepted-choices")
         }
@@ -2357,21 +2364,55 @@ struct ArborRootView: View {
         return presentation.node.surface.supportsDocumentSession && presentation.node.isWritable && presentation.editorLease != nil
     }
 
-    private func reviewAccessories(for location: WorkspaceLocation) -> [EditorAccessory] {
+    /// The blocks a source-range choice occupies on this page, when the
+    /// decision names source this editor holds; nil sends it to the page panel.
+    private func inlineBlocks(for decision: ConflictReviewDecision, in binding: ArborDocumentBinding) -> [BlockID]? {
+        guard let range = decision.sourceRange, let object = decision.affected.first?.material.object else { return nil }
+        return binding.blocks(overlapping: range, inSource: object)
+    }
+
+    private func reviewAccessories(for location: WorkspaceLocation, binding: ArborDocumentBinding) -> [EditorAccessory] {
         guard location == model.currentLocation, hostsReviewAccessory(location), let review = workspace.conflictReview else { return [] }
         let choices = review.decisions.filter { $0.path.map { reviewLogicalPath($0) == model.currentReference.path } ?? false }
-        guard !choices.isEmpty || review.showingAppliedResult else { return [] }
-        return [EditorAccessory(
+        var accessories: [EditorAccessory] = []
+        var placed: Set<String> = []
+        for decision in choices {
+            guard let blocks = inlineBlocks(for: decision, in: binding), let anchor = blocks.last else { continue }
+            placed.insert(decision.id)
+            accessories.append(EditorAccessory(
+                id: "choice-\(decision.id)", anchor: .block(anchor), accessibilityLabel: "Review this choice",
+                isExpanded: Binding(get: { review.inlineID == decision.id }, set: { expanded in
+                    if expanded { review.expanded = false; Task { await review.openInline(decision) } }
+                    else if review.inlineID == decision.id { review.inlineID = nil }
+                }), marker: {
+                    Image(systemName: "arrow.triangle.branch")
+                        .foregroundStyle(.orange)
+                        .help("Changed in two places")
+                }, detail: {
+                    ArborInlineChoice(review: review, decision: decision) {
+                        review.inlineID = nil
+                        Task {
+                            await review.select(decision, expand: true)
+                            reviewAccessoryReveal = EditorAccessoryReveal("accepted-choices")
+                        }
+                    }
+                }))
+        }
+        let remaining = choices.filter { !placed.contains($0.id) }
+        let panelOpen = review.expanded && review.selectedID.map { id in choices.contains { $0.id == id } } == true
+        guard !remaining.isEmpty || panelOpen || (review.showingAppliedResult && review.inlineID == nil) else { return accessories }
+        let count = remaining.count
+        accessories.insert(EditorAccessory(
             id: "accepted-choices", anchor: .document, accessibilityLabel: "Review alternatives",
             isExpanded: Binding(get: { review.expanded }, set: { expanded in
-                if expanded, !choices.contains(where: { $0.id == review.selectedID }), let first = choices.first { openReviewChoice(first) }
+                if expanded, !choices.contains(where: { $0.id == review.selectedID }), let first = remaining.first ?? choices.first { openReviewChoice(first) }
                 else { review.expanded = expanded }
             }), marker: {
                 // The marker is the panel's disclosure control, so the panel
                 // itself shows no second close button.
                 Label {
-                    Text(choices.isEmpty ? "Choice resolved"
-                         : "\(choices.count) unresolved \(choices.count == 1 ? "choice" : "choices")")
+                    Text(count == 0 ? (choices.isEmpty ? "Choice resolved" : "Review choice")
+                         : "\(count) unresolved \(count == 1 ? "choice" : "choices")")
                 } icon: {
                     Image(systemName: review.expanded ? "chevron.down" : "chevron.right")
                 }
@@ -2384,7 +2425,8 @@ struct ArborRootView: View {
 #else
                 EmptyView()
 #endif
-            })]
+            }), at: 0)
+        return accessories
     }
 
     @ViewBuilder
@@ -2425,7 +2467,7 @@ struct ArborRootView: View {
                             configuration: ArborStyle.editorConfiguration,
                             pinchDictation: pinchDictation,
                             topOverscrollAction: editorTopOverscrollAction,
-                            accessories: reviewAccessories(for: location),
+                            accessories: reviewAccessories(for: location, binding: lease.binding),
                             accessoryReveal: location == model.currentLocation ? reviewAccessoryReveal : nil,
                             readOnly: !node.isWritable
                         ) {
