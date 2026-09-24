@@ -968,17 +968,14 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.list().filter((tree) => tree.status === "active" && tree.accountID === account.id);
   }
 
+  /** A root's complete profile facts, card fields included. A stored row
+   * written before version 3 has only the authorization facts, so the card is
+   * read again and the row replaced. */
   async profileCard(root: ObjectHash): Promise<RootProfileFacts> {
-    const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
-    if (row) {
-      const cached = JSON.parse(row.value) as Partial<RootProfileFacts>;
-      if (cached.version === 3) return cached as RootProfileFacts;
-    }
+    const stored = this.storedProfileFacts(root);
+    if (stored?.version === 3) return stored as RootProfileFacts;
     const facts = await rootProfileFacts(root, (hash) => this.objects.read(hash));
-    this.db.run(
-      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      [`profile:${root}`, JSON.stringify(facts)],
-    );
+    this.recordProfileFacts(root, facts.type ? facts : null);
     return facts;
   }
 
@@ -1790,6 +1787,7 @@ export class CanopyDaemon implements AsyncDisposable {
           now
         );
       const { transition, changes } = await this.acceptedDiff(current.root, result.object);
+      const profile = await this.profileFacts(result.object, proposed);
       markPhase("transition");
       const accepted = this.acceptedStore.commit(
         {
@@ -1810,7 +1808,10 @@ export class CanopyDaemon implements AsyncDisposable {
           change: request.change,
           mergeState,
         },
-        commit.withinTransaction
+        () => {
+          commit.withinTransaction?.();
+          this.recordProfileFacts(result.object, profile);
+        }
       );
       if (!accepted) continue;
       markPhase("commit");
@@ -2175,6 +2176,7 @@ export class CanopyDaemon implements AsyncDisposable {
       : null;
     const staged = new Map(snapshot.objects);
     const mergeState = await this.semantic.checkpoint(id, null, snapshot.root, change ?? `initial:${id}`, staged);
+    const profile = await this.profileFacts(snapshot.root, staged);
     await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
     const initialChanges = await this.entryChanges(null, snapshot.root);
     const now = Date.now();
@@ -2197,6 +2199,7 @@ export class CanopyDaemon implements AsyncDisposable {
         entryChanges: initialChanges,
         mergeState,
       });
+      this.recordProfileFacts(snapshot.root, profile);
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);
       if (attachment) this.advanceParent(attachment, now, credentialSubject ?? null);
@@ -2211,22 +2214,23 @@ export class CanopyDaemon implements AsyncDisposable {
   private async prepareParentAdvance(rewrite: { parent: CanopyTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }) {
     const from = this.currentUpdate(rewrite.parent.id);
     if (!from || from.root !== rewrite.parent.ref) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
-    await this.cacheRootProfile(rewrite.nextRoot, rewrite.generated);
     const staged = new Map(rewrite.generated);
     const mergeState = await this.semantic.checkpoint(rewrite.parent.id, from, rewrite.nextRoot, `boundary:${crypto.randomUUID()}`, staged);
+    const profile = await this.profileFacts(rewrite.nextRoot, staged);
     await this.objects.store([...staged].map(([hash, bytes]) => ({ hash, bytes })));
     const { transition, changes } = await this.acceptedDiff(rewrite.parent.ref, rewrite.nextRoot);
-    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, transition, entryChanges: changes, mergeState };
+    return { tree: rewrite.parent.id, previousRoot: rewrite.parent.ref, root: rewrite.nextRoot, expectedUpdate: from.id, transition, entryChanges: changes, mergeState, profile };
   }
 
   /** Advance a canonical parent inside the caller's transaction, only from the
    * update its merge state was checkpointed onto. */
   private advanceParent(prepared: Awaited<ReturnType<CanopyDaemon["prepareParentAdvance"]>>, acceptedAt: number, subject: string | null): AcceptedUpdate {
-    const { expectedUpdate, ...input } = prepared;
+    const { expectedUpdate, profile, ...input } = prepared;
     const accepted = this.acceptedStore.current(input.tree)?.id === expectedUpdate
       ? this.acceptedStore.advance({ ...input, kind: "accepted", acceptedAt, subject })
       : null;
     if (!accepted) throw new RefConflictError(this.get(input.tree)?.ref ?? null);
+    this.recordProfileFacts(input.root, profile);
     return accepted;
   }
 
@@ -2356,19 +2360,19 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   /**
-   * Graph validation caches each root's `_index.md` frontmatter profile facts
-   * (`type` and the authored member locators) by immutable root hash, so
-   * synchronous authorization never reparses mutable filesystem state or
-   * treats display names as identity.
+   * The stored profile facts of one immutable root: the `type` and authored
+   * member locators of its `_index.md` frontmatter, plus card fields from
+   * version 3. Only accepted person and group profile roots have a row, written
+   * with their acceptance; any other root has none. Rows written before this
+   * version may lack card fields (and older ones exist for every validated
+   * root), but their type and members stay authoritative.
    */
-  private rootProfile(root: ObjectHash): RootProfile {
-    const cached = this.rootProfiles.get(root);
-    if (cached) return cached;
+  private storedProfileFacts(root: ObjectHash): (Omit<RootProfileFacts, "version"> & { version?: unknown }) | null {
     const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
-    // Not memoized: the facts of a root may be cached after it is first asked about.
-    if (!row) return { type: null, members: [], handles: new Set(), profiles: new Set(), legacyHandles: new Set() };
-    const value = JSON.parse(row.value) as { type?: unknown; members?: unknown };
-    const profile: Pick<RootProfile, "type" | "members"> = {
+    if (!row) return null;
+    const value = JSON.parse(row.value) as Record<string, unknown>;
+    return {
+      ...value,
       type: value.type === "person" || value.type === "group" ? value.type : null,
       members: Array.isArray(value.members) ? value.members.flatMap((member) => {
         if (typeof member === "string") return [{ profile: member, legacy: true as const }];
@@ -2382,8 +2386,38 @@ export class CanopyDaemon implements AsyncDisposable {
         }];
       }) : [],
     };
+  }
+
+  /** A root's profile facts, when it is a person or group profile root. */
+  private async profileFacts(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<RootProfileFacts | null> {
+    const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
+    return facts.type ? facts : null;
+  }
+
+  /** Store a profile root's facts, inside the transaction that accepts it. */
+  private recordProfileFacts(root: ObjectHash, facts: RootProfileFacts | null): void {
+    if (!facts) return;
+    this.db.run(
+      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      [`profile:${root}`, JSON.stringify(facts)],
+    );
+  }
+
+  /**
+   * Authorization reads each accepted root's stored profile facts (see
+   * `storedProfileFacts`) by immutable root hash, so it never reparses mutable
+   * filesystem state or treats display names as identity. A root without a
+   * row declares no profile type.
+   */
+  private rootProfile(root: ObjectHash): RootProfile {
+    const cached = this.rootProfiles.get(root);
+    if (cached) return cached;
+    const profile = this.storedProfileFacts(root);
+    // Not memoized: a profile root's facts are stored when it is accepted.
+    if (!profile) return { type: null, members: [], handles: new Set(), profiles: new Set(), legacyHandles: new Set() };
     const facts: RootProfile = {
-      ...profile,
+      type: profile.type,
+      members: profile.members,
       handles: memberHandles(profile.members),
       profiles: memberProfiles(profile.members),
       legacyHandles: new Set(profile.members.flatMap((member) => legacyMemberHandle(member) ?? [])),
@@ -2477,14 +2511,6 @@ export class CanopyDaemon implements AsyncDisposable {
     return reservations;
   }
 
-  private async cacheRootProfile(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
-    const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
-    this.db.run(
-      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      [`profile:${root}`, JSON.stringify(facts)],
-    );
-  }
-
   private reconcileCommunityAccounts(): void {
     const members = this.communityMemberHandles();
     for (const account of this.db.query("SELECT handle FROM accounts").all() as Array<{ handle: string }>) {
@@ -2513,7 +2539,6 @@ export class CanopyDaemon implements AsyncDisposable {
     this.validatedGraphs.set(root, result);
     while (this.validatedGraphs.size > 8 || [...this.validatedGraphs.values()].reduce((n, graph) => n + graph.objects.size, 0) > 200_000)
       this.validatedGraphs.delete(this.validatedGraphs.keys().next().value!);
-    await this.cacheRootProfile(root, proposed);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

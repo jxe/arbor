@@ -245,7 +245,7 @@ test("snapshot ambiguity and accepted identity commit atomically", async () => {
   } finally { db.close(); }
 });
 
-test("every acceptance records a merge state and writes no conflict rows", async () => {
+test("every acceptance records a merge state, and only accepted profile roots have profile facts", async () => {
   const left = snapshot(change(root, { "asset.bin": { file: file("left") } }));
   const right = snapshot(change(root, { "asset.bin": { file: file("right") } }));
   await submit(left); const accepted = await submit(right);
@@ -259,6 +259,12 @@ test("every acceptance records a merge state and writes no conflict rows", async
     const record = JSON.parse((db.query("SELECT record_json FROM accepted_merge_states WHERE accepted_id = ?").get(accepted.id) as { record_json: string }).record_json);
     expect(record.decisions).toHaveLength(1);
     expect(db.query("SELECT COUNT(*) AS n FROM accepted_conflicts").get()).toEqual({ n: 0 });
+    const profiles = db.query("SELECT key, value FROM meta WHERE key LIKE 'profile:%'").all() as Array<{ key: string; value: string }>;
+    expect(profiles.map(p => JSON.parse(p.value).type).every(type => type === "person" || type === "group")).toBe(true);
+    const keys = new Set(profiles.map(p => p.key));
+    expect(keys.has(`profile:${accepted.root}`)).toBe(true);
+    expect(keys.has(`profile:${refused.candidate}`)).toBe(false);
+    expect(keys.has(`profile:${right.candidate}`)).toBe(false);
   } finally { db.close(); }
 });
 
