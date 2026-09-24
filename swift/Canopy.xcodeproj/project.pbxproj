@@ -27,10 +27,15 @@
 		D04DEF93C13612B18F18C8D3 /* ArborSaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F488507EF84786EB0AE2DD22 /* ArborSaveDiagnostics.swift */; };
 		D2933F943634F0E9ABA20CD7 /* ArborRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D86631369060ED5B812AC5 /* ArborRootView.swift */; };
 		D9F15BCF282E14AFF67DC6D0 /* ArborNetworkLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4B197CF4BF9FFD2DDBFFB1 /* ArborNetworkLogView.swift */; };
-		DE59926E0AD522EFC915FBA4 /* ArborSyncClient in Frameworks */ = {isa = PBXBuildFile; productRef = 0D1EDE70FCBE2FF15D989042 /* ArborSyncClient */; };
 		DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A36AD8101B2499E5CA54D4A /* CanopyOnboarding.swift */; };
 		E5D6C0A84A97D0677205A1A1 /* ArborDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EE529EFC6F562AFAF2BFEA /* ArborDirectory.swift */; };
 		E6D54BC465AC7BE111DD3D8A /* ArborSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48039FE93406AB42D265FBD9 /* ArborSupportDirectories.swift */; };
+		A0EC170CBFE92ED007833FB6 /* ArborSyncLoopbackServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */; };
+		C34DE6539BBB66FE78121533 /* ArborSyncProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */; };
+		3A1FAF74B3EC8750F4D71D4D /* ArborSyncProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */; };
+		07B0F233694FFCD76F89A4C5 /* ArborSyncRESTClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D60639F71858D854F0FD710 /* ArborSyncRESTClient.swift */; };
+		0AEF6F15D2A3AC1ADB4A26B0 /* ArborSyncClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FACC2E28ADACF53D88E62907 /* ArborSyncClientTests.swift */; };
+		F9AA601B0C56DC4B2A16A26C /* ArborSyncLoopbackServicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFB0353E18C0F300EF29CB3 /* ArborSyncLoopbackServicesTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,7 +69,6 @@
 		CD6D072E434F11F7B408005D /* Canopy.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Canopy.entitlements; sourceTree = "<group>"; };
 		CFF4B4A512DB429ABAB9F439 /* ArborVisits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborVisits.swift; sourceTree = "<group>"; };
 		D298D8D253A6A0EA05B37B19 /* ArborStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborStyle.swift; sourceTree = "<group>"; };
-		D3ECAA68133591735548D79F /* ArborSyncClient */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborSyncClient; path = Packages/ArborSyncClient; sourceTree = SOURCE_ROOT; };
 		D5D86631369060ED5B812AC5 /* ArborRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborRootView.swift; sourceTree = "<group>"; };
 		D7178057AF35C3F14D9ADB06 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E51EAD9F6E342793374FFDE7 /* ArborConflictReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborConflictReview.swift; sourceTree = "<group>"; };
@@ -72,6 +76,12 @@
 		F31651AC411F40A49C39CA50 /* ArborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborApp.swift; sourceTree = "<group>"; };
 		F488507EF84786EB0AE2DD22 /* ArborSaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSaveDiagnostics.swift; sourceTree = "<group>"; };
 		FA0CCAA6D6E950AEB2DE8F91 /* ArborDirectoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborDirectoryView.swift; sourceTree = "<group>"; };
+		1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncLoopbackServices.swift; sourceTree = "<group>"; };
+		502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProcessSupervisor.swift; sourceTree = "<group>"; };
+		17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncProtocol.swift; sourceTree = "<group>"; };
+		3D60639F71858D854F0FD710 /* ArborSyncRESTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncRESTClient.swift; sourceTree = "<group>"; };
+		FACC2E28ADACF53D88E62907 /* ArborSyncClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncClientTests.swift; sourceTree = "<group>"; };
+		6CFB0353E18C0F300EF29CB3 /* ArborSyncLoopbackServicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSyncLoopbackServicesTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,7 +95,6 @@
 				A43136ECFC4D2D39871A02E9 /* Overstory in Frameworks */,
 				645A5216EF21B992B6586D6F /* OverstoryClient in Frameworks */,
 				846874AF6C0B4F543C2F8E60 /* CanopyEditor in Frameworks */,
-				DE59926E0AD522EFC915FBA4 /* ArborSyncClient in Frameworks */,
 				82BBE45599931E74BF01509C /* QuagmireExtras in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -96,6 +105,8 @@
 		0989501A1F2E52AE6806DF88 /* CanopyAppTests */ = {
 			isa = PBXGroup;
 			children = (
+				FACC2E28ADACF53D88E62907 /* ArborSyncClientTests.swift */,
+				6CFB0353E18C0F300EF29CB3 /* ArborSyncLoopbackServicesTests.swift */,
 				8C2EF794B989CD4145528451 /* CanopyAppTests.swift */,
 			);
 			path = CanopyAppTests;
@@ -110,9 +121,21 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		6B4877ADFB09A22A0138B811 /* ArborSync */ = {
+			isa = PBXGroup;
+			children = (
+				1A0E1655885A8586AEC0C6CE /* ArborSyncLoopbackServices.swift */,
+				502B8202B6F306058B5616B3 /* ArborSyncProcessSupervisor.swift */,
+				17323B4841D874BA06FAFFF0 /* ArborSyncProtocol.swift */,
+				3D60639F71858D854F0FD710 /* ArborSyncRESTClient.swift */,
+			);
+			path = ArborSync;
+			sourceTree = "<group>";
+		};
 		404307C0C3D6429F59D48BE1 /* CanopyApp */ = {
 			isa = PBXGroup;
 			children = (
+				6B4877ADFB09A22A0138B811 /* ArborSync */,
 				F31651AC411F40A49C39CA50 /* ArborApp.swift */,
 				5DF9A72F8CB82A8A3F5EC1B6 /* ArborAppModel.swift */,
 				E51EAD9F6E342793374FFDE7 /* ArborConflictReview.swift */,
@@ -148,7 +171,6 @@
 		D9786E3CB2E36531B366E446 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				D3ECAA68133591735548D79F /* ArborSyncClient */,
 				0FB6B346C13D17D474A125B8 /* CanopyAppKit */,
 				771CDE2BBE024CC560A40090 /* CanopyEditor */,
 				C547423AF5AE67289A5AFC3A /* CanopyWorkingTree */,
@@ -201,7 +223,6 @@
 				89061AE65E245F330BB42FFA /* Overstory */,
 				5AE724436B4B61FB18E2499B /* OverstoryClient */,
 				4745C7CE25C3B47CE1C7FDFA /* CanopyEditor */,
-				0D1EDE70FCBE2FF15D989042 /* ArborSyncClient */,
 				298FAA2528B2406F083D24E1 /* QuagmireExtras */,
 			);
 			productName = Canopy;
@@ -234,7 +255,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C636DDDB8F5F5157FE0D3916 /* XCRemoteSwiftPackageReference "quagmire" */,
-				056F4E86729C763922EFF85D /* XCLocalSwiftPackageReference "Packages/ArborSyncClient" */,
 				881B14787D968467EABF6273 /* XCLocalSwiftPackageReference "Packages/CanopyAppKit" */,
 				96D87BA2E23BCE623D140FEA /* XCLocalSwiftPackageReference "Packages/CanopyEditor" */,
 				09F16BE6D8A612259651FB56 /* XCLocalSwiftPackageReference "Packages/CanopyWorkingTree" */,
@@ -291,6 +311,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0AEF6F15D2A3AC1ADB4A26B0 /* ArborSyncClientTests.swift in Sources */,
+				F9AA601B0C56DC4B2A16A26C /* ArborSyncLoopbackServicesTests.swift in Sources */,
 				6273F793669EF942DAC61667 /* CanopyAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -310,6 +332,10 @@
 				D04DEF93C13612B18F18C8D3 /* ArborSaveDiagnostics.swift in Sources */,
 				30566E514B280F135A088116 /* ArborStyle.swift in Sources */,
 				E6D54BC465AC7BE111DD3D8A /* ArborSupportDirectories.swift in Sources */,
+				A0EC170CBFE92ED007833FB6 /* ArborSyncLoopbackServices.swift in Sources */,
+				C34DE6539BBB66FE78121533 /* ArborSyncProcessSupervisor.swift in Sources */,
+				3A1FAF74B3EC8750F4D71D4D /* ArborSyncProtocol.swift in Sources */,
+				07B0F233694FFCD76F89A4C5 /* ArborSyncRESTClient.swift in Sources */,
 				84C2E25C29E59E77B48491D7 /* ArborVisits.swift in Sources */,
 				DFEA09A1A2CF59D2FAF649A1 /* CanopyOnboarding.swift in Sources */,
 				29C389EC083886D1D48BB28D /* VoiceRecordingIntents.swift in Sources */,
@@ -583,10 +609,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		056F4E86729C763922EFF85D /* XCLocalSwiftPackageReference "Packages/ArborSyncClient" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ArborSyncClient;
-		};
 		09F16BE6D8A612259651FB56 /* XCLocalSwiftPackageReference "Packages/CanopyWorkingTree" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CanopyWorkingTree;
@@ -625,10 +647,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		0D1EDE70FCBE2FF15D989042 /* ArborSyncClient */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ArborSyncClient;
-		};
 		12FFE5432D368FA63265D3F9 /* CanopyWorkingTree */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CanopyWorkingTree;

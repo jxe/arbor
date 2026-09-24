@@ -1,8 +1,9 @@
+#if os(macOS)
 import OverstoryObjectStore
 import Overstory
 import Foundation
 import Testing
-@testable import ArborSyncClient
+@testable import CanopyApp
 
 /// The routes a same-installation working-tree client uses: bootstrap, credential, objects,
 /// and the control-mode supervisor that reaches them.
@@ -14,7 +15,7 @@ struct LoopbackServicesTests {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appending(path: "../../../../../tests/fixtures/arborsync")
+            .appending(path: "../../tests/fixtures/arborsync")
             .standardizedFileURL
     }
 
@@ -352,3 +353,4 @@ private final class LoopbackStub: URLProtocol, @unchecked Sendable {
 
     override func stopLoading() {}
 }
+#endif

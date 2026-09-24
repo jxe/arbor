@@ -2,7 +2,6 @@ import CanopyAppKit
 import CanopyWorkingTree
 import Foundation
 import Testing
-@testable import ArborSyncClient
 
 @Suite("Workspace provider contract", .serialized)
 struct ProviderContractTests {

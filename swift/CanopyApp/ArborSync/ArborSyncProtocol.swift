@@ -1,15 +1,16 @@
+#if os(macOS)
 import CanopyAppKit
 import Overstory
 import Foundation
 
-public struct ArborSyncStatus: Codable, Sendable, Equatable {
-    public var service: String
-    public var version: String
-    public var protocolVersion: String
-    public var instanceID: String
-    public var runtimeKind: String
+struct ArborSyncServiceStatus: Codable, Sendable, Equatable {
+    var service: String
+    var version: String
+    var protocolVersion: String
+    var instanceID: String
+    var runtimeKind: String
 
-    public init(service: String, version: String, protocolVersion: String, instanceID: String, runtimeKind: String) {
+    init(service: String, version: String, protocolVersion: String, instanceID: String, runtimeKind: String) {
         self.service = service
         self.version = version
         self.protocolVersion = protocolVersion
@@ -19,24 +20,24 @@ public struct ArborSyncStatus: Codable, Sendable, Equatable {
 }
 
 /// One node location with optional schema-derived stable identity.
-public struct NodeRef: Codable, Sendable, Equatable {
-    public var tree: String
-    public var path: String
-    public var stableKey: String?
+struct NodeRef: Codable, Sendable, Equatable {
+    var tree: String
+    var path: String
+    var stableKey: String?
 
-    public init(tree: String, path: String, stableKey: String? = nil) {
+    init(tree: String, path: String, stableKey: String? = nil) {
         self.tree = tree
         self.path = path
         self.stableKey = stableKey
     }
 
-    public static func path(_ path: String, tree: String) -> NodeRef {
+    static func path(_ path: String, tree: String) -> NodeRef {
         NodeRef(tree: tree, path: path)
     }
 
     private enum CodingKeys: String, CodingKey { case tree, path, stableKey, pageID, pathHint }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         guard container.contains(.stableKey), !container.contains(.pageID), !container.contains(.pathHint) else {
             throw DecodingError.dataCorruptedError(forKey: .stableKey, in: container, debugDescription: "node refs require explicit stableKey and reject PageID references")
@@ -49,7 +50,7 @@ public struct NodeRef: Codable, Sendable, Equatable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(tree, forKey: .tree)
         try container.encode(path, forKey: .path)
@@ -64,102 +65,102 @@ public struct NodeRef: Codable, Sendable, Equatable {
 }
 
 /// A canonical tree location is the same value on the Wire and through Arbor Sync.
-public typealias CanonicalTreeDescriptor = WireCanonicalDescriptor
+typealias CanonicalTreeDescriptor = WireCanonicalDescriptor
 
-public struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
-    public var snapshot: Value
-    public var observedThrough: String
+struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
+    var snapshot: Value
+    var observedThrough: String
 }
 
-public struct LocatorResolution: Codable, Sendable, Equatable {
-    public var ref: NodeRef
-    public var enclosingTree: TreeDescriptor?
-    public var historical: Bool
-    public var observedThrough: String
+struct LocatorResolution: Codable, Sendable, Equatable {
+    var ref: NodeRef
+    var enclosingTree: TreeDescriptor?
+    var historical: Bool
+    var observedThrough: String
 }
 
-public struct TreeDescriptor: Codable, Sendable, Equatable {
-    public var id: String
-    public var kind: String
-    public var access: String
-    public var canonical: CanonicalTreeDescriptor?
+struct TreeDescriptor: Codable, Sendable, Equatable {
+    var id: String
+    var kind: String
+    var access: String
+    var canonical: CanonicalTreeDescriptor?
 }
 
 /// A tree as Arbor Sync holds it: the Wire descriptor fields plus placement,
 /// display name, and synchronization state. `root` and `update` are the
 /// accepted Canopy base this placement derives from, absent until one exists.
-public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
-    public var conflicted: Bool?
-    public var id: String
-    public var configurationTree: String?
-    public var kind: String
-    public var access: String
-    public var canonical: CanonicalTreeDescriptor?
-    public var root: String?
-    public var update: String?
-    public var name: String
-    public var osPath: String?
-    public var placement: String
-    public var sync: String?
-    public var missing: Bool?
+struct LocalTreeDescriptor: Codable, Sendable, Equatable {
+    var conflicted: Bool?
+    var id: String
+    var configurationTree: String?
+    var kind: String
+    var access: String
+    var canonical: CanonicalTreeDescriptor?
+    var root: String?
+    var update: String?
+    var name: String
+    var osPath: String?
+    var placement: String
+    var sync: String?
+    var missing: Bool?
 }
 
-public struct Diagnostic: Codable, Sendable, Equatable {
-    public var code: String
-    public var message: String
-    public var path: String?
-    public var severity: String
-    public var row: Int?
-    public var field: String?
+struct ArborSyncDiagnostic: Codable, Sendable, Equatable {
+    var code: String
+    var message: String
+    var path: String?
+    var severity: String
+    var row: Int?
+    var field: String?
 }
 
-public struct MutationEffect: Codable, Sendable, Equatable {
-    public var kind: String
-    public var ref: NodeRef
-    public var previousPath: String?
-    public var contentRevision: String?
-    public var propertiesRevision: String?
+struct MutationEffect: Codable, Sendable, Equatable {
+    var kind: String
+    var ref: NodeRef
+    var previousPath: String?
+    var contentRevision: String?
+    var propertiesRevision: String?
     /// Exact top-level property names when the provider can prove them.
-    public var changedProperties: [String]?
-    public var directoryRevision: String?
+    var changedProperties: [String]?
+    var directoryRevision: String?
 }
 
-public struct WorkspaceChange: Codable, Sendable, Equatable {
-    public var ref: NodeRef
-    public var previousPath: String?
-    public var contentRevision: String?
-    public var propertiesRevision: String?
+struct WorkspaceChange: Codable, Sendable, Equatable {
+    var ref: NodeRef
+    var previousPath: String?
+    var contentRevision: String?
+    var propertiesRevision: String?
     /// Exact top-level property names when the provider can prove them.
-    public var changedProperties: [String]?
-    public var directoryRevision: String?
-    public var origin: String
-    public var mutationID: String?
+    var changedProperties: [String]?
+    var directoryRevision: String?
+    var origin: String
+    var mutationID: String?
     /// Authenticated Wire requests incorporated by this materialized sync transition.
-    public var acceptedRequestDigests: [String]?
+    var acceptedRequestDigests: [String]?
 }
 
-public struct WorkspaceEvent: Codable, Sendable, Equatable {
-    public var cursor: String
+struct WorkspaceEvent: Codable, Sendable, Equatable {
+    var cursor: String
     /// Scope the event belongs to; one process-wide stream orders all scopes.
-    public var tree: String
-    public var kind: String
-    public var change: WorkspaceChange
+    var tree: String
+    var kind: String
+    var change: WorkspaceChange
 }
 
 /// A daemon error body. The wire names the code `error`.
-public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
-    public var code: String
-    public var message: String
-    public var retryable: Bool
-    public var tree: String?
-    public var path: String?
-    public var details: JSONValue?
+struct ArborSyncErrorValue: Codable, Sendable, Equatable {
+    var code: String
+    var message: String
+    var retryable: Bool
+    var tree: String?
+    var path: String?
+    var details: JSONValue?
 
     private enum CodingKeys: String, CodingKey {
         case code = "error", message, retryable, tree, path, details
     }
 
-    public init(
+    init(
         code: String,
         message: String,
         retryable: Bool,
@@ -179,12 +180,12 @@ public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
 // MARK: - Bootstrap and credential (`GET /v1/bootstrap`, `GET /v1/credential`)
 
 /// The daemon's recorded accepted base for a placement; `cursor` equals `update` and seeds a Wire watch.
-public struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
-    public var root: String
-    public var update: String
-    public var cursor: String?
+struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
+    var root: String
+    var update: String
+    var cursor: String?
 
-    public init(root: String, update: String, cursor: String?) {
+    init(root: String, update: String, cursor: String?) {
         self.root = root
         self.update = update
         self.cursor = cursor
@@ -193,28 +194,28 @@ public struct TreeBootstrapAccepted: Codable, Sendable, Equatable {
 
 /// Placement and routing metadata needed to open a working tree. Daemon
 /// synchronization state is deliberately not part of the bootstrap contract.
-public struct TreeBootstrapDescriptor: Codable, Sendable, Equatable {
-    public var id: String
-    public var configurationTree: String?
-    public var kind: String
-    public var access: String
-    public var canonical: CanonicalTreeDescriptor?
-    public var name: String
-    public var osPath: String?
-    public var placement: String
+struct TreeBootstrapDescriptor: Codable, Sendable, Equatable {
+    var id: String
+    var configurationTree: String?
+    var kind: String
+    var access: String
+    var canonical: CanonicalTreeDescriptor?
+    var name: String
+    var osPath: String?
+    var placement: String
 }
 
 /// `GET /v1/bootstrap?tree=`: what a loopback client needs to open a placed tree as its own
 /// working tree. Mirrors `TreeBootstrap` in `@arbor/arborsync-client`, with the base64 spine
 /// already decoded and validated in sparse mode.
-public struct TreeBootstrap: Sendable, Equatable {
-    public var tree: TreeBootstrapDescriptor
-    public var accepted: TreeBootstrapAccepted
+struct TreeBootstrap: Sendable, Equatable {
+    var tree: TreeBootstrapDescriptor
+    var accepted: TreeBootstrapAccepted
     /// Every directory object plus every Markdown file object; validated with `.sparseFiles`.
-    public var spine: WireSnapshot
-    public var observedThrough: String
+    var spine: WireSnapshot
+    var observedThrough: String
 
-    public init(
+    init(
         tree: TreeBootstrapDescriptor,
         accepted: TreeBootstrapAccepted,
         spine: WireSnapshot,
@@ -228,19 +229,20 @@ public struct TreeBootstrap: Sendable, Equatable {
 }
 
 /// `GET /v1/credential`: the account credential a same-installation client shares with the daemon.
-public struct TreeCredential: Codable, Sendable, Equatable {
-    public var token: String
+struct TreeCredential: Codable, Sendable, Equatable {
+    var token: String
 
-    public init(token: String) { self.token = token }
+    init(token: String) { self.token = token }
 }
 
-public enum TreeBootstrapError: Error, LocalizedError, Sendable, Equatable {
+enum TreeBootstrapError: Error, LocalizedError, Sendable, Equatable {
     case invalidSpine(String)
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case let .invalidSpine(detail):
             "Bootstrap spine is invalid: \(detail)"
         }
     }
 }
+#endif

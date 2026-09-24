@@ -1,6 +1,5 @@
 import CanopyAppKit
 import CanopyEditor
-import ArborSyncClient
 import Overstory
 import OverstoryClient
 import Foundation
@@ -331,6 +330,7 @@ struct CanopyAppTests {
         #expect(diagnostic.bannerMessage.contains("did not respond"))
     }
 
+#if os(macOS)
     @Test("Bootstrap rejection banner includes the daemon's explanation")
     func rejectedBootstrapShowsServerExplanation() throws {
         let error = ArborSyncServerError(
@@ -354,6 +354,7 @@ struct CanopyAppTests {
         #expect(ArborWorkspaceState.bootstrapFailureMessage(error, processKind: .external)
             .contains("unavailable cloud placeholders"))
     }
+#endif
 
     @Test("Local document retention never classifies a connection failure as a daemon outage")
     func saveDiagnosticsNeverBlameTheDaemon() throws {

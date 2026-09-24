@@ -1,4 +1,3 @@
-import ArborSyncClient
 import CanopyAppKit
 import OverstoryObjectStore
 import CanopyEditor
@@ -1469,13 +1468,20 @@ final class ArborWorkspaceState {
         guard let overview = localArborSyncOverview else {
             throw ArborSyncSupervisorError.incompatibleService("The account list is unavailable")
         }
-        let selected = overview.accounts.first { $0.configurationTree == configurationTree }
-        guard let rawOrigin = selected?.canopy ?? overview.origin,
+        guard let selected = overview.accounts.first(where: { $0.configurationTree == configurationTree }) else {
+            throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+        }
+        guard let rawOrigin = selected.canopy,
               let origin = URL(string: rawOrigin) else {
             throw ArborSyncSupervisorError.incompatibleService("The community origin is invalid")
         }
-        let rawOffer = try await client.createCommunityPairing(configurationTree: configurationTree)
-        let offer = try rawOffer.validated()
+        // The offer comes from the host directly, authorized by the account's
+        // credential, as on iOS; the daemon no longer proxies pairing offers.
+        let wire = ArborWireClient(
+            origin: origin,
+            credentialProvider: ArborSyncCredentialProvider(client: client, configurationTree: configurationTree)
+        )
+        let offer = try await wire.createPairing()
         let payload = PairingPayload(
             origin: origin,
             pairing: .init(id: offer.id, secret: offer.secret)

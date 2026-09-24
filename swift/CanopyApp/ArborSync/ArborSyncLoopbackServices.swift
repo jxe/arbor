@@ -1,3 +1,4 @@
+#if os(macOS)
 import OverstoryObjectStore
 import Overstory
 import Foundation
@@ -8,18 +9,18 @@ import Foundation
 /// provider. A caller that sees Canopy answer 401/403 calls `invalidate()` so the
 /// next request re-reads the daemon's (possibly rotated) token instead of retrying
 /// the stale one. Concurrent first uses share one fetch.
-public actor ArborSyncCredentialProvider: WireCredentialProvider {
+actor ArborSyncCredentialProvider: WireCredentialProvider {
     private let client: ArborSyncRESTClient
     private let configurationTree: String?
     private var cached: String?
     private var inFlight: Task<String, Error>?
 
-    public init(client: ArborSyncRESTClient, configurationTree: String? = nil) {
+    init(client: ArborSyncRESTClient, configurationTree: String? = nil) {
         self.client = client
         self.configurationTree = configurationTree
     }
 
-    public func credential() async throws -> String? {
+    func credential() async throws -> String? {
         if let cached { return cached }
         if let inFlight { return try await inFlight.value }
         let client = self.client
@@ -37,14 +38,14 @@ public actor ArborSyncCredentialProvider: WireCredentialProvider {
     }
 
     /// Forget the cached token so the next `credential()` asks the daemon again.
-    public func invalidate() {
+    func invalidate() {
         cached = nil
         inFlight?.cancel()
         inFlight = nil
     }
 
     /// Whether a token is currently cached; for diagnostics and tests.
-    public var isCached: Bool { cached != nil }
+    var isCached: Bool { cached != nil }
 }
 
 /// The daemon's `/v1/objects` route as a platform `ObjectStore`.
@@ -52,19 +53,19 @@ public actor ArborSyncCredentialProvider: WireCredentialProvider {
 /// The daemon already verifies every body it serves; `ArborSyncRESTClient.object`
 /// verifies again on the client side so a corrupted loopback hop can never hand out wrong bytes.
 /// A `404` becomes `ObjectStoreError.missing` so a layered store can fall through.
-public struct DaemonObjectStore: ObjectStore {
-    public let client: ArborSyncRESTClient
-    public let tree: String
+struct DaemonObjectStore: ObjectStore {
+    let client: ArborSyncRESTClient
+    let tree: String
     /// The Canopy origin for a tree the daemon has no placement for (a visit).
-    public let origin: URL?
+    let origin: URL?
 
-    public init(client: ArborSyncRESTClient, tree: String, origin: URL? = nil) {
+    init(client: ArborSyncRESTClient, tree: String, origin: URL? = nil) {
         self.client = client
         self.tree = tree
         self.origin = origin
     }
 
-    public func bytes(_ hash: String) async throws -> Data {
+    func bytes(_ hash: String) async throws -> Data {
         do {
             return try await client.object(tree: tree, hash: hash, origin: origin)
         } catch let error as ArborSyncServerError where error.status == 404 {
@@ -77,3 +78,4 @@ public struct DaemonObjectStore: ObjectStore {
         }
     }
 }
+#endif

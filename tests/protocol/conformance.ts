@@ -101,7 +101,15 @@ try {
       if (!placed?.root || !placed.update) throw new Error("Placed tree did not record its accepted base");
 
       const daemon = { ARBOR_TEST_URL: control.url, ARBOR_TEST_TREE: tree };
-      await run(["swift", "test", "--package-path", "swift/Packages/ArborSyncClient"], { ...fixtures, ...daemon });
+      // The daemon client is Mac app code (Native 011), so its suites run in
+      // the app-hosted CanopyAppTests bundle; xcodebuild forwards
+      // `TEST_RUNNER_`-prefixed variables to the test process.
+      await run([
+        "xcodebuild", "test", "-quiet", "-project", "swift/Canopy.xcodeproj", "-scheme", "Canopy",
+        "-destination", "platform=macOS",
+        "-only-testing:CanopyAppTests/ArborSyncClientTests",
+        "-only-testing:CanopyAppTests/LoopbackServicesTests",
+      ], Object.fromEntries(Object.entries({ ...fixtures, ...daemon }).map(([key, value]) => [`TEST_RUNNER_${key}`, value])));
       await run(["swift", "test", "--package-path", "swift/Packages/CanopyAppKit"], fixtures);
       // Exercise a real accepted conflict through the baseline filesystem client.
       const basis = (await owner.descriptor(tree)).tree;

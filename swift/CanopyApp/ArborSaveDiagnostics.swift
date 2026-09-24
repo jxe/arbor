@@ -1,4 +1,3 @@
-import ArborSyncClient
 import Foundation
 
 enum ArborSyncProcessKind: Sendable, Equatable {
@@ -45,6 +44,7 @@ struct ArborSaveDiagnostic: Equatable {
         guard let error else { return nil }
 
         if context == .bootstrap {
+#if os(macOS)
             if let serverError = error as? ArborSyncServerError {
                 return ArborSaveDiagnostic(
                     kind: .requestRejected,
@@ -57,6 +57,7 @@ struct ArborSaveDiagnostic: Equatable {
                     synchronizationOverride: nil
                 )
             }
+#endif
             if let urlCode = urlErrorCode(error) {
                 switch urlCode {
                 case .timedOut:

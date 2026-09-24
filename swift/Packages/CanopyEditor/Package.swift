@@ -6,7 +6,6 @@ let package = Package(
     platforms: [.iOS("27.0"), .macOS("27.0")],
     products: [.library(name: "CanopyEditor", targets: ["CanopyEditor"])],
     dependencies: [
-        .package(path: "../ArborSyncClient"),
         .package(path: "../CanopyAppKit"),
         .package(path: "../CanopyWorkingTree"),
         .package(path: "../Overstory"),
@@ -16,7 +15,6 @@ let package = Package(
         .target(
             name: "CanopyEditor",
             dependencies: [
-                "ArborSyncClient",
                 "CanopyAppKit",
                 .product(name: "Quagmire", package: "quagmire"),
                 .product(name: "QuagmireExtras", package: "quagmire")
@@ -26,7 +24,6 @@ let package = Package(
             name: "CanopyEditorTests",
             dependencies: [
                 "CanopyEditor",
-                "ArborSyncClient",
                 "CanopyAppKit",
                 "CanopyWorkingTree",
                 "Overstory",

@@ -1,4 +1,3 @@
-import ArborSyncClient
 import CanopyAppKit
 import CanopyWorkingTree
 import CanopyEditor
@@ -46,12 +45,14 @@ private extension ArborAccountPresentable {
     var arborDisplayLabel: String { "\(arborDisplayName) · \(arborDisplayDetail)" }
 }
 
+#if os(macOS)
 extension LocalCanopyAccountDescriptor: ArborAccountPresentable {
     fileprivate var arborHost: String? {
         guard let canopy, !canopy.isEmpty else { return nil }
         return URL(string: canopy)?.host() ?? canopy
     }
 }
+#endif
 
 extension NativeCanopyAccount: ArborAccountPresentable {
     fileprivate var arborHost: String? { origin.host() }

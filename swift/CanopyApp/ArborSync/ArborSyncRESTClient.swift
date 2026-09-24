@@ -1,80 +1,83 @@
+#if os(macOS)
 import Foundation
 import CanopyAppKit
 import Overstory
 
-public struct ArborSyncServerError: Error, LocalizedError, Sendable {
-    public var status: Int
-    public var value: ArborSyncErrorValue
+struct ArborSyncServerError: Error, LocalizedError, Sendable {
+    var status: Int
+    var value: ArborSyncErrorValue
 
-    public init(status: Int, value: ArborSyncErrorValue) {
+    init(status: Int, value: ArborSyncErrorValue) {
         self.status = status
         self.value = value
     }
 
-    public var errorDescription: String? { value.message }
+    var errorDescription: String? { value.message }
 }
 
 /// One claimed Canopy account of the data home, as `GET /v1/accounts` reports it (`LocalAccountSummary` in `@arbor/core`).
-public struct LocalCanopyAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
-    public var configurationTree: String
-    public var canopy: String?
-    public var handle: String?
-    public var profileTree: String?
-    public var deviceID: String?
-    public var credentialAvailable: Bool
-    public var diagnostics: [Diagnostic]
-    public var id: String { configurationTree }
+struct LocalCanopyAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
+    var configurationTree: String
+    var canopy: String?
+    var handle: String?
+    var profileTree: String?
+    var deviceID: String?
+    var credentialAvailable: Bool
+    var diagnostics: [ArborSyncDiagnostic]
+    var id: String { configurationTree }
 }
 
-public struct LocalProfileIdentity: Codable, Sendable, Equatable {
-    public var profileTree: String
-    public var publicKey: String
-    public var profilePath: String
-    public var keyAvailable: Bool
+struct LocalProfileIdentity: Codable, Sendable, Equatable {
+    var profileTree: String
+    var publicKey: String
+    var profilePath: String
+    var keyAvailable: Bool
 }
 
-public struct LocalPendingClaim: Codable, Sendable, Equatable {
-    public var canCancel: Bool?
-    public var account: String
-    public var path: String
+struct LocalPendingClaim: Codable, Sendable, Equatable {
+    var canCancel: Bool?
+    var account: String
+    var path: String
 }
 
-public struct LocalPendingPairing: Codable, Sendable, Equatable {
-    public var origin: String
+struct LocalPendingPairing: Codable, Sendable, Equatable {
+    var origin: String
 }
 
-public struct LocalCanopyAccountsEnvelope: Codable, Sendable {
-    public var accounts: [LocalCanopyAccountDescriptor]
-    public var identity: LocalProfileIdentity?
-    public var pendingClaim: LocalPendingClaim?
-    public var pendingPairing: LocalPendingPairing?
+struct LocalCanopyAccountsEnvelope: Codable, Sendable {
+    var accounts: [LocalCanopyAccountDescriptor]
+    var identity: LocalProfileIdentity?
+    var pendingClaim: LocalPendingClaim?
+    var pendingPairing: LocalPendingPairing?
 }
 
-/// The daemon's control surface as a same-installation client sees it: status,
-/// trees, accounts, conflicts, sync, pairing, and the three loopback services a
+/// The daemon's control surface as the Mac app sees it: status, trees,
+/// accounts and the data-home onboarding routes (identity, claim, pairing
+/// claim), held-change discard, sync, and the three loopback services a
 /// working-tree client uses (bootstrap, credential, objects) plus the event
 /// stream. The daemon has no editor path; editing happens in the working tree.
-public actor ArborSyncRESTClient {
+/// Pairing offers go to the host directly through `ArborWireClient` (Native 011).
+actor ArborSyncRESTClient {
     private let baseURL: URL
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    public init(baseURL: URL, session: URLSession = .shared) {
+    init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
     }
 
-    public func status() async throws -> ArborSyncStatus {
+    func status() async throws -> ArborSyncServiceStatus {
         try await get(path: "/v1/status", items: [])
     }
 
-    public func trees() async throws -> SnapshotEnvelope<[LocalTreeDescriptor]> {
+    func trees() async throws -> SnapshotEnvelope<[LocalTreeDescriptor]> {
         try await get(path: "/v1/trees", items: [])
     }
 
     /// Discard a tree's held request and every change authored on it; the folder returns to the accepted state.
-    public func discardHeld(tree: String) async throws {
+    func discardHeld(tree: String) async throws {
         struct Request: Encodable { var tree: String }
         struct Response: Decodable { var tree: String }
         var request = URLRequest(url: url("/v1/held/discard"))
@@ -84,39 +87,39 @@ public actor ArborSyncRESTClient {
         let _: Response = try await perform(request)
     }
 
-    public func accounts() async throws -> [LocalCanopyAccountDescriptor] {
+    func accounts() async throws -> [LocalCanopyAccountDescriptor] {
         let value: LocalCanopyAccountsEnvelope = try await get(path: "/v1/accounts", items: [])
         return value.accounts
     }
 
-    public func onboardingState() async throws -> LocalCanopyAccountsEnvelope {
+    func onboardingState() async throws -> LocalCanopyAccountsEnvelope {
         try await get(path: "/v1/accounts", items: [])
     }
 
-    public func createIdentity(path: String) async throws {
+    func createIdentity(path: String) async throws {
         try await onboardingPost("/v1/me", body: ["path": path])
     }
 
-    public func restoreIdentity(backup: Data, path: String) async throws {
+    func restoreIdentity(backup: Data, path: String) async throws {
         let value = try JSONSerialization.jsonObject(with: backup)
         try await onboardingPost("/v1/me/restore", body: ["path": path, "backup": value])
     }
 
-    public func backupIdentity(destination: String) async throws {
+    func backupIdentity(destination: String) async throws {
         try await onboardingPost("/v1/me/backup", body: ["destination": destination])
     }
 
-    public func claimPairing(payload: Data? = nil) async throws {
+    func claimPairing(payload: Data? = nil) async throws {
         var body: [String: Any] = [:]
         if let payload { body["payload"] = try JSONSerialization.jsonObject(with: payload) }
         try await onboardingPost("/v1/bootstrap/pairings/claim", body: body)
     }
 
-    public func cancelPendingClaim() async throws {
+    func cancelPendingClaim() async throws {
         try await onboardingPost("/v1/bootstrap/accounts/cancel", body: [:])
     }
 
-    public func claimAccount(account: String, path: String) async throws {
+    func claimAccount(account: String, path: String) async throws {
         try await onboardingPost("/v1/bootstrap/accounts", body: ["account": account, "path": path])
     }
 
@@ -130,11 +133,7 @@ public actor ArborSyncRESTClient {
         try validate(data: data, status: statusCode(response))
     }
 
-    public func resolve(_ locator: String) async throws -> LocatorResolution {
-        try await get(path: "/v1/resolve", items: [URLQueryItem(name: "locator", value: locator)])
-    }
-
-    public func synchronize(configurationTree: String? = nil) async throws {
+    func synchronize(configurationTree: String? = nil) async throws {
         struct Request: Encodable { var configurationTree: String? }
         struct Response: Decodable { var synchronized: Bool }
         var request = URLRequest(url: url("/v1/sync"))
@@ -147,23 +146,12 @@ public actor ArborSyncRESTClient {
         }
     }
 
-    public func createCommunityPairing(configurationTree: String? = nil) async throws -> WirePairingOffer {
-        var request = URLRequest(url: url("/v1/bootstrap/pairings"))
-        request.httpMethod = "POST"
-        if let configurationTree {
-            struct Request: Encodable { var configurationTree: String }
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try encoder.encode(Request(configurationTree: configurationTree))
-        }
-        return try await perform(request)
-    }
-
     // MARK: Loopback services for a same-installation working-tree client
 
     /// `GET /v1/bootstrap?tree=`: the daemon's accepted Canopy base and sparse spine.
     /// The spine is decoded and validated in `.sparseFiles` mode against `accepted.root`;
     /// daemon-local pending and conflict state never enters another client's bootstrap.
-    public func bootstrap(tree: String) async throws -> TreeBootstrap {
+    func bootstrap(tree: String) async throws -> TreeBootstrap {
         let envelope: TreeBootstrapEnvelope = try await get(
             path: "/v1/bootstrap",
             items: [URLQueryItem(name: "tree", value: tree)]
@@ -182,7 +170,7 @@ public actor ArborSyncRESTClient {
 
     /// `GET /v1/credential`: the Canopy account credential the daemon holds for
     /// `configurationTree` (or the only connected account when omitted).
-    public func credential(configurationTree: String? = nil) async throws -> String {
+    func credential(configurationTree: String? = nil) async throws -> String {
         let value: TreeCredential = try await get(
             path: "/v1/credential",
             items: configurationTree.map { [URLQueryItem(name: "configurationTree", value: $0)] } ?? []
@@ -195,7 +183,7 @@ public actor ArborSyncRESTClient {
 
     /// `GET /v1/objects/{hash}?tree=[&origin=]`: one canonical wire object, hash-verified
     /// before it is returned. A 404 surfaces as `ArborSyncServerError` with status 404.
-    public func object(tree: String, hash: String, origin: URL? = nil) async throws -> Data {
+    func object(tree: String, hash: String, origin: URL? = nil) async throws -> Data {
         guard hash.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
             throw ArborWireValidationError.invalidHash(hash)
         }
@@ -214,7 +202,7 @@ public actor ArborSyncRESTClient {
         return data
     }
 
-    public func observations(after initialCursor: String) -> AsyncThrowingStream<WorkspaceEvent, Error> {
+    func observations(after initialCursor: String) -> AsyncThrowingStream<WorkspaceEvent, Error> {
         let baseURL = self.baseURL
         let session = self.session
         let decoder = self.decoder
@@ -335,3 +323,4 @@ private struct TreeBootstrapEnvelope: Decodable {
     var spine: String
     var observedThrough: String
 }
+#endif

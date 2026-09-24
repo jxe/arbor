@@ -1,6 +1,5 @@
 #if os(macOS)
 import AppKit
-import ArborSyncClient
 import Overstory
 import OverstoryClient
 import SwiftUI

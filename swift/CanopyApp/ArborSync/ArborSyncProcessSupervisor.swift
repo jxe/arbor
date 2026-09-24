@@ -8,13 +8,13 @@ import ServiceManagement
 /// client talks to for status, trees, accounts, conflicts, sync, pairing,
 /// bootstrap, credential, objects, and events. The daemon owns no workspace and
 /// has no editor path; the app opens trees through `bootstrap(tree:)`.
-public struct ArborSyncControlRuntime: Sendable {
-    public let origin: URL
-    public let client: ArborSyncRESTClient
-    public let status: ArborSyncStatus
-    public let attachedToExistingProcess: Bool
+struct ArborSyncControlRuntime: Sendable {
+    let origin: URL
+    let client: ArborSyncRESTClient
+    let status: ArborSyncServiceStatus
+    let attachedToExistingProcess: Bool
 
-    public init(origin: URL, client: ArborSyncRESTClient, status: ArborSyncStatus, attachedToExistingProcess: Bool) {
+    init(origin: URL, client: ArborSyncRESTClient, status: ArborSyncServiceStatus, attachedToExistingProcess: Bool) {
         self.origin = origin
         self.client = client
         self.status = status
@@ -22,14 +22,14 @@ public struct ArborSyncControlRuntime: Sendable {
     }
 }
 
-public enum ArborSyncSupervisorError: Error, LocalizedError, Sendable {
+enum ArborSyncSupervisorError: Error, LocalizedError, Sendable {
     case executableUnavailable
     case serviceUnavailable
     case incompatibleService(String)
     case launchFailed(String)
     case readinessTimedOut(String)
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .executableUnavailable:
             "Arbor could not find its bundled arborsync helper. Rebuild the macOS app with the helper phase enabled."
@@ -42,16 +42,16 @@ public enum ArborSyncSupervisorError: Error, LocalizedError, Sendable {
     }
 }
 
-public enum ArborSyncLaunchPolicy: Sendable, Equatable {
+enum ArborSyncLaunchPolicy: Sendable, Equatable {
     case automatic
     case attachOnly
 }
 
-public actor ArborSyncProcessSupervisor {
+actor ArborSyncProcessSupervisor {
     private static let serviceLabel = "org.nxhx.Arbor.arborsync"
     private static let servicePlist = "org.nxhx.Arbor.arborsync.plist"
     /// The loopback port the persistent service listens on.
-    public static let defaultPort = 4317
+    static let defaultPort = 4317
     /// How much of a log's end `logs()` shows.
     private static let logTailBytes = 32_768
 
@@ -65,7 +65,7 @@ public actor ArborSyncProcessSupervisor {
     private var controlRuntime: ArborSyncControlRuntime?
     private var serviceRegistrationFailure: String?
 
-    public init(launchPolicy: ArborSyncLaunchPolicy = .automatic) {
+    init(launchPolicy: ArborSyncLaunchPolicy = .automatic) {
         self.launchPolicy = launchPolicy
     }
 
@@ -74,7 +74,7 @@ public actor ArborSyncProcessSupervisor {
     /// Connect to the installation's control-mode daemon, launching one when
     /// the policy allows and none is listening. The daemon owns no workspace;
     /// clients open trees through `bootstrap(tree:)`.
-    public func start(
+    func start(
         executable explicitExecutable: URL? = nil,
         preferredPort: Int = ArborSyncProcessSupervisor.defaultPort
     ) async throws -> ArborSyncControlRuntime {
@@ -88,7 +88,7 @@ public actor ArborSyncProcessSupervisor {
 
     // MARK: Lifecycle
 
-    public func stop() async {
+    func stop() async {
         controlRuntime = nil
         guard let process else { return }
         if process.isRunning {
@@ -102,7 +102,7 @@ public actor ArborSyncProcessSupervisor {
     }
 
     /// Stop and reconnect the control-mode daemon.
-    public func restartControl() async throws -> ArborSyncControlRuntime {
+    func restartControl() async throws -> ArborSyncControlRuntime {
         guard started else {
             throw ArborSyncSupervisorError.launchFailed("Arbor Sync has not been started in control mode")
         }
@@ -111,7 +111,7 @@ public actor ArborSyncProcessSupervisor {
         return try await start(executable: executable, preferredPort: preferredPort)
     }
 
-    public func logs() -> String {
+    func logs() -> String {
         guard let logURL, let data = try? Data(contentsOf: logURL) else {
             let persistent = canonicalServiceLog()
             if let failure = serviceRegistrationFailure {
@@ -271,7 +271,7 @@ public actor ArborSyncProcessSupervisor {
         return String(decoding: data.suffix(Self.logTailBytes), as: UTF8.self)
     }
 
-    private func validate(_ status: ArborSyncStatus) throws {
+    private func validate(_ status: ArborSyncServiceStatus) throws {
         guard status.service == "arborsync", status.protocolVersion == "v1" else {
             throw ArborSyncSupervisorError.incompatibleService("\(status.service) \(status.protocolVersion)")
         }

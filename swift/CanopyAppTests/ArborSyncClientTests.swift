@@ -1,7 +1,8 @@
+#if os(macOS)
 import Foundation
 import XCTest
 import CanopyAppKit
-@testable import ArborSyncClient
+@testable import CanopyApp
 
 final class ArborSyncClientTests: XCTestCase {
     private var referenceFixtures: URL {
@@ -10,7 +11,7 @@ final class ArborSyncClientTests: XCTestCase {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appending(path: "../../../../../tests/fixtures")
+            .appending(path: "../../tests/fixtures")
             .standardizedFileURL
     }
 
@@ -23,7 +24,7 @@ final class ArborSyncClientTests: XCTestCase {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appending(path: "../../../../../docs/overstory-spec/conformance")
+            .appending(path: "../../docs/overstory-spec/conformance")
             .standardizedFileURL
     }
 
@@ -32,7 +33,7 @@ final class ArborSyncClientTests: XCTestCase {
     }
 
     func testSharedFixturesDecodeWithoutAppDependencies() throws {
-        let status = try decode(ArborSyncStatus.self, "status.json")
+        let status = try decode(ArborSyncServiceStatus.self, "status.json")
         let error = try decode(ArborSyncErrorValue.self, "error.json")
         let errors = try decode([ArborSyncErrorValue].self, "errors.json")
         let credential = try decode(TreeCredential.self, "credential.json")
@@ -135,34 +136,6 @@ final class ArborSyncClientTests: XCTestCase {
     }
 
 
-
-
-
-
-
-
-    func testLocalArborSyncKeepsOnlyPairingBootstrapRoute() async throws {
-        let pairing = #"{"id":"pair_1","secret":"one-time-secret","confirmationCode":"123456","expiresAt":1787529660000}"#
-        await URLProtocolStub.state.install { request, _ in
-            switch (request.httpMethod, request.url?.path) {
-            case ("POST", "/v1/bootstrap/pairings"): (201, Data(pairing.utf8))
-            default: (404, Data(#"{"error":"not-found"}"#.utf8))
-            }
-        }
-        let client = ArborSyncRESTClient(
-            baseURL: URL(string: "http://127.0.0.1:4317")!,
-            session: stubSession()
-        )
-
-        let offer = try await client.createCommunityPairing()
-
-        XCTAssertEqual(offer.id, "pair_1")
-        XCTAssertEqual(offer.confirmationCode, "123456")
-        let snapshot = await URLProtocolStub.state.snapshot()
-        XCTAssertEqual(snapshot.requests.map(\.method), ["POST"])
-        XCTAssertEqual(snapshot.requests.map(\.path), ["/v1/bootstrap/pairings"])
-    }
-
     func testSynchronizeScopesTheLocalFlushToOneAccount() async throws {
         await URLProtocolStub.state.install { request, _ in
             request.url?.path == "/v1/sync"
@@ -182,28 +155,6 @@ final class ArborSyncClientTests: XCTestCase {
         XCTAssertEqual(request.path, "/v1/sync")
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: snapshot.bodies[0]) as? [String: Any])
         XCTAssertEqual(body["configurationTree"] as? String, "tr_accountconfig")
-    }
-
-    func testRemoteBrowsingResolvesThenUsesExplicitTreeScope() async throws {
-        let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","stableKey":"[[\"id\",\"abc123\"]]"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"read","canonical":{"path":"/~alice/notes","endpoint":"https://example.test","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
-        await URLProtocolStub.state.install { request, _ in
-            request.url?.path == "/v1/resolve"
-                ? (200, response)
-                : (404, Data(#"{"error":"not-found"}"#.utf8))
-        }
-        let client = ArborSyncRESTClient(
-            baseURL: URL(string: "http://127.0.0.1:4317")!,
-            session: stubSession()
-        )
-
-        let resolved = try await client.resolve("arbor://example.test/~alice/notes/today")
-
-        XCTAssertEqual(resolved.ref.stableKey, markdownStableKey("abc123"))
-        XCTAssertEqual(resolved.ref.tree, "tr_notes7f3q2ab7c")
-        let captured = await URLProtocolStub.state.snapshot()
-        let request = try XCTUnwrap(captured.requests.first)
-        XCTAssertEqual(request.path, "/v1/resolve")
-        XCTAssertEqual(request.query, "locator=arbor://example.test/~alice/notes/today")
     }
 
     func testObservationStreamWaitsBeforeReconnectingAfterACleanClose() async throws {
@@ -317,3 +268,4 @@ private final class URLProtocolStub: URLProtocol, @unchecked Sendable {
 
     override func stopLoading() {}
 }
+#endif
