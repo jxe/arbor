@@ -23,6 +23,62 @@ export function pieceSlice(
   }
   return out;
 }
+/** The origin coordinates `a` and `b` share, if they share any. */
+export function intersect(a: Piece, b: Piece): [number, number] | undefined {
+  if (a.origin !== b.origin) return undefined;
+  const from = Math.max(a.start, b.start),
+    to = Math.min(a.start + a.length, b.start + b.length);
+  return to > from ? [from, to] : undefined;
+}
+/** Merge adjacent pieces that continue one origin and one object; drop empty ones. */
+export function normalizePieces(pieces: Piece[]): Piece[] {
+  const out: Piece[] = [];
+  for (const p of pieces) {
+    if (!p.length) continue;
+    const prior = out.at(-1);
+    if (
+      prior &&
+      prior.origin === p.origin &&
+      prior.start + prior.length === p.start &&
+      prior.object === p.object &&
+      prior.offset + prior.length === p.offset
+    )
+      prior.length += p.length;
+    else out.push({ ...p });
+  }
+  return out;
+}
+/** `pieces` with the byte range `[start, end)` replaced by `inserted`. */
+export const replacePieces = (
+  pieces: Piece[],
+  start: number,
+  end: number,
+  inserted: Piece[] = [],
+): Piece[] =>
+  normalizePieces([
+    ...pieceSlice(pieces, 0, start),
+    ...inserted,
+    ...pieceSlice(pieces, end, pieceLength(pieces)),
+  ]);
+/** `pieces` without the origin coordinates any of `without` covers. */
+export function subtractPieces(pieces: Piece[], without: Piece[]): Piece[] {
+  if (!without.length) return pieces;
+  return pieces.flatMap((piece) => {
+    let parts = [piece];
+    for (const cut of without) {
+      if (cut.origin !== piece.origin) continue;
+      parts = parts.flatMap((part) => {
+        const shared = intersect(part, cut);
+        if (!shared) return [part];
+        const keep = (from: number, to: number) => ({
+          ...part, start: from, offset: part.offset + (from - part.start), length: to - from,
+        });
+        return [keep(part.start, shared[0]), keep(shared[1], part.start + part.length)].filter((p) => p.length > 0);
+      });
+    }
+    return parts;
+  });
+}
 export interface PieceEdit {
   range: [number, number];
   pieces: Piece[];
@@ -40,16 +96,13 @@ export function pieceEdits(base: Piece[], changed: Piece[]): PieceEdit[] {
   for (const x of base) {
     let b = 0;
     for (const y of changed) {
-      if (x.origin === y.origin) {
-        const from = Math.max(x.start, y.start),
-          to = Math.min(x.start + x.length, y.start + y.length);
-        if (to > from)
-          matches.push({
-            a: a + from - x.start,
-            b: b + from - y.start,
-            n: to - from,
-          });
-      }
+      const shared = intersect(x, y);
+      if (shared)
+        matches.push({
+          a: a + shared[0] - x.start,
+          b: b + shared[0] - y.start,
+          n: shared[1] - shared[0],
+        });
       b += y.length;
     }
     a += x.length;

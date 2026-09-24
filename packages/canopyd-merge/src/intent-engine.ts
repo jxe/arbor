@@ -40,7 +40,13 @@ import {
 import {
   pieceEdits,
   applyPieceEdits,
+  intersect,
+  normalizePieces as normalize,
   overlap,
+  pieceLength as length,
+  pieceSlice as slice,
+  replacePieces,
+  subtractPieces,
   type PieceEdit,
 } from "./pieces.ts";
 
@@ -80,63 +86,7 @@ const components = (path: string): string[] => {
     return fail("Invalid material path");
   return path === "/" ? [] : path.slice(1).split("/");
 };
-const length = (pieces: Piece[]) => pieces.reduce((n, p) => n + p.length, 0);
-function slice(pieces: Piece[], start: number, end: number): Piece[] {
-  const output: Piece[] = [];
-  let offset = 0;
-  for (const piece of pieces) {
-    const from = Math.max(start - offset, 0),
-      to = Math.min(end - offset, piece.length);
-    if (to > from)
-      output.push({
-        ...piece,
-        start: piece.start + from,
-        offset: piece.offset + from,
-        length: to - from,
-      });
-    offset += piece.length;
-  }
-  return output;
-}
-/** `pieces` without the origin coordinates any of `without` covers. */
-function subtractPieces(pieces: Piece[], without: Piece[]): Piece[] {
-  if (!without.length) return pieces;
-  return pieces.flatMap((piece) => {
-    let parts = [piece];
-    for (const cut of without) {
-      if (cut.origin !== piece.origin) continue;
-      parts = parts.flatMap((part) => {
-        const start = Math.max(part.start, cut.start),
-          end = Math.min(part.start + part.length, cut.start + cut.length);
-        if (end <= start) return [part];
-        const keep = (from: number, to: number) => ({
-          ...part, start: from, offset: part.offset + (from - part.start), length: to - from,
-        });
-        return [keep(part.start, start), keep(end, part.start + part.length)].filter((p) => p.length > 0);
-      });
-    }
-    return parts;
-  });
-}
-function normalize(pieces: Piece[]): Piece[] {
-  const out: Piece[] = [];
-  for (const p of pieces) {
-    if (!p.length) continue;
-    const prior = out.at(-1);
-    if (
-      prior &&
-      prior.origin === p.origin &&
-      prior.start + prior.length === p.start &&
-      prior.object === p.object &&
-      prior.offset + prior.length === p.offset
-    )
-      prior.length += p.length;
-    else out.push({ ...p });
-  }
-  return out;
-}
 
-/** An evaluation-local material graph. State is immutable object data, not a database. */
 /** Per-validation material proof, inherited only from a fully validated state.
  * No bytes or global hash cache: compare file nodes against the preceding state. */
 export type ValidatedMaterial = Map<string, {node: Node; object: string}>;
@@ -148,6 +98,7 @@ type StateValidation = {
   summary?: {bytes: (count: number) => void; references: (refs: ReadonlySet<string>) => void; history?: (proofs: readonly MapProof[]) => void};
   material?: {previous?: ValidatedMaterial; next: ValidatedMaterial};
 };
+/** An evaluation-local material graph. State is immutable object data, not a database. */
 class Engine {
   private validation?: StateValidation;
   private appliedDeletions?: Record<string, unknown>;
@@ -623,15 +574,13 @@ class Engine {
     let offset = 0,
       covered = 0;
     for (const p of current) {
-      for (const q of selected)
-        if (p.origin === q.origin) {
-          const start = Math.max(p.start, q.start),
-            end = Math.min(p.start + p.length, q.start + q.length);
-          if (end > start) {
-            positions.push([offset + start - p.start, offset + end - p.start]);
-            covered += end - start;
-          }
+      for (const q of selected) {
+        const shared = intersect(p, q);
+        if (shared) {
+          positions.push([offset + shared[0] - p.start, offset + shared[1] - p.start]);
+          covered += shared[1] - shared[0];
         }
+      }
       offset += p.length;
     }
     if (range[0] !== range[1]) {
@@ -704,16 +653,11 @@ class Engine {
     for (const p of current) {
       if (derives(p)) positions.push([offset, offset + p.length]);
       else
-        for (const q of selected)
-          if (q.origin === p.origin) {
-            const start = Math.max(q.start, p.start),
-              end = Math.min(q.start + q.length, p.start + p.length);
-            if (end > start)
-              positions.push([
-                offset + start - p.start,
-                offset + end - p.start,
-              ]);
-          }
+        for (const q of selected) {
+          const shared = intersect(q, p);
+          if (shared)
+            positions.push([offset + shared[0] - p.start, offset + shared[1] - p.start]);
+        }
       offset += p.length;
     }
     positions.sort((a, b) => a[0] - b[0]);
@@ -912,14 +856,7 @@ class Engine {
             n.active &&
             this.realm(state, n.id) === this.realm(state, source.node) &&
             n.kind === "file" &&
-            n.pieces?.some((p) =>
-              source.selected.some(
-                (q) =>
-                  p.origin === q.origin &&
-                  p.start < q.start + q.length &&
-                  q.start < p.start + p.length
-              )
-            )
+            n.pieces?.some((p) => source.selected.some((q) => intersect(p, q)))
         );
         if (matches.length === 1) node = matches[0];
         else if (matches.length > 1)
@@ -975,14 +912,7 @@ class Engine {
           )
             return fail("Invalid preservation lineage");
           if (
-            selected.selected.some((p) =>
-              preserved.some(
-                (q) =>
-                  p.origin === q.origin &&
-                  p.start < q.start + q.length &&
-                  q.start < p.start + p.length
-              )
-            )
+            selected.selected.some((p) => preserved.some((q) => intersect(p, q)))
           )
             return fail(
               "Preservation lineage duplicates material; use copySource"
@@ -999,11 +929,7 @@ class Engine {
         }
         if (operation.lineage?.length)
           pieces = [...mapped, ...slice(pieces, cursor, bytes.length)];
-        node.pieces = normalize([
-          ...slice(current, 0, range[0]),
-          ...pieces,
-          ...slice(current, range[1], length(current)),
-        ]);
+        node.pieces = replacePieces(current, range[0], range[1], pieces);
         result = {
           node: node.id,
           pieces: clone(pieces),
@@ -1036,20 +962,13 @@ class Engine {
         else {
           if (node.id === destination.id && at > range[0] && at < range[1])
             return fail("Move destination is inside source");
-          node.pieces = normalize([
-            ...slice(current, 0, range[0]),
-            ...slice(current, range[1], length(current)),
-          ]);
+          node.pieces = replacePieces(current, range[0], range[1]);
           if (node.id === destination.id) {
             if (at >= range[1]) at -= range[1] - range[0];
             targetPieces = node.pieces;
           }
         }
-        destination.pieces = normalize([
-          ...slice(targetPieces, 0, at),
-          ...pieces,
-          ...slice(targetPieces, at, length(targetPieces)),
-        ]);
+        destination.pieces = replacePieces(targetPieces, at, at, pieces);
         if (operation.kind === "moveSource") {
           for (const decision of state.decisions) {
             if (decision.placement?.node !== node.id) continue;
@@ -1266,8 +1185,8 @@ class Engine {
         edit.pieces.every((p) => state.effects[p.origin]?.preserves === true),
     }));
   }
-  /** Enforce the deletions of `effects` (by default all of the state's). */
-  /** `kept` names, per node, pieces a new choice selected: a deletion that
+  /** Enforce the deletions of `effects` (by default all of the state's).
+   * `kept` names, per node, pieces a new choice selected: a deletion that
    * choice retains as its other alternative must not cut into them. */
   enforceDeletions(state: IntentState, effects: Record<string, Effect> = state.effects, kept: ReadonlyMap<string, Piece[]> = new Map()) {
     for (const effect of Object.values(effects)) {
@@ -1282,27 +1201,7 @@ class Engine {
               this.realm(state, node.id) === this.realm(state, id)
             ) {
               const removed = subtractPieces(edit.removed, kept.get(node.id) ?? []);
-              const out: Piece[] = [];
-              for (const p of node.pieces) {
-                let parts = [p];
-                for (const q of removed)
-                  if (p.origin === q.origin) {
-                    parts = parts.flatMap((part) => {
-                      const start = Math.max(part.start, q.start),
-                        end = Math.min(
-                          part.start + part.length,
-                          q.start + q.length
-                        );
-                      if (end <= start) return [part];
-                      return [
-                        ...slice([part], 0, start - part.start),
-                        ...slice([part], end - part.start, part.length),
-                      ];
-                    });
-                  }
-                out.push(...parts);
-              }
-              node.pieces = normalize(out);
+              node.pieces = normalize(subtractPieces(node.pieces, removed));
             }
         }
       }
@@ -1339,7 +1238,7 @@ class Engine {
         for (const branch of parent.alternatives) {
           const context = await this.context(branch.state),
             retained = context.decisions.find((d) => d.key === decision.key);
-          // A dependency can be present only in another alterswift/context.
+          // A dependency can be present only in another alternative/context.
           if (!retained || retained.context) continue;
           const updated = clone(decision);
           delete updated.context;
@@ -1368,11 +1267,7 @@ class Engine {
             ]);
             oldPieces = retained.placement.pieces;
             newPieces = material.pieces;
-            target.pieces = normalize([
-              ...slice(target.pieces, 0, at[0]),
-              ...newPieces,
-              ...slice(target.pieces, at[1], length(target.pieces)),
-            ]);
+            target.pieces = replacePieces(target.pieces, at[0], at[1], newPieces);
             updated.placement = {
               node: target.id,
               pieces: clone(newPieces),
@@ -1469,11 +1364,7 @@ class Engine {
                 0,
                 length(oldPieces),
               ]);
-              fragment.pieces = normalize([
-                ...slice(fragment.pieces, 0, at[0]),
-                ...newPieces,
-                ...slice(fragment.pieces, at[1], length(fragment.pieces)),
-              ]);
+              fragment.pieces = replacePieces(fragment.pieces, at[0], at[1], newPieces);
               branch.object = await this.project(authored, fragment.id);
               if (
                 parent.alternatives[parent.selected] === branch &&
@@ -1757,11 +1648,7 @@ class Engine {
                 length(decision.placement.pieces),
               ])
             : [decision.placement.anchor, decision.placement.anchor];
-          target.pieces = normalize([
-            ...slice(target.pieces, 0, located[0]!),
-            ...(node.pieces ?? []),
-            ...slice(target.pieces, located[1]!, length(target.pieces)),
-          ]);
+          target.pieces = replacePieces(target.pieces, located[0]!, located[1]!, node.pieces ?? []);
           decision.placement.pieces = clone(node.pieces ?? []);
           decision.placement.anchor = located[0]!;
         }
@@ -1919,12 +1806,7 @@ class Engine {
                   effect.kind === "moveSource" &&
                   Object.values(effect.before).some((n) =>
                     n.pieces?.some((p) =>
-                      selected.selected.some(
-                        (q) =>
-                          p.origin === q.origin &&
-                          p.start < q.start + q.length &&
-                          q.start < p.start + p.length
-                      )
+                      selected.selected.some((q) => intersect(p, q))
                     )
                   )
                 )
