@@ -150,7 +150,8 @@ choice is about the root and names its roots. Importing reverses it.
 ### Snapshot merges
 
 An untraced snapshot (as filesystem sync sends) is merged as a tree against
-the head's root and then checkpointed onto the head's state. It encloses only
+the head's root (by [`@overstory/tree-merge`](../../../packages/tree-merge/README.md))
+and then checkpointed onto the head's state. It encloses only
 choices whose own material it touches: a
 choice about one file is untouched by edits elsewhere, and a snapshot of the
 displayed version continues that alternative, as a traced edit would. When a

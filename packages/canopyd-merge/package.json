@@ -7,10 +7,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@overstory/apps-runtime": "workspace:*",
     "@overstory/merge-protocol": "workspace:*",
     "@overstory/object-store": "workspace:*",
     "@overstory/protocol": "workspace:*",
+    "@overstory/tree-merge": "workspace:*",
     "saxes": "6.0.0",
     "tree-sitter-wasms": "0.1.13",
     "web-tree-sitter": "0.20.8",

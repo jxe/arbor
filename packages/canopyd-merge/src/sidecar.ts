@@ -16,7 +16,7 @@ import type { CheckpointRequest, IntentRequest } from "./engine-contract.ts";
 import { checkpointIntent, mergeIntent } from "./intent-engine.ts";
 import { IntentError, type Node } from "./intent-model.ts";
 import { logDecisions } from "./log-decisions.ts";
-import { mergeWireTrees } from "./merge.ts";
+import { mergeWireTrees } from "@overstory/tree-merge";
 import { lookup, type RetainedState } from "./retained-state.ts";
 import { snapshotDecisions } from "./snapshot.ts";
 import { absentClosure, changedEntryPaths, type TreeIO } from "./trees.ts";

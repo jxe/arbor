@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mergeWireTrees } from "@overstory/canopyd-merge";
+import { mergeWireTrees } from "@overstory/tree-merge";
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { decodeWireCollectionFile, SchemaSandbox } from "@overstory/apps-runtime/collections";
 import {

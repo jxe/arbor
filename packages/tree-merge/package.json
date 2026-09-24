@@ -1,0 +1,11 @@
+{
+  "name": "@overstory/tree-merge",
+  "version": "0.1.0",
+  "description": "The three-way snapshot tree merge and its Markdown and collection-file rules. Used by the merge sidecar and by Arbor Sync recovery; no engine, cache or process.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@overstory/apps-runtime": "workspace:*",
+    "@overstory/protocol": "workspace:*"
+  }
+}

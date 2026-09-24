@@ -14,6 +14,7 @@
     "@overstory/working-tree": "workspace:*",
     "@overstory/fs": "workspace:*",
     "@overstory/apps-runtime": "workspace:*",
+    "@overstory/tree-merge": "workspace:*",
     "zod": "4.3.6",
     "csv-parse": "6.1.0"
   }

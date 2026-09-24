@@ -32,7 +32,7 @@ Current load-bearing seams:
 - `packages/canopyd/src/canopy.ts` owns `private readonly wireSchemas = new SchemaSandbox()`;
   `validateGraph` calls `decodeWireCollectionFile`. This is acceptance work, not app execution.
 - `packages/canopyd/src/projection.ts`, `WireProjection.collectionFile`, creates a
-  sandbox for ordinary collection projection. `packages/canopyd-merge/src/merge-rules.ts`
+  sandbox for ordinary collection projection. `packages/tree-merge/src/merge-rules.ts`
   uses it during collection merges too.
 - `packages/arborsync/src/state/providers/{discovery,file-provider}.ts`,
   `state/projection-provider-host.ts` and `generated-types.ts` discover and interpret
@@ -206,7 +206,7 @@ insufficient. Apps 005 later removes remaining application execution imports.
 
 ```sh
 bun test tests/unit/collection-schema.test.ts tests/unit/collection-schema-types.test.ts tests/unit/collection-schema-boundary.test.ts
-bun test tests/integration/collections.test.ts tests/unit/protocol-objects.test.ts tests/unit/canopyd/update-merge.test.ts
+bun test tests/integration/collections.test.ts tests/unit/protocol-objects.test.ts tests/unit/tree-merge/update-merge.test.ts
 bun test tests/unit/canopyd-merge tests/integration/canopyd-merge
 swift test --package-path swift/Packages/CanopyWorkingTree
 ```

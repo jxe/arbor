@@ -8,7 +8,7 @@ import { encodeWireDirectory, hashObject, type TreeSnapshot } from "@overstory/p
 import { ProjectionProviderHost } from "@overstory/arborsync/state";
 import { resolveSnapshot, snapshotDirectory } from "@overstory/fs";
 import { MergeTool } from "../../../packages/canopyd/src/merge-tool.ts";
-import { mergeWireTrees } from "../../../packages/canopyd-merge/src/merge.ts";
+import { mergeWireTrees } from "@overstory/tree-merge";
 import { snapshotAccountConfig } from "@overstory/protocol";
 import fixtures from "../../fixtures/canopy/wire-merge.json";
 

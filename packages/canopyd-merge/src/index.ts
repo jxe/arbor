@@ -1,9 +1,8 @@
 import type { ObjectHash } from "@overstory/protocol";
 import type { ObjectStore } from "@overstory/object-store";
 export { checkpointIntent, mergeIntent } from "./intent-engine.ts";
-export type { CheckpointRequest, CheckpointResponse, MergeSummary } from "./engine-contract.ts";
+export type { CheckpointRequest, CheckpointResponse } from "./engine-contract.ts";
 export type { Frame, IntentRequest, IntentRequestInput, IntentResponse } from "./intent-model.ts";
-export { mergeWireTrees, type MergeResult } from "./merge.ts";
 import type { RetainedStates } from "./retained-state.ts";
 
 /** Immutable object IO for the engine: no accepted-state or database access.

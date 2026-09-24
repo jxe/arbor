@@ -18,9 +18,10 @@ has no database connection or credentials.
   its choices) onto a retained state; replay aligns with it.
 - `intent-engine.ts`, `intent-model.ts`: exact authored-operation execution
   over traces of frames, choices, and retained state.
-- `merge-rules.ts`, `format-rules.ts`, `markdown-format.ts`, `web-formats.ts`:
-  the format support rules (see the [format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)).
-- `merge.ts`: the snapshot tree merge.
+- `format-rules.ts`, `markdown-format.ts`, `web-formats.ts`: the format
+  support rules (see the [format support contract](../../docs/architecture/canopyd/merge-tool.md#format-support-contract)).
+  A snapshot's tree merge, with its Markdown and collection rules, is
+  [`@overstory/tree-merge`](../tree-merge/README.md).
 - `pieces.ts`, `retained-state.ts`: source pieces, and the engine's recorded
   states: frozen and interned values in persistent maps, identified by content.
 - `cli.ts`: the JSON-lines `serve` process.

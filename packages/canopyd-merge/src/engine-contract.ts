@@ -10,11 +10,6 @@ export const OBJECT_HASH = /^sha256:[a-f0-9]{64}$/;
 const hash = z.string().regex(OBJECT_HASH);
 const token = z.string().min(1).max(1024);
 
-/** Rule evidence a snapshot tree merge reports beside its result. */
-export type MergeSummary =
-  | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "collection-file-rows-v1"; mergedRows: number };
-
 // ---- Authored (intent) evaluation ---------------------------------------
 
 const stateRef = z.object({ object: hash, state: hash.optional() }).strict();

@@ -17,6 +17,7 @@
         "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
         "@overstory/protocol": "workspace:*",
+        "@overstory/tree-merge": "workspace:*",
         "@overstory/working-tree": "workspace:*",
       },
       "devDependencies": {
@@ -48,6 +49,7 @@
         "@overstory/client": "workspace:*",
         "@overstory/fs": "workspace:*",
         "@overstory/protocol": "workspace:*",
+        "@overstory/tree-merge": "workspace:*",
         "@overstory/working-tree": "workspace:*",
         "csv-parse": "6.1.0",
         "zod": "4.3.6",
@@ -95,10 +97,10 @@
       "name": "@overstory/canopyd-merge",
       "version": "0.1.0",
       "dependencies": {
-        "@overstory/apps-runtime": "workspace:*",
         "@overstory/merge-protocol": "workspace:*",
         "@overstory/object-store": "workspace:*",
         "@overstory/protocol": "workspace:*",
+        "@overstory/tree-merge": "workspace:*",
         "saxes": "6.0.0",
         "tree-sitter-wasms": "0.1.13",
         "web-tree-sitter": "0.20.8",
@@ -158,6 +160,14 @@
       "dependencies": {
         "@noble/hashes": "^2.2.0",
         "yaml": "2.8.2",
+      },
+    },
+    "packages/tree-merge": {
+      "name": "@overstory/tree-merge",
+      "version": "0.1.0",
+      "dependencies": {
+        "@overstory/apps-runtime": "workspace:*",
+        "@overstory/protocol": "workspace:*",
       },
     },
     "packages/working-tree": {
@@ -330,6 +340,8 @@
     "@overstory/object-store": ["@overstory/object-store@workspace:packages/object-store"],
 
     "@overstory/protocol": ["@overstory/protocol@workspace:packages/protocol"],
+
+    "@overstory/tree-merge": ["@overstory/tree-merge@workspace:packages/tree-merge"],
 
     "@overstory/working-tree": ["@overstory/working-tree@workspace:packages/working-tree"],
 

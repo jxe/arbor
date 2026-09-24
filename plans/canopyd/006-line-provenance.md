@@ -378,7 +378,7 @@ ACLs, with only the schema stamp and actor columns changed.
 **Verify:**
 
 ```sh
-bun test tests/unit/canopyd/line-provenance.test.ts tests/unit/canopyd/update-merge.test.ts
+bun test tests/unit/canopyd/line-provenance.test.ts tests/unit/tree-merge/update-merge.test.ts
 bun run test:performance
 ```
 

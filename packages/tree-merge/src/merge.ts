@@ -1,4 +1,3 @@
-import type { MergeSummary } from "./engine-contract.ts";
 import {
   decodeWireDirectory,
   encodeWireDirectory,
@@ -10,6 +9,11 @@ import {
 } from "@overstory/protocol";
 import { collectionFileRowsV1, frontmatter, markdownAdditiveV1, type CollectionFileMergeInput, type RuleContext } from "./merge-rules.ts";
 import { ModelHashes } from "./model-hash.ts";
+
+/** Rule evidence a snapshot tree merge reports beside its result. */
+export type MergeSummary =
+  | { version: "markdown-additive-v1"; approximatePlacements: number }
+  | { version: "collection-file-rows-v1"; mergedRows: number };
 
 export interface MergeResult {
   root: ObjectHash;
