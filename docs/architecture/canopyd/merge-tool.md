@@ -88,12 +88,14 @@ Bun uses native SHA-256 with the same object identities as the portable fallback
 
 ## Incremental retained state
 
-Indexed state maps retain large history records through shared value pages.
-Before/after piece sequences share unchanged pages across effects instead of
-embedding a complete copy in every record. Readers retain compatibility with
-inline history records and legacy state roots. These are internal object formats,
-not changes to public update requests; old deployed binaries cannot read the new
-formats after they have been written.
+Every stored state is indexed (`arbor-merge-intent-state-v3`): an active part
+beside five hash-partitioned history maps. Migration 013 rewrote the earlier
+full-copy states, and readers no longer accept them. A history record of at
+most 2048 canonical JSON characters is stored inline (`arbor-state-record-v1`);
+a larger one is chunked into shared value pages (`arbor-state-record-v2`), so
+before/after piece sequences share unchanged pages across effects instead of
+embedding a complete copy in every record. Both record forms are current.
+These are internal object formats, not changes to public update requests.
 
 canopyd validates new history records and carries their typed dependencies with
 that validation. Per-evaluation proofs survive until acceptance even when they
@@ -115,8 +117,8 @@ uses the existing 256 MiB history budget; active state and material proofs use
 the existing 64 MiB state budget. A lease that cannot fit is declined. Neither
 budget was enlarged.
 
-Retention always traverses indexed history as typed map nodes, including when a
-semantic state proof is available. Durable subtrees are reusable by both hash
+Retention always traverses indexed history as typed map nodes; a semantic
+state proof never stands in for that walk. Durable subtrees are reusable by both hash
 and history-field type. A staged sibling does not prevent an independent durable
 branch from being certified. Pending publication obligations propagate to their
 parents; repeated proposal checks cannot promote unpublished dependencies.

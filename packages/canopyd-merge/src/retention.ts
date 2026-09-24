@@ -1,8 +1,7 @@
-import { StateMapValidationCache } from "./state-map.ts";
-import { historyFields, indexedStateParts, loadIntentState } from "./state-storage.ts";
+import { historyFields, indexedStateParts, loadActiveIntentState } from "./state-storage.ts";
 import { stateMapNodeEdges, stateMapRecord } from "./state-map.ts";
 import { decodeWireDirectory, hashObject } from "@overstory/protocol";
-import { intentHistoryReferences, intentReferences, parseIntentHistoryRecord, type IntentState } from "./intent-model.ts";
+import { intentHistoryReferences, intentReferences, parseIntentHistoryRecord } from "./intent-model.ts";
 
 type HistoryField = (typeof historyFields)[number];
 /** A history map node is typed by its field: the field decides how its records
@@ -102,7 +101,6 @@ export async function verifyIntentRetention(
   options?: {
     cache: RetentionCache;
     durable: (hash: string) => boolean;
-    historyCache?: StateMapValidationCache;
     /** Audit a union without constructing a separate closure for every root. */
     union?: boolean;
     /** Host acceptance needs a verified frontier, not an enumerated full closure.
@@ -116,15 +114,6 @@ export async function verifyIntentRetention(
      * when they are durable; a requested root is never trusted. A full audit
      * passes none. */
     trusted?: (ref: Reference) => boolean;
-    /** Already hash-checked and semantically validated, with every object read
-     * to reconstruct it. Availability is still checked by this graph walk. */
-    state?: (hash: string) =>
-      | {
-          value: IntentState;
-          dependencies: Iterable<string>;
-          references?: ReadonlySet<string>;
-        }
-      | undefined;
   },
 ): Promise<Set<string>> {
   const bytesByHash = new Map<string, Uint8Array>();
@@ -240,6 +229,13 @@ export async function verifyIntentRetention(
         continue;
       }
       const edges = new Map<string, Reference>();
+      const cachedRead = async (hash: string) => {
+        const known = bytesByHash.get(hash);
+        if (known) return known;
+        const bytes = await load(hash);
+        bytesByHash.set(hash, bytes);
+        return bytes;
+      };
       const add = (hash: string, kind: Kind = "object") =>
         edges.set(kind + ":" + hash, { hash, kind });
       if (ref.kind === "directory") {
@@ -254,15 +250,8 @@ export async function verifyIntentRetention(
         add(recorded.incoming.object, "directory");
       } else if (ref.kind.startsWith("map-")) {
         const field = ref.kind.slice(4) as HistoryField;
-        const cachedRead = async (hash: string) => {
-          const known = bytesByHash.get(hash);
-          if (known) return known;
-          const bytes = await load(hash);
-          if (hashObject(bytes) !== hash)
-            throw new Error("Invalid retained object hash");
-          bytesByHash.set(hash, bytes);
-          return bytes;
-        };
+        // The map and value readers hash-check every object they parse, so
+        // bytes are cached here unchecked; a mismatch rejects the whole walk.
         const { children, records } = await stateMapNodeEdges(ref.hash, cachedRead);
         for (const child of children) add(child, ref.kind);
         for (const record of records) {
@@ -273,51 +262,17 @@ export async function verifyIntentRetention(
             add(reference.slice(colon + 1), reference.slice(0, colon) as Kind);
           }
         }
-      } else if (ref.kind === "state" && indexedStateParts(bytes)) {
-        // Every indexed state: its active material whole, its history
-        // as typed map nodes, so shared history is walked once per node.
-        const parts = indexedStateParts(bytes)!;
-        const active = await loadIntentState(parts.active, async (hash) => {
-          const cached = bytesByHash.get(hash);
-          if (cached) return cached;
-          const bytes = await load(hash);
-          if (hashObject(bytes) !== hash)
-            throw new Error("Invalid retained object hash");
-          bytesByHash.set(hash, bytes);
-          return bytes;
-        }, (hash) => add(hash));
+      } else if (ref.kind === "state") {
+        // An indexed state: its active material whole, its history as typed
+        // map nodes, so shared history is walked once per node.
+        const parts = indexedStateParts(bytes);
+        if (!parts) throw new Error("Retained state is not an indexed state");
+        const active = await loadActiveIntentState(parts.active, cachedRead, (hash) => add(hash));
         for (const reference of intentReferences(active)) {
           const colon = reference.indexOf(":");
           add(reference.slice(colon + 1), reference.slice(0, colon) as Kind);
         }
         for (const field of historyFields) add(parts.maps[field], `map-${field}`);
-      } else if (ref.kind === "state") {
-        const proof = options?.state?.(ref.hash);
-        const value =
-          proof?.value ??
-          (await loadIntentState(
-            ref.hash,
-            async (hash) => {
-              const cached = bytesByHash.get(hash);
-              if (cached) return cached;
-              const bytes = await load(hash);
-              if (hashObject(bytes) !== hash)
-                throw new Error("Invalid retained object hash");
-              bytesByHash.set(hash, bytes);
-              return bytes;
-            },
-            (hash) => {
-              if (hash !== ref.hash) add(hash);
-            },
-            options?.historyCache,
-          ));
-        if (proof)
-          for (const hash of proof.dependencies)
-            if (hash !== ref.hash) add(hash);
-        for (const ref of proof?.references ?? intentReferences(value)) {
-          const colon = ref.indexOf(":");
-          add(ref.slice(colon + 1), ref.slice(0, colon) as Kind);
-        }
       }
       const dependencies = [...edges.values()];
       options?.cache.set(ref, dependencies, durable);
@@ -358,12 +313,12 @@ export async function verifyIntentRetention(
 
 
 /** A new audit owns fresh validation facts; nothing survives into a later
- * audit. Legacy explicit closures still require per-root equality checks;
- * compact root records can be checked together in one typed graph traversal. */
+ * audit. Per-root closures serve migration 013, which compares them with the
+ * explicit closures of its oldest rows; compact root records can be checked
+ * together in one typed graph traversal. */
 export function retentionAudit(load: (hash: string) => Promise<Uint8Array>) {
   const cache = new RetentionCache(1_000_000, 1_000_000, true);
-  const historyCache = new StateMapValidationCache();
   return (roots: string[], union = false) => verifyIntentRetention(roots, load, {
-    cache, historyCache, durable: () => true, union,
+    cache, durable: () => true, union,
   });
 }

@@ -23,6 +23,8 @@ import { changeIdentity, parseIntentRequest } from "../../canopyd-merge/src/inte
 import { CheckpointBatchLimitError, type MergeResult } from "@overstory/canopyd-merge";
 import { PersistentMergeWorker } from "./merge-worker.ts";
 import { absentFrom, holdsObject } from "../../canopyd-merge/src/worker-objects.ts";
+import { jsonHash } from "../../canopyd-merge/src/state-value.ts";
+import type { MergeObjects } from "../../canopyd-merge/src/index.ts";
 import { StateMapValidationCache, type MapProof } from "../../canopyd-merge/src/state-map.ts";
 
 type EvaluatedResponse =
@@ -55,7 +57,7 @@ export interface MergeToolOptions {
   contentChoices?: "source" | "file";
 }
 
-type StateProof = {hash: string; object: string; state: IntentState; bytes: number; dependencies: Set<string>; material: ValidatedMaterial; references: ReadonlySet<string>; history: readonly MapProof[]};
+type StateProof = {hash: string; object: string; state: IntentState; bytes: number; material: ValidatedMaterial; history: readonly MapProof[]};
 
 /** The merge worker evaluated the request and failed: a budget, an invalid
  * state or an unsupported input. Its message is the worker's own. */
@@ -116,16 +118,32 @@ export class MergeTool {
   validatedState(tree: string, ref: {object: string; state: string}): IntentState | undefined {
     return this.validationProof(tree, ref)?.state;
   }
-  verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, proofs: ReadonlyMap<string, StateProof> = this.validatedStates, trusted: ReadonlySet<string> = new Set()) {
+  verifyRetention(roots: string[], available: ReadonlyMap<string, Uint8Array>, trusted: ReadonlySet<string> = new Set()) {
     return verifyIntentRetention(roots, (hash) => this.shared.load(hash, available), {
       cache: this.retentionCache, durable: (hash) => !available.has(hash),
       staged: available, frontierOnly: true, onCount: this.options.onCount,
       trusted: (ref) => ref.kind === "change" || trusted.has(ref.hash),
-      state: (hash) => {
-        for (const proof of proofs.values())
-          if (proof.hash === hash) return {value: proof.state, dependencies: proof.dependencies, references: proof.references};
-      },
     });
+  }
+  /** Validate one state. Retention walks the stored graph itself, so only the
+   * active state, its material and its shared history proofs are kept. */
+  private async proveState(
+    tree: string,
+    ref: {object: string; state: string},
+    objects: MergeObjects,
+    previous?: ValidatedMaterial,
+  ): Promise<StateProof> {
+    const { validateIntentState } = await import("../../canopyd-merge/src/intent-engine.ts");
+    let stateBytes = 0;
+    let history: readonly MapProof[] = [];
+    const material: ValidatedMaterial = new Map();
+    const state = await validateIntentState(ref, tree, objects, {
+      historyCache: this.historyValidation, retained: () => {},
+      material: {previous, next: material},
+      summary: {bytes: count => {stateBytes = count;}, references: () => {}, history: proofs => {history = proofs;}},
+      maxMillis: this.validationMillis,
+    });
+    return {hash: ref.state, object: ref.object, state, bytes: stateBytes * 2 + material.size * 256, material, history};
   }
   /** Remove job and worker directories left by an earlier process. Each job
    * removes its own directory when it settles, so anything present at startup
@@ -146,20 +164,12 @@ export class MergeTool {
     const started = performance.now();
     const before = this.shared.readCounters.reads;
     const key = JSON.stringify([tree, ref.object, ref.state]);
-    if (!this.validatedStates.has(key)) {
-      const { validateIntentState } = await import("../../canopyd-merge/src/intent-engine.ts");
-      const dependencies = new Set<string>();
-      let stateBytes = 0, references: ReadonlySet<string> = new Set();
-      let history: readonly MapProof[] = [];
-      const material: ValidatedMaterial = new Map();
-      const state = await validateIntentState(ref, tree, {
+    if (!this.validatedStates.has(key))
+      this.rememberProof(key, await this.proveState(tree, ref, {
         read: (hash) => this.shared.read(hash),
         store: async () => {},
-      }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}, history: proofs => {history = proofs;}}, maxMillis: this.validationMillis});
-      const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
-      this.rememberProof(key, {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references, history});
-    }
-    await this.verifyRetention([ref.state], new Map(), this.validatedStates, new Set());
+      }));
+    await this.verifyRetention([ref.state], new Map());
     return { reads: this.shared.readCounters.reads - before, milliseconds: performance.now() - started };
   }
   private readonly shared: ObjectStore;
@@ -315,9 +325,6 @@ export class MergeTool {
         "state" in response.result &&
         typeof response.result.state === "string"
       ) {
-        const { validateIntentState } = await import(
-          "../../canopyd-merge/src/intent-engine.ts"
-        );
         const tree = "tree" in request ? request.tree : undefined;
         if (!tree) throw new Error("Semantic result without tree scope");
         const reads = new Map<string, Uint8Array>();
@@ -340,22 +347,13 @@ export class MergeTool {
           const known = jobProofs.get(key);
           if (known) { this.proofStats.hits++; return known.state; }
           this.proofStats.validated++;
-          const dependencies = new Set<string>();
-          let stateBytes = 0, references: ReadonlySet<string> = new Set();
-          let history: readonly MapProof[] = [];
           const priorRef = "current" in request ? request.current : undefined;
           const prior = priorRef && "state" in priorRef
             ? jobProofs.get(JSON.stringify([tree, priorRef.object, priorRef.state])) : undefined;
-          const material: ValidatedMaterial = new Map();
-          const state = await validateIntentState(ref, tree, {
-            read: access.read,
-            store: access.store,
-          }, {historyCache: this.historyValidation, retained: hash => dependencies.add(hash), material: {previous: prior?.material, next: material}, summary: {bytes: count => {stateBytes = count;}, references: refs => {references = refs;}, history: proofs => {history = proofs;}}, maxMillis: this.validationMillis});
-          const bytes = stateBytes * 2 + (dependencies.size + references.size) * 160 + material.size * 256;
-          const proof = {hash: ref.state, object: ref.object, state, bytes, dependencies, material, references, history};
+          const proof = await this.proveState(tree, ref, access, prior?.material);
           jobProofs.set(key, proof);
           this.rememberProof(key, proof);
-          return state;
+          return proof.state;
         };
         const retained = await validate({ object: response.result.object, state: response.result.state });
         const roots = [response.result.state];
@@ -384,9 +382,7 @@ export class MergeTool {
             stableJSONString(response.decisions)
           )
             throw new Error("Decision response differs from retained state");
-          const signature = hashObject(
-            new TextEncoder().encode(stableJSONString(changeIdentity(intent)))
-          );
+          const signature = jsonHash(changeIdentity(intent));
           if (
             authored.changes[intent.incoming.change] !== signature ||
             retained.changes[intent.incoming.change] !== signature
@@ -423,7 +419,7 @@ export class MergeTool {
             count("proof-bytes-last", Math.round((jobProofs.get(JSON.stringify([tree, response.result.object, response.result.state]))?.bytes ?? 0) / 1048576));
           }
         } catch { /* diagnostics only */ }
-        await this.verifyRetention(roots, available, jobProofs, trusted);
+        await this.verifyRetention(roots, available, trusted);
         mark("retention");
       }
       healthy = true;

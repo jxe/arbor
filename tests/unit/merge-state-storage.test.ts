@@ -51,19 +51,24 @@ function store() {
     },
   };
 }
-test("legacy and structurally shared states reconstruct the same exact state", async () => {
+test("indexed states reconstruct the exact state; full-copy and bare shared roots are refused", async () => {
   const f = store(),
     original = state(1000);
   const legacy = f.put(bytes(JSON.stringify(original))),
     shared = storeIntentState(original, f.put);
+  // Pinned: the shared-value encoding and the indexed root never change.
   const v2 = storeSharedIntentState(original, f.put);
   expect(v2).toBe(
     "sha256:abf2e3e5e1337bc169c7a71de9ac309783012bed053146e06aad4267a981061d",
   );
-  expect(await loadIntentState(v2, f.load)).toEqual(original);
-  expect(await loadIntentState(legacy, f.load)).toEqual(original);
+  expect(shared).toBe(
+    "sha256:d7039f55610cd20e7eccc3b129a44ce3856655eecc36ae1299354b7d5fd44767",
+  );
   expect(await loadIntentState(shared, f.load)).toEqual(original);
   expect(storeIntentState(original, f.put)).toBe(shared);
+  // Migration 013 rewrote every stored state to the indexed format.
+  await expect(loadIntentState(legacy, f.load)).rejects.toThrow("Invalid indexed state root");
+  await expect(loadIntentState(v2, f.load)).rejects.toThrow("Invalid indexed state root");
 });
 test("one new history entry rewrites a bounded radix path rather than its history", async () => {
   for (const count of [100, 1000, 10000]) {
