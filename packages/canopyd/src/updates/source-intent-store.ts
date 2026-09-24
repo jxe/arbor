@@ -9,7 +9,7 @@ export interface SourceIntent {
   trace: SourceTraceFrame[];
   evidence: SourceEditEvidence[];
 }
-export interface StoredSourceIntent extends SourceIntent {
+interface StoredSourceIntent extends SourceIntent {
   tree: string;
   acceptedUpdate: string;
   basisRoot: string;

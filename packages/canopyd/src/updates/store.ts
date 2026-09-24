@@ -43,7 +43,7 @@ export interface AcceptedUpdateInput {
   entryChanges: EntryChanges;
 }
 
-export interface AcceptedCommitInput extends AcceptedUpdateInput {
+interface AcceptedCommitInput extends AcceptedUpdateInput {
   expectedRoot: ObjectHash;
   expectedUpdate: string;
 }

@@ -22,8 +22,6 @@ export async function reconcileEntryAmbiguity(input: {
   base: ObjectHash; current: ObjectHash; currentID: string; request: CandidateUpdate;
   baseState: ConflictState | null; currentState: ConflictState | null;
   origins?: Map<string, EntryAlternative["contributions"]>;
-  contributions?: Map<string, EntryAlternative["contributions"]>;
-  explicitPaths?: Set<string>;
   /** Preserve successful format-rule results outside the reported overlaps. */
   merged?: { root: ObjectHash; conflicts: string[]; directories?: string[] };
 }, load: (hash: ObjectHash) => Promise<Uint8Array>) {
@@ -37,14 +35,16 @@ export async function reconcileEntryAmbiguity(input: {
     guards.add(decision.id); state.resolutions.push(resolution);
   }
   const generated = new Map<ObjectHash, Uint8Array>();
+  // A snapshot update contributes its change; a traced update adds no entry attribution here.
+  const authoredContributions = (): EntryAlternative["contributions"] =>
+    request.trace === null ? [{ change: request.change, operation: null }] : [];
   const related = (a: string, b: string) => a === "/" || b === "/" || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
-  const contributionsAt = (map: typeof input.origins, path: string) => {
+  const originsFor = (path: string) => {
     const result = new Map<string, EntryAlternative["contributions"][number]>();
-    for (const [at, values] of map ?? []) if (related(at, path)) for (const value of values) result.set(JSON.stringify(value), value);
+    for (const [at, values] of input.origins ?? []) if (related(at, path)) for (const value of values) result.set(JSON.stringify(value), value);
     return [...result.values()];
   };
   const originsAt = (path: string) => [...(input.origins?.keys() ?? [])].some(at => related(at, path));
-  const explicitAt = (path: string) => [...(input.explicitPaths ?? [])].some(at => related(at, path));
   const metadata = ({ entries: _entries, ...rest }: ReturnType<typeof decodeWireDirectory>) => JSON.stringify(rest);
   async function sameMetadata(...hashes: string[]) {
     const values = await Promise.all(hashes.map(async hash => metadata(decodeWireDirectory(await load(hash)))));
@@ -65,8 +65,8 @@ export async function reconcileEntryAmbiguity(input: {
       const prior = input.baseState?.decisions.find(d => decisionPath(d) === path);
       let decision = state.decisions.find(d => decisionPath(d) === path);
       const descendants = state.decisions.filter(d => decisionPath(d).startsWith(`${path}/`));
-      const changed = !same(before, authored) || explicitAt(path);
-      const contributions = request.trace === null ? [{ change: request.change, operation: null }] : contributionsAt(input.contributions, path);
+      const changed = !same(before, authored);
+      const contributions = authoredContributions();
       const selected = decision?.alternatives.find(a => a.id === decision!.selected);
       if (decision && (!selected || !same(selected.value, remote))) throw new Error("Stored conflict projection does not match accepted entry");
       const basisAlternative = prior?.alternatives.find(a => a.id === prior.selected);
@@ -124,9 +124,9 @@ export async function reconcileEntryAmbiguity(input: {
         value = entryValue(merged.entries.find(e => e.name === name));
       } else if (changed) {
         if (same(remote, before) && !prior && !originsAt(path) && !descendants.length) value = authored;
-        else if (same(remote, authored) && !prior && !explicitAt(path)) value = remote;
+        else if (same(remote, authored) && !prior) value = remote;
         else {
-          const accepted = alternative(remote, contributionsAt(input.origins, path));
+          const accepted = alternative(remote, originsFor(path));
           decision = { id: crypto.randomUUID(), name, ...(parent.length ? { parent } : {}), selected: accepted.id,
             alternatives: [accepted, alternative(authored, contributions)] };
           state.decisions.push(decision);
@@ -148,8 +148,8 @@ export async function reconcileEntryAmbiguity(input: {
   const coupledRoot = input.merged?.directories?.includes("/");
   if (rootDecision || !compatibleMetadata || coupledRoot) {
     const before = { directory: input.base }, remote = { directory: input.current }, authored = { directory: request.candidate };
-    const changed = !same(before, authored) || !!input.explicitPaths?.size;
-    const contributions = request.trace === null ? [{ change: request.change, operation: null }] : contributionsAt(input.contributions, "/");
+    const changed = !same(before, authored);
+    const contributions = authoredContributions();
     const selected = rootDecision?.alternatives.find(a => a.id === rootDecision.selected);
     if (rootDecision && (!selected || !same(selected.value, remote))) throw new Error("Stored root conflict projection does not match accepted root");
     const basis = rootPrior?.alternatives.find(a => a.id === rootPrior.selected);
@@ -184,7 +184,7 @@ export async function reconcileEntryAmbiguity(input: {
       if (!("directory" in value)) throw new Error("Invalid root alternative");
       root = value.directory;
     } else {
-      const accepted = alternative(remote, contributionsAt(input.origins, "/"));
+      const accepted = alternative(remote, originsFor("/"));
       state.decisions.push({ root: true, id: crypto.randomUUID(), selected: accepted.id,
         alternatives: [accepted, alternative(authored, contributions)] });
       root = input.current;

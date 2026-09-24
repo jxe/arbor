@@ -1576,7 +1576,6 @@ export class CanopyDaemon implements AsyncDisposable {
       let origins:
         | Map<string, Array<{ change: string; operation: string | null }>>
         | undefined;
-      const contributions = new Map<string, Array<{ change: string; operation: string | null }>>();
       // A batch suffix is based on the preceding submitted candidate, not its
       // accepted projection. The validated/replayed prefix proves that relationship.
       // Retain differences introduced by acceptance as concurrent input; never
@@ -1662,7 +1661,6 @@ export class CanopyDaemon implements AsyncDisposable {
             baseState: baseConflicts,
             currentState: currentConflicts,
             origins,
-            contributions,
             merged:
               !authoredProjectionDiffers && reconciled.outcome === "merged"
                 ? {
